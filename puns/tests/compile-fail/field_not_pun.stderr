@@ -5,7 +5,7 @@ error[E0277]: `String` is not a `Pun` type: `puns` does not know its layout and 
   |         ^^^^^^ not a `Pun` type
   |
   = help: the trait `Scalar` is not implemented for `String`
-  = note: a struct, an enum or a union is one with `#[derive(Pun)]`, a self-relative pointer with `SelfRelative` and `self_relative!`
+  = note: a struct, an enum or a union is one with `#[derive(Pun)]`, a scalar with `Scalar`
   = help: the following other types implement trait `Scalar`:
             ()
             NonZero<i128>
@@ -31,7 +31,7 @@ error[E0277]: `String` is not a `Pun` type: `puns` does not know its layout and 
   |         ^^^^^^ not a `Pun` type
   |
   = help: the trait `Scalar` is not implemented for `String`
-  = note: a struct, an enum or a union is one with `#[derive(Pun)]`, a self-relative pointer with `SelfRelative` and `self_relative!`
+  = note: a struct, an enum or a union is one with `#[derive(Pun)]`, a scalar with `Scalar`
   = help: the following other types implement trait `Scalar`:
             ()
             NonZero<i128>

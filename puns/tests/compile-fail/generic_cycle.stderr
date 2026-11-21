@@ -1,30 +1,21 @@
-error[E0275]: overflow evaluating the requirement `Ping<i32le>: Pun`
-  --> tests/compile-fail/generic_cycle.rs:23:3
+error[E0275]: overflow evaluating the requirement `Ping<u32>: Pun`
+  --> tests/compile-fail/generic_cycle.rs:26:11
    |
-23 |   puns::view_ref(ping)
-   |   ^^^^^^^^^^^^^^^^^^^^
+26 |   let _ = puns::as_bytes(&ping);
+   |           ^^^^^^^^^^^^^^^^^^^^^
    |
-  ::: tests/compile-fail/../support/relative.rs
+note: required for `never::Ref<Ping<u32>>` to implement `Scalar`
+  --> tests/compile-fail/../support/never.rs
    |
-   | macro_rules! pointer {
-   |
-note: required for `Opt<Ping<i32le>>` to implement `Pun`
-  --> tests/compile-fail/../support/relative.rs
-   |
-   |       puns::self_relative!(impl[$($param: Pun,)? O: Offset] $name<$($param,)? O>);
-   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |                                           |
-   |                                           unsatisfied trait bound introduced here
-...
-   | / pointer! {
-   | |   /// A pointer to one `T` that may be null. Its offset is zero when it is null.
-   | |   Opt[T] T, Pointer::one::<T>(SCHEME, size_of::<O>(), O::ENDIAN).or_null()
-   | | }
-   | |_- in this macro invocation
-   = note: 3 redundant requirements hidden
-   = note: required for `Ping<i32le>` to implement `Pun`
-note: required by a bound in `view_ref`
+   | unsafe impl<T: Pun> Scalar for Ref<T> {
+   |                ---  ^^^^^^     ^^^^^^
+   |                |
+   |                unsatisfied trait bound introduced here
+   = note: required for `never::Ref<Ping<u32>>` to implement `Pun`
+   = note: 4 redundant requirements hidden
+   = note: required for `Ping<u32>` to implement `Pun`
+note: required by a bound in `puns::as_bytes`
   --> src/lib.rs
    |
-   | pub fn view_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
-   |                             ^^^ required by this bound in `view_ref`
+   | pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
+   |                                   ^^^ required by this bound in `as_bytes`

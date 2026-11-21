@@ -73,6 +73,17 @@ use crate::{
 pub trait Checks {
   /// The constrained scalars and rules to check, by index of leaf in the target.
   const MARKS: Marks;
+  /// Whether a scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) is accepted,
+  /// as the initialized bytes that it is known to be, instead of refused.
+  const NEVER: bool = false;
+}
+
+/// The [`Checks`] that check every part, but accept a scalar that a pun never makes.
+pub struct AllButNever;
+
+impl Checks for AllButNever {
+  const MARKS: Marks = Marks::ALL;
+  const NEVER: bool = true;
 }
 
 /// The [`Checks`] that check every part.
@@ -93,8 +104,9 @@ impl Checks for All {
 /// The caller must ensure that:
 ///
 /// - `ptr` is valid for reads of a `T`. It need not be aligned.
-/// - Every byte that a check marked by `C` reads is initialized. A marked scalar or self-relative
-///   pointer reads its own bytes, and a marked pattern its tail. An enum or a union with a marked
+/// - Every byte that a check marked by `C` reads is initialized. A marked scalar reads its own
+///   bytes, unless it is one that a pun never makes and `C::NEVER` accepts it unread, and a marked
+///   pattern reads its tail. An enum or a union with a marked
 ///   leaf reads its tag and what the checks of its variants read, which check every part. A struct
 ///   whose rules are marked reads the fields that its rules load and, if one of its rules reads
 ///   bytes by offset ([`Layout::rules_read_bytes`]), all of its bytes, padding included.
@@ -109,7 +121,8 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
   // return above. `T::LAYOUT` is the layout of `T`, and `T::Elem`, `T::Fields` and `T::Variants`
   // are its lists (`Pun`, section Safety). For each shape:
   // - A scalar is `T` itself, of `spec.size` bytes, and is marked. So its bytes are initialized,
-  //   as `Spec::matches` requires.
+  //   as `Spec::matches` requires. A scalar that a pun never makes is not read when `C::NEVER`
+  //   accepts it.
   // - An array or a slice is `len` or `ptr::metadata(ptr)` elements of type `T::Elem`, one after
   //   the other, each valid for reads. Its elements share their leaves, so what is marked in one
   //   is marked in each, as `validate_elems` requires.
@@ -122,11 +135,9 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
   //   are initialized, by contract on the caller. These are the requirements of `validate_enum`,
   //   with `layout` the layout of `T`, and of `validate_union`, with `T::Variants` the list of
   //   its variants.
-  // - A pointer is marked, so its bytes are initialized. `load` requires its width to be at most
-  //   16, which `Pointer::new` asserts.
   unsafe {
     match const { T::LAYOUT.shape() } {
-      Shape::Scalar(spec) => spec.matches(ptr.cast()),
+      Shape::Scalar(spec) => (const { C::NEVER } && spec.is_never()) || spec.matches(ptr.cast()),
       Shape::Array(len) => validate_elems::<C, P, T::Elem>(ptr.cast(), len),
       Shape::Slice => validate_elems::<C, P, T::Elem>(ptr.cast(), ptr::metadata(ptr)),
       Shape::Struct => {
@@ -139,13 +150,8 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
         Dfa::matches_utf8(ptr.cast(), ptr::metadata(ptr))
       }
       Shape::Pattern(dfa) => dfa.matches(ptr.cast(), ptr::metadata(ptr)),
-      Shape::Enum(layout) if layout.union => validate_union::<T, T::Variants>(ptr),
-      Shape::Enum(layout) => validate_enum::<T>(ptr, layout),
-      // The analysis made sure that only a pointer proves a pointer, so what may be left to check
-      // is that a pointer that may be null is not, where the target has no null value.
-      Shape::Pointer(pointer) => {
-        pointer.nullable || load(ptr.cast(), pointer.width, pointer.endian) != 0
-      }
+      Shape::Enum(layout) if layout.union => validate_union::<C, T, T::Variants>(ptr),
+      Shape::Enum(layout) => validate_enum::<C, T>(ptr, layout),
     }
   }
 }
@@ -168,7 +174,7 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
 /// - The tag of the enum is initialized, and so is every byte that the checks of the fields of that
 ///   tag's variant read, which check every part.
 #[inline(always)]
-const unsafe fn validate_enum<T: ?Sized + Pun>(ptr: *const T, layout: &Enum) -> bool {
+const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout: &Enum) -> bool {
   let Kind::Scalar(spec) = layout.tag.layout.kind else { panic!() };
   // SAFETY: `Layout::enumeration` asserts that the tag is a scalar that `Spec::is_integer`
   // accepts, so of at most 16 bytes, at `layout.tag.offset` within the size of `T`. So `add`
@@ -178,7 +184,7 @@ const unsafe fn validate_enum<T: ?Sized + Pun>(ptr: *const T, layout: &Enum) -> 
   // variants of `T`.
   unsafe {
     let tag = load(ptr.cast::<u8>().add(layout.tag.offset), spec.size, spec.endian);
-    validate_variants::<T, T::Variants>(ptr, tag)
+    validate_variants::<C, T, T::Variants>(ptr, tag)
   }
 }
 
@@ -196,7 +202,10 @@ const unsafe fn validate_enum<T: ?Sized + Pun>(ptr: *const T, layout: &Enum) -> 
 /// - `V` is `T::Variants`, or a list that `Variants::Next` reaches from it.
 /// - If a variant has the tag `tag`, every byte that the checks of its fields read, which check
 ///   every part, is initialized.
-const unsafe fn validate_variants<T: ?Sized + Pun, V: Variants>(ptr: *const T, tag: u128) -> bool {
+const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
+  ptr: *const T,
+  tag: u128,
+) -> bool {
   let Some(expected) = (const { V::TAG }) else { return false };
   let this = match const { V::RANGES } {
     None => tag == expected,
@@ -209,10 +218,24 @@ const unsafe fn validate_variants<T: ?Sized + Pun, V: Variants>(ptr: *const T, t
   // as `validate_fields` requires. Otherwise the requirements of the call for the next variants are
   // those of this call.
   unsafe {
-    if this {
-      validate_fields::<All, Root, T, V::Fields>(ptr)
+    if this { every::<C, T, V::Fields>(ptr) } else { validate_variants::<C, T, V::Next>(ptr, tag) }
+  }
+}
+
+/// Returns whether every part of the fields `F` of the `T` at `ptr` is valid, with a scalar that a
+/// pun never makes accepted if `C` accepts it.
+///
+/// # Safety
+///
+/// The requirements of `validate_fields` with every part marked.
+#[inline(always)]
+const unsafe fn every<C: Checks, T: ?Sized + Pun, F: Fields>(ptr: *const T) -> bool {
+  // SAFETY: The requirements of `validate_fields`, by contract on the caller.
+  unsafe {
+    if const { C::NEVER } {
+      validate_fields::<AllButNever, Root, T, F>(ptr)
     } else {
-      validate_variants::<T, V::Next>(ptr, tag)
+      validate_fields::<All, Root, T, F>(ptr)
     }
   }
 }
@@ -230,7 +253,7 @@ const unsafe fn validate_variants<T: ?Sized + Pun, V: Variants>(ptr: *const T, t
 /// - Every byte that the checks of `V` or of a field after it read, which check every part, is
 ///   initialized. The analysis refuses a union of which a field would read a byte that may be
 ///   padding in the source.
-const unsafe fn validate_union<T: ?Sized + Pun, V: Variants>(ptr: *const T) -> bool {
+const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(ptr: *const T) -> bool {
   if const { V::TAG.is_none() } {
     return false;
   }
@@ -239,7 +262,7 @@ const unsafe fn validate_union<T: ?Sized + Pun, V: Variants>(ptr: *const T) -> b
   // Safety). Every byte that its checks read is initialized, by contract on the caller, as
   // `validate_fields` requires. The requirements of the call for the next fields are those of this
   // call.
-  unsafe { validate_fields::<All, Root, T, V::Fields>(ptr) || validate_union::<T, V::Next>(ptr) }
+  unsafe { every::<C, T, V::Fields>(ptr) || validate_union::<C, T, V::Next>(ptr) }
 }
 
 /// Returns whether the parts that `C` marks of the `len` elements at `ptr` are valid.

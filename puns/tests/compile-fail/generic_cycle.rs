@@ -1,28 +1,27 @@
 //! Two generic types that hold each other: the bounds that the derive finds for each (the type
 //! of each field that depends on a parameter is `Pun`) go round in a circle. They are told with
 //! `#[pun(bound())]` on both (the ones that the types declare are enough), which this lacks.
-#[path = "../support/relative.rs"]
+#[path = "../support/never.rs"]
 #[allow(dead_code)]
-mod relative;
-use puns::{Pun, num::i32le};
-use relative::{Offset, Opt};
+mod never;
+use never::Ref;
+use puns::Pun;
 
 #[derive(Pun)]
 #[repr(C)]
-struct Ping<O: Offset> {
-  pong: Opt<Pong<O>, O>,
+struct Ping<T> {
+  value: T,
+  pong: Ref<Pong<T>>,
 }
 
 #[derive(Pun)]
 #[repr(C)]
-struct Pong<O: Offset> {
-  ping: Opt<Ping<O>, O>,
-}
-
-fn view(ping: &Ping<i32le>) -> &Ping<i32le> {
-  puns::view_ref(ping)
+struct Pong<T> {
+  value: T,
+  ping: Ref<Ping<T>>,
 }
 
 fn main() {
-  let _: fn(&Ping<i32le>) -> &Ping<i32le> = view;
+  let ping = Ping { value: 0u32, pong: Ref::new(4) };
+  let _ = puns::as_bytes(&ping);
 }

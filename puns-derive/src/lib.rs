@@ -131,7 +131,6 @@ fn fallback(input: &DeriveInput) -> TokenStream {
       type Fields = ();
       type Variants = ();
       type Rules = ();
-      type Pointee = ();
       const PROBE: *const Self = ::core::panic!("`#[derive(Pun)]` failed");
       const LAYOUT: #root::layout::Layout = ::core::panic!("`#[derive(Pun)]` failed");
     }
@@ -1832,7 +1831,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   Rules are requirements of `puns`, never of the language.
       // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules
       //   that have an expression, which `validate::check_rules` asserts against the layout. The
-      //   other lists are `()`, and `OPTION` is `None`. `NULL_OPTIMIZED` changes only what the
+      //   other lists are `()`. `NULL_OPTIMIZED` changes only what the
       //   analysis takes to be the same in every layout that Rust allows.
       // - Each field is `Pun`, so no byte is inside an `UnsafeCell`.
       // The functions called are those of the types that `Layout::PIN` fixes, which no path can
@@ -1862,7 +1861,6 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         type Fields = #first;
         type Variants = ();
         type Rules = #rule_list;
-        type Pointee = ();
         const PROBE: *const Self = #probe;
         // SAFETY: `Layout::structure` requires nothing of a `Sized` struct. An unsized struct has
         // an unsized last field, whose `Pun` type is a slice, `str`, or a struct whose last field
@@ -1943,7 +1941,6 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         type Fields = ();
         type Variants = ();
         type Rules = ();
-        type Pointee = ();
         const PROBE: *const Self = ::core::ptr::null();
         const LAYOUT: #root::layout::Layout =
           #root::layout::Layout::uninhabited::<Self>().identified(#id);
@@ -2122,9 +2119,10 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
 ///
 /// Only a type that names a type parameter needs the bound: any other is `Pun` or is not,
 /// whatever the parameters are. A type that names the type of `input` itself must not have it. A
-/// type that holds itself behind a pointer (`next: Option<Near<Self>>`) would be `Pun` if its
-/// field is, which is `Pun` if the type is, and the compiler does not resolve such a cycle. What
-/// such a field needs of the parameters is then said by their own bounds.
+/// type that holds itself through a generic field, such as an offset of another crate
+/// (`next: Offset<Self>`), would be `Pun` if its field is, which is `Pun` if the type is, and the
+/// compiler does not resolve such a cycle. What such a field needs of the parameters is then said
+/// by their own bounds.
 fn needs_bound(ty: &Type, input: &DeriveInput) -> bool {
   fn names(tokens: TokenStream, idents: &[String]) -> bool {
     tokens.into_iter().any(|token| match token {
@@ -2346,7 +2344,7 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
       //   tag is that of a variant and the fields of that variant are valid [3], which is what
       //   the layout accepts.
       // - `Variants` lists the variants in order, each with its fields (see the markers above).
-      //   The other lists are `()`, and `OPTION` is `None`.
+      //   The other lists are `()`.
       // - Each field is `Pun`, and the tag is an integer, so no byte is in an `UnsafeCell`.
       //
       // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.adt:
@@ -2370,7 +2368,6 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
         type Fields = ();
         type Variants = #first #ty_generics;
         type Rules = ();
-        type Pointee = ();
         const PROBE: *const Self = ::core::ptr::null();
         const LAYOUT: #root::layout::Layout = #root::layout::Layout::enumeration::<Self>(
           const {
@@ -2634,13 +2631,12 @@ fn derive_discovered(
       // facts of the compiler that the module documentation of `discover` lists. Each variant
       // holds its fields at the offsets observed on its sample, each with the layout of its type.
       // `Variants` lists the variants in order, each with its fields. The other lists are `()`,
-      // and `OPTION` is `None`. Each field is `Pun`, so no byte is in an `UnsafeCell`.
+      //. Each field is `Pun`, so no byte is in an `UnsafeCell`.
       unsafe impl #impl_generics #root::Pun for #this #where_clause {
         type Elem = ();
         type Fields = ();
         type Variants = #first #ty_generics;
         type Rules = ();
-        type Pointee = ();
         const PROBE: *const Self = ::core::ptr::null();
         // Rust specifies nothing of it: opaque without the `unstable` feature.
         const LAYOUT: #root::layout::Layout =
@@ -2762,7 +2758,7 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
       // bytes that are a valid value of one field. Such bytes are a value that safe code makes
       // by writing that field, which is valid [2]. As a source, the layout guarantees nothing,
       // not even that a byte is initialized, which every value holds. `Variants` lists the
-      // fields in order. The other lists are `()`, and `OPTION` is `None`. Each field is `Pun`,
+      // fields in order. The other lists are `()`. Each field is `Pun`,
       // so no byte is in an `UnsafeCell`.
       //
       // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.union.size-align:
@@ -2777,7 +2773,6 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
         type Fields = ();
         type Variants = #first;
         type Rules = ();
-        type Pointee = ();
         const PROBE: *const Self = ::core::ptr::null();
         const LAYOUT: #root::layout::Layout = #root::layout::Layout::union::<Self>(
           const { &#root::layout::Enum::union(const { &[#(#variants),*] }) },

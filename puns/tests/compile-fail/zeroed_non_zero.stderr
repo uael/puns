@@ -13,7 +13,6 @@ note: erroneous constant encountered
   |
   | /   const {
   | |     assert!(T::LAYOUT.zeroable(), "zero is not a valid value of this type");
-... |
   | |   };
   | |___^
 

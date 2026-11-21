@@ -123,8 +123,8 @@ When the data can be one of several types, derive `Pun` on an enum of references
 a *view*. Its `from_bytes` returns the first variant that the bytes match, and [`link.rs`][link]
 reads Bluetooth HCI packets this way.
 
-`from_bytes`, `from_head` and `from_tail` are `const fn`, so you can check bytes at compile time.
-`unwrap` isn't `const`, so [match on the result][const] there instead.
+Every function of `puns` is a `const fn`, and so are the ones that the derive generates, so you can
+check bytes at compile time. `unwrap` isn't `const`, so [match on the result][const] there instead.
 
 ## Reading an old version of a format
 
@@ -215,7 +215,7 @@ in a debug build, and up to 25 s in release for a view of 64 overlapping variant
 
 `puns` is built on `unsafe` code so that yours doesn't have to be: crates that use it, derive
 included, can keep `#![forbid(unsafe_code)]`. The [Soundness] section lists everything that code
-relies on, including four behaviors of `rustc` that no documentation guarantees, and how each
+relies on, including three behaviors of `rustc` that no documentation guarantees, and how each
 is checked.
 
 The analysis is compared with hand-written oracles on every pair of test types of the same size,

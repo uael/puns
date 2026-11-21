@@ -28,9 +28,9 @@
 //! # Cost
 //!
 //! A [`Cursor`] walks a layout as *runs*, each of one kind of [`RunKind`]: padding, initialized
-//! bytes of any value, a constrained scalar, bytes that an automaton accepts, a self-relative
-//! pointer, or a part whose layout Rust leaves to the compiler. A subtree without constraint is one
-//! run whatever its size, so `[u8; 1 << 40]` is one step.
+//! bytes of any value, a constrained scalar, bytes that an automaton accepts, or a part whose
+//! layout Rust leaves to the compiler. A subtree without constraint is one run whatever its size,
+//! so `[u8; 1 << 40]` is one step.
 //!
 //! Scalars are compared as sets of values, not byte by byte. Two aligned scalars compare their
 //! lists of ranges, while scalars that are misaligned, or of different byte orders, go through an
@@ -190,15 +190,16 @@
 //!   multiples of the alignment of the field where the field fits or, where no order needs padding,
 //!   the multiples of the greatest common divisor of the sizes, of which every sum of sizes is one.
 //!   A few of these offsets are in no order, such as the second byte of a `(bool, [u8; 3])`, so
-//!   more is then required, never less. A struct that has a rule, which names fields, or a pointer,
-//!   which is paired by its place, proves only itself, as an enum does.
+//!   more is then required, never less. A struct that has a rule, which names fields, proves only
+//!   itself, as an enum does. A part that holds a scalar that a pun never makes proves nothing, not
+//!   even itself ([`Layout::holds_never`]), and is refused in every layout.
 //! - **Nothing in an opaque node is checked at run time,** since a check would read where the
 //!   compiler may not have put the field. What is not proven does not compile
 //!   ([`Relation::unspecified`]), and whatever reads a relation reads this, including what a
-//!   pointer aims at ([`deep::behind`](crate::deep::behind)), what a variant of a view takes from
-//!   another (`base` in `view.rs`), and an enum or a union that would be checked as a whole, fields
-//!   included, which the relations of its variants report. So the marks of the analysis, which tell
-//!   validation what to check, are at places that every layout shares.
+//!   variant of a view takes from another (`base` in `view.rs`), and an enum or a union that would
+//!   be checked as a whole, fields included, which the relations of its variants report. So the
+//!   marks of the analysis, which tell validation what to check, are at places that every layout
+//!   shares.
 //!
 //! A check must not read a byte of the source that, in another layout that Rust allows, holds
 //! another field ([`reads_moved`]). The analysis counts the bytes that a check reads as "What a
@@ -212,16 +213,14 @@
 //! [`same_elements`]), but not through a node that is not fixed. Two layouts are the same there
 //! only if what Rust does not specify of them is of the same type ([`equal`]). A `&mut` to a part
 //! covers such a node whole, by the same type, or not at all ([`cut`]). A pun of a type whose size
-//! Rust does not specify compiles only if both sides are the same type ([`sizes_kept`]). A function
-//! of [`Visit`](crate::Visit) compiles only if nothing that Rust does not specify has something to
-//! check or holds a pointer ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does not
+//! Rust does not specify compiles only if both sides are the same type ([`sizes_kept`]).
+//! [`validate_but_never`](crate::validate_but_never) compiles only if nothing that Rust does not
+//! specify has something to check ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does not
 //! accept the zeros of an enum that is not fixed.
 //!
 //! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
 
-use crate::layout::{
-  Dfa, Endian, Kind, Layout, Pointer, Spec, Tags, UNSTABLE, Uniform, Valid, max_value,
-};
+use crate::layout::{Dfa, Endian, Kind, Layout, Spec, Tags, UNSTABLE, Uniform, Valid, max_value};
 
 /// Whether a part of a layout that Rust leaves to the compiler is opaque to the analysis.
 ///
@@ -246,11 +245,6 @@ pub enum RunKind {
   Atom(Spec),
   /// Bytes, up to the end, that an automaton accepts.
   Pattern(&'static Dfa),
-  /// A self-relative pointer.
-  ///
-  /// As a source, its bytes are initialized, and nothing more is known of them. As a target, only
-  /// a pointer proves it.
-  Pointer(Pointer),
   /// Without the `unstable` feature, a part whose layout Rust leaves to the compiler.
   ///
   /// As a source, it is what every layout of it has, either initialized bytes or bytes that may be
@@ -266,7 +260,7 @@ impl RunKind {
       RunKind::Pad => true,
       RunKind::Atom(spec) => spec.may_be_uninit(),
       RunKind::Opaque(layout) => !layout.always_init(),
-      RunKind::Any | RunKind::Pattern(_) | RunKind::Pointer(_) => false,
+      RunKind::Any | RunKind::Pattern(_) => false,
     }
   }
 
@@ -295,8 +289,8 @@ pub struct Run {
   start: usize,
   /// One past the last byte of the run.
   end: usize,
-  /// The index of the leaf of the run (the scalar of an atom, a pattern, a pointer or an opaque
-  /// part). It is 0 for padding and for initialized bytes.
+  /// The index of the leaf of the run (the scalar of an atom, a pattern or an opaque part). It is 0
+  /// for padding and for initialized bytes.
   leaf: usize,
 }
 
@@ -542,10 +536,6 @@ impl Cursor {
         Kind::Pattern(dfa) => {
           return Run { kind: RunKind::Pattern(dfa), start: frame.base, end, leaf: frame.leaf };
         }
-        Kind::Pointer(pointer) => {
-          let kind = RunKind::Pointer(pointer);
-          return Run { kind, start: frame.base, end, leaf: frame.leaf };
-        }
         Kind::Enum(variants) => {
           let Kind::Scalar(spec) = variants.tag.layout.kind else { panic!() };
           let (offset, tag) = (pos - frame.base, variants.tag.offset);
@@ -710,12 +700,6 @@ pub struct Relation {
   pub(crate) partial: Option<usize>,
   /// The leaves of the target that may receive an invalid value, which a check tests at run time.
   pub(crate) marks: Marks,
-  /// The offset of a pointer of the target where the source has no pointer whose target can be
-  /// reinterpreted as the target of this one.
-  ///
-  /// No check at run time can replace it, since what a pointer guarantees is not a property of
-  /// its bytes.
-  pub(crate) pointer: Option<usize>,
   /// The offset of a part of the target that is not proven in every layout that Rust allows,
   /// without the `unstable` feature ([`RunKind::Opaque`]).
   ///
@@ -727,26 +711,13 @@ pub struct Relation {
 
 impl Relation {
   /// A relation in which nothing is found yet.
-  const NEW: Self = Self {
-    uninit: None,
-    disjoint: None,
-    partial: None,
-    marks: Marks::NONE,
-    pointer: None,
-    unspecified: None,
-  };
+  const NEW: Self =
+    Self { uninit: None, disjoint: None, partial: None, marks: Marks::NONE, unspecified: None };
 
   /// Records `pos` as a part that is not proven in every layout, if none is recorded yet.
   const fn unspecified(&mut self, pos: usize) {
     if self.unspecified.is_none() {
       self.unspecified = Some(pos);
-    }
-  }
-
-  /// Records `pos` as a pointer that is not proven, if none is recorded yet.
-  const fn pointer(&mut self, pos: usize) {
-    if self.pointer.is_none() {
-      self.pointer = Some(pos);
     }
   }
 
@@ -773,7 +744,6 @@ impl Relation {
     self.uninit.is_none()
       && self.disjoint.is_none()
       && self.partial.is_none()
-      && self.pointer.is_none()
       && self.unspecified.is_none()
   }
 }
@@ -914,8 +884,7 @@ const fn reads_moved(
     {
       reads_moved(source, base_a, elem, base_b, leaf, marks, start, end, tag)
     }
-    // A scalar, a union (each of its fields), a pattern, a pointer, or every element of an
-    // array.
+    // A scalar, a union (each of its fields), a pattern, or every element of an array.
     _ => {
       if moves(source, base_a, lo, hi, tag) {
         Some(lo)
@@ -1125,9 +1094,9 @@ const fn relate_range(
         if out.partial.is_none() {
           out.partial = Some(pos);
         }
-        // No check proves a pointer, so a pointer that the target holds is recorded as not proven.
-        if b.stack[0].layout.has_pointers() {
-          out.pointer(pos);
+        // No check accepts a scalar that a pun never makes.
+        if b.stack[0].layout.holds_never() && out.disjoint.is_none() {
+          out.disjoint = Some(pos);
         }
         // A part whose layout Rust leaves to the compiler is recorded too, since a check would read
         // it where `rustc` put it.
@@ -1154,11 +1123,19 @@ const fn relate_range(
     if let RunKind::Opaque(target) = run_b.kind {
       let stop = min(run_b.end, end);
       let whole = run_b.start == pos && run_b.end <= end;
+      // Not a part that holds a scalar that a pun never makes, which nothing proves, not even the
+      // same type.
       let same = matches!(run_a.kind, RunKind::Opaque(source) if same_type(source, target))
         && run_a.start == pos
-        && whole;
+        && whole
+        && !target.holds_never();
       let proven = same || (whole && relate_fields(a, b, target, pos));
-      if !proven {
+      if !proven && target.holds_never() {
+        // Refused in every layout, so not for the layout.
+        if out.disjoint.is_none() {
+          out.disjoint = Some(pos);
+        }
+      } else if !proven {
         out.unspecified(pos);
       }
       pos = stop;
@@ -1183,20 +1160,14 @@ const fn relate_range(
       // From something else, variant by variant: the ones whose tags the source can hold there.
       if base_b == pos
         && pos + enum_b.size <= end
-        && !enum_b.has_pointers()
         && relate_enum_from(a, enum_b, pos, leaf, &b.known, out)
       {
         pos += enum_b.size;
         continue;
       }
       // Otherwise the enum is marked to be checked as a whole at run time, which cannot be done if
-      // one of its variants holds a pointer.
+      // the check would read a part whose layout Rust leaves to the compiler, where `rustc` put it.
       out.mark(leaf, pos);
-      if enum_b.has_pointers() {
-        out.pointer(pos);
-      }
-      // Nor can it be done if the check would read a part whose layout Rust leaves to the compiler,
-      // where `rustc` put it.
       if !enum_b.checks_kept() {
         out.unspecified(pos);
       }
@@ -1246,26 +1217,6 @@ const fn relate_range(
         }
         pos = run_b.end;
       }
-      // Only a pointer proves a pointer: one at the same place, whose target can be reinterpreted
-      // as the target of this one. Its bytes do not: whatever else the source has there is refused,
-      // and so is a part of a pointer.
-      RunKind::Pointer(to) => {
-        match run_a.kind {
-          RunKind::Pointer(from)
-            if run_a.start == pos && run_b.start == pos && run_b.end <= end =>
-          {
-            match from.reads_as(&to) {
-              Some(true) => {}
-              // What is not a pointer (`None`) is not reinterpreted as one, which is checked at run
-              // time.
-              Some(false) => out.mark(run_b.leaf, pos),
-              None => out.pointer(pos),
-            }
-          }
-          _ => out.pointer(pos),
-        }
-        pos = stop;
-      }
       RunKind::Pattern(_) | RunKind::Opaque(_) => unreachable!(),
     }
   }
@@ -1295,11 +1246,11 @@ const PLACES: usize = 1024;
 ///
 /// Nothing is left to check at run time, since a check would read where the compiler may not
 /// have put the field. A field that the source does not prove somewhere fails the relation. So
-/// does a rule, which names fields, and a pointer, which is paired by its place. Past
+/// does a rule, which names fields. Past
 /// [`PLACES`] places, the relation fails too.
 const fn relate_fields(a: &Cursor, b: &Cursor, target: &'static Layout, pos: usize) -> bool {
   let Kind::Struct(fields, _) = target.kind else { return false };
-  if !target.stable.size || target.has_rules || target.has_pointers() {
+  if !target.stable.size || target.has_rules {
     return false;
   }
   // The greatest common divisor of the sizes.
@@ -1398,10 +1349,7 @@ const fn relate_enums(
       if let Some(offset) = relation.uninit {
         out.uninit(pos + offset);
       }
-      if let Some(offset) = relation.pointer {
-        out.pointer(pos + offset);
-      }
-      // As a pointer: the check of the enum would read it where `rustc` put it.
+      // The check of the enum would read it where `rustc` put it.
       if let Some(offset) = relation.unspecified {
         out.unspecified(pos + offset);
       }
@@ -1470,9 +1418,6 @@ const fn relate_enum_from(
     mark_rules(a.stack[0].layout, variant.layout, pos, 0, &mut relation);
     if let Some(offset) = relation.uninit {
       out.uninit(offset);
-    }
-    if let Some(offset) = relation.pointer {
-      out.pointer(offset);
     }
     if let Some(offset) = relation.unspecified {
       out.unspecified(offset);
@@ -1735,8 +1680,7 @@ struct Piece {
 
 /// Returns the pieces of what `a` has over `start..end`, and their number.
 ///
-/// A pointer of the source is initialized bytes here, and an opaque part what every layout of it
-/// has ([`RunKind::seen`]).
+/// An opaque part of the source is what every layout of it has ([`RunKind::seen`]).
 ///
 /// # Panics
 ///
@@ -1747,10 +1691,6 @@ const fn gather(a: &mut Cursor, start: usize, end: usize) -> ([Piece; 16], usize
   let (mut len, mut pos) = (0, start);
   while pos < end {
     let mut run = a.run_at(pos);
-    // The bytes of a pointer are initialized, and that is all that is made of them here.
-    if let RunKind::Pointer(_) = run.kind {
-      run.kind = RunKind::Any;
-    }
     run.kind = run.kind.seen();
     let to = min(run.end, end);
     let skip = if matches!(run.kind, RunKind::Atom(_)) { pos - run.start } else { 0 };
@@ -1772,7 +1712,12 @@ const fn gather(a: &mut Cursor, start: usize, end: usize) -> ([Piece; 16], usize
 ///
 /// Returns `None` if one of the pieces may be uninitialized.
 const fn atom_relation(pieces: &[Piece; 16], len: usize, spec: &Spec) -> Option<Rel> {
-  let Valid::In(ranges) = spec.valid else { panic!("not an atom") };
+  let ranges = match spec.valid {
+    Valid::In(ranges) => ranges,
+    // No value of the source is one, whatever it holds.
+    Valid::Never => return Some(Rel::Disjoint),
+    Valid::Any | Valid::Uninit => panic!("not an atom"),
+  };
   // What is known of the pieces: a restriction that the type system does not enforce only
   // proves a restriction of the same kind.
   let (mut known, soft) = (*pieces, spec.is_soft());
@@ -1781,7 +1726,7 @@ const fn atom_relation(pieces: &[Piece; 16], len: usize, spec: &Spec) -> Option<
     match known[i].kind {
       RunKind::Pad | RunKind::Opaque(_) => return None,
       // Whatever a pattern accepts is initialized, and that is all that is made of it here.
-      RunKind::Any | RunKind::Pattern(_) | RunKind::Pointer(_) => {}
+      RunKind::Any | RunKind::Pattern(_) => {}
       // Required to be some values, but a source may hold anything there, padding included.
       RunKind::Atom(from) if from.may_be_uninit() => return None,
       RunKind::Atom(from) => match if soft { from.valid } else { from.known } {
@@ -2118,7 +2063,7 @@ const fn pattern_target(
     let stop = min(run.end, end);
     match run.kind.seen() {
       RunKind::Pad | RunKind::Opaque(_) => return out.uninit(pos),
-      RunKind::Any | RunKind::Pointer(_) => {
+      RunKind::Any => {
         // Any byte, `stop - pos` times, or until it changes nothing.
         let mut steps = 0;
         while steps < stop - pos {
@@ -2260,7 +2205,7 @@ const fn mark_rules(
         mark_all_rules(elem, base, leaf, out);
       }
     }
-    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) | Kind::Pointer(_) => {}
+    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) => {}
   }
 }
 
@@ -2282,7 +2227,7 @@ const fn mark_all_rules(target: &'static Layout, base: usize, leaf: usize, out: 
       }
     }
     Kind::Array(elem, _) | Kind::Slice(elem) => mark_all_rules(elem, base, leaf, out),
-    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) | Kind::Pointer(_) => {}
+    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) => {}
   }
 }
 
@@ -2326,7 +2271,7 @@ const fn proves_rules(source: &'static Layout, offset: usize, target: &'static L
       elem.size > 0 && offset / elem.size < len && proves_rules(elem, offset % elem.size, target)
     }
     Kind::Slice(elem) => elem.size > 0 && proves_rules(elem, offset % elem.size, target),
-    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) | Kind::Pointer(_) => false,
+    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) => false,
   }
 }
 
@@ -2370,7 +2315,7 @@ const fn same_elements(source: &'static Layout, offset: usize, target: &'static 
       elem.size > 0 && offset / elem.size < len && same_elements(elem, offset % elem.size, target)
     }
     Kind::Slice(elem) => elem.size > 0 && same_elements(elem, offset % elem.size, target),
-    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) | Kind::Pointer(_) => false,
+    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) => false,
   }
 }
 
@@ -2413,7 +2358,7 @@ const fn covered(source: &'static Layout, offset: usize, target: &'static Layout
       elem.size > 0 && offset / elem.size < len && covered(elem, offset % elem.size, target)
     }
     Kind::Slice(elem) => elem.size > 0 && covered(elem, offset % elem.size, target),
-    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) | Kind::Pointer(_) => false,
+    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) => false,
   }
 }
 
@@ -2603,21 +2548,10 @@ pub const fn mutable_unspecified(a: &'static Layout, b: &'static Layout, fit: &F
 /// `a`.
 ///
 /// Every value of `b`, padding included, must be a valid `a`, which means that the reverse relation
-/// must be infallible. This is never so with a self-relative pointer on either side. Through a
-/// `&mut`, safe code could write over a pointer, swap two, or move one to where it aims at
-/// something else. It is never so either if the extents never match.
+/// must be infallible. It is never so if the extents never match.
 pub const fn mutable(a: &'static Layout, b: &'static Layout, fit: &Fit) -> bool {
-  !a.has_pointers()
-    && !b.has_pointers()
-    && !matches!(fit.exact, Exact::Never(_))
-    && relate(b, a, fit.end, Checked::No).infallible()
+  !matches!(fit.exact, Exact::Never(_)) && relate(b, a, fit.end, Checked::No).infallible()
 }
-
-/// Why a `&mut` is refused when the source or the target holds a self-relative pointer.
-pub const POINTER_MUT: &str = "the source or the target holds a self-relative pointer, which a \
-                               `&mut` would let safe code overwrite, swap or move: a pointer is \
-                               only read.\nEdit the value where it is, with what the crate that \
-                               declares the pointer gives";
 
 /// Why a `&mut` is refused when some values of the target are not valid for the source.
 pub const MUTABLE: &str = "some values of the target are not valid for the source (or are padding \
@@ -2654,10 +2588,10 @@ pub const PART_PATTERN: &str = "a string of the source is only partly covered by
 ///
 /// # Errors
 ///
-/// Returns [`POINTER_MUT`] if either side holds a self-relative pointer, wherever it is. Returns
-/// [`MUTABLE`] if a source may be smaller than `b`, or if a value of `b` is not valid for `a`.
-/// Returns the reason of [`cut`] if something of `a` depends on the bytes. Returns [`PART_ENUM`]
-/// if a target that takes as many elements as fit may end within an enum or a string of `a`.
+/// Returns [`MUTABLE`] if a source may be smaller than `b`, or if a value of `b` is not valid for
+/// `a`. Returns the reason of [`cut`] if something of `a` depends on the bytes. Returns
+/// [`PART_ENUM`] if a target that takes as many elements as fit may end within an enum or a string
+/// of `a`.
 pub const fn mutable_part(
   a: &'static Layout,
   b: &'static Layout,
@@ -2667,10 +2601,6 @@ pub const fn mutable_part(
   if !fit.shrink {
     // Refused by the analysis of the reference already.
     return Some(MUTABLE);
-  }
-  // Wherever the pointer is: a part that does not cover it is refused as well.
-  if a.has_pointers() || b.has_pointers() {
-    return Some(POINTER_MUT);
   }
   let end = shift.saturating_add(fit.end);
   if let Some(why) = cut(a, 0, b, shift, end) {
@@ -2721,8 +2651,7 @@ const fn cut(
     return if within && covered(b, base - lo, layout) { None } else { Some(PART_UNSPECIFIED) };
   }
   match layout.kind {
-    // No `&mut` covers a pointer, see `mutable_part`.
-    Kind::Scalar(_) | Kind::Pointer(_) => None,
+    Kind::Scalar(_) => None,
     Kind::Struct(fields, rules) => {
       let proven = within && proves_rules(b, base - lo, layout);
       if !rules.is_empty() && !proven {
@@ -2845,7 +2774,7 @@ const fn has_rules(layout: &'static Layout) -> bool {
       }
       false
     }
-    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Pointer(_) => false,
+    Kind::Scalar(_) | Kind::Pattern(_) => false,
   }
 }
 
@@ -2865,6 +2794,6 @@ const fn is_tagged(layout: &'static Layout) -> bool {
       false
     }
     Kind::Array(elem, _) | Kind::Slice(elem) => is_tagged(elem),
-    Kind::Scalar(_) | Kind::Pointer(_) => false,
+    Kind::Scalar(_) => false,
   }
 }

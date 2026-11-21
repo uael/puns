@@ -1,13 +1,13 @@
 error[E0080]: evaluation panicked:
-              cannot pun: the target holds a self-relative pointer, and what a pointer aims at is not a property of its bytes.
-              Use `view_ref` to read a value that holds pointers as another type (it proves what they aim at).
+              cannot pun: no value of the source is valid for the target.
+              This is at byte 0 of the target.
 
     --> src/lib.rs
      |
      |   const BY_REF: () = Self::require(Self::check(Need::REF));
-     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<relative::One<u32>, relative::One<[u8; 4]>>::BY_REF` failed inside this call
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<Loose, Loose>::BY_REF` failed inside this call
      |
-note: inside `puns::Plan::<relative::One<u32>, relative::One<[u8; 4]>>::require`
+note: inside `puns::Plan::<Loose, Loose>::require`
  --> src/lib.rs
   |
   |       message.panic();
@@ -34,8 +34,8 @@ note: erroneous constant encountered
   |   const { Plan::<S, D>::BY_REF };
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-note: the above error was encountered while instantiating `fn pun_ref::<relative::One<u32>, relative::One<[u8; 4]>>`
- --> tests/compile-fail/pun_ref_pointer_to_pointer.rs:9:3
-  |
-9 |   puns::pun_ref(pointer)
-  |   ^^^^^^^^^^^^^^^^^^^^^^
+note: the above error was encountered while instantiating `fn pun_ref::<Loose, Loose>`
+  --> tests/compile-fail/never_same_type.rs:16:19
+   |
+16 |   let _: &Loose = puns::pun_ref(&loose);
+   |                   ^^^^^^^^^^^^^^^^^^^^^

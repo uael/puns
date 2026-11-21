@@ -94,22 +94,22 @@ jobs:
           - name: puns
             id: model-puns
             tests: --test miri_sample
-          - name: rules, unsized, pointers, views
+          - name: rules, unsized, views, never made
             id: model-rules
             tests: >-
-              --lib --test core_shadowed --test regressions --test rules --test dst
-              --test pointers --test views
+              --lib --test core_shadowed --test regressions --test rules --test dst --test views
+              --test opaque
           - name: parts
             id: model-parts
             tests: --test parts
           - name: unstable, puns
             id: model-unstable-puns
             tests: --features unstable --test miri_sample
-          - name: unstable, rules, unsized, pointers, views
+          - name: unstable, rules, unsized, views, never made
             id: model-unstable-rules
             tests: >-
               --features unstable --lib --test core_shadowed --test regressions --test rules
-              --test dst --test pointers --test views
+              --test dst --test views --test opaque
           - name: unstable, parts
             id: model-unstable-parts
             tests: --features unstable --test parts
@@ -366,9 +366,8 @@ jobs:
           # The model check under Miri: a selection of pairs that runs every unsafe path it
           # reaches (see `puns-model/tests/miri_sample.rs`); the verdicts of every pair are the
           # job of the full native run, in `model.yml`.
-          # In six jobs: whole puns (the two tests of the selection, told apart by name), the unit
-          # tests, the regressions and view enums, parts and unsized types, self-relative pointers
-          # in two.
+          # In four jobs: whole puns (the two tests of the selection, told apart by name), the unit
+          # tests, the regressions and view enums, parts and unsized types.
           - name: model, puns
             id: model
             args: -p puns-model --test miri_sample
@@ -386,18 +385,6 @@ jobs:
           - name: model, parts
             id: model
             args: -p puns-model --test parts --test dst
-            flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
-          # Pointers: views that are made and read through, and checked at run time; then the walk
-          # and the copy of valid values (`pointers_in`, `copy_in`), apart.
-          - name: model, pointers
-            id: model
-            args: -p puns-model --test pointers
-            filter: -- --skip pointers_in --skip copy_in
-            flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
-          - name: model, walks and copies
-            id: model
-            args: -p puns-model --test pointers
-            filter: -- pointers_in copy_in
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
     steps:
       - uses: actions/checkout@v4

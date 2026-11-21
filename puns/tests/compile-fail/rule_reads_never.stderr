@@ -1,0 +1,30 @@
+error[E0080]: evaluation panicked: a rule reads the unsigned integer fields of its struct, and this field is not one (a signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes with `le(offset, size)` or `be(offset, size)`
+  --> tests/compile-fail/rule_reads_never.rs:10:14
+   |
+ 8 | #[derive(puns::Pun)]
+   |          --------- in this derive macro expansion
+ 9 | #[repr(C)]
+10 | #[pun(assert(next != 0))]
+   |              ^^^^ evaluation of `_::<impl puns::Pun for Node>::LAYOUT::{constant#1}` failed inside this call
+   |
+note: inside `Op::load::<never::Off>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   | /       panic!(
+   | |         "a rule reads the unsigned integer fields of its struct, and this field is not one (a \
+   | |          signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes \
+   | |          with `le(offset, size)` or `be(offset, size)`"
+   | |       )
+   | |_______- in this macro invocation
+
+note: erroneous constant encountered
+ --> tests/compile-fail/rule_reads_never.rs:8:10
+  |
+8 | #[derive(puns::Pun)]
+  |          ^^^^^^^^^
+  |
+  = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
