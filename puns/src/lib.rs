@@ -24,7 +24,11 @@
 //! | bytes         | [`from_bytes`], [`from_bytes_mut`] | [`from_head`], [`from_head_mut`] | [`from_tail`], [`from_tail_mut`] |
 //!
 //! Each row says what is read, a typed value or bytes, and each column says how much of it: the
-//! whole, the front, or the back. Every function in the table is a `const fn`.
+//! whole, the front, or the back.
+//!
+//! Every function of `puns` is a `const fn`, and so is every function that [the derive](macro@Pun)
+//! generates. Only the implementations of standard traits, such as `From` and `Display`, are not,
+//! since stable Rust cannot call a trait method in `const`.
 //!
 //! - The functions in the first row are proven, except for [`try_pun`], [`try_pun_ref`] and
 //!   [`try_pun_mut`], which are checked.
@@ -121,8 +125,8 @@
 //! assert_eq!(text, "hello");
 //! ```
 //!
-//! Since every function in the table is a `const fn`, bytes in a constant are checked while the
-//! program compiles:
+//! Since every function is a `const fn`, bytes in a constant are checked while the program
+//! compiles:
 //!
 //! ```
 //! use puns::{
