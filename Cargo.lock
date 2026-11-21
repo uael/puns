@@ -187,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "puns"
-version = "0.2.0-beta.2"
+version = "0.2.0-beta.3"
 dependencies = [
  "puns-derive",
  "trybuild",
@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "puns-derive"
-version = "0.2.0-beta.2"
+version = "0.2.0-beta.3"
 dependencies = [
  "proc-macro2",
  "quote",
