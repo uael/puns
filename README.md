@@ -209,7 +209,7 @@ between half and 1.1 times as long. What you pay for is mostly build time: about
 in a debug build, and up to 25 s in release for a view of 64 overlapping variants.
 [`docs/performance.md`][performance] has the code, the method and the other cases.
 
-![Time of each check by puns, relative to the same check written by hand](https://raw.githubusercontent.com/uael/puns/claude/safety-docs/docs/charts/checks.svg)
+![Time of each check by puns, relative to the same check written by hand](https://raw.githubusercontent.com/uael/puns/main/docs/charts/checks.svg)
 
 ## Safety and testing
 
