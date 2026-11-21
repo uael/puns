@@ -89,7 +89,7 @@ impl<T: Pun> Found for Option<T> {
   const DESC: Desc<2> = if Self::GIVEN {
     Desc::none()
   } else {
-    Layout::discover::<Self, 2>(
+    crate::discover::discover::<Self, 2>(
       &<Self as Found>::SAMPLES,
       &[&[], &[Field::new(<Self as Found>::OFFSETS[1], &T::LAYOUT)]],
     )
@@ -143,7 +143,7 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
     };
     [at, other]
   };
-  const DESC: Desc<2> = Layout::discover::<Self, 2>(
+  const DESC: Desc<2> = crate::discover::discover::<Self, 2>(
     &<Self as Found>::SAMPLES,
     &[
       &[Field::new(<Self as Found>::OFFSETS[0], &T::LAYOUT)],

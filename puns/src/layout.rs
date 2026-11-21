@@ -7,7 +7,7 @@
 //! The whole static analysis of the crate is ordinary `const fn` code running over those values
 //! (see `analysis.rs`); nothing is encoded in the type system.
 
-use core::mem;
+use core::{marker::PhantomData, mem};
 
 #[doc(hidden)]
 pub use crate::discover::Desc;
@@ -1592,20 +1592,52 @@ const fn excludes_zero<P>() -> bool {
   if size_of::<Option<P>>() != size_of::<P>() {
     return false;
   }
-  let none = mem::MaybeUninit::new(None::<P>);
-  let mut i = 0;
-  while i < size_of::<P>() {
-    // SAFETY: in bounds. A byte of `None` that is not initialized fails the build (R2 of
-    // `discover.rs`).
-    let byte = unsafe { *none.as_ptr().cast::<u8>().add(i) };
-    assert!(
-      byte == 0,
-      "the offset of a self-relative pointer excludes values other than zero (a niche that is not \
-       zero): not supported, nothing tells which"
-    );
-    i += 1;
-  }
+  assert!(
+    NoneOf::<P>::IS_ZEROS,
+    "the offset of a self-relative pointer excludes values other than zero (a niche that is not \
+     zero): not supported, nothing tells which"
+  );
   true
+}
+
+/// An enum without `repr` whose layout `#[derive(Pun)]` finds by experiments on a sample of each
+/// of its `V` variants: see `discover.rs`.
+#[doc(hidden)]
+pub trait Discover<const V: usize>: Sized {
+  /// A sample of each variant, in the order of declarations: anything for a variant that has no
+  /// value.
+  const SAMPLES: [mem::MaybeUninit<Self>; V];
+  /// The fields of each variant, observed on its sample.
+  const FIELDS: [&'static [Field]; V];
+  /// The layout that the experiments find.
+  ///
+  /// A constant, so that the experiments run in const evaluation only: they read bytes of the
+  /// samples outside of their fields, which is undefined behavior at run time when a byte is not
+  /// initialized, and fails the build in const evaluation.
+  const DESC: Desc<V> = crate::discover::discover(&Self::SAMPLES, &Self::FIELDS);
+}
+
+/// What the bytes of `None::<P>` are.
+struct NoneOf<P>(PhantomData<P>);
+
+impl<P> NoneOf<P> {
+  /// Whether `Option<P>` has the size of `P` and `None` is all zero bytes.
+  ///
+  /// A constant, so that the bytes of `None` are read in const evaluation only, where reading one
+  /// that is not initialized fails the build. A function that read them would be undefined
+  /// behavior at run time, when called with such a `P`.
+  const IS_ZEROS: bool = {
+    let none = mem::MaybeUninit::new(None::<P>);
+    let mut zeros = size_of::<Option<P>>() == size_of::<P>();
+    let mut i = 0;
+    while zeros && i < size_of::<P>() {
+      // SAFETY: in bounds, since `Option<P>` has the size of `P`. In const evaluation, a byte
+      // that is not initialized fails the build (R2 of `discover.rs`).
+      zeros = unsafe { *none.as_ptr().cast::<u8>().add(i) } == 0;
+      i += 1;
+    }
+    zeros
+  };
 }
 
 /// The tag of an enum that no value can be.
@@ -1652,18 +1684,6 @@ impl Layout {
   #[must_use]
   pub const fn uninit<T>() -> mem::MaybeUninit<T> {
     mem::MaybeUninit::uninit()
-  }
-
-  /// The layout of the enum `E` without `repr`, found by experiments on a sample of each of its
-  /// `V` variants (anything for a variant that has no value) and its `fields`, observed on the
-  /// sample: see `discover.rs`. For `#[derive(Pun)]`.
-  #[doc(hidden)]
-  #[must_use]
-  pub const fn discover<E, const V: usize>(
-    samples: &[mem::MaybeUninit<E>; V],
-    fields: &[&[Field]; V],
-  ) -> Desc<V> {
-    crate::discover::discover(samples, fields)
   }
 
   /// A valid `T`, made of nothing but its layout (every scalar the least of its values), for the
@@ -1991,6 +2011,10 @@ impl Layout {
   /// If `pointer` may be null already, if `Option<P>` is larger than `P` (an offset without a
   /// niche at zero, such as a byte array, has a tag of its own in `Option`; a `NonZero` has
   /// one), or if `None` is not zeros.
+  ///
+  /// # Compile-time errors
+  /// The bytes of `None::<P>` are read in const evaluation, even when this function is called at
+  /// run time. A call does not compile if one of them is not initialized.
   #[must_use]
   pub const fn nullable<P, T>(pointer: Pointer) -> Self {
     assert!(!pointer.is_nullable(), "`Option` of a pointer that may be null is not a pointer");
@@ -1999,14 +2023,7 @@ impl Layout {
       "`Option` of this self-relative pointer is larger than it: its offset has no niche at zero \
        (a `NonZero` has one), so `None` is not the pointer of zeros"
     );
-    let none = mem::MaybeUninit::new(None::<P>);
-    let mut i = 0;
-    while i < size_of::<P>() {
-      // SAFETY: in bounds. A byte of `None` that is not initialized fails the build (R2).
-      let byte = unsafe { *none.as_ptr().cast::<u8>().add(i) };
-      assert!(byte == 0, "`None` of this self-relative pointer is not zeros");
-      i += 1;
-    }
+    assert!(NoneOf::<P>::IS_ZEROS, "`None` of this self-relative pointer is not zeros");
     Self::pointer::<Option<P>, T>(pointer.or_null())
   }
 

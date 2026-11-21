@@ -356,6 +356,10 @@ const fn read<E>(sample: &MaybeUninit<E>, offset: usize, len: usize) -> u128 {
 /// is the `v`th variant in the order of declarations, anything if it has no value) and the
 /// fields of each, observed on its sample.
 ///
+/// Evaluated in constants only (`Discover::DESC`, and the ones of `Option` and `Result`): an
+/// experiment that reads what it must not fails the build there (R2), where at run time it would
+/// be undefined behavior.
+///
 /// # Panics
 /// If the layout is not of a shape that `rustc` gives (R1), with why; or a failure of const
 /// evaluation (R2) if an experiment reads what it must not.
