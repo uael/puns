@@ -1,10 +1,10 @@
-error[E0080]: evaluation panicked: an `Option` of a scalar that a pun never makes must have the size of the scalar: give the scalar a niche at zero, as a `NonZero` has
+error[E0080]: evaluation panicked: an `Option` of a scalar that a pun never makes must have the size of the scalar: give the scalar a niche, as a `NonZero` has
  --> src/std_enums.rs
   |
-  |   const LAYOUT: Layout = if T::LAYOUT.is_never() { never::<T>() } else { discovered::<T>() };
-  |                                                    ^^^^^^^^^^^^ evaluation of `puns::std_enums::<impl puns::Pun for std::option::Option<Wide>>::LAYOUT` failed inside this call
+  |     unsafe { never_option::<T>() }
+  |              ^^^^^^^^^^^^^^^^^^^ evaluation of `puns::std_enums::<impl puns::Pun for std::option::Option<Wide>>::LAYOUT` failed inside this call
   |
-note: inside `puns::std_enums::never::<Wide>`
+note: inside `puns::std_enums::never_option::<Wide>`
  --> $RUST/core/src/panic.rs
   |
   = note: the failure occurred here
@@ -14,7 +14,7 @@ note: inside `puns::std_enums::never::<Wide>`
   | /   assert!(
   | |     size_of::<Option<T>>() == size_of::<T>(),
   | |     "an `Option` of a scalar that a pun never makes must have the size of the scalar: give the \
-  | |      scalar a niche at zero, as a `NonZero` has"
+  | |      scalar a niche, as a `NonZero` has"
   | |   );
   | |___- in this macro invocation
 

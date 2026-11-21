@@ -98,8 +98,8 @@ struct Bits([u8]);
 // SAFETY: `Pun` is not to be implemented by hand, and this test does so to check a pattern that
 // a user defines. `Bits` is `repr(transparent)` over `[u8]`, and this test makes a `Bits` only of
 // bytes that `BITS` accepts, through `puns`. So the layout of `Layout::pattern` with `BITS`, a tail
-// of bytes at offset 0 that the automaton accepts, is its layout. The lists are `()`, `OPTION` is
-// `None`, and it holds no `UnsafeCell`.
+// of bytes at offset 0 that the automaton accepts, is its layout. The lists are `()`, and it holds
+// no `UnsafeCell`.
 unsafe impl Pun for Bits {
   type Elem = ();
   type Fields = ();

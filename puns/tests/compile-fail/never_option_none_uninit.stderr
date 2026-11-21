@@ -1,13 +1,13 @@
 error[E0080]: reading memory at alloc71[0x0..0x10], but memory is uninitialized at [0x0..0x1], and this operation requires initialized memory
  --> src/std_enums.rs
   |
-  |   const LAYOUT: Layout = if T::LAYOUT.is_never() { never::<T>() } else { discovered::<T>() };
-  |                                                    ^^^^^^^^^^^^ evaluation of `puns::std_enums::<impl puns::Pun for std::option::Option<Gap>>::LAYOUT` failed inside this call
+  |     unsafe { never_option::<T>() }
+  |              ^^^^^^^^^^^^^^^^^^^ evaluation of `puns::std_enums::<impl puns::Pun for std::option::Option<Gap>>::LAYOUT` failed inside this call
   |
   = note: the raw bytes of the constant (size: 16, align: 16) {
               __ 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 │ ░...............
           }
-note: inside `puns::std_enums::never::<Gap>`
+note: inside `puns::std_enums::never_option::<Gap>`
  --> src/std_enums.rs
   |
   |     unsafe { crate::discover::read(&none, at, 1) };

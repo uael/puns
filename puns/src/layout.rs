@@ -145,11 +145,12 @@ pub(crate) enum Valid {
 /// A `Spec` holds two sets of values. The values it *accepts* are what a target requires, so a pun
 /// makes a value of the scalar only from one of these. The values it is *known* to hold are what
 /// every value of the type guarantees, whatever safe code does, so a source proves these values,
-/// and no others. Both sets are the same, with two exceptions. A field restricted by
+/// and no others. Both sets are the same, with three exceptions. A field restricted by
 /// `#[pun(valid(..))]` ([`Layout::restricted`]) accepts fewer values than it is known to hold
 /// ([Guarantees and requirements](crate#guarantees-and-requirements)). A scalar that may be
 /// uninitialized ([`Spec::maybe_uninit`]) accepts some values, but is known to hold anything,
-/// padding included.
+/// padding included. A scalar that a pun never makes ([`Spec::never`]) accepts no value, but is
+/// known to hold initialized bytes.
 ///
 /// # Examples
 ///
@@ -214,11 +215,14 @@ impl Spec {
   ///
   /// A self-relative pointer is such a scalar: its bytes are an offset, and whether it is valid
   /// depends on where it is and on what it aims at. A pun proves from such a scalar what
-  /// initialized bytes prove. A pun whose target holds one does not compile, nor does a check of
-  /// one: only the crate that declares the scalar makes a value of it, and proves it.
+  /// initialized bytes prove. A pun or a check that would make one does not compile, and a check
+  /// never accepts a variant of an enum that holds one: only the crate that declares the scalar
+  /// makes a value of it, and proves it.
   /// [`validate_but_never`](crate::validate_but_never) checks the rest of a value that holds one.
-  /// Rules do not read it, since it is not a number. An `Option` of it is such a scalar too, if
-  /// the scalar has a niche at zero, as a `NonZero` field gives it.
+  /// A rule cannot name it as a field, since it is not a number, though a rule that reads bytes at
+  /// an offset reads its bytes as any others. An `Option` of it is such a scalar too, if the
+  /// `Option` has the size of the scalar ([Scalars that a pun never
+  /// makes](crate#scalars-that-a-pun-never-makes)).
   ///
   /// # Examples
   ///

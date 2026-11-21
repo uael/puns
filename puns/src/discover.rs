@@ -53,9 +53,9 @@
 //! checked by its tag and its variant, with the same precision. A variant whose fields have no
 //! value is in the layout, with no tag. The lists of fields and variants are the declared ones. A
 //! field of a variant without values is not in the layout, and its entry in the list says so (its
-//! `FIELD` is `None`). No field may hold a scalar that a pun never makes, because `puns` cannot
-//! make a sample value of one. `Option<T>` and `Result<T, E>` are found the same way
-//! (`std_enums.rs`).
+//! `FIELD` is `None`). The sample of a variant cannot hold a scalar that a pun never makes, because
+//! `puns` cannot make a value of one ([`sample`]). `Option<T>` and `Result<T, E>` are found the
+//! same way (`std_enums.rs`).
 //!
 //! # What the experiments rely on
 //!
@@ -160,8 +160,8 @@ use crate::layout::{Endian, Field, Kind, Layout, Spec, Valid, load, max_value};
 ///
 /// # Panics
 ///
-/// Panics if `T` has no value, or if it holds a scalar that a pun never makes, since no value of
-/// one is made of nothing.
+/// Panics if `T` has no value, or if its sample holds a scalar that a pun never makes, since no
+/// value of one is made of nothing.
 pub const fn sample<T: crate::Pun>() -> MaybeUninit<T> {
   assert!(T::LAYOUT.is_inhabited(), "a type without values has no sample");
   let mut value = MaybeUninit::<T>::uninit();
@@ -175,7 +175,7 @@ pub const fn sample<T: crate::Pun>() -> MaybeUninit<T> {
 ///
 /// # Panics
 ///
-/// Panics if `layout` holds a scalar that a pun never makes, a slice or a pattern.
+/// Panics if the value that it writes holds a scalar that a pun never makes, a slice or a pattern.
 ///
 /// # Safety
 ///
@@ -606,9 +606,8 @@ pub const unsafe fn read<E>(sample: &MaybeUninit<E>, offset: usize, len: usize) 
 /// # Panics
 ///
 /// Panics, with the reason, if the layout is not of a shape that `rustc` gives ([one scalar tells
-/// the variant](crate::discover#one-scalar-tells-the-variant)), if a field holds a scalar that a
-/// pun never makes, or if a sample is not its own variant ([the discriminant is the
-/// index](crate::discover#the-discriminant-is-the-index)).
+/// the variant](crate::discover#one-scalar-tells-the-variant)), or if a sample is not its own
+/// variant ([the discriminant is the index](crate::discover#the-discriminant-is-the-index)).
 ///
 /// # Safety
 ///

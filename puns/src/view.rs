@@ -479,7 +479,7 @@ where
 ///
 /// A call compiles only if all of the following hold, as for [`from_bytes`](crate::from_bytes):
 ///
-/// - The type of `I` holds no a scalar that a pun never makes.
+/// - The type of `I` holds no scalar that a pun never makes.
 /// - Some bytes are a valid value of the type of `I`.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.

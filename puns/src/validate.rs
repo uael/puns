@@ -159,7 +159,8 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
 /// Returns whether the enum at `ptr` has the tag of one of its variants, and the fields of that
 /// variant are valid.
 ///
-/// Every part of the variant is checked, since nothing is known of what is in an enum.
+/// Every part of the variant is checked, since nothing is known of what is in an enum, with a
+/// scalar that a pun never makes accepted if `C` accepts it.
 ///
 /// # Panics
 ///
@@ -189,7 +190,7 @@ const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout:
 }
 
 /// Returns whether the variant of tag `tag`, among `V` and the ones after it, has valid fields
-/// in the enum at `ptr`.
+/// in the enum at `ptr`, with a scalar that a pun never makes accepted if `C` accepts it.
 ///
 /// Returns `false` if no such variant has the tag. A variant whose tag is a range of values (the
 /// variant of a niche) has the tag if `tag` is in that range.
@@ -241,6 +242,8 @@ const unsafe fn every<C: Checks, T: ?Sized + Pun, F: Fields>(ptr: *const T) -> b
 }
 
 /// Returns whether the union at `ptr` is a valid value of one of its fields, `V` or one after it.
+/// A union holds no scalar that a pun never makes (`Layout::union` asserts it), so `C` changes
+/// nothing here.
 ///
 /// Each field of a union is a variant of one field in its layout.
 ///
