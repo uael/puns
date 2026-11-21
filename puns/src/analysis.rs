@@ -1294,7 +1294,8 @@ const fn relate_fields(a: &Cursor, b: &Cursor, target: &'static Layout, pos: usi
 /// Each variant of `a` is related with the variants of `b` that its tags are tags of, knowing
 /// that the tag is one of both. A variant of `a` is proven if all its tags are of one variant of
 /// `b`, which it proves. If a variant of `a` is not proven, the enum is marked, and checked as a
-/// whole at run time. Returns `true` at once if `a` and `b` are the same layout ([`equal`]).
+/// whole at run time. Returns `true` at once if `a` and `b` are the same layout ([`equal`]) that
+/// holds no scalar that a pun never makes, which nothing proves, not even the same layout.
 ///
 /// Returns `false`, having done nothing, if either is a union, if `a` is smaller than `b`, or if
 /// their tags differ in place, size or byte order.
@@ -1305,7 +1306,7 @@ const fn relate_enums(
   leaf: usize,
   out: &mut Relation,
 ) -> bool {
-  if equal(a, b) {
+  if equal(a, b) && !b.holds_never() {
     return true;
   }
   let (Kind::Enum(enum_a), Kind::Enum(enum_b)) = (a.kind, b.kind) else { panic!() };

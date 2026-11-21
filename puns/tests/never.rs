@@ -36,12 +36,15 @@ fn validate_but_never_checks_the_rest() {
   // The offset is not checked, not even that it is not zero.
   assert_eq!(puns::validate_but_never::<Node>(puns::as_bytes(&[7u32, 0])), Ok(()));
   assert_eq!(puns::validate_but_never::<Node>(&puns::as_bytes(&node)[..7]), Err(puns::Error::Size));
-  // At any address: no reference is made.
-  let mut odd = [0u8; 9];
-  odd[1..].copy_from_slice(puns::as_bytes(&node));
-  assert_eq!(puns::validate_but_never::<Node>(&odd[1..]), Ok(()));
-  odd[1..5].copy_from_slice(puns::as_bytes(&30u32));
-  assert_eq!(puns::validate_but_never::<never::Ruled>(&odd[1..]), Err(puns::Error::Validity));
+  // At any address: no reference is made. One byte past an address aligned to 8, so misaligned
+  // for the `u32` of `Node`.
+  let mut buffer = Aligned([0; 16]);
+  let odd = &mut buffer.0[1..9];
+  odd.copy_from_slice(puns::as_bytes(&node));
+  assert_ne!(odd.as_ptr().addr() % align_of::<u32>(), 0);
+  assert_eq!(puns::validate_but_never::<Node>(odd), Ok(()));
+  odd[..4].copy_from_slice(puns::as_bytes(&30u32));
+  assert_eq!(puns::validate_but_never::<never::Ruled>(odd), Err(puns::Error::Validity));
   // Every variant of the enum, the one with the offset included; not a tag of none.
   assert_eq!(puns::validate_but_never::<Link>(puns::as_bytes(&[1u32, 5])), Ok(()));
   assert_eq!(puns::validate_but_never::<Link>(puns::as_bytes(&[2u32, 5])), Ok(()));
@@ -78,3 +81,7 @@ fn a_generic_one_is_read_as_its_bytes() {
   let offset = never::Ref::<Node>::new(3);
   assert_eq!(puns::as_bytes(&offset), &3u32.to_ne_bytes());
 }
+
+/// Bytes aligned to 8, so that one byte past their start is not aligned to 4.
+#[repr(C, align(8))]
+struct Aligned([u8; 16]);
