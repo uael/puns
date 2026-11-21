@@ -33,6 +33,8 @@ cargo xtask lint --fix               # Auto-fix clippy + formatting
 cargo xtask build-time               # Build times of the analysis, for docs/performance.md (minutes)
 cargo xtask checks-chart             # Write the table and the chart of check times of docs/performance.md from the record
 cargo xtask checks-chart --check     # Fail if the table or the chart is not what the record gives
+cargo xtask links                    # Pin the links of README.md and docs/*.md to the version of puns
+cargo xtask links --check            # Fail if a link is not pinned or its target is missing (after cargo doc)
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all  # Build documentation
 cargo deny check                     # License/advisory/ban auditing
 ```
@@ -143,7 +145,8 @@ the crate docs and `README.md` consistent with the code.
 - **`puns-model/`**: the model check of the analysis against oracles that do not use it (not
   published, and using the test-only `verdict` feature of `puns`), with `fakecore/`, a `core` whose
   items give wrong answers, for what the derive must not trust.
-- **`xtask/`**: dev automation (fmt, lint, build times, the chart of check times).
+- **`xtask/`**: dev automation (fmt, lint, build times, the chart of check times, the links of the
+  README).
 
 ## Releasing
 
@@ -161,6 +164,11 @@ Merging that PR publishes to crates.io and creates a GitHub release with a `v<ve
 - `release_always = false`: nothing is published by an ordinary push, only by merging a release PR
   (a branch whose name starts with `release-plz-`). The first release, 0.1.0, was the merge of the
   first release PR
+- Every link of `README.md` to docs.rs, crates.io or a file of the repository names the version of
+  `puns` or its tag, so that the README leads to the same version on GitHub, crates.io and docs.rs
+  (`xtask/src/links.rs`). The workflow pins them on the branch of each release PR. A new link is
+  written pinned (`cargo xtask links`), and CI checks them (`cargo xtask links --check`). The files
+  of `docs/` are read on GitHub only, and link to the repository relatively
 
 ### Commit Message Format
 

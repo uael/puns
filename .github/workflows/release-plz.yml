@@ -48,8 +48,28 @@ jobs:
         with:
           toolchain: 1.100.0
       - name: Run release-plz
+        id: release-plz
         uses: release-plz/action@v0.5
         with:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The links of the README and of `docs/` name the version of `puns` (`cargo xtask links`),
+      # which the release PR changes: pin them to the new version on the branch of the PR, so that
+      # the README published with it leads to that version on docs.rs, crates.io and GitHub. The
+      # tag `v{version}` that they name is made when the PR is merged. release-plz force-pushes over
+      # a commit of a bot when it updates the PR, and this step then runs again.
+      - name: Pin the links to the version of the release
+        if: steps.release-plz.outputs.pr && fromJSON(steps.release-plz.outputs.pr).head_branch
+        env:
+          BRANCH: ${{ fromJSON(steps.release-plz.outputs.pr).head_branch }}
+        run: |
+          git fetch origin "$BRANCH"
+          git switch -C "$BRANCH" "origin/$BRANCH"
+          cargo xtask links
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "docs: pin the links to the version of the release" -- README.md docs
+            git push origin "$BRANCH"
+          fi

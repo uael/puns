@@ -49,7 +49,7 @@ swaps fields. This checks that the layouts the derive makes do not depend on any
 user's crate can redefine.
 
 [Miri]: https://github.com/rust-lang/miri
-[model]: https://github.com/uael/puns/blob/main/puns-model/src/lib.rs
-[sample]: https://github.com/uael/puns/blob/main/puns-model/tests/miri_sample.rs
-[compile-fail]: https://github.com/uael/puns/tree/main/puns/tests/compile-fail
-[Soundness]: https://docs.rs/puns/latest/puns/#soundness
+[model]: ../puns-model/src/lib.rs
+[sample]: ../puns-model/tests/miri_sample.rs
+[compile-fail]: ../puns/tests/compile-fail
+[Soundness]: https://docs.rs/puns/0.2.0-beta.1/puns/#soundness
