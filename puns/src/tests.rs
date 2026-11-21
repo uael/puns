@@ -802,6 +802,10 @@ fn link_labels(text: &str) -> Vec<String> {
 /// the README defines and the rest of it also defines or uses would make one of the two links point
 /// to the target of the other, as `[reference]` once sent the Rust Reference to docs.rs.
 #[test]
+#[cfg_attr(
+  miri,
+  ignore = "text of the documentation, without unsafe code: half an hour each under Miri"
+)]
 fn the_readme_defines_no_label_of_the_crate_documentation() {
   let readme = include_str!("../README.md");
   let defined: Vec<String> = readme
@@ -845,6 +849,10 @@ fn heading_ids(text: &str) -> Vec<String> {
 /// id, and the other becomes `id-1`: a link to `#soundness` once led to a short section of the
 /// README instead of the chapter of `lib.rs`.
 #[test]
+#[cfg_attr(
+  miri,
+  ignore = "text of the documentation, without unsafe code: half an hour each under Miri"
+)]
 fn the_readme_takes_no_heading_id_of_the_crate_documentation() {
   let crate_docs = include_str!("lib.rs")
     .lines()
