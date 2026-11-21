@@ -190,6 +190,9 @@ jobs:
       - run: cargo doc --no-deps --all
         env:
           RUSTDOCFLAGS: -D warnings
+      # The links of the README and of `docs/` name the version of `puns`, and their targets are
+      # there, the sections of the documentation just built included.
+      - run: cargo xtask links --check
 
   # The `rust-version` of the crates (1.99, the first stable release with `size_of_val_raw` and
   # `align_of_val_raw` in `const`): the library and its examples, which a build evaluates, refusals

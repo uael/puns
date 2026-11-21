@@ -190,8 +190,8 @@ measure the checks in release.
 > Walks nest up to 4 deep, so a checksum inside the deepest one takes time in proportion to the
 > fifth power of the size. Consider this before you give such a type untrusted bytes.
 
-[codegen]: https://github.com/uael/puns/blob/main/puns/examples/codegen.rs
-[checks]: https://github.com/uael/puns/blob/main/puns/benches/checks.rs
-[record]: https://github.com/uael/puns/blob/main/docs/checks-2026-11-21.txt
-[build-time]: https://github.com/uael/puns/blob/main/xtask/src/build_time.rs
+[codegen]: ../puns/examples/codegen.rs
+[checks]: ../puns/benches/checks.rs
+[record]: checks-2026-11-21.txt
+[build-time]: ../xtask/src/build_time.rs
 [commit]: https://github.com/uael/puns/commit/4176671c690b6a75de775d3d4c6f6c607736ff00

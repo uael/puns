@@ -1,5 +1,6 @@
 mod build_time;
 mod checks_chart;
+mod links;
 
 use std::{path::PathBuf, sync::LazyLock};
 
@@ -39,6 +40,13 @@ enum Command {
     #[arg(long)]
     check: bool,
   },
+  /// Pin the links of `README.md` and `docs/*.md` to the version of `puns`
+  Links {
+    /// Fail if a link is not pinned or its target is not there, rather than pin them. Needs the
+    /// documentation that `cargo doc --no-deps -p puns` writes
+    #[arg(long)]
+    check: bool,
+  },
 }
 
 /// The root directory of the workspace.
@@ -57,6 +65,7 @@ fn main() -> Result<()> {
     Command::Lint { fix } => lint(&sh, fix),
     Command::BuildTime => build_time::run(&ROOT),
     Command::ChecksChart { check } => checks_chart::run(&ROOT, check),
+    Command::Links { check } => links::run(&ROOT, check),
   }
 }
 

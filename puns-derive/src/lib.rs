@@ -15,7 +15,13 @@ use syn::{
   visit_mut::{self, VisitMut},
 };
 
-/// Implements `Pun` as [`puns::Pun`](https://docs.rs/puns/latest/puns/derive.Pun.html) documents.
+// The link names the version of this crate, which is that of `puns` (`version_group` in
+// `release-plz.toml`).
+#[doc = concat!(
+  "Implements `Pun` as [`puns::Pun`](https://docs.rs/puns/",
+  env!("CARGO_PKG_VERSION"),
+  "/puns/derive.Pun.html) documents."
+)]
 #[proc_macro_derive(Pun, attributes(pun))]
 pub fn derive_pun(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
   let tokens = TokenStream::from(input.clone());
