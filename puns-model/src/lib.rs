@@ -593,6 +593,9 @@ pub fn check_pair<S: Oracle, D: Oracle>(limit: usize) {
         ));
       } else if why.contains("is padding") && !any_uninit && !soft_uninit {
         imprecise.push(("rejected for padding that no valid target reads".into(), pair.clone()));
+      } else if v.unspecified() {
+        imprecise
+          .push(("rejected: Rust does not keep the layout (`unstable`)".into(), pair.clone()));
       } else if !why.contains("no value") && !why.contains("padding") {
         incorrect.push(format!("{pair}: try_pun_ref rejected: {}", why.trim()));
       }

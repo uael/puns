@@ -138,7 +138,7 @@ use core::{marker::PhantomData, mem::ManuallyDrop};
 
 use analysis::{
   Analysis, Exact, MUTABLE, Marks, POINTER_MUT, TAIL_UNSIZED_SOURCE, TAIL_UNSIZED_TARGET, analyze,
-  analyze_tail, mutable, mutable_part,
+  analyze_tail, mutable, mutable_part, mutable_unspecified,
 };
 use layout::{Dfa, Endian, Field, Layout, Spec};
 pub use layout::{crc32, sum16};
@@ -150,6 +150,33 @@ use validate::{Checks, validate};
 pub use visit::{
   Invalid, Pointee, Visit, copy_in, pointers_elems_in, pointers_in, validate_elems_in, validate_in,
 };
+
+/// Where the type `$name` is declared, its name, and `$n`, the number of the derive in its crate:
+/// its identity (`layout::Id`), for `#[derive(Pun)]`, which names `core` through this crate (a
+/// crate may have another `core`). The place is the outermost macro call that declares the type,
+/// which may declare two (one in each of two functions): the number tells them apart.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __site {
+  ($name:ident, $n:literal) => {
+    $crate::__core::concat!(
+      $crate::__core::module_path!(),
+      "::",
+      $crate::__core::stringify!($name),
+      "@",
+      $crate::__core::file!(),
+      ":",
+      $crate::__core::line!(),
+      ":",
+      $crate::__core::column!(),
+      "#",
+      $n
+    )
+  };
+}
+
+#[doc(hidden)]
+pub use core as __core;
 
 // -------------------------------------------------------------------------------------------------
 // Traits
@@ -199,6 +226,16 @@ pub use visit::{
 pub unsafe trait Scalar {
   /// The size, the byte order and the valid values of `Self`.
   const SPEC: Spec;
+  /// See [`Pun::NULL_OPTIMIZED`].
+  #[doc(hidden)]
+  const NULL_OPTIMIZED: bool = false;
+  /// The identity of the type (see [`layout::Id`]); none by default.
+  #[doc(hidden)]
+  const ID: layout::Id = layout::Id::NONE;
+  /// Whatever Rust specifies how values of the type are stored: not of an enum without `repr`,
+  /// which `#[derive(Pun)]` makes a `Scalar` (see [`layout::UNSTABLE`]).
+  #[doc(hidden)]
+  const SPECIFIED: bool = true;
 }
 
 /// Types made of plain data, whose layout and valid values are known at compile time.
@@ -206,7 +243,10 @@ pub unsafe trait Scalar {
 /// Every function of this crate takes `Pun` types: the integer and floating-point types, `bool`,
 /// `char`, `NonZero`, `()`, `PhantomData`, arrays, slices, `str`, tuples of up to 4, `Option` and
 /// `Result` of them, `MaybeUninit`, `ManuallyDrop`, `Infallible`, the types of [`num`], the
-/// self-relative pointers of [`self_relative!`], and what derives it.
+/// self-relative pointers of [`self_relative!`], and what derives it. Of what Rust lets the
+/// compiler lay out otherwise (a tuple, a struct or an enum without `repr`), what a pun may rely
+/// on without the `unstable` feature is what every layout that Rust allows has
+/// ([`layout::UNSTABLE`]).
 ///
 /// ```
 /// use puns::{Pun, num::u16le};
@@ -275,6 +315,14 @@ pub unsafe trait Pun {
   /// the layout of `Option<Self>`, as `LAYOUT` is of `Self` (see the `# Safety` of the trait).
   #[doc(hidden)]
   const OPTION: Option<Layout> = None;
+  /// Whether `core` guarantees that `Option<Self>` is `Self`, with `None` the bytes of zeros:
+  /// `Self` is a `NonZero` integer, or a `repr(transparent)` struct around one ("Representation"
+  /// in the documentation of `core::option`). The layout of `Option<Self>` is then the same from
+  /// one version of the compiler to the next, and so is the one of `Result<Self, E>` and
+  /// `Result<E, Self>` where `E` has size 0 and alignment 1 ("Representation" of
+  /// `core::result`). Of any other `Self`, they need the `unstable` feature.
+  #[doc(hidden)]
+  const NULL_OPTIMIZED: bool = false;
 }
 
 /// A type that goes with a tag, in what carries it: a payload and the value of the field that
@@ -612,7 +660,11 @@ unsafe impl<T: Scalar> Pun for T {
   type Rules = ();
   type Pointee = ();
   const PROBE: *const Self = core::ptr::null();
-  const LAYOUT: Layout = Layout::scalar::<T>(T::SPEC);
+  const LAYOUT: Layout = {
+    let layout = Layout::scalar::<T>(T::SPEC).identified(T::ID);
+    if T::SPECIFIED { layout } else { layout.unspecified() }
+  };
+  const NULL_OPTIMIZED: bool = T::NULL_OPTIMIZED;
 }
 
 // SAFETY: an array is its elements.
@@ -623,7 +675,8 @@ unsafe impl<T: Pun, const N: usize> Pun for [T; N] {
   type Rules = ();
   type Pointee = ();
   const PROBE: *const Self = core::ptr::null();
-  const LAYOUT: Layout = Layout::array(&T::LAYOUT, N);
+  const LAYOUT: Layout =
+    Layout::array(&T::LAYOUT, N).identified(layout::Id::sized("[T; N]", &[T::LAYOUT.id], N));
 }
 
 // SAFETY: a slice is its elements.
@@ -635,7 +688,8 @@ unsafe impl<T: Pun> Pun for [T] {
   type Pointee = ();
   const PROBE: *const Self = core::ptr::slice_from_raw_parts(core::ptr::null(), ptr::PROBE_LEN);
   // SAFETY: the probe of a slice.
-  const LAYOUT: Layout = unsafe { Layout::slice::<T>(Self::PROBE, &T::LAYOUT) };
+  const LAYOUT: Layout = unsafe { Layout::slice::<T>(Self::PROBE, &T::LAYOUT) }
+    .identified(layout::Id::new("[T]", &[T::LAYOUT.id]));
 }
 
 // SAFETY: a `str` is bytes that are UTF-8.
@@ -647,7 +701,8 @@ unsafe impl Pun for str {
   type Pointee = ();
   const PROBE: *const Self = <[u8] as Pun>::PROBE as *const str;
   // SAFETY: the probe of a `str`, which is the one of a slice.
-  const LAYOUT: Layout = unsafe { Layout::pattern::<str>(Self::PROBE, Dfa::UTF8) };
+  const LAYOUT: Layout = unsafe { Layout::pattern::<str>(Self::PROBE, Dfa::UTF8) }
+    .identified(layout::Id::new("str", &[]));
 }
 
 // SAFETY: `ManuallyDrop<T>` is a `T`.
@@ -659,6 +714,8 @@ unsafe impl<T: ?Sized + Pun> Pun for ManuallyDrop<T> {
   type Pointee = T::Pointee;
   const PROBE: *const Self = T::PROBE as *const Self;
   const LAYOUT: Layout = T::LAYOUT;
+  // `ManuallyDrop<T>` "is subject to the same layout optimizations as `T`".
+  const NULL_OPTIMIZED: bool = T::NULL_OPTIMIZED;
 }
 
 // SAFETY: a `MaybeUninit<T>` holds any bytes, uninitialized ones included, and nothing is known
@@ -669,6 +726,25 @@ unsafe impl<T: ?Sized + Pun> Pun for ManuallyDrop<T> {
 // `&mut MaybeUninit<T>` is only made of a source of which every byte may be uninitialized (the
 // reverse relation of `pun_mut`), and a `&mut T` of a `MaybeUninit<T>` never (a byte that `T`
 // needs initialized would be read from padding).
+//
+// Its size and alignment are the ones of `T`, which are only known to be the same from one version
+// of the compiler to the next if the layout of `T` is: without the `unstable` feature, `T` is a
+// `Pun` type, whose layout is evaluated (and refused if it is not specified).
+#[cfg(not(feature = "unstable"))]
+unsafe impl<T: Pun> Pun for core::mem::MaybeUninit<T> {
+  type Elem = ();
+  type Fields = ();
+  type Variants = ();
+  type Rules = ();
+  type Pointee = ();
+  const PROBE: *const Self = core::ptr::null();
+  const LAYOUT: Layout = Layout::padding::<Self>()
+    .sized_like(&T::LAYOUT)
+    .identified(layout::Id::new("MaybeUninit", &[T::LAYOUT.id]));
+}
+
+// SAFETY: as above, for any `T`.
+#[cfg(feature = "unstable")]
 unsafe impl<T> Pun for core::mem::MaybeUninit<T> {
   type Elem = ();
   type Fields = ();
@@ -687,7 +763,7 @@ unsafe impl Pun for core::convert::Infallible {
   type Rules = ();
   type Pointee = ();
   const PROBE: *const Self = core::ptr::null();
-  const LAYOUT: Layout = Layout::uninhabited::<Self>();
+  const LAYOUT: Layout = Layout::uninhabited::<Self>().identified(layout::Id::new("!", &[]));
 }
 
 /// The `I`th field of the tuple `T`.
@@ -728,6 +804,9 @@ macro_rules! tuple {
           },
           &[],
         )
+        // The `Rust` representation: what every order of its fields has.
+        .rust(usize::MAX)
+        .identified(layout::Id::new("(..)", &[$($all::LAYOUT.id),+]))
       };
     }
   };
@@ -753,6 +832,7 @@ macro_rules! impl_any {
     // SAFETY: every bit pattern is valid.
     unsafe impl Scalar for $ty {
       const SPEC: Spec = Spec::any::<$ty>();
+      const ID: layout::Id = layout::Id::new(stringify!($ty), &[]);
     }
   )+};
 }
@@ -764,6 +844,7 @@ macro_rules! impl_bits {
     // SAFETY: every bit pattern is valid.
     unsafe impl Scalar for $ty {
       const SPEC: Spec = Spec::any::<$ty>().not_a_number();
+      const ID: layout::Id = layout::Id::new(stringify!($ty), &[]);
     }
   )+};
 }
@@ -778,12 +859,14 @@ unsafe impl<T: ?Sized> Scalar for PhantomData<T> {
 // SAFETY: 0 or 1.
 unsafe impl Scalar for bool {
   const SPEC: Spec = Spec::ranges::<bool>(Endian::NATIVE, &[(0, 1)]).not_a_number();
+  const ID: layout::Id = layout::Id::new("bool", &[]);
 }
 
 // SAFETY: a Unicode scalar value.
 unsafe impl Scalar for char {
   const SPEC: Spec =
     Spec::ranges::<char>(Endian::NATIVE, &[(0, 0xD7FF), (0xE000, 0x10_FFFF)]).not_a_number();
+  const ID: layout::Id = layout::Id::new("char", &[]);
 }
 
 macro_rules! impl_non_zero {
@@ -791,6 +874,8 @@ macro_rules! impl_non_zero {
     // SAFETY: anything but 0.
     unsafe impl Scalar for core::num::NonZero<$ty> {
       const SPEC: Spec = Spec::ranges::<$ty>(Endian::NATIVE, &[(1, $ty::MAX as u128)]);
+      const NULL_OPTIMIZED: bool = true;
+      const ID: layout::Id = layout::Id::new(concat!("NonZero<", stringify!($ty), ">"), &[]);
     }
   )+};
 }
@@ -807,6 +892,8 @@ macro_rules! impl_signed_non_zero {
         &[(1, u128::MAX >> (128 - 8 * size_of::<$ty>()))],
       )
       .not_a_number();
+      const NULL_OPTIMIZED: bool = true;
+      const ID: layout::Id = layout::Id::new(concat!("NonZero<", stringify!($ty), ">"), &[]);
     }
   )+};
 }
@@ -892,6 +979,21 @@ const POINTER_TARGET: &str = "the target holds a self-relative pointer, and what
                               at is not a property of its bytes.\nUse `view_ref` to read a value \
                               that holds pointers as another type (it proves what they aim at)";
 
+/// A pun that depends on what Rust does not keep from one compilation to the next.
+const UNSPECIFIED: &str = "the pun depends on a part of the source or of the target whose layout \
+  Rust does not keep from one compilation to the next (a struct or a tuple of the `Rust` \
+  representation, an enum without `repr`, `Option` or `Result` of most types): another compiler, \
+  or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place \
+  proves it.\nAdd `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature \
+  of `puns`";
+
+/// A `&mut` whose writes are not known to leave a valid source in every layout that Rust allows.
+const UNSPECIFIED_MUT: &str = "what may be written through the `&mut` is a valid source in the \
+  layout that `rustc` chose, not in every layout that Rust allows: the source has a part whose \
+  layout Rust does not keep from one compilation to the next (a struct or a tuple of the `Rust` \
+  representation, an enum without `repr`).\nAdd `#[repr(C)]` (or `#[repr(u8)]` to an enum), or \
+  enable the `unstable` feature of `puns`";
+
 /// Why a pun of which `analysis` is the analysis does not meet the `need`, if it does not.
 const fn check(analysis: &Analysis, need: Need) -> Option<Message> {
   let Analysis { fit, relation, aligned, shift } = *analysis;
@@ -918,6 +1020,9 @@ const fn check(analysis: &Analysis, need: Need) -> Option<Message> {
     Exact::Never(why) => return Some(Message::new(why)),
   }
   // Offsets of the target.
+  if let Some(offset) = relation.unspecified {
+    return Some(Message::new(UNSPECIFIED).at(offset.saturating_sub(shift)));
+  }
   if let Some(offset) = relation.pointer {
     return Some(
       Message::new(
@@ -995,8 +1100,13 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
 
   /// Why a `&mut` to a `D` cannot be made from a `&mut` to an `S`, when [`Plan::MUTABLE`] says
   /// so.
-  const NOT_MUTABLE: &'static str =
-    if S::LAYOUT.has_pointers() || D::LAYOUT.has_pointers() { POINTER_MUT } else { MUTABLE };
+  const NOT_MUTABLE: &'static str = if S::LAYOUT.has_pointers() || D::LAYOUT.has_pointers() {
+    POINTER_MUT
+  } else if mutable_unspecified(&S::LAYOUT, &D::LAYOUT, &Self::ANALYSIS.fit) {
+    UNSPECIFIED_MUT
+  } else {
+    MUTABLE
+  };
 
   /// Why the pun of the last bytes of the source does not meet the `need` (a part), if it does
   /// not.

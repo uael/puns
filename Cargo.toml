@@ -9,7 +9,7 @@ edition = "2024"
 lto = true
 codegen-units = 1
 
-# The full model check (`cargo test --profile model -p puns-model -- --ignored`): optimized,
+# The full model check (`cargo test --profile model -p puns-model --features full`): optimized,
 # without what makes the release profile take long to build its thousands of monomorphizations.
 [profile.model]
 inherits = "release"

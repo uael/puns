@@ -12,18 +12,22 @@ cargo test --test api                # Run only one integration test file (also:
 cargo test --test api TESTNAME       # Run a single test
 cargo test --test compile_fail       # Compile-fail tests (trybuild); TRYBUILD=overwrite to regenerate .stderr
 cargo run --example ethernet         # The Ethernet example; it asserts its results and prints `ok`
-cargo rustc --release --example codegen -- --emit asm -C llvm-args=-x86-asm-syntax=intel  # Machine code, see DESIGN.md
-cargo bench -p puns --bench checks   # Time of the run-time checks, next to the same checks by hand (not in CI)
-cargo bench -p puns --bench checks -- ipv6  # Only the cases whose name has `ipv6`
+cargo rustc --release --features unstable --example codegen -- --emit asm -C llvm-args=-x86-asm-syntax=intel  # Machine code, see DESIGN.md
+cargo bench -p puns --features unstable --bench checks   # Time of the run-time checks, next to the same checks by hand (not in CI)
+cargo bench -p puns --features unstable --bench checks -- ipv6  # Only the cases whose name has `ipv6`
 MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests  # Miri, tree borrows
 MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests --target s390x-unknown-linux-gnu  # Miri, stacked borrows, on a big-endian target
 MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests --target i686-unknown-linux-gnu  # 32 bits
-cargo test --profile model -p puns-model --features full  # The full model check (nightly in model.yml); `cargo test` runs a sample
+cargo test --profile model -p puns-model --features full  # The full model check (nightly in model.yml, also with `full,unstable`); `cargo test` runs a sample
+cargo test -p puns --features verdict  # Without the `unstable` feature, the default: every test that builds without it, the record of verdicts included
+cargo test -p puns --features unstable  # With it: the targets that need it too (`required-features`), the cases of `compile-fail-unstable`
+PUNS_BLESS=1 cargo test -p puns --features verdict --test seeds  # Write the record of verdicts again (`puns/tests/seeds.txt`)
+RUSTFLAGS="-Zrandomize-layout -Zlayout-seed=1" cargo +nightly-2026-11-17 test -p puns --features verdict --test seeds  # The same record, with another layout
 MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns-model  # A selection of the model check: the unsafe paths it reaches
 cargo build -p puns --target thumbv7em-none-eabihf  # A target without std
 cargo xtask fmt                      # Format code (cargo fmt on the pinned nightly)
 cargo xtask fmt --check              # Check formatting
-cargo xtask lint                     # Clippy (workspace, tests, examples, benches; -D warnings) + format check
+cargo xtask lint                     # Clippy (workspace, tests, examples, benches; -D warnings), without `unstable` then with it, + format check
 cargo xtask lint --fix               # Auto-fix clippy + formatting
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all  # Build documentation
 cargo deny check                     # License/advisory/ban auditing
@@ -47,21 +51,28 @@ of the workspace each time): check what matters, and time a check before adding 
 counts is the one of the job on GitHub, which this machine does not tell: about 15 seconds of each
 job go to the checkout and the toolchain before anything runs, its runners are slower and vary by a
 third from one run to the next, so aim at 45 seconds and read the times of the jobs after a change
-of the workflow (the first run after a change of a cache key has nothing cached). This is why `cargo
-test --all` is six jobs there (the tests in three, the sample of the model check in three), and why each Miri run of the tests of `puns` is three jobs (every third test file each:
-split a job again rather than let it pass 45 seconds), with a cache of the standard library that Miri builds and
-of the sources it builds it from (Miri builds it again when the modification time of a source
-changes, which a fresh install of the toolchain does). What is exhaustive (the full model check,
-behind the `full` feature of `puns-model`) runs in `.github/workflows/model.yml`, every night and on
-demand, with a check of the compiler (an optimized build refuses a wrong view behind pointers): run
-it when `rust-toolchain` changes. Under Miri, the model check runs a selection of pairs that reaches
-every unsafe path (`puns-model/tests/miri_sample.rs` says which pair is for which, and
-`tests/pointers.rs` for pointers), not every pair,
-and of the examples only `ethernet` runs: the others reach the same unsafe code of the library. A
-test file that is not for Miri starts with `#![cfg(not(miri))]` and says why; CI gives Miri the
-other ones by name, since Miri takes a second to start each test binary, even one that runs nothing.
-Each pair of types in a test of the model is an instance of the analysis, about a tenth of a second
-of build: keep the tests that every push builds small.
+of the workflow (the first run after a change of a cache key has nothing cached). With the caches,
+what comes before the work is 15 to 20 seconds, so the work of a job is at most about 20 seconds:
+the build of the tests of `miri_sample` or of `parts` of the model is that alone. This is why `cargo
+test --all` is twelve jobs there (the tests of `puns` in six, four without the `unstable` feature
+and two with it; the sample of the model check in six, three each way), and why each Miri run of the
+tests of `puns` is five jobs (without the feature, three parts of about the same time, two named and
+every other file; with it, the files about it in two: split a job again rather than let it pass 45
+seconds), with a cache of the standard library that Miri builds and of the sources it builds it from
+(Miri builds it again when the modification time of a source changes, which a fresh install of the
+toolchain does). Balance the parts by the time that passes for each test binary in the log of the
+job: the time that Miri reports for a test is not that one. Under Miri, a test that loops is a
+fraction of its size (`cfg!(miri)`): what Miri is there for is each unsafe path, not each value.
+What is exhaustive (the full model check, behind the `full` feature of `puns-model`) runs in
+`.github/workflows/model.yml`, every night and on demand, with a check of the compiler (an optimized
+build refuses a wrong view behind pointers): run it when `rust-toolchain` changes. Under Miri, the
+model check runs a selection of pairs that reaches every unsafe path
+(`puns-model/tests/miri_sample.rs` says which pair is for which, and `tests/pointers.rs` for
+pointers), not every pair, and of the examples only `ethernet` runs: the others reach the same
+unsafe code of the library. A test file that is not for Miri starts with `#![cfg(not(miri))]` and
+says why; CI gives Miri the other ones by name, since Miri takes a second to start each test binary,
+even one that runs nothing. Each pair of types in a test of the model is an instance of the
+analysis, about a tenth of a second of build: keep the tests that every push builds small.
 
 What `unsafe` code assumes of the target (the alignment of a primitive, the width of `usize` and of
 `isize`, the byte order) is asserted in a `const` where it is used, or derived from the target, and
@@ -84,6 +95,22 @@ instead, for `valgrind --tool=callgrind --toggle-collect='*checks*runs*'`: a cou
 per check, which a loaded machine does not change.
 
 ## Architecture
+
+**The `unstable` feature.** Without it, nothing that `puns` does depends on what Rust lets `rustc`
+lay out otherwise (the order of the fields of a struct or a tuple without `repr`, the tag of an enum
+without `repr`, niches): `-Zrandomize-layout` must change no verdict and no check (the message of a
+refusal may differ). With it, `puns` takes the layout that `rustc` chose. `puns/DESIGN.md`, "What
+Rust keeps of a layout", is the design and the list of what Rust documents, with where. The default
+is without it, and so is most of what the tests and CI run: every test of `puns` that builds without
+the feature runs without it (`tests/seeds.rs` needs `verdict`), the cases of `compile-fail-kept`
+included. With it run only what is about it: the targets of `required-features = ["unstable"]` and
+the files with tests under `#[cfg(feature = "unstable")]` (`.github/tests.sh` lists both), and the
+cases of `compile-fail-unstable`. A test that does not compile without the feature is one of these,
+or relies on what Rust does not keep. The model check runs both ways too (`puns-model` has an
+`unstable` feature, which turns on the one of `puns`); a refusal for what Rust does not keep is
+counted there as imprecise, by design (`hook::Verdict::unspecified`). A change of the analysis that
+changes a verdict of `puns/tests/seeds.txt` is written again with `PUNS_BLESS=1`, and read: the
+record must be the same under every seed (CI runs three).
 
 **puns** is type punning proven at compile time: the layout and the valid values of a type are a
 `const` value (`Pun::LAYOUT`), compared by ordinary `const fn` code. A pun is **proven** (it

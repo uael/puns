@@ -18,6 +18,7 @@
 !.github/
 !.github/workflows/
 !.github/**/*.yml
+!.github/tests.sh
 
 # Rust
 !Cargo.toml
@@ -36,6 +37,12 @@
 !puns/tests/
 !puns/tests/compile-fail/
 !puns/tests/compile-fail/*.stderr
+!puns/tests/compile-fail-kept/
+!puns/tests/compile-fail-kept/*.stderr
+!puns/tests/compile-fail-unstable/
+!puns/tests/compile-fail-unstable/*.stderr
+!puns/tests/compile-pass-kept/
+!puns/tests/seeds.txt
 !puns/tests/compile-pass/
 !puns/tests/support/
 !puns/**/*.rs

@@ -208,7 +208,8 @@ const fn base(tree: &'static Tree, index: usize, from: usize, head: bool) -> (us
         && relation.uninit.is_none()
         && relation.disjoint.is_none()
         && relation.partial.is_none()
-        && relation.pointer.is_none();
+        && relation.pointer.is_none()
+        && relation.unspecified.is_none();
       if proven {
         // What the variant is checked for from the other: what `try_pun_ref` checks.
         let from = analyze(other, layout);
@@ -217,6 +218,7 @@ const fn base(tree: &'static Tree, index: usize, from: usize, head: bool) -> (us
           && relation.uninit.is_none()
           && relation.disjoint.is_none()
           && relation.pointer.is_none()
+          && relation.unspecified.is_none()
         {
           return (j, relation.marks);
         }

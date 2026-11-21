@@ -1,7 +1,7 @@
 //! Functions whose machine code is worth looking at:
 //!
 //! ```text
-//! cargo rustc --release --example codegen -- --emit asm -C llvm-args=-x86-asm-syntax=intel
+//! cargo rustc --release --features unstable --example codegen -- --emit asm -C llvm-args=-x86-asm-syntax=intel
 //! ```
 //!
 //! and look for their names in `target/release/**/codegen*.s`. See `DESIGN.md` for what to expect.

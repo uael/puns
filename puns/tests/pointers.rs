@@ -416,6 +416,8 @@ unsafe impl Fix for Wide {
 /// elements of the same size, aligned as its declarer says: here the larger of the alignment of
 /// the elements and the width of the offset, so that `[u8; 4]`s behind an `i32le` are `u32`s
 /// (but one `[u8; 4]` is not one `u32`).
+// Tuples of the `Rust` representation, read as other tuples: the `unstable` feature.
+#[cfg(feature = "unstable")]
 #[test]
 fn prefixes_and_sequences() {
   let wide = |value| Wide { value, more: !value };
@@ -445,6 +447,8 @@ unsafe impl<A: Fix, B: Fix, C: Fix> Fix for (A, B, C) {
 
 /// A pointer that may be null is read as one that may be null, and as one that may not when it is
 /// not, checked at run time; text as text.
+// Tuples of the `Rust` representation, read as other tuples: the `unstable` feature.
+#[cfg(feature = "unstable")]
 #[test]
 fn null_and_text() {
   let mut b = Builder::new();
@@ -490,6 +494,8 @@ fn pointers_are_read_as_bytes() {
   assert_eq!(puns::as_bytes(&*r), [1, 2, 0, 0, 0, 0xf8, 0xff, 0xff, 0xff]);
   assert_eq!(puns::head_ref::<Table, u8>(&r), &1);
   assert_eq!(puns::tail_ref::<Table, i32le>(&r).get(), -8);
+  // Where the `bool` of the tuple is: the `unstable` feature.
+  #[cfg(feature = "unstable")]
   assert_eq!(puns::try_pun_ref::<Table, (bool, [u8; 8])>(&r).map(|pair| pair.0), Ok(true));
   assert_eq!(r.seq(&r.numbers)[0].get(), 3);
 }

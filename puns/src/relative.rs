@@ -167,6 +167,12 @@ pub unsafe trait SelfRelative: Sized {
 /// `Layout::nullable` checks where it is used (an offset of no niche makes `Option` larger, and
 /// does not compile there).
 ///
+/// That `None` is the zeros is what `rustc` does; Rust documents it of a `repr(transparent)`
+/// struct around a `NonZero` ("Representation" in `core::option`), which is how a pointer is
+/// declared for `Option` of it to be the same with every compiler. This crate cannot see the
+/// `repr` of the type: it takes `Option` of it as the same pointer, with or without the
+/// `unstable` feature (see [`layout::UNSTABLE`](crate::layout::UNSTABLE)).
+///
 /// The items of `Pun` are not written by hand: they are this crate's own, and may change.
 ///
 /// ```

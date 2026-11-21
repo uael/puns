@@ -46,6 +46,12 @@ use crate::{
 };
 
 const LARGER: &str = "behind a pointer, the target is larger than what it is read from";
+const UNSPECIFIED: &str = "behind a pointer, the pun depends on a part of the source or of the \
+                           target whose layout Rust does not keep from one compilation to the \
+                           next (a struct or a tuple of the `Rust` representation, an enum \
+                           without `repr`): only the same type at the same place proves \
+                           it.\nAdd `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the \
+                           `unstable` feature of `puns`";
 const UNINIT: &str = "behind a pointer, a byte that the target requires to be initialized is \
                       padding in what it is read from";
 const UNPROVEN: &str = "behind a pointer, a pointer of the target is not a pointer of the source \
@@ -141,6 +147,9 @@ pub const fn behind<X: Pun, Y: Pun>(fuel: usize) -> Option<&'static str> {
   let Analysis { fit, relation, .. } = analyze(&X::LAYOUT, &Y::LAYOUT);
   if !fit.shrink {
     return Some(LARGER);
+  }
+  if relation.unspecified.is_some() {
+    return Some(UNSPECIFIED);
   }
   if relation.uninit.is_some() {
     return Some(UNINIT);

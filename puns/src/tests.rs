@@ -16,6 +16,9 @@ fn verdict<S: ?Sized + Pun, D: ?Sized + Pun>() -> String {
     Exact::Never(why) => return format!("never: {why}"),
   };
   let relation = match () {
+    () if a.relation.unspecified.is_some() => {
+      return format!("unspecified at {}", a.relation.unspecified.unwrap());
+    }
     () if a.relation.uninit.is_some() => {
       return format!("uninit at {}", a.relation.uninit.unwrap());
     }
@@ -79,6 +82,26 @@ fn scalars() {
   assert_eq!(verdict::<u8, u16>(), "never: the source is smaller than the target");
   assert_eq!(verdict::<Enum3, NonZero<u32>>(), "infallible");
   assert_eq!(verdict::<NonZero<u32>, Enum3>(), "fallible at 0, mutable");
+}
+
+/// A struct with a rule, `a < b`.
+#[derive(Pun)]
+#[repr(C)]
+#[pun(crate, assert(a < b))]
+struct Ruled {
+  a: u8,
+  b: u8,
+}
+
+/// The rule of a field holds of the bytes where the field is: in a tuple, which Rust may order
+/// otherwise, it is not of the same bytes in every layout.
+#[test]
+fn a_rule_of_a_field_is_where_the_field_is() {
+  assert!(!<(Ruled, [u8; 2])>::LAYOUT.is_specified());
+  assert!(<(Ruled, Ruled)>::LAYOUT.is_specified());
+  if !crate::layout::UNSTABLE {
+    assert_eq!(verdict::<[u8; 4], (Ruled, [u8; 2])>(), "unspecified at 0");
+  }
 }
 
 #[test]
@@ -172,6 +195,9 @@ fn tail<S: ?Sized + Pun, D: ?Sized + Pun>() -> String {
     return format!("never: {why}");
   }
   let relation = match () {
+    () if a.relation.unspecified.is_some() => {
+      format!("unspecified at {}", a.relation.unspecified.unwrap() - shift)
+    }
     () if a.relation.uninit.is_some() => {
       format!("uninit at {}", a.relation.uninit.unwrap() - shift)
     }
@@ -618,9 +644,11 @@ fn a_crc_a_byte_at_a_time_is_the_same() {
   use crate::layout::Crc;
   static CRCS: [Crc; 3] =
     [Crc::CRC32, Crc::new(16, 0x8005, 0xffff, true, 0), Crc::new(15, 0x4599, 0, false, 0)];
+  // Under Miri, the lengths around the blocks of sixteen bytes; natively, every one up to 70.
+  let lengths: Vec<usize> = if cfg!(miri) { vec![0, 1, 15, 16, 17, 33] } else { (0..70).collect() };
   for crc in &CRCS {
     let bytes: Vec<u8> = (0..70u32).map(|i| (i.wrapping_mul(97) ^ 0x5a) as u8).collect();
-    for len in 0..bytes.len() {
+    for len in lengths.iter().copied() {
       assert_eq!(crc.check(&bytes[..len]), crc.bytewise(&bytes[..len]), "{len} bytes");
     }
   }
@@ -644,4 +672,88 @@ fn patterns_are_the_same_by_their_states() {
   assert!(!pattern(AGAIN).equals(&pattern(Dfa::UTF8)));
   assert!(Dfa::UTF8.is_utf8());
   assert!(!ANY.is_utf8() && !AGAIN.is_utf8());
+}
+
+/// A check reads the bytes of the source that every layout has there: not those of a struct
+/// whose fields Rust may put in another order, though every order makes the same bytes.
+#[test]
+fn a_check_reads_what_every_layout_has_there() {
+  // Proven in every layout, whichever field is where.
+  assert_eq!(verdict::<(u8, u8), [u8; 2]>(), "infallible, mutable");
+  assert_eq!(verdict::<(bool, bool), [bool; 2]>(), "infallible, mutable");
+  // What is checked is of a struct of the `C` representation, or of the target only.
+  assert_eq!(verdict::<Pair<u8, (u8, u8)>, Pair<bool, [u8; 2]>>(), "fallible at 0, mutable");
+  assert_eq!(verdict::<[u8; 2], (bool, bool)>(), "fallible at 0, mutable");
+  // The check of a `bool`, of a `NonZero` or of the rule would read one field or the other.
+  let moved = [
+    verdict::<(u8, u8), [bool; 2]>(),
+    verdict::<(u8, u8), (bool, bool)>(),
+    verdict::<(u16, u16), [NonZero<u16>; 2]>(),
+    verdict::<(u8, u8), Pair<bool, u8>>(),
+    verdict::<(bool, u8), Pair<bool, u8>>(),
+    verdict::<(u8, u8), Ruled>(),
+    verdict::<Pair<u8, (u8, u8)>, Pair<u8, Pair<bool, u8>>>(),
+    // An element of two bytes of fields of one: `[b, x, y, z]` or `[x, y, z, b]`.
+    verdict::<(bool, [u8; 3]), [NonZero<u16>; 2]>(),
+  ];
+  if crate::layout::UNSTABLE {
+    assert_eq!(
+      moved,
+      [
+        "fallible at 0, mutable",
+        "fallible at 0, mutable",
+        "fallible at 0, mutable",
+        "fallible at 0, mutable",
+        "infallible, mutable",
+        "fallible at 0, mutable",
+        "fallible at 1, mutable",
+        "fallible at 0",
+      ]
+    );
+  } else {
+    assert_eq!(
+      moved,
+      [
+        "unspecified at 0",
+        "unspecified at 0",
+        "unspecified at 0",
+        "unspecified at 0",
+        "unspecified at 0",
+        "unspecified at 0",
+        "unspecified at 1",
+        "unspecified at 0"
+      ]
+    );
+  }
+}
+
+/// Declares a struct in each of two functions, at one place: the place of the outermost macro
+/// call, which `line!()` and `column!()` give of both.
+macro_rules! one_in_each {
+  () => {
+    fn first() -> &'static crate::layout::Layout {
+      #[derive(Pun)]
+      #[pun(crate)]
+      struct Pair(u8, u16);
+      &Pair::LAYOUT
+    }
+    fn second() -> &'static crate::layout::Layout {
+      #[derive(Pun)]
+      #[pun(crate)]
+      struct Pair(u8, u16);
+      &Pair::LAYOUT
+    }
+  };
+}
+
+one_in_each!();
+
+/// Two types declared at one place are two types: what `rustc` makes of one is not what it makes
+/// of the other, and they prove nothing of each other.
+#[test]
+fn two_types_at_one_place_are_two() {
+  assert!(!first().id.equals(&second().id));
+  if !crate::layout::UNSTABLE {
+    assert!(!analyze(first(), second()).relation.infallible());
+  }
 }

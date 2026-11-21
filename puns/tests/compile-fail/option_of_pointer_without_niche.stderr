@@ -27,8 +27,8 @@ note: inside `puns::layout::Layout::nullable::<relative::One<u32>, u32>`
 note: erroneous constant encountered
  --> src/std_enums.rs
   |
-  |   const LAYOUT: Layout = match T::OPTION {
-  |                                ^^^^^^^^^
+  |   const LAYOUT: Layout = if let Some(layout) = T::OPTION {
+  |                                                ^^^^^^^^^
 
 note: erroneous constant encountered
  --> tests/compile-fail/option_of_pointer_without_niche.rs:8:10

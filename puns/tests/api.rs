@@ -9,6 +9,7 @@ use puns::{
 };
 
 /// An enum of the default representation: the compiler chooses its size and its values.
+#[cfg(feature = "unstable")]
 #[derive(Pun, Debug, Copy, Clone, PartialEq)]
 enum Level {
   Low,
@@ -32,6 +33,7 @@ enum Wide {
 }
 
 /// A struct of the default representation: the compiler chooses the order of its fields.
+#[cfg(feature = "unstable")]
 #[derive(Pun, Debug, Copy, Clone, PartialEq)]
 struct Rust {
   flag: bool,
@@ -71,8 +73,6 @@ fn by_value() {
   assert_eq!(pun::<NonZero<u8>, Option<NonZero<u8>>>(NonZero::new(3).unwrap()), NonZero::new(3));
   assert_eq!(head::<u32, [u8; 2]>(u32::from_ne_bytes([1, 2, 3, 4])), [1, 2]);
 
-  assert_eq!(try_pun::<u8, Level>(1), Ok(Level::Mid));
-  assert_eq!(try_pun::<u8, Level>(3), Err(Error::Validity));
   assert_eq!(try_pun::<u8, Sign>(0xff), Ok(Sign::Minus));
   assert_eq!(try_pun::<i8, Sign>(2), Err(Error::Validity));
   assert_eq!(try_pun::<u16, Wide>(0xfffe), Ok(Wide::B));
@@ -80,12 +80,28 @@ fn by_value() {
   assert_eq!(try_pun::<u32, char>(0x1f980), Ok('🦀'));
   assert_eq!(try_pun::<u32, char>(0xd800), Err(Error::Validity));
   assert_eq!(try_pun::<u16, NonZero<u16>>(0), Err(Error::Validity));
+}
+
+/// The layouts that the compiler chose: the values of `Level`, the order of the fields of
+/// `Rust`, which Rust lets it choose otherwise (the `unstable` feature).
+#[cfg(feature = "unstable")]
+#[test]
+fn default_representation() {
+  assert_eq!(try_pun::<u8, Level>(1), Ok(Level::Mid));
+  assert_eq!(try_pun::<u8, Level>(3), Err(Error::Validity));
   // Whatever the order the compiler chose for the fields.
   let rust = Rust { flag: true, word: 0xdead_beef, level: Level::High, bytes: [7, 8] };
   assert_eq!(try_pun::<[u8; 8], Rust>(pun(rust)), Ok(rust));
   let mut bytes: [u8; 8] = pun(rust);
   bytes.fill(0xff);
   assert_eq!(try_pun::<[u8; 8], Rust>(bytes), Err(Error::Validity));
+  // Enums, in slices.
+  assert_eq!(
+    try_pun_ref::<[u8], [Level]>(&[0, 1, 2]),
+    Ok(&[Level::Low, Level::Mid, Level::High][..])
+  );
+  assert_eq!(try_pun_ref::<[u8], [Level]>(&[0, 1, 3]), Err(Error::Validity));
+  assert_eq!(pun_ref::<[Level], [u8]>(&[Level::High]), &[2]);
 }
 
 #[test]
@@ -126,14 +142,6 @@ fn by_reference() {
   assert_eq!(as_bytes(padded), bytes);
   let (padded, rest) = from_head::<Padded>(&bytes[..7]).unwrap();
   assert_eq!((padded.tail.len(), rest.len()), (0, 3));
-
-  // Enums, in slices.
-  assert_eq!(
-    try_pun_ref::<[u8], [Level]>(&[0, 1, 2]),
-    Ok(&[Level::Low, Level::Mid, Level::High][..])
-  );
-  assert_eq!(try_pun_ref::<[u8], [Level]>(&[0, 1, 3]), Err(Error::Validity));
-  assert_eq!(pun_ref::<[Level], [u8]>(&[Level::High]), &[2]);
 }
 
 #[test]
@@ -161,6 +169,8 @@ fn rules() {
   assert_eq!(pun_ref::<Checked, Checked>(checked), checked);
 }
 
+// `Level` has no `repr`: what its values are is the `unstable` feature.
+#[cfg(feature = "unstable")]
 #[test]
 fn in_const() {
   const BYTES: [u8; 4] = pun(0x0102_0304_u32.to_be());

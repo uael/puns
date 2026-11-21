@@ -26,10 +26,13 @@ jobs:
           toolchain: 1.100.0
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # Optimized: the `model` profile is the release one without LTO.
+      # Optimized: the `model` profile is the release one without LTO. Without the `unstable`
+      # feature, then with it: `puns` takes the layout that `rustc` chose, other verdicts.
       - run: cargo test --profile model -p puns-model --features full
+      - run: cargo test --profile model -p puns-model --features full,unstable
       # The tests that CI does not build on a push.
       - run: cargo clippy -p puns-model --tests --features full -- -D warnings
+      - run: cargo clippy -p puns-model --tests --features full,unstable -- -D warnings
       # What pointers aim at is proven by functions that are named and never called (`deep.rs`):
       # their `const` blocks are evaluated because the compiler makes whatever is named, which
       # the compile-fail tests hold it to in a debug build. Here in an optimized one, with LTO:

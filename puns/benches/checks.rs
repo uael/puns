@@ -1,9 +1,9 @@
 //! The time of what `puns` checks at run time, next to the same check written by hand.
 //!
 //! ```text
-//! cargo bench -p puns --bench checks              # every case
-//! cargo bench -p puns --bench checks -- ipv6      # the cases whose name has `ipv6`
-//! cargo bench -p puns --bench checks -- '=sum16, 1500 bytes'  # the case of that name only
+//! cargo bench -p puns --features unstable --bench checks              # every case
+//! cargo bench -p puns --features unstable --bench checks -- ipv6      # the cases whose name has `ipv6`
+//! cargo bench -p puns --features unstable --bench checks -- '=sum16, 1500 bytes'  # the case of that name only
 //! ```
 //!
 //! Each case is a check made by `puns` and the same check written by hand, the way a careful

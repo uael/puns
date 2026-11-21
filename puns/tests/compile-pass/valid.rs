@@ -24,7 +24,7 @@ enum Unspecified {
 }
 
 fn main() {
-  let _: &[u8; 4] = puns::pun_ref(&(0u8, 0u8, 0u16));
+  let _: &[u8; 4] = puns::pun_ref(&(0u8, 0u8, [0u8; 2]));
   let _: &str = puns::try_pun_ref(&[b'a'; 4][..]).unwrap();
   let _ = puns::try_pun::<puns::num::u8c<1>, bool>(u8c::new());
   let _: bool = puns::try_pun(1u8).unwrap();

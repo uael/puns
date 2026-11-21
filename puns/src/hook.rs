@@ -30,6 +30,13 @@ impl Verdict {
   pub fn why(&self) -> &str {
     core::str::from_utf8(self.why.0.split_at(self.why.1).0).unwrap_or("(not UTF-8)")
   }
+
+  /// Whatever `try_pun_ref` does not compile because the pun depends on what Rust does not keep
+  /// of a layout: without the `unstable` feature, by design.
+  #[must_use]
+  pub fn unspecified(&self) -> bool {
+    self.why().contains(crate::UNSPECIFIED)
+  }
 }
 
 /// Whatever the pun from `S` to `D` meets the `need`.

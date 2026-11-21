@@ -484,6 +484,154 @@ pub(crate) enum Uniform {
   Any,
 }
 
+/// What a layout keeps in every layout that Rust allows for its type (section 12 of the design):
+/// the compiler may arrange a struct or a tuple of the `Rust` representation, or an enum without
+/// `repr`, otherwise in its next version (or with `-Zrandomize-layout`).
+///
+/// A layout that is not `fixed` is, without the `unstable` feature, *opaque* to the analysis: it
+/// is known as a source by what every arrangement of it has (`init`), and only proves itself as a
+/// target (the same type at the same place, [`Id`]).
+#[derive(Copy, Clone, Debug)]
+#[expect(clippy::struct_excessive_bools, reason = "five facts of a layout, each asked alone")]
+pub(crate) struct Stable {
+  /// The offsets of its parts and its size are the same in every layout that Rust allows, given
+  /// the sizes of its parts, or every layout of it is the same bytes (see [`Layout::rust`]): it
+  /// may be looked into.
+  pub(crate) fixed: bool,
+  /// Every byte of a value is of the same part in every layout that Rust allows. Not of a layout
+  /// that is not `fixed`, nor of a struct whose orders all make the same bytes (`(u8, u8)`): the
+  /// bytes are the same, but which field each holds is not, so what a check reads of a value is
+  /// not either.
+  pub(crate) ordered: bool,
+  /// Its size is the same in every layout that Rust allows.
+  pub(crate) size: bool,
+  /// Nothing in it, at any depth, is not `fixed`.
+  pub(crate) deep: bool,
+  /// Of a layout that is not `fixed`: its bytes are initialized in every layout that Rust allows.
+  pub(crate) init: bool,
+}
+
+impl Stable {
+  /// A layout that Rust specifies, of parts that it specifies.
+  pub(crate) const FIXED: Self =
+    Self { fixed: true, ordered: true, size: true, deep: true, init: false };
+
+  /// A layout of which Rust specifies nothing but the size, if `size`.
+  const fn opaque(size: bool, init: bool) -> Self {
+    Self { fixed: false, ordered: false, size, deep: false, init: size && init }
+  }
+
+  /// Of a node whose own offsets are computed from the sizes and the alignments of its `parts`
+  /// (`repr(C)`, an array...): fixed if their sizes are.
+  const fn of_parts(parts: &[Field]) -> Self {
+    let (mut size, mut deep, mut i) = (true, true, 0);
+    while i < parts.len() {
+      size &= parts[i].layout.stable.size;
+      deep &= parts[i].layout.stable.deep;
+      i += 1;
+    }
+    Self { fixed: size, ordered: size, size, deep: size && deep, init: false }
+  }
+
+  /// Of an enum of a representation that Rust specifies, or of a union: its variants are
+  /// `repr(C)` structs, whose offsets are computed from the sizes of their fields.
+  const fn of_variants(variants: &[Variant]) -> Self {
+    let (mut size, mut deep, mut i) = (true, true, 0);
+    while i < variants.len() {
+      let fields = variants[i].layout.stable;
+      size &= fields.size;
+      deep &= fields.deep;
+      i += 1;
+    }
+    Self { fixed: size, ordered: size, size, deep: size && deep, init: false }
+  }
+
+  /// Of a node of one part (the element of an array), as [`Stable::of_parts`].
+  const fn of_part(part: &Layout) -> Self {
+    let size = part.stable.size;
+    Self { fixed: size, ordered: size, size, deep: size && part.stable.deep, init: false }
+  }
+}
+
+/// The identity of a type, which tells two types apart where their layouts may be the same.
+///
+/// A type has one layout in a program, but two types, however similar (`u8` and `i8`, two
+/// structs of the same fields), may be arranged otherwise (`core::mem::offset_of!`, "Layout is
+/// subject to change"). Stable Rust does not compare types in `const`: this is a name, and the
+/// identities of the parameters that make the type.
+///
+/// [`Id::NONE`] is the identity of a type that has none (a generic type that derives `Pun`, a
+/// `Scalar` implemented by hand): it is equal to none, not even itself. Where two types have
+/// the same identity, the analysis still requires their layouts to be the same: an identity
+/// only ever refuses.
+#[doc(hidden)]
+#[derive(Copy, Clone, Debug)]
+pub struct Id {
+  name: &'static str,
+  args: &'static [Id],
+  len: usize,
+}
+
+impl Id {
+  /// No identity.
+  pub const NONE: Self = Self { name: "", args: &[], len: 0 };
+
+  /// The type `name`, of the types whose identities are `args`.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn new(name: &'static str, args: &'static [Id]) -> Self {
+    Self { name, args, len: 0 }
+  }
+
+  /// The type `name` of a length (an array).
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn sized(name: &'static str, args: &'static [Id], len: usize) -> Self {
+    Self { name, args, len }
+  }
+
+  /// Whatever the type has an identity: it and its parameters have names.
+  const fn known(&self) -> bool {
+    if self.name.is_empty() {
+      return false;
+    }
+    let mut i = 0;
+    while i < self.args.len() {
+      if !self.args[i].known() {
+        return false;
+      }
+      i += 1;
+    }
+    true
+  }
+
+  /// Whatever `self` and `other` are the identity of the same type.
+  pub(crate) const fn equals(&self, other: &Id) -> bool {
+    if !self.known() || !other.known() || self.len != other.len {
+      return false;
+    }
+    let (a, b) = (self.name.as_bytes(), other.name.as_bytes());
+    if a.len() != b.len() || self.args.len() != other.args.len() {
+      return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+      if a[i] != b[i] {
+        return false;
+      }
+      i += 1;
+    }
+    let mut i = 0;
+    while i < self.args.len() {
+      if !self.args[i].equals(&other.args[i]) {
+        return false;
+      }
+      i += 1;
+    }
+    true
+  }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum Kind {
   Scalar(Spec),
@@ -1393,6 +1541,10 @@ pub struct Layout {
   pub(crate) uniform: Uniform,
   /// Whatever a struct of the layout has rules.
   pub(crate) has_rules: bool,
+  /// What it keeps in every layout that Rust allows for its type.
+  pub(crate) stable: Stable,
+  /// The identity of its type.
+  pub(crate) id: Id,
 }
 
 /// What [`validate`](crate::validate) has to do for a type.
@@ -1461,6 +1613,25 @@ const NO_TAG: Layout = Layout::scalar::<()>(Spec::any::<()>());
 
 /// What [`Layout::PIN`] is made of.
 fn pin<T>(_: T) {}
+
+/// Whether the `unstable` feature is on: `puns` then takes the layout that `rustc` chose, as it is.
+///
+/// Without it, nothing that `puns` does depends on what Rust lets the compiler choose otherwise
+/// (in its next version, or with `-Zrandomize-layout`): the order of the fields of a struct or of
+/// a tuple of the `Rust` representation, where the tag of an enum without `repr` is and its values,
+/// the niches of `Option` and `Result` but where `core` documents them. A pun compiles only if
+/// what it does, what it checks and which values it accepts are the same in every layout that
+/// Rust allows. With it, what compiles without it compiles and does the same, and more compiles.
+/// See "What Rust keeps of a layout" in `DESIGN.md`.
+pub const UNSTABLE: bool = cfg!(feature = "unstable");
+
+/// What a function of [`Visit`](crate::Visit) says, at compile time, of a type of which something
+/// that it would check, or a pointer, is at a place that Rust does not keep.
+pub(crate) const VISIT_UNSPECIFIED: &str = "the type has a part whose layout Rust does not keep \
+  from one compilation to the next (a struct or a tuple of the `Rust` representation, an enum \
+  without `repr`), and something to check or a pointer in it, which would be at another place \
+  with another compiler.\nAdd `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the \
+  `unstable` feature of `puns`";
 
 impl Layout {
   /// The types that the code that `#[derive(Pun)]` generates names by their path in the crate
@@ -1597,6 +1768,8 @@ impl Layout {
         Valid::In(_) => Uniform::No,
       },
       has_rules: false,
+      stable: Stable::FIXED,
+      id: Id::NONE,
     }
   }
 
@@ -1616,6 +1789,8 @@ impl Layout {
         Valid::In(_) => Uniform::No,
       },
       has_rules: false,
+      stable: Stable::FIXED,
+      id: Id::NONE,
     }
   }
 
@@ -1711,6 +1886,8 @@ impl Layout {
       leaves: 1,
       uniform: Uniform::No,
       has_rules: false,
+      stable: Stable::FIXED,
+      id: Id::NONE,
     }
   }
 
@@ -1737,6 +1914,8 @@ impl Layout {
       leaves: 0,
       uniform: Uniform::Pad,
       has_rules: false,
+      stable: Stable::FIXED,
+      id: Id::NONE,
     }
   }
 
@@ -1772,6 +1951,8 @@ impl Layout {
       leaves: 1,
       uniform: Uniform::No,
       has_rules: false,
+      stable: Stable::FIXED,
+      id: Id::NONE,
     }
   }
 
@@ -1995,6 +2176,9 @@ impl Layout {
       leaves: elem.leaves,
       uniform: elem.uniform,
       has_rules: elem.has_rules,
+      // Its elements are at multiples of their size.
+      stable: Stable::of_part(elem),
+      id: Id::NONE,
     }
   }
 
@@ -2033,6 +2217,8 @@ impl Layout {
       leaves: elem.leaves,
       uniform: elem.uniform,
       has_rules: elem.has_rules,
+      stable: Stable::of_part(elem),
+      id: Id::NONE,
     }
   }
 
@@ -2130,7 +2316,10 @@ impl Layout {
           leaves,
           uniform,
           has_rules,
+          stable: Stable::FIXED,
+          id: Id::NONE,
         };
+        let this = Self { stable: this.specified_stable(), ..this };
         let mut i = 0;
         while i < rules.len() {
           assert!(
@@ -2156,7 +2345,10 @@ impl Layout {
           leaves,
           uniform: Uniform::No,
           has_rules,
+          stable: Stable::FIXED,
+          id: Id::NONE,
         };
+        let this = Self { stable: this.specified_stable(), ..this };
         // Check the size model against the compiler.
         let mut len = 0;
         while len <= 8 {
@@ -2228,6 +2420,8 @@ impl Layout {
       leaves,
       uniform: Uniform::No,
       has_rules,
+      stable: Stable::of_parts(fields),
+      id: Id::NONE,
     }
   }
 
@@ -2338,6 +2532,320 @@ impl Layout {
       uniform: Uniform::No,
       // What the fields of the variants require is a matter of the enum as a whole.
       has_rules: false,
+      stable: Stable::of_variants(layout.variants),
+      id: Id::NONE,
+    }
+  }
+
+  // -----------------------------------------------------------------------------------------------
+  // What every layout that Rust allows has (section 12 of the design)
+
+  /// The same layout, of the type whose identity is `id` (see [`Id`]).
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn identified(self, id: Id) -> Self {
+    Self { id, ..self }
+  }
+
+  /// The same layout, of a type of which Rust specifies nothing but, if it is 0, the size: an
+  /// enum without `repr` (with fields or not), `Option` and `Result` but where `core` documents
+  /// them.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn unspecified(self) -> Self {
+    // An enum without variants, or of one variant whose fields have no size, has none.
+    Self { stable: Stable::opaque(self.size == 0, true), ..self }
+  }
+
+  /// The same layout, of the size of the type of `like`, which Rust keeps where it keeps the
+  /// size of `like`: `MaybeUninit<T>`.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn sized_like(self, like: &Layout) -> Self {
+    let size = like.stable.size;
+    Self { stable: Stable { fixed: size, ordered: size, size, deep: size, init: false }, ..self }
+  }
+
+  /// What is kept of a struct whose offsets are the ones that its representation specifies
+  /// (`repr(C)`, `repr(transparent)`): they are computed from the sizes and the alignments of its
+  /// fields, so they are kept if these are. A rule that reads bytes of it by offset reads the
+  /// same thing in every layout only if its fields are kept too, at any depth.
+  const fn specified_stable(&self) -> Stable {
+    let Kind::Struct(fields, _) = self.kind else { panic!("not a struct") };
+    let stable = Stable::of_parts(fields);
+    if self.rules_read_bytes() && !stable.deep {
+      return Stable::opaque(stable.size, false);
+    }
+    stable
+  }
+
+  /// Of a struct: whatever the size of every field is a multiple of the greatest alignment of a
+  /// field (as the struct lowers it, if it is `packed(N)`), so that the fields of a size are one
+  /// right after the other in every order, without padding between them.
+  pub(crate) const fn tiled(&self) -> bool {
+    let Kind::Struct(fields, _) = self.kind else { panic!("not a struct") };
+    let (mut align, mut i) = (1, 0);
+    while i < fields.len() {
+      // The alignment of the struct is at most `N`: the one of a field, lowered to it.
+      let field = fields[i].layout.align;
+      let field = if field < self.align { field } else { self.align };
+      if field > align {
+        align = field;
+      }
+      i += 1;
+    }
+    let mut i = 0;
+    while i < fields.len() {
+      if !fields[i].layout.size.is_multiple_of(align) {
+        return false;
+      }
+      i += 1;
+    }
+    true
+  }
+
+  /// The same layout, of a struct or a tuple of the `Rust` representation, packed to `pack`
+  /// (`usize::MAX`: not packed).
+  ///
+  /// Rust only says of it that each field is at a multiple of its alignment and that the fields
+  /// do not overlap. `rustc` places them one after the other, each at the first offset that its
+  /// alignment allows, in an order that it chooses: the one that `-Zrandomize-layout` draws at
+  /// random. What is the same in every order is kept:
+  ///
+  /// - the whole layout, if every order makes the same bytes: one field has a size (it is at 0,
+  ///   and no rule reads bytes by offset); or the fields that have one are all multiples of the
+  ///   alignment of every field (no padding between them, whatever their order), and are all
+  ///   bytes of any value without a rule in them, or all the same layout (`(u8, [u8; 3])`,
+  ///   `(bool, bool)`), and the struct has no rule (a rule names fields: `a < b` holds of other
+  ///   bytes in another order, and a rule of a field holds of the bytes where the field is);
+  /// - else its size, if every order makes the one that `rustc` chose, and whatever its bytes
+  ///   are all initialized in every order: the struct is then *opaque* (see [`Stable`]). Orders
+  ///   are tried for up to 6 fields that matter (a size, or an alignment greater than 1); past
+  ///   that, unless the fields need no padding in any order, the size is not kept.
+  ///
+  /// # Panics
+  /// If `self` is not the layout of a sized struct.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn rust(self, pack: usize) -> Self {
+    let Kind::Struct(fields, rules) = self.kind else { panic!("not a struct") };
+    assert!(!self.unsized_, "a struct of the `Rust` representation is sized");
+    let parts = Stable::of_parts(fields);
+    if !parts.size {
+      // A field whose size is not kept: nor is the size of the struct.
+      return Self { stable: Stable::opaque(false, false), ..self };
+    }
+    // The fields that matter to the order: of a size, or aligned to more than 1.
+    let (mut sized, mut sum, mut init, mut i) = (0, 0, true, 0);
+    let (mut all_any, mut all_same) = (true, true);
+    let mut first: Option<&Layout> = None;
+    while i < fields.len() {
+      let field = fields[i].layout;
+      if field.size > 0 {
+        sized += 1;
+        sum += field.size;
+        init &= field.always_init();
+        // Of no rule either: one in a field is checked where the field is, which is its order.
+        all_any &= matches!(field.uniform, Uniform::Any) && !field.has_rules;
+        match first {
+          None => {
+            all_same &= field.stable.deep;
+            first = Some(field);
+          }
+          // The same layout, which no other build may arrange otherwise.
+          Some(first) => all_same &= first.stable.deep && field.stable.deep && first.equals(field),
+        }
+      }
+      i += 1;
+    }
+    let tiled = self.tiled();
+    let Some(tiled_size) = round_up(sum, self.align) else { panic!("struct is too large") };
+    let same_bytes = !self.rules_read_bytes()
+      && match sized {
+        0 => true,
+        // At 0: nothing of a size is before it.
+        1 => {
+          let mut i = 0;
+          while fields[i].layout.size == 0 {
+            i += 1;
+          }
+          fields[i].offset == 0 && tiled_size == self.size
+        }
+        // A rule names fields: which bytes it holds of depends on their order.
+        _ => rules.is_empty() && tiled && (all_any || all_same) && tiled_size == self.size,
+      };
+    if same_bytes {
+      return Self {
+        // One part of a size is at 0 in every layout; more are in some order.
+        stable: Stable {
+          fixed: true,
+          ordered: sized <= 1,
+          size: true,
+          deep: parts.deep,
+          init: false,
+        },
+        ..self
+      };
+    }
+    let (size, padded) =
+      if tiled { (tiled_size == self.size, tiled_size != sum) } else { self.orders(fields, pack) };
+    Self { stable: Stable::opaque(size, init && !padded), ..self }
+  }
+
+  /// Of a struct of the `Rust` representation whose `fields` are packed to `pack`: whatever every
+  /// order of its fields makes its size, and whatever one of them leaves padding.
+  const fn orders(&self, fields: &[Field], pack: usize) -> (bool, bool) {
+    // (size, alignment) of the fields that matter, at most 6.
+    let mut items = [(0usize, 1usize); 6];
+    let (mut n, mut i) = (0, 0);
+    while i < fields.len() {
+      let field = fields[i].layout;
+      let field_align = if field.align < pack { field.align } else { pack };
+      if field.size > 0 || field_align > 1 {
+        if n == items.len() {
+          return (false, true);
+        }
+        items[n] = (field.size, field_align);
+        n += 1;
+      }
+      i += 1;
+    }
+    // Every order, by Heap's algorithm.
+    let mut order = [0, 1, 2, 3, 4, 5];
+    let mut counters = [0usize; 6];
+    let (mut same, mut padded) = self.place(&items, &order, n);
+    let mut i = 1;
+    while i < n {
+      if counters[i] < i {
+        let j = if i % 2 == 0 { 0 } else { counters[i] };
+        (order[j], order[i]) = (order[i], order[j]);
+        let (size, pad) = self.place(&items, &order, n);
+        same &= size;
+        padded |= pad;
+        counters[i] += 1;
+        i = 1;
+      } else {
+        counters[i] = 0;
+        i += 1;
+      }
+    }
+    (same, padded)
+  }
+
+  /// Of the fields `items` placed in `order`, each at the first offset that its alignment allows:
+  /// whatever the struct has the size of `self`, and whatever there is padding.
+  const fn place(&self, items: &[(usize, usize); 6], order: &[usize; 6], n: usize) -> (bool, bool) {
+    let (mut end, mut padded, mut i) = (0usize, false, 0);
+    while i < n {
+      let (size, align) = items[order[i]];
+      let Some(offset) = round_up(end, align) else { return (false, true) };
+      padded |= offset != end;
+      end = offset + size;
+      i += 1;
+    }
+    match round_up(end, self.align) {
+      Some(size) => (size == self.size, padded || size != end),
+      None => (false, true),
+    }
+  }
+
+  /// Whatever the analysis does not look into the layout, without the `unstable` feature: it is
+  /// not the same in every layout that Rust allows. But for bytes that are all of any value, or
+  /// all padding, in every layout of it (its size is kept, and it has no rule, which would name
+  /// fields): what they are does not depend on where its fields are.
+  pub(crate) const fn is_opaque(&self) -> bool {
+    let same_bytes =
+      self.stable.size && !self.has_rules && matches!(self.uniform, Uniform::Any | Uniform::Pad);
+    !UNSTABLE && !self.stable.fixed && !same_bytes
+  }
+
+  /// Whatever every byte of a value is initialized, in every layout that Rust allows: as
+  /// [`Layout::is_plain`], where what is not kept counts for what it is in every layout.
+  pub(crate) const fn always_init(&self) -> bool {
+    if !self.stable.fixed {
+      return self.stable.init;
+    }
+    match self.kind {
+      Kind::Scalar(spec) => !spec.may_be_uninit(),
+      Kind::Array(elem, _) => elem.always_init(),
+      Kind::Struct(fields, _) => {
+        let (mut i, mut covered) = (0, 0);
+        while i < fields.len() {
+          if fields[i].layout.size > 0 {
+            if fields[i].offset != covered || !fields[i].layout.always_init() {
+              return false;
+            }
+            covered += fields[i].layout.size;
+          }
+          i += 1;
+        }
+        !self.unsized_ && covered == self.size
+      }
+      Kind::Slice(_) | Kind::Pattern(_) | Kind::Enum(_) | Kind::Pointer(_) => false,
+    }
+  }
+
+  /// Whatever the layout keeps everything in every layout that Rust allows, at any depth: what
+  /// [`validate_in`](crate::validate_in) checks of it is then the same in all.
+  ///
+  /// ```
+  /// use puns::Pun;
+  ///
+  /// #[derive(Pun)]
+  /// #[repr(C)]
+  /// struct Header {
+  ///   kind: u8,
+  ///   len: u16,
+  /// }
+  ///
+  /// // `repr(C)` places the fields in order.
+  /// assert!(Header::LAYOUT.is_specified());
+  /// // The same bytes in either order of the fields.
+  /// assert!(<(u8, u8)>::LAYOUT.is_specified());
+  /// // The padding byte is before the `u16` or after it.
+  /// assert!(!<(u8, u16)>::LAYOUT.is_specified());
+  /// ```
+  #[must_use]
+  pub const fn is_specified(&self) -> bool {
+    self.stable.deep
+  }
+
+  /// Whatever nothing that is not kept in every layout that Rust allows, at any depth, has
+  /// something to check or a pointer: what [`validate_in`](crate::validate_in) and the other
+  /// functions of [`Visit`](crate::Visit) do with a value of the layout is then the same in all.
+  pub(crate) const fn checks_kept(&self) -> bool {
+    if UNSTABLE {
+      return true;
+    }
+    if self.stable.deep {
+      return true;
+    }
+    if !self.stable.fixed {
+      return self.leaves == 0 && !self.has_pointers();
+    }
+    match self.kind {
+      Kind::Array(elem, _) | Kind::Slice(elem) => elem.checks_kept(),
+      Kind::Struct(fields, _) => {
+        let mut i = 0;
+        while i < fields.len() {
+          if !fields[i].layout.checks_kept() {
+            return false;
+          }
+          i += 1;
+        }
+        true
+      }
+      Kind::Enum(layout) => {
+        let mut i = 0;
+        while i < layout.variants.len() {
+          if !layout.variants[i].layout.checks_kept() {
+            return false;
+          }
+          i += 1;
+        }
+        true
+      }
+      Kind::Scalar(_) | Kind::Pattern(_) | Kind::Pointer(_) => true,
     }
   }
 
@@ -2398,6 +2906,8 @@ impl Layout {
       leaves: 1,
       uniform: Uniform::No,
       has_rules: false,
+      stable: Stable::FIXED,
+      id: Id::NONE,
     }
   }
 
@@ -2507,6 +3017,8 @@ impl Layout {
       leaves: 1,
       uniform: Uniform::No,
       has_rules: false,
+      stable: Stable::of_variants(layout.variants),
+      id: Id::NONE,
     }
   }
 
@@ -2940,6 +3452,11 @@ impl Layout {
 
   /// Whatever the all-zeros bit pattern is valid.
   pub(crate) const fn zeroable(&self) -> bool {
+    // Whatever zeros are of an enum without `repr` (or of `Option<bool>`) is not kept: which
+    // values its tag has is not specified. The fields of a struct are zeros whatever their order.
+    if !UNSTABLE && !self.stable.fixed && !matches!(self.kind, Kind::Struct(..)) {
+      return false;
+    }
     match self.kind {
       Kind::Scalar(spec) => spec.contains(0),
       Kind::Array(elem, len) => len == 0 || elem.zeroable(),

@@ -107,7 +107,7 @@ fn an_unsized_target_fits_in_the_source_with_its_trailing_padding() {
 mod fake {
   pub use puns::Scalar;
   pub mod layout {
-    pub use puns::layout::{Endian, Enum, Field, Layout, Op, Rule, Spec, Variant};
+    pub use puns::layout::{Endian, Enum, Field, Id, Layout, Op, Rule, Spec, Variant};
     /// Every value of the enum would be "one of its variants".
     pub const fn sorted_ranges<const N: usize>(_: [u128; N]) -> ([(u128, u128); N], usize) {
       ([(0, 0xff); N], 1)
@@ -120,7 +120,7 @@ mod fake {
       end + 1
     }
   }
-  pub use puns::{At, Fields, Path, Pun};
+  pub use puns::{__site, At, Fields, Path, Pun};
 }
 
 #[derive(Pun, Debug)]

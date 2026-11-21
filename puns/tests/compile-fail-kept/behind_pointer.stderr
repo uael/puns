@@ -1,0 +1,35 @@
+error[E0080]: evaluation panicked:
+              cannot pun: behind a pointer, the pun depends on a part of the source or of the target whose layout Rust does not keep from one compilation to the next (a struct or a tuple of the `Rust` representation, an enum without `repr`): only the same type at the same place proves it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+
+    --> src/deep.rs
+     |
+     |   const { require(behind::<X, Y>(0)) };
+     |           ^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::deep::target::<[u8; 2], (bool, u8)>::{constant#0}` failed inside this call
+     |
+note: inside `puns::deep::require`
+ --> src/deep.rs
+  |
+  |     Message::new(why).panic();
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/deep.rs
+  |
+  |   const { require(behind::<X, Y>(0)) };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn puns::deep::target::<[u8; 2], (bool, u8)>`
+ --> src/deep.rs
+  |
+  |   let _: fn() = target::<A::Pointee, B::Pointee>;
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

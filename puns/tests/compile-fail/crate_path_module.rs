@@ -2,10 +2,10 @@
 //! `Op` whose `load` would read the padding byte of the struct, where its field is.
 #[expect(unused_imports, reason = "what the derive used to name through the path: it no longer does")]
 mod fake {
-  pub use puns::{At, Fields, Path, Pun, RuleAt, steps};
+  pub use puns::{At, Fields, Path, Pun, RuleAt, __site, steps};
   pub mod layout {
     pub use puns::layout::{
-      Endian, Enum, Field, Layout, Rule, Spec, Variant, merge_ranges, range, tail_offset,
+      Endian, Enum, Field, Id, Layout, Rule, Spec, Variant, merge_ranges, range, tail_offset,
     };
     #[expect(non_snake_case, reason = "a module that stands for the type `Op`")]
     pub mod Op {

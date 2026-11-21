@@ -5,9 +5,9 @@ error[E0080]: evaluation panicked:
     --> src/lib.rs
      |
      |   const BY_REF: () = Self::require(Self::check(Need::REF));
-     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<(u8, u16), [u8; 4]>::BY_REF` failed inside this call
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<Padded, [u8; 4]>::BY_REF` failed inside this call
      |
-note: inside `puns::Plan::<(u8, u16), [u8; 4]>::require`
+note: inside `puns::Plan::<Padded, [u8; 4]>::require`
  --> src/lib.rs
   |
   |       message.panic();
@@ -34,8 +34,8 @@ note: erroneous constant encountered
   |   const { Plan::<S, D>::BY_REF };
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-note: the above error was encountered while instantiating `fn pun_ref::<(u8, u16), [u8; 4]>`
- --> tests/compile-fail/ref_reads_padding.rs:3:21
-  |
-3 |   let _: &[u8; 4] = puns::pun_ref(&(0u8, 0u16));
-  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: the above error was encountered while instantiating `fn pun_ref::<Padded, [u8; 4]>`
+  --> tests/compile-fail/ref_reads_padding.rs:10:21
+   |
+10 |   let _: &[u8; 4] = puns::pun_ref(&Padded { byte: 0, word: 0 });
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

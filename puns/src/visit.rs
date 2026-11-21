@@ -156,6 +156,7 @@ pub fn validate_in<T: Pun, V: Visit>(
   at: usize,
   visit: &mut V,
 ) -> Result<(), V::Error> {
+  const { assert!(T::LAYOUT.checks_kept(), "{}", layout::VISIT_UNSPECIFIED) };
   let size = const { T::LAYOUT.size() };
   match bytes.get(at..).and_then(|rest| rest.get(..size)) {
     // SAFETY: the `size` bytes of a `T` at `at`, initialized, as `value` requires.
@@ -185,6 +186,7 @@ pub fn validate_elems_in<T: Pun, V: Visit>(
   count: usize,
   visit: &mut V,
 ) -> Result<(), V::Error> {
+  const { assert!(T::LAYOUT.checks_kept(), "{}", layout::VISIT_UNSPECIFIED) };
   let size = const { T::LAYOUT.size() };
   let Some(elems) =
     (size.checked_mul(count)).and_then(|len| bytes.get(at..).and_then(|rest| rest.get(..len)))
@@ -259,6 +261,7 @@ pub unsafe fn pointers_in<T: Pun, V: Visit>(
   at: usize,
   visit: &mut V,
 ) -> Result<(), V::Error> {
+  const { assert!(T::LAYOUT.checks_kept(), "{}", layout::VISIT_UNSPECIFIED) };
   // SAFETY: per the caller.
   unsafe { follow::<T, V>(base, at, visit) }
 }
@@ -278,6 +281,7 @@ pub unsafe fn pointers_elems_in<T: Pun, V: Visit>(
   count: usize,
   visit: &mut V,
 ) -> Result<(), V::Error> {
+  const { assert!(T::LAYOUT.checks_kept(), "{}", layout::VISIT_UNSPECIFIED) };
   if const { !T::LAYOUT.has_pointers() } {
     return Ok(());
   }

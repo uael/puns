@@ -1,0 +1,1190 @@
+u8 -> u8: ++++++++++++++
+u8 -> bool: --+--+-+-----+
+u8 -> [u8; 2]: --------------
+u8 -> [u8; 4]: --------------
+u8 -> [bool; 2]: --------------
+u8 -> [bool; 4]: --------------
+u8 -> core::num::nonzero::NonZero<u16>: --------------
+u8 -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+u8 -> (core::num::nonzero::NonZero<u16>, u16): --------------
+u8 -> (bool, [u8; 3]): --------------
+u8 -> (u8, u8): --------------
+u8 -> (bool, bool): --------------
+u8 -> (bool, u8): --------------
+u8 -> (u8, u16): --------------
+u8 -> (u8, u16, u8): --------------
+u8 -> seeds::Mixed: --------------
+u8 -> seeds::Ordered: --------------
+u8 -> seeds::Twins: --------------
+u8 -> seeds::Holds: --------------
+u8 -> seeds::Ruled: --------------
+u8 -> seeds::Carries: --------------
+u8 -> seeds::InOrder: --------------
+u8 -> seeds::Wraps: --------------
+u8 -> seeds::Either: --------------
+u8 -> [seeds::Mixed; 2]: --------------
+u8 -> seeds::Opt<[u8; 2]>: --------------
+u8 -> seeds::Opt<[bool; 2]>: --------------
+u8 -> seeds::Opt<(bool, u8)>: --------------
+u8 -> seeds::Tagged: --------------
+u8 -> seeds::Plain: --------------
+u8 -> seeds::Kept: --+--+-+-----+
+u8 -> core::option::Option<bool>: --------------
+u8 -> core::option::Option<core::num::nonzero::NonZero<u16>>: --------------
+u8 -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: ++++++++++++++
+bool -> u8: ++++++---++-++
+bool -> bool: ++++++++++++++
+bool -> [u8; 2]: --------------
+bool -> [u8; 4]: --------------
+bool -> [bool; 2]: --------------
+bool -> [bool; 4]: --------------
+bool -> core::num::nonzero::NonZero<u16>: --------------
+bool -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+bool -> (core::num::nonzero::NonZero<u16>, u16): --------------
+bool -> (bool, [u8; 3]): --------------
+bool -> (u8, u8): --------------
+bool -> (bool, bool): --------------
+bool -> (bool, u8): --------------
+bool -> (u8, u16): --------------
+bool -> (u8, u16, u8): --------------
+bool -> seeds::Mixed: --------------
+bool -> seeds::Ordered: --------------
+bool -> seeds::Twins: --------------
+bool -> seeds::Holds: --------------
+bool -> seeds::Ruled: --------------
+bool -> seeds::Carries: --------------
+bool -> seeds::InOrder: --------------
+bool -> seeds::Wraps: --------------
+bool -> seeds::Either: --------------
+bool -> [seeds::Mixed; 2]: --------------
+bool -> seeds::Opt<[u8; 2]>: --------------
+bool -> seeds::Opt<[bool; 2]>: --------------
+bool -> seeds::Opt<(bool, u8)>: --------------
+bool -> seeds::Tagged: --------------
+bool -> seeds::Plain: --------------
+bool -> seeds::Kept: ++++++++++++++
+bool -> core::option::Option<bool>: --------------
+bool -> core::option::Option<core::num::nonzero::NonZero<u16>>: --------------
+bool -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: ++++++---++-++
+[u8; 2] -> u8: -+--+---++++--
+[u8; 2] -> bool: --------------
+[u8; 2] -> [u8; 2]: ++++++++++++++
+[u8; 2] -> [u8; 4]: --------------
+[u8; 2] -> [bool; 2]: --+--+-+-----+
+[u8; 2] -> [bool; 4]: --------------
+[u8; 2] -> core::num::nonzero::NonZero<u16>: --+--+-+-----+
+[u8; 2] -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+[u8; 2] -> (core::num::nonzero::NonZero<u16>, u16): --------------
+[u8; 2] -> (bool, [u8; 3]): --------------
+[u8; 2] -> (u8, u8): ++++++++++++++
+[u8; 2] -> (bool, bool): --+--+-+-----+
+[u8; 2] -> (bool, u8): --------------
+[u8; 2] -> (u8, u16): --------------
+[u8; 2] -> (u8, u16, u8): --------------
+[u8; 2] -> seeds::Mixed: --------------
+[u8; 2] -> seeds::Ordered: --------------
+[u8; 2] -> seeds::Twins: --+--+-+-----+
+[u8; 2] -> seeds::Holds: --------------
+[u8; 2] -> seeds::Ruled: --+--+-+-----+
+[u8; 2] -> seeds::Carries: --------------
+[u8; 2] -> seeds::InOrder: --------------
+[u8; 2] -> seeds::Wraps: --------------
+[u8; 2] -> seeds::Either: ++++++---++-++
+[u8; 2] -> [seeds::Mixed; 2]: --------------
+[u8; 2] -> seeds::Opt<[u8; 2]>: --------------
+[u8; 2] -> seeds::Opt<[bool; 2]>: --------------
+[u8; 2] -> seeds::Opt<(bool, u8)>: --------------
+[u8; 2] -> seeds::Tagged: --------------
+[u8; 2] -> seeds::Plain: --------------
+[u8; 2] -> seeds::Kept: --------------
+[u8; 2] -> core::option::Option<bool>: --------------
+[u8; 2] -> core::option::Option<core::num::nonzero::NonZero<u16>>: +++--+-+-+---+
+[u8; 2] -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+---++++--
+[u8; 4] -> u8: -+--+---++++--
+[u8; 4] -> bool: --------------
+[u8; 4] -> [u8; 2]: -+--+---++++--
+[u8; 4] -> [u8; 4]: ++++++++++++++
+[u8; 4] -> [bool; 2]: --------------
+[u8; 4] -> [bool; 4]: --+--+-+-----+
+[u8; 4] -> core::num::nonzero::NonZero<u16>: --------------
+[u8; 4] -> [core::num::nonzero::NonZero<u16>; 2]: --+--+-+-----+
+[u8; 4] -> (core::num::nonzero::NonZero<u16>, u16): --------------
+[u8; 4] -> (bool, [u8; 3]): --------------
+[u8; 4] -> (u8, u8): -+--+---++++--
+[u8; 4] -> (bool, bool): --------------
+[u8; 4] -> (bool, u8): --------------
+[u8; 4] -> (u8, u16): +++--+---+---+
+[u8; 4] -> (u8, u16, u8): --------------
+[u8; 4] -> seeds::Mixed: --------------
+[u8; 4] -> seeds::Ordered: --------------
+[u8; 4] -> seeds::Twins: --------------
+[u8; 4] -> seeds::Holds: --------------
+[u8; 4] -> seeds::Ruled: --------------
+[u8; 4] -> seeds::Carries: --------------
+[u8; 4] -> seeds::InOrder: --------------
+[u8; 4] -> seeds::Wraps: --------------
+[u8; 4] -> seeds::Either: -+--+----++---
+[u8; 4] -> [seeds::Mixed; 2]: --------------
+[u8; 4] -> seeds::Opt<[u8; 2]>: --------------
+[u8; 4] -> seeds::Opt<[bool; 2]>: --------------
+[u8; 4] -> seeds::Opt<(bool, u8)>: --------------
+[u8; 4] -> seeds::Tagged: --------------
+[u8; 4] -> seeds::Plain: --------------
+[u8; 4] -> seeds::Kept: --------------
+[u8; 4] -> core::option::Option<bool>: --------------
+[u8; 4] -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+-------+----
+[u8; 4] -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+---++++--
+[bool; 2] -> u8: -+--+----++---
+[bool; 2] -> bool: -+--+---++++--
+[bool; 2] -> [u8; 2]: ++++++---++-++
+[bool; 2] -> [u8; 4]: --------------
+[bool; 2] -> [bool; 2]: ++++++++++++++
+[bool; 2] -> [bool; 4]: --------------
+[bool; 2] -> core::num::nonzero::NonZero<u16>: --+--+-------+
+[bool; 2] -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+[bool; 2] -> (core::num::nonzero::NonZero<u16>, u16): --------------
+[bool; 2] -> (bool, [u8; 3]): --------------
+[bool; 2] -> (u8, u8): ++++++---++-++
+[bool; 2] -> (bool, bool): ++++++++++++++
+[bool; 2] -> (bool, u8): ++++++---++-++
+[bool; 2] -> (u8, u16): --------------
+[bool; 2] -> (u8, u16, u8): --------------
+[bool; 2] -> seeds::Mixed: ++++++---++-++
+[bool; 2] -> seeds::Ordered: --------------
+[bool; 2] -> seeds::Twins: ++++++++++++++
+[bool; 2] -> seeds::Holds: --------------
+[bool; 2] -> seeds::Ruled: --+--+-------+
+[bool; 2] -> seeds::Carries: --------------
+[bool; 2] -> seeds::InOrder: --------------
+[bool; 2] -> seeds::Wraps: --------------
+[bool; 2] -> seeds::Either: ++++++---++-++
+[bool; 2] -> [seeds::Mixed; 2]: --------------
+[bool; 2] -> seeds::Opt<[u8; 2]>: --------------
+[bool; 2] -> seeds::Opt<[bool; 2]>: --------------
+[bool; 2] -> seeds::Opt<(bool, u8)>: --------------
+[bool; 2] -> seeds::Tagged: --------------
+[bool; 2] -> seeds::Plain: --------------
+[bool; 2] -> seeds::Kept: -+--+---++++--
+[bool; 2] -> core::option::Option<bool>: --------------
+[bool; 2] -> core::option::Option<core::num::nonzero::NonZero<u16>>: --+--+-------+
+[bool; 2] -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+[bool; 4] -> u8: -+--+----++---
+[bool; 4] -> bool: -+--+---++++--
+[bool; 4] -> [u8; 2]: -+--+----++---
+[bool; 4] -> [u8; 4]: ++++++---++-++
+[bool; 4] -> [bool; 2]: -+--+---++++--
+[bool; 4] -> [bool; 4]: ++++++++++++++
+[bool; 4] -> core::num::nonzero::NonZero<u16>: --------------
+[bool; 4] -> [core::num::nonzero::NonZero<u16>; 2]: --+--+-------+
+[bool; 4] -> (core::num::nonzero::NonZero<u16>, u16): --------------
+[bool; 4] -> (bool, [u8; 3]): ++++++---++-++
+[bool; 4] -> (u8, u8): -+--+----++---
+[bool; 4] -> (bool, bool): -+--+---++++--
+[bool; 4] -> (bool, u8): -+--+----++---
+[bool; 4] -> (u8, u16): +++--+---+---+
+[bool; 4] -> (u8, u16, u8): --------------
+[bool; 4] -> seeds::Mixed: -+--+----++---
+[bool; 4] -> seeds::Ordered: --------------
+[bool; 4] -> seeds::Twins: -+--+---++++--
+[bool; 4] -> seeds::Holds: +++--+---+---+
+[bool; 4] -> seeds::Ruled: --------------
+[bool; 4] -> seeds::Carries: --------------
+[bool; 4] -> seeds::InOrder: --------------
+[bool; 4] -> seeds::Wraps: -+--+----++---
+[bool; 4] -> seeds::Either: -+--+----++---
+[bool; 4] -> [seeds::Mixed; 2]: ++++++---++-++
+[bool; 4] -> seeds::Opt<[u8; 2]>: --------------
+[bool; 4] -> seeds::Opt<[bool; 2]>: --------------
+[bool; 4] -> seeds::Opt<(bool, u8)>: --------------
+[bool; 4] -> seeds::Tagged: --------------
+[bool; 4] -> seeds::Plain: --------------
+[bool; 4] -> seeds::Kept: -+--+---++++--
+[bool; 4] -> core::option::Option<bool>: --------------
+[bool; 4] -> core::option::Option<core::num::nonzero::NonZero<u16>>: --------------
+[bool; 4] -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+core::num::nonzero::NonZero<u16> -> u8: -+--+----++---
+core::num::nonzero::NonZero<u16> -> bool: --------------
+core::num::nonzero::NonZero<u16> -> [u8; 2]: ++++++---++-++
+core::num::nonzero::NonZero<u16> -> [u8; 4]: --------------
+core::num::nonzero::NonZero<u16> -> [bool; 2]: --+--+-------+
+core::num::nonzero::NonZero<u16> -> [bool; 4]: --------------
+core::num::nonzero::NonZero<u16> -> core::num::nonzero::NonZero<u16>: ++++++++++++++
+core::num::nonzero::NonZero<u16> -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+core::num::nonzero::NonZero<u16> -> (core::num::nonzero::NonZero<u16>, u16): --------------
+core::num::nonzero::NonZero<u16> -> (bool, [u8; 3]): --------------
+core::num::nonzero::NonZero<u16> -> (u8, u8): ++++++---++-++
+core::num::nonzero::NonZero<u16> -> (bool, bool): --+--+-------+
+core::num::nonzero::NonZero<u16> -> (bool, u8): --------------
+core::num::nonzero::NonZero<u16> -> (u8, u16): --------------
+core::num::nonzero::NonZero<u16> -> (u8, u16, u8): --------------
+core::num::nonzero::NonZero<u16> -> seeds::Mixed: --------------
+core::num::nonzero::NonZero<u16> -> seeds::Ordered: --------------
+core::num::nonzero::NonZero<u16> -> seeds::Twins: --+--+-------+
+core::num::nonzero::NonZero<u16> -> seeds::Holds: --------------
+core::num::nonzero::NonZero<u16> -> seeds::Ruled: --+--+-------+
+core::num::nonzero::NonZero<u16> -> seeds::Carries: --------------
+core::num::nonzero::NonZero<u16> -> seeds::InOrder: --------------
+core::num::nonzero::NonZero<u16> -> seeds::Wraps: --------------
+core::num::nonzero::NonZero<u16> -> seeds::Either: ++++++---++-++
+core::num::nonzero::NonZero<u16> -> [seeds::Mixed; 2]: --------------
+core::num::nonzero::NonZero<u16> -> seeds::Opt<[u8; 2]>: --------------
+core::num::nonzero::NonZero<u16> -> seeds::Opt<[bool; 2]>: --------------
+core::num::nonzero::NonZero<u16> -> seeds::Opt<(bool, u8)>: --------------
+core::num::nonzero::NonZero<u16> -> seeds::Tagged: --------------
+core::num::nonzero::NonZero<u16> -> seeds::Plain: --------------
+core::num::nonzero::NonZero<u16> -> seeds::Kept: --------------
+core::num::nonzero::NonZero<u16> -> core::option::Option<bool>: --------------
+core::num::nonzero::NonZero<u16> -> core::option::Option<core::num::nonzero::NonZero<u16>>: ++++++---++-++
+core::num::nonzero::NonZero<u16> -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+[core::num::nonzero::NonZero<u16>; 2] -> u8: -+--+----++---
+[core::num::nonzero::NonZero<u16>; 2] -> bool: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> [u8; 2]: -+--+----++---
+[core::num::nonzero::NonZero<u16>; 2] -> [u8; 4]: ++++++---++-++
+[core::num::nonzero::NonZero<u16>; 2] -> [bool; 2]: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> [bool; 4]: --+--+-------+
+[core::num::nonzero::NonZero<u16>; 2] -> core::num::nonzero::NonZero<u16>: -+--+---++++--
+[core::num::nonzero::NonZero<u16>; 2] -> [core::num::nonzero::NonZero<u16>; 2]: ++++++++++++++
+[core::num::nonzero::NonZero<u16>; 2] -> (core::num::nonzero::NonZero<u16>, u16): ++++++---++-++
+[core::num::nonzero::NonZero<u16>; 2] -> (bool, [u8; 3]): --------------
+[core::num::nonzero::NonZero<u16>; 2] -> (u8, u8): -+--+----++---
+[core::num::nonzero::NonZero<u16>; 2] -> (bool, bool): --------------
+[core::num::nonzero::NonZero<u16>; 2] -> (bool, u8): --------------
+[core::num::nonzero::NonZero<u16>; 2] -> (u8, u16): ++++++---++-++
+[core::num::nonzero::NonZero<u16>; 2] -> (u8, u16, u8): --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Mixed: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Ordered: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Twins: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Holds: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Ruled: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Carries: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::InOrder: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Wraps: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Either: -+--+----++---
+[core::num::nonzero::NonZero<u16>; 2] -> [seeds::Mixed; 2]: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Opt<[u8; 2]>: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Opt<[bool; 2]>: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Opt<(bool, u8)>: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Tagged: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Plain: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> seeds::Kept: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> core::option::Option<bool>: --------------
+[core::num::nonzero::NonZero<u16>; 2] -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+--+----++---
+[core::num::nonzero::NonZero<u16>; 2] -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+(core::num::nonzero::NonZero<u16>, u16) -> u8: -+--+----++---
+(core::num::nonzero::NonZero<u16>, u16) -> bool: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> [u8; 2]: -+--+----++---
+(core::num::nonzero::NonZero<u16>, u16) -> [u8; 4]: ++++++---++-++
+(core::num::nonzero::NonZero<u16>, u16) -> [bool; 2]: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> [bool; 4]: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> core::num::nonzero::NonZero<u16>: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> (core::num::nonzero::NonZero<u16>, u16): ++++++++++++++
+(core::num::nonzero::NonZero<u16>, u16) -> (bool, [u8; 3]): --------------
+(core::num::nonzero::NonZero<u16>, u16) -> (u8, u8): -+--+----++---
+(core::num::nonzero::NonZero<u16>, u16) -> (bool, bool): --------------
+(core::num::nonzero::NonZero<u16>, u16) -> (bool, u8): --------------
+(core::num::nonzero::NonZero<u16>, u16) -> (u8, u16): ++++++---++-++
+(core::num::nonzero::NonZero<u16>, u16) -> (u8, u16, u8): --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Mixed: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Ordered: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Twins: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Holds: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Ruled: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Carries: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::InOrder: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Wraps: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Either: -+--+----++---
+(core::num::nonzero::NonZero<u16>, u16) -> [seeds::Mixed; 2]: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Opt<[u8; 2]>: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Opt<[bool; 2]>: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Opt<(bool, u8)>: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Tagged: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Plain: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> seeds::Kept: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> core::option::Option<bool>: --------------
+(core::num::nonzero::NonZero<u16>, u16) -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+--+----++---
+(core::num::nonzero::NonZero<u16>, u16) -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+(bool, [u8; 3]) -> u8: -+--+----++---
+(bool, [u8; 3]) -> bool: --------------
+(bool, [u8; 3]) -> [u8; 2]: -+--+----++---
+(bool, [u8; 3]) -> [u8; 4]: ++++++---++-++
+(bool, [u8; 3]) -> [bool; 2]: --------------
+(bool, [u8; 3]) -> [bool; 4]: --------------
+(bool, [u8; 3]) -> core::num::nonzero::NonZero<u16>: --------------
+(bool, [u8; 3]) -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+(bool, [u8; 3]) -> (core::num::nonzero::NonZero<u16>, u16): --------------
+(bool, [u8; 3]) -> (bool, [u8; 3]): ++++++++++++++
+(bool, [u8; 3]) -> (u8, u8): -+--+----++---
+(bool, [u8; 3]) -> (bool, bool): --------------
+(bool, [u8; 3]) -> (bool, u8): --------------
+(bool, [u8; 3]) -> (u8, u16): +++--+---+---+
+(bool, [u8; 3]) -> (u8, u16, u8): --------------
+(bool, [u8; 3]) -> seeds::Mixed: --------------
+(bool, [u8; 3]) -> seeds::Ordered: --------------
+(bool, [u8; 3]) -> seeds::Twins: --------------
+(bool, [u8; 3]) -> seeds::Holds: --------------
+(bool, [u8; 3]) -> seeds::Ruled: --------------
+(bool, [u8; 3]) -> seeds::Carries: --------------
+(bool, [u8; 3]) -> seeds::InOrder: --------------
+(bool, [u8; 3]) -> seeds::Wraps: --------------
+(bool, [u8; 3]) -> seeds::Either: -+--+----++---
+(bool, [u8; 3]) -> [seeds::Mixed; 2]: --------------
+(bool, [u8; 3]) -> seeds::Opt<[u8; 2]>: --------------
+(bool, [u8; 3]) -> seeds::Opt<[bool; 2]>: --------------
+(bool, [u8; 3]) -> seeds::Opt<(bool, u8)>: --------------
+(bool, [u8; 3]) -> seeds::Tagged: --------------
+(bool, [u8; 3]) -> seeds::Plain: --------------
+(bool, [u8; 3]) -> seeds::Kept: --------------
+(bool, [u8; 3]) -> core::option::Option<bool>: --------------
+(bool, [u8; 3]) -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+-------+----
+(bool, [u8; 3]) -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+(u8, u8) -> u8: -+--+---++++--
+(u8, u8) -> bool: --------------
+(u8, u8) -> [u8; 2]: ++++++++++++++
+(u8, u8) -> [u8; 4]: --------------
+(u8, u8) -> [bool; 2]: --------------
+(u8, u8) -> [bool; 4]: --------------
+(u8, u8) -> core::num::nonzero::NonZero<u16>: --------------
+(u8, u8) -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+(u8, u8) -> (core::num::nonzero::NonZero<u16>, u16): --------------
+(u8, u8) -> (bool, [u8; 3]): --------------
+(u8, u8) -> (u8, u8): ++++++++++++++
+(u8, u8) -> (bool, bool): --------------
+(u8, u8) -> (bool, u8): --------------
+(u8, u8) -> (u8, u16): --------------
+(u8, u8) -> (u8, u16, u8): --------------
+(u8, u8) -> seeds::Mixed: --------------
+(u8, u8) -> seeds::Ordered: --------------
+(u8, u8) -> seeds::Twins: --------------
+(u8, u8) -> seeds::Holds: --------------
+(u8, u8) -> seeds::Ruled: --------------
+(u8, u8) -> seeds::Carries: --------------
+(u8, u8) -> seeds::InOrder: --------------
+(u8, u8) -> seeds::Wraps: --------------
+(u8, u8) -> seeds::Either: ++++++---++-++
+(u8, u8) -> [seeds::Mixed; 2]: --------------
+(u8, u8) -> seeds::Opt<[u8; 2]>: --------------
+(u8, u8) -> seeds::Opt<[bool; 2]>: --------------
+(u8, u8) -> seeds::Opt<(bool, u8)>: --------------
+(u8, u8) -> seeds::Tagged: --------------
+(u8, u8) -> seeds::Plain: --------------
+(u8, u8) -> seeds::Kept: --------------
+(u8, u8) -> core::option::Option<bool>: --------------
+(u8, u8) -> core::option::Option<core::num::nonzero::NonZero<u16>>: +++--+-+-+---+
+(u8, u8) -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+---++++--
+(bool, bool) -> u8: -+--+----++---
+(bool, bool) -> bool: -+--+---++++--
+(bool, bool) -> [u8; 2]: ++++++---++-++
+(bool, bool) -> [u8; 4]: --------------
+(bool, bool) -> [bool; 2]: ++++++++++++++
+(bool, bool) -> [bool; 4]: --------------
+(bool, bool) -> core::num::nonzero::NonZero<u16>: --------------
+(bool, bool) -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+(bool, bool) -> (core::num::nonzero::NonZero<u16>, u16): --------------
+(bool, bool) -> (bool, [u8; 3]): --------------
+(bool, bool) -> (u8, u8): ++++++---++-++
+(bool, bool) -> (bool, bool): ++++++++++++++
+(bool, bool) -> (bool, u8): ++++++---++-++
+(bool, bool) -> (u8, u16): --------------
+(bool, bool) -> (u8, u16, u8): --------------
+(bool, bool) -> seeds::Mixed: ++++++---++-++
+(bool, bool) -> seeds::Ordered: --------------
+(bool, bool) -> seeds::Twins: ++++++++++++++
+(bool, bool) -> seeds::Holds: --------------
+(bool, bool) -> seeds::Ruled: --------------
+(bool, bool) -> seeds::Carries: --------------
+(bool, bool) -> seeds::InOrder: --------------
+(bool, bool) -> seeds::Wraps: --------------
+(bool, bool) -> seeds::Either: ++++++---++-++
+(bool, bool) -> [seeds::Mixed; 2]: --------------
+(bool, bool) -> seeds::Opt<[u8; 2]>: --------------
+(bool, bool) -> seeds::Opt<[bool; 2]>: --------------
+(bool, bool) -> seeds::Opt<(bool, u8)>: --------------
+(bool, bool) -> seeds::Tagged: --------------
+(bool, bool) -> seeds::Plain: --------------
+(bool, bool) -> seeds::Kept: -+--+---++++--
+(bool, bool) -> core::option::Option<bool>: --------------
+(bool, bool) -> core::option::Option<core::num::nonzero::NonZero<u16>>: +++--+---+---+
+(bool, bool) -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+(bool, u8) -> u8: -+--+----++---
+(bool, u8) -> bool: --------------
+(bool, u8) -> [u8; 2]: ++++++---++-++
+(bool, u8) -> [u8; 4]: --------------
+(bool, u8) -> [bool; 2]: --------------
+(bool, u8) -> [bool; 4]: --------------
+(bool, u8) -> core::num::nonzero::NonZero<u16>: --------------
+(bool, u8) -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+(bool, u8) -> (core::num::nonzero::NonZero<u16>, u16): --------------
+(bool, u8) -> (bool, [u8; 3]): --------------
+(bool, u8) -> (u8, u8): ++++++---++-++
+(bool, u8) -> (bool, bool): --------------
+(bool, u8) -> (bool, u8): ++++++++++++++
+(bool, u8) -> (u8, u16): --------------
+(bool, u8) -> (u8, u16, u8): --------------
+(bool, u8) -> seeds::Mixed: --------------
+(bool, u8) -> seeds::Ordered: --------------
+(bool, u8) -> seeds::Twins: --------------
+(bool, u8) -> seeds::Holds: --------------
+(bool, u8) -> seeds::Ruled: --------------
+(bool, u8) -> seeds::Carries: --------------
+(bool, u8) -> seeds::InOrder: --------------
+(bool, u8) -> seeds::Wraps: --------------
+(bool, u8) -> seeds::Either: ++++++---++-++
+(bool, u8) -> [seeds::Mixed; 2]: --------------
+(bool, u8) -> seeds::Opt<[u8; 2]>: --------------
+(bool, u8) -> seeds::Opt<[bool; 2]>: --------------
+(bool, u8) -> seeds::Opt<(bool, u8)>: --------------
+(bool, u8) -> seeds::Tagged: --------------
+(bool, u8) -> seeds::Plain: --------------
+(bool, u8) -> seeds::Kept: --------------
+(bool, u8) -> core::option::Option<bool>: --------------
+(bool, u8) -> core::option::Option<core::num::nonzero::NonZero<u16>>: +++--+---+---+
+(bool, u8) -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+(u8, u16) -> u8: --------------
+(u8, u16) -> bool: --------------
+(u8, u16) -> [u8; 2]: --------------
+(u8, u16) -> [u8; 4]: --------------
+(u8, u16) -> [bool; 2]: --------------
+(u8, u16) -> [bool; 4]: --------------
+(u8, u16) -> core::num::nonzero::NonZero<u16>: --------------
+(u8, u16) -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+(u8, u16) -> (core::num::nonzero::NonZero<u16>, u16): --------------
+(u8, u16) -> (bool, [u8; 3]): --------------
+(u8, u16) -> (u8, u8): --------------
+(u8, u16) -> (bool, bool): --------------
+(u8, u16) -> (bool, u8): --------------
+(u8, u16) -> (u8, u16): ++++++++++++++
+(u8, u16) -> (u8, u16, u8): --------------
+(u8, u16) -> seeds::Mixed: --------------
+(u8, u16) -> seeds::Ordered: --------------
+(u8, u16) -> seeds::Twins: --------------
+(u8, u16) -> seeds::Holds: --------------
+(u8, u16) -> seeds::Ruled: --------------
+(u8, u16) -> seeds::Carries: --------------
+(u8, u16) -> seeds::InOrder: --------------
+(u8, u16) -> seeds::Wraps: --------------
+(u8, u16) -> seeds::Either: --------------
+(u8, u16) -> [seeds::Mixed; 2]: --------------
+(u8, u16) -> seeds::Opt<[u8; 2]>: --------------
+(u8, u16) -> seeds::Opt<[bool; 2]>: --------------
+(u8, u16) -> seeds::Opt<(bool, u8)>: --------------
+(u8, u16) -> seeds::Tagged: --------------
+(u8, u16) -> seeds::Plain: --------------
+(u8, u16) -> seeds::Kept: --------------
+(u8, u16) -> core::option::Option<bool>: --------------
+(u8, u16) -> core::option::Option<core::num::nonzero::NonZero<u16>>: --------------
+(u8, u16) -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: --------------
+(u8, u16, u8) -> u8: --------------
+(u8, u16, u8) -> bool: --------------
+(u8, u16, u8) -> [u8; 2]: --------------
+(u8, u16, u8) -> [u8; 4]: --------------
+(u8, u16, u8) -> [bool; 2]: --------------
+(u8, u16, u8) -> [bool; 4]: --------------
+(u8, u16, u8) -> core::num::nonzero::NonZero<u16>: --------------
+(u8, u16, u8) -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+(u8, u16, u8) -> (core::num::nonzero::NonZero<u16>, u16): --------------
+(u8, u16, u8) -> (bool, [u8; 3]): --------------
+(u8, u16, u8) -> (u8, u8): --------------
+(u8, u16, u8) -> (bool, bool): --------------
+(u8, u16, u8) -> (bool, u8): --------------
+(u8, u16, u8) -> (u8, u16): --------------
+(u8, u16, u8) -> (u8, u16, u8): ++++++++++++++
+(u8, u16, u8) -> seeds::Mixed: --------------
+(u8, u16, u8) -> seeds::Ordered: --------------
+(u8, u16, u8) -> seeds::Twins: --------------
+(u8, u16, u8) -> seeds::Holds: --------------
+(u8, u16, u8) -> seeds::Ruled: --------------
+(u8, u16, u8) -> seeds::Carries: --------------
+(u8, u16, u8) -> seeds::InOrder: --------------
+(u8, u16, u8) -> seeds::Wraps: --------------
+(u8, u16, u8) -> seeds::Either: --------------
+(u8, u16, u8) -> [seeds::Mixed; 2]: --------------
+(u8, u16, u8) -> seeds::Opt<[u8; 2]>: --------------
+(u8, u16, u8) -> seeds::Opt<[bool; 2]>: --------------
+(u8, u16, u8) -> seeds::Opt<(bool, u8)>: --------------
+(u8, u16, u8) -> seeds::Tagged: --------------
+(u8, u16, u8) -> seeds::Plain: --------------
+(u8, u16, u8) -> seeds::Kept: --------------
+(u8, u16, u8) -> core::option::Option<bool>: --------------
+(u8, u16, u8) -> core::option::Option<core::num::nonzero::NonZero<u16>>: --------------
+(u8, u16, u8) -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: --------------
+seeds::Mixed -> u8: -+--+----++---
+seeds::Mixed -> bool: --------------
+seeds::Mixed -> [u8; 2]: ++++++---++-++
+seeds::Mixed -> [u8; 4]: --------------
+seeds::Mixed -> [bool; 2]: --------------
+seeds::Mixed -> [bool; 4]: --------------
+seeds::Mixed -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Mixed -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+seeds::Mixed -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Mixed -> (bool, [u8; 3]): --------------
+seeds::Mixed -> (u8, u8): ++++++---++-++
+seeds::Mixed -> (bool, bool): --------------
+seeds::Mixed -> (bool, u8): --------------
+seeds::Mixed -> (u8, u16): --------------
+seeds::Mixed -> (u8, u16, u8): --------------
+seeds::Mixed -> seeds::Mixed: ++++++++++++++
+seeds::Mixed -> seeds::Ordered: --------------
+seeds::Mixed -> seeds::Twins: --------------
+seeds::Mixed -> seeds::Holds: --------------
+seeds::Mixed -> seeds::Ruled: --------------
+seeds::Mixed -> seeds::Carries: --------------
+seeds::Mixed -> seeds::InOrder: --------------
+seeds::Mixed -> seeds::Wraps: --------------
+seeds::Mixed -> seeds::Either: ++++++---++-++
+seeds::Mixed -> [seeds::Mixed; 2]: --------------
+seeds::Mixed -> seeds::Opt<[u8; 2]>: --------------
+seeds::Mixed -> seeds::Opt<[bool; 2]>: --------------
+seeds::Mixed -> seeds::Opt<(bool, u8)>: --------------
+seeds::Mixed -> seeds::Tagged: --------------
+seeds::Mixed -> seeds::Plain: --------------
+seeds::Mixed -> seeds::Kept: --------------
+seeds::Mixed -> core::option::Option<bool>: --------------
+seeds::Mixed -> core::option::Option<core::num::nonzero::NonZero<u16>>: +++--+---+---+
+seeds::Mixed -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+seeds::Ordered -> u8: -+--+----++---
+seeds::Ordered -> bool: --------------
+seeds::Ordered -> [u8; 2]: ++++++---++-++
+seeds::Ordered -> [u8; 4]: --------------
+seeds::Ordered -> [bool; 2]: --------------
+seeds::Ordered -> [bool; 4]: --------------
+seeds::Ordered -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Ordered -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+seeds::Ordered -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Ordered -> (bool, [u8; 3]): --------------
+seeds::Ordered -> (u8, u8): ++++++---++-++
+seeds::Ordered -> (bool, bool): --------------
+seeds::Ordered -> (bool, u8): --------------
+seeds::Ordered -> (u8, u16): --------------
+seeds::Ordered -> (u8, u16, u8): --------------
+seeds::Ordered -> seeds::Mixed: --------------
+seeds::Ordered -> seeds::Ordered: ++++++++++++++
+seeds::Ordered -> seeds::Twins: --------------
+seeds::Ordered -> seeds::Holds: --------------
+seeds::Ordered -> seeds::Ruled: --------------
+seeds::Ordered -> seeds::Carries: --------------
+seeds::Ordered -> seeds::InOrder: --------------
+seeds::Ordered -> seeds::Wraps: --------------
+seeds::Ordered -> seeds::Either: ++++++---++-++
+seeds::Ordered -> [seeds::Mixed; 2]: --------------
+seeds::Ordered -> seeds::Opt<[u8; 2]>: --------------
+seeds::Ordered -> seeds::Opt<[bool; 2]>: --------------
+seeds::Ordered -> seeds::Opt<(bool, u8)>: --------------
+seeds::Ordered -> seeds::Tagged: --------------
+seeds::Ordered -> seeds::Plain: --------------
+seeds::Ordered -> seeds::Kept: --------------
+seeds::Ordered -> core::option::Option<bool>: --------------
+seeds::Ordered -> core::option::Option<core::num::nonzero::NonZero<u16>>: +++--+---+---+
+seeds::Ordered -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+seeds::Twins -> u8: -+--+----++---
+seeds::Twins -> bool: -+--+---++++--
+seeds::Twins -> [u8; 2]: ++++++---++-++
+seeds::Twins -> [u8; 4]: --------------
+seeds::Twins -> [bool; 2]: ++++++++++++++
+seeds::Twins -> [bool; 4]: --------------
+seeds::Twins -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Twins -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+seeds::Twins -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Twins -> (bool, [u8; 3]): --------------
+seeds::Twins -> (u8, u8): ++++++---++-++
+seeds::Twins -> (bool, bool): ++++++++++++++
+seeds::Twins -> (bool, u8): ++++++---++-++
+seeds::Twins -> (u8, u16): --------------
+seeds::Twins -> (u8, u16, u8): --------------
+seeds::Twins -> seeds::Mixed: ++++++---++-++
+seeds::Twins -> seeds::Ordered: --------------
+seeds::Twins -> seeds::Twins: ++++++++++++++
+seeds::Twins -> seeds::Holds: --------------
+seeds::Twins -> seeds::Ruled: --------------
+seeds::Twins -> seeds::Carries: --------------
+seeds::Twins -> seeds::InOrder: --------------
+seeds::Twins -> seeds::Wraps: --------------
+seeds::Twins -> seeds::Either: ++++++---++-++
+seeds::Twins -> [seeds::Mixed; 2]: --------------
+seeds::Twins -> seeds::Opt<[u8; 2]>: --------------
+seeds::Twins -> seeds::Opt<[bool; 2]>: --------------
+seeds::Twins -> seeds::Opt<(bool, u8)>: --------------
+seeds::Twins -> seeds::Tagged: --------------
+seeds::Twins -> seeds::Plain: --------------
+seeds::Twins -> seeds::Kept: -+--+---++++--
+seeds::Twins -> core::option::Option<bool>: --------------
+seeds::Twins -> core::option::Option<core::num::nonzero::NonZero<u16>>: +++--+---+---+
+seeds::Twins -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+seeds::Holds -> u8: -+--+----+++--
+seeds::Holds -> bool: --------------
+seeds::Holds -> [u8; 2]: -+--+----+++--
+seeds::Holds -> [u8; 4]: ++++++---++-++
+seeds::Holds -> [bool; 2]: --------------
+seeds::Holds -> [bool; 4]: --------------
+seeds::Holds -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Holds -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+seeds::Holds -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Holds -> (bool, [u8; 3]): --------------
+seeds::Holds -> (u8, u8): -+--+----+++--
+seeds::Holds -> (bool, bool): --------------
+seeds::Holds -> (bool, u8): --------------
+seeds::Holds -> (u8, u16): ++++++---++-++
+seeds::Holds -> (u8, u16, u8): --------------
+seeds::Holds -> seeds::Mixed: -+--+---+-----
+seeds::Holds -> seeds::Ordered: --------------
+seeds::Holds -> seeds::Twins: --------------
+seeds::Holds -> seeds::Holds: ++++++++++++++
+seeds::Holds -> seeds::Ruled: --------------
+seeds::Holds -> seeds::Carries: --------------
+seeds::Holds -> seeds::InOrder: --------------
+seeds::Holds -> seeds::Wraps: --------------
+seeds::Holds -> seeds::Either: -+--+----++---
+seeds::Holds -> [seeds::Mixed; 2]: --------------
+seeds::Holds -> seeds::Opt<[u8; 2]>: --------------
+seeds::Holds -> seeds::Opt<[bool; 2]>: --------------
+seeds::Holds -> seeds::Opt<(bool, u8)>: --------------
+seeds::Holds -> seeds::Tagged: --------------
+seeds::Holds -> seeds::Plain: --------------
+seeds::Holds -> seeds::Kept: --------------
+seeds::Holds -> core::option::Option<bool>: --------------
+seeds::Holds -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+--+----+++--
+seeds::Holds -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----+++--
+seeds::Ruled -> u8: -+--+----++---
+seeds::Ruled -> bool: --------------
+seeds::Ruled -> [u8; 2]: ++++++++-++-++
+seeds::Ruled -> [u8; 4]: --------------
+seeds::Ruled -> [bool; 2]: --+--+-+-----+
+seeds::Ruled -> [bool; 4]: --------------
+seeds::Ruled -> core::num::nonzero::NonZero<u16>: --+--+-+-----+
+seeds::Ruled -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+seeds::Ruled -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Ruled -> (bool, [u8; 3]): --------------
+seeds::Ruled -> (u8, u8): ++++++++-++-++
+seeds::Ruled -> (bool, bool): --+--+-+-----+
+seeds::Ruled -> (bool, u8): --------------
+seeds::Ruled -> (u8, u16): --------------
+seeds::Ruled -> (u8, u16, u8): --------------
+seeds::Ruled -> seeds::Mixed: --------------
+seeds::Ruled -> seeds::Ordered: --------------
+seeds::Ruled -> seeds::Twins: --+--+-+-----+
+seeds::Ruled -> seeds::Holds: --------------
+seeds::Ruled -> seeds::Ruled: ++++++++++++++
+seeds::Ruled -> seeds::Carries: --------------
+seeds::Ruled -> seeds::InOrder: --------------
+seeds::Ruled -> seeds::Wraps: --------------
+seeds::Ruled -> seeds::Either: ++++++---++-++
+seeds::Ruled -> [seeds::Mixed; 2]: --------------
+seeds::Ruled -> seeds::Opt<[u8; 2]>: --------------
+seeds::Ruled -> seeds::Opt<[bool; 2]>: --------------
+seeds::Ruled -> seeds::Opt<(bool, u8)>: --------------
+seeds::Ruled -> seeds::Tagged: --------------
+seeds::Ruled -> seeds::Plain: --------------
+seeds::Ruled -> seeds::Kept: --------------
+seeds::Ruled -> core::option::Option<bool>: --------------
+seeds::Ruled -> core::option::Option<core::num::nonzero::NonZero<u16>>: +++--+-+-+---+
+seeds::Ruled -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+seeds::Carries -> u8: -+--+----++---
+seeds::Carries -> bool: --------------
+seeds::Carries -> [u8; 2]: -+--+----++---
+seeds::Carries -> [u8; 4]: --------------
+seeds::Carries -> [bool; 2]: --------------
+seeds::Carries -> [bool; 4]: --------------
+seeds::Carries -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Carries -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+seeds::Carries -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Carries -> (bool, [u8; 3]): --------------
+seeds::Carries -> (u8, u8): -+--+----++---
+seeds::Carries -> (bool, bool): --------------
+seeds::Carries -> (bool, u8): --------------
+seeds::Carries -> (u8, u16): --------------
+seeds::Carries -> (u8, u16, u8): --------------
+seeds::Carries -> seeds::Mixed: --------------
+seeds::Carries -> seeds::Ordered: --------------
+seeds::Carries -> seeds::Twins: --------------
+seeds::Carries -> seeds::Holds: --------------
+seeds::Carries -> seeds::Ruled: --------------
+seeds::Carries -> seeds::Carries: ++++++++++++++
+seeds::Carries -> seeds::InOrder: --------------
+seeds::Carries -> seeds::Wraps: --------------
+seeds::Carries -> seeds::Either: -+--+----++---
+seeds::Carries -> [seeds::Mixed; 2]: --------------
+seeds::Carries -> seeds::Opt<[u8; 2]>: --------------
+seeds::Carries -> seeds::Opt<[bool; 2]>: --------------
+seeds::Carries -> seeds::Opt<(bool, u8)>: --------------
+seeds::Carries -> seeds::Tagged: --------------
+seeds::Carries -> seeds::Plain: --------------
+seeds::Carries -> seeds::Kept: --------------
+seeds::Carries -> core::option::Option<bool>: --------------
+seeds::Carries -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+-------+----
+seeds::Carries -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+seeds::InOrder -> u8: -+--+----++---
+seeds::InOrder -> bool: ---------+++--
+seeds::InOrder -> [u8; 2]: -+--+----++---
+seeds::InOrder -> [u8; 4]: --------------
+seeds::InOrder -> [bool; 2]: --------------
+seeds::InOrder -> [bool; 4]: --------------
+seeds::InOrder -> core::num::nonzero::NonZero<u16>: --------------
+seeds::InOrder -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+seeds::InOrder -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::InOrder -> (bool, [u8; 3]): --------------
+seeds::InOrder -> (u8, u8): -+--+----++---
+seeds::InOrder -> (bool, bool): --------------
+seeds::InOrder -> (bool, u8): --------------
+seeds::InOrder -> (u8, u16): --------------
+seeds::InOrder -> (u8, u16, u8): --------------
+seeds::InOrder -> seeds::Mixed: --------------
+seeds::InOrder -> seeds::Ordered: --------------
+seeds::InOrder -> seeds::Twins: --------------
+seeds::InOrder -> seeds::Holds: --------------
+seeds::InOrder -> seeds::Ruled: -+--+---+-----
+seeds::InOrder -> seeds::Carries: --------------
+seeds::InOrder -> seeds::InOrder: ++++++++++++++
+seeds::InOrder -> seeds::Wraps: --------------
+seeds::InOrder -> seeds::Either: -+--+----++---
+seeds::InOrder -> [seeds::Mixed; 2]: --------------
+seeds::InOrder -> seeds::Opt<[u8; 2]>: --------------
+seeds::InOrder -> seeds::Opt<[bool; 2]>: --------------
+seeds::InOrder -> seeds::Opt<(bool, u8)>: --------------
+seeds::InOrder -> seeds::Tagged: --------------
+seeds::InOrder -> seeds::Plain: --------------
+seeds::InOrder -> seeds::Kept: ---------+++--
+seeds::InOrder -> core::option::Option<bool>: --------------
+seeds::InOrder -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+-------+----
+seeds::InOrder -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+seeds::Wraps -> u8: -+--+---------
+seeds::Wraps -> bool: -+--+---------
+seeds::Wraps -> [u8; 2]: -+--+---------
+seeds::Wraps -> [u8; 4]: --------------
+seeds::Wraps -> [bool; 2]: --------------
+seeds::Wraps -> [bool; 4]: --------------
+seeds::Wraps -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Wraps -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+seeds::Wraps -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Wraps -> (bool, [u8; 3]): --------------
+seeds::Wraps -> (u8, u8): -+--+---------
+seeds::Wraps -> (bool, bool): --------------
+seeds::Wraps -> (bool, u8): --------------
+seeds::Wraps -> (u8, u16): --------------
+seeds::Wraps -> (u8, u16, u8): --------------
+seeds::Wraps -> seeds::Mixed: --------------
+seeds::Wraps -> seeds::Ordered: --------------
+seeds::Wraps -> seeds::Twins: --------------
+seeds::Wraps -> seeds::Holds: --------------
+seeds::Wraps -> seeds::Ruled: --------------
+seeds::Wraps -> seeds::Carries: --------------
+seeds::Wraps -> seeds::InOrder: --------------
+seeds::Wraps -> seeds::Wraps: ++++++++++++++
+seeds::Wraps -> seeds::Either: -+--+---------
+seeds::Wraps -> [seeds::Mixed; 2]: --------------
+seeds::Wraps -> seeds::Opt<[u8; 2]>: --------------
+seeds::Wraps -> seeds::Opt<[bool; 2]>: --------------
+seeds::Wraps -> seeds::Opt<(bool, u8)>: --------------
+seeds::Wraps -> seeds::Tagged: --------------
+seeds::Wraps -> seeds::Plain: --------------
+seeds::Wraps -> seeds::Kept: -+--+---------
+seeds::Wraps -> core::option::Option<bool>: --------------
+seeds::Wraps -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+------------
+seeds::Wraps -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+---------
+seeds::Either -> u8: --------------
+seeds::Either -> bool: --------------
+seeds::Either -> [u8; 2]: --------------
+seeds::Either -> [u8; 4]: --------------
+seeds::Either -> [bool; 2]: --------------
+seeds::Either -> [bool; 4]: --------------
+seeds::Either -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Either -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+seeds::Either -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Either -> (bool, [u8; 3]): --------------
+seeds::Either -> (u8, u8): --------------
+seeds::Either -> (bool, bool): --------------
+seeds::Either -> (bool, u8): --------------
+seeds::Either -> (u8, u16): --------------
+seeds::Either -> (u8, u16, u8): --------------
+seeds::Either -> seeds::Mixed: --------------
+seeds::Either -> seeds::Ordered: --------------
+seeds::Either -> seeds::Twins: --------------
+seeds::Either -> seeds::Holds: --------------
+seeds::Either -> seeds::Ruled: --------------
+seeds::Either -> seeds::Carries: --------------
+seeds::Either -> seeds::InOrder: --------------
+seeds::Either -> seeds::Wraps: --------------
+seeds::Either -> seeds::Either: ++++++++++++++
+seeds::Either -> [seeds::Mixed; 2]: --------------
+seeds::Either -> seeds::Opt<[u8; 2]>: --------------
+seeds::Either -> seeds::Opt<[bool; 2]>: --------------
+seeds::Either -> seeds::Opt<(bool, u8)>: --------------
+seeds::Either -> seeds::Tagged: --------------
+seeds::Either -> seeds::Plain: --------------
+seeds::Either -> seeds::Kept: --------------
+seeds::Either -> core::option::Option<bool>: --------------
+seeds::Either -> core::option::Option<core::num::nonzero::NonZero<u16>>: --------------
+seeds::Either -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: --------------
+[seeds::Mixed; 2] -> u8: -+--+----++---
+[seeds::Mixed; 2] -> bool: --------------
+[seeds::Mixed; 2] -> [u8; 2]: -+--+----++---
+[seeds::Mixed; 2] -> [u8; 4]: ++++++---++-++
+[seeds::Mixed; 2] -> [bool; 2]: --------------
+[seeds::Mixed; 2] -> [bool; 4]: --------------
+[seeds::Mixed; 2] -> core::num::nonzero::NonZero<u16>: --------------
+[seeds::Mixed; 2] -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+[seeds::Mixed; 2] -> (core::num::nonzero::NonZero<u16>, u16): --------------
+[seeds::Mixed; 2] -> (bool, [u8; 3]): --------------
+[seeds::Mixed; 2] -> (u8, u8): -+--+----++---
+[seeds::Mixed; 2] -> (bool, bool): --------------
+[seeds::Mixed; 2] -> (bool, u8): --------------
+[seeds::Mixed; 2] -> (u8, u16): +++--+---+---+
+[seeds::Mixed; 2] -> (u8, u16, u8): --------------
+[seeds::Mixed; 2] -> seeds::Mixed: -+--+---++++--
+[seeds::Mixed; 2] -> seeds::Ordered: --------------
+[seeds::Mixed; 2] -> seeds::Twins: --------------
+[seeds::Mixed; 2] -> seeds::Holds: +++--+---+---+
+[seeds::Mixed; 2] -> seeds::Ruled: --------------
+[seeds::Mixed; 2] -> seeds::Carries: --------------
+[seeds::Mixed; 2] -> seeds::InOrder: --------------
+[seeds::Mixed; 2] -> seeds::Wraps: --------------
+[seeds::Mixed; 2] -> seeds::Either: -+--+----++---
+[seeds::Mixed; 2] -> [seeds::Mixed; 2]: ++++++++++++++
+[seeds::Mixed; 2] -> seeds::Opt<[u8; 2]>: --------------
+[seeds::Mixed; 2] -> seeds::Opt<[bool; 2]>: --------------
+[seeds::Mixed; 2] -> seeds::Opt<(bool, u8)>: --------------
+[seeds::Mixed; 2] -> seeds::Tagged: --------------
+[seeds::Mixed; 2] -> seeds::Plain: --------------
+[seeds::Mixed; 2] -> seeds::Kept: --------------
+[seeds::Mixed; 2] -> core::option::Option<bool>: --------------
+[seeds::Mixed; 2] -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+-------+----
+[seeds::Mixed; 2] -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+seeds::Opt<[u8; 2]> -> u8: -+--+----++---
+seeds::Opt<[u8; 2]> -> bool: --------------
+seeds::Opt<[u8; 2]> -> [u8; 2]: -+--+----++---
+seeds::Opt<[u8; 2]> -> [u8; 4]: ++++++---++-++
+seeds::Opt<[u8; 2]> -> [bool; 2]: --------------
+seeds::Opt<[u8; 2]> -> [bool; 4]: --+--+-------+
+seeds::Opt<[u8; 2]> -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Opt<[u8; 2]> -> [core::num::nonzero::NonZero<u16>; 2]: --+--+-------+
+seeds::Opt<[u8; 2]> -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Opt<[u8; 2]> -> (bool, [u8; 3]): --------------
+seeds::Opt<[u8; 2]> -> (u8, u8): -+--+----++---
+seeds::Opt<[u8; 2]> -> (bool, bool): --------------
+seeds::Opt<[u8; 2]> -> (bool, u8): --------------
+seeds::Opt<[u8; 2]> -> (u8, u16): ++++++---++-++
+seeds::Opt<[u8; 2]> -> (u8, u16, u8): --------------
+seeds::Opt<[u8; 2]> -> seeds::Mixed: --------------
+seeds::Opt<[u8; 2]> -> seeds::Ordered: --------------
+seeds::Opt<[u8; 2]> -> seeds::Twins: --------------
+seeds::Opt<[u8; 2]> -> seeds::Holds: --------------
+seeds::Opt<[u8; 2]> -> seeds::Ruled: --------------
+seeds::Opt<[u8; 2]> -> seeds::Carries: --------------
+seeds::Opt<[u8; 2]> -> seeds::InOrder: --------------
+seeds::Opt<[u8; 2]> -> seeds::Wraps: --------------
+seeds::Opt<[u8; 2]> -> seeds::Either: -+--+----++---
+seeds::Opt<[u8; 2]> -> [seeds::Mixed; 2]: --------------
+seeds::Opt<[u8; 2]> -> seeds::Opt<[u8; 2]>: ------------++
+seeds::Opt<[u8; 2]> -> seeds::Opt<[bool; 2]>: --------------
+seeds::Opt<[u8; 2]> -> seeds::Opt<(bool, u8)>: --------------
+seeds::Opt<[u8; 2]> -> seeds::Tagged: --------------
+seeds::Opt<[u8; 2]> -> seeds::Plain: --------------
+seeds::Opt<[u8; 2]> -> seeds::Kept: --------------
+seeds::Opt<[u8; 2]> -> core::option::Option<bool>: --------------
+seeds::Opt<[u8; 2]> -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+--+----++---
+seeds::Opt<[u8; 2]> -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+seeds::Opt<[bool; 2]> -> u8: -+--+----++---
+seeds::Opt<[bool; 2]> -> bool: --------------
+seeds::Opt<[bool; 2]> -> [u8; 2]: -+--+----++---
+seeds::Opt<[bool; 2]> -> [u8; 4]: ++++++---++-++
+seeds::Opt<[bool; 2]> -> [bool; 2]: --------------
+seeds::Opt<[bool; 2]> -> [bool; 4]: --+--+-------+
+seeds::Opt<[bool; 2]> -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Opt<[bool; 2]> -> [core::num::nonzero::NonZero<u16>; 2]: --+--+-------+
+seeds::Opt<[bool; 2]> -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Opt<[bool; 2]> -> (bool, [u8; 3]): --------------
+seeds::Opt<[bool; 2]> -> (u8, u8): -+--+----++---
+seeds::Opt<[bool; 2]> -> (bool, bool): --------------
+seeds::Opt<[bool; 2]> -> (bool, u8): --------------
+seeds::Opt<[bool; 2]> -> (u8, u16): ++++++---++-++
+seeds::Opt<[bool; 2]> -> (u8, u16, u8): --------------
+seeds::Opt<[bool; 2]> -> seeds::Mixed: --------------
+seeds::Opt<[bool; 2]> -> seeds::Ordered: --------------
+seeds::Opt<[bool; 2]> -> seeds::Twins: --------------
+seeds::Opt<[bool; 2]> -> seeds::Holds: --------------
+seeds::Opt<[bool; 2]> -> seeds::Ruled: --------------
+seeds::Opt<[bool; 2]> -> seeds::Carries: --------------
+seeds::Opt<[bool; 2]> -> seeds::InOrder: --------------
+seeds::Opt<[bool; 2]> -> seeds::Wraps: --------------
+seeds::Opt<[bool; 2]> -> seeds::Either: -+--+----++---
+seeds::Opt<[bool; 2]> -> [seeds::Mixed; 2]: --------------
+seeds::Opt<[bool; 2]> -> seeds::Opt<[u8; 2]>: ------------++
+seeds::Opt<[bool; 2]> -> seeds::Opt<[bool; 2]>: ------------++
+seeds::Opt<[bool; 2]> -> seeds::Opt<(bool, u8)>: ------------++
+seeds::Opt<[bool; 2]> -> seeds::Tagged: --------------
+seeds::Opt<[bool; 2]> -> seeds::Plain: --------------
+seeds::Opt<[bool; 2]> -> seeds::Kept: --------------
+seeds::Opt<[bool; 2]> -> core::option::Option<bool>: --------------
+seeds::Opt<[bool; 2]> -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+--+----++---
+seeds::Opt<[bool; 2]> -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+seeds::Opt<(bool, u8)> -> u8: -+--+----++---
+seeds::Opt<(bool, u8)> -> bool: --------------
+seeds::Opt<(bool, u8)> -> [u8; 2]: -+--+----++---
+seeds::Opt<(bool, u8)> -> [u8; 4]: ++++++---++-++
+seeds::Opt<(bool, u8)> -> [bool; 2]: --------------
+seeds::Opt<(bool, u8)> -> [bool; 4]: --+--+-------+
+seeds::Opt<(bool, u8)> -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Opt<(bool, u8)> -> [core::num::nonzero::NonZero<u16>; 2]: --+--+-------+
+seeds::Opt<(bool, u8)> -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Opt<(bool, u8)> -> (bool, [u8; 3]): --------------
+seeds::Opt<(bool, u8)> -> (u8, u8): -+--+----++---
+seeds::Opt<(bool, u8)> -> (bool, bool): --------------
+seeds::Opt<(bool, u8)> -> (bool, u8): --------------
+seeds::Opt<(bool, u8)> -> (u8, u16): ++++++---++-++
+seeds::Opt<(bool, u8)> -> (u8, u16, u8): --------------
+seeds::Opt<(bool, u8)> -> seeds::Mixed: --------------
+seeds::Opt<(bool, u8)> -> seeds::Ordered: --------------
+seeds::Opt<(bool, u8)> -> seeds::Twins: --------------
+seeds::Opt<(bool, u8)> -> seeds::Holds: --------------
+seeds::Opt<(bool, u8)> -> seeds::Ruled: --------------
+seeds::Opt<(bool, u8)> -> seeds::Carries: --------------
+seeds::Opt<(bool, u8)> -> seeds::InOrder: --------------
+seeds::Opt<(bool, u8)> -> seeds::Wraps: --------------
+seeds::Opt<(bool, u8)> -> seeds::Either: -+--+----++---
+seeds::Opt<(bool, u8)> -> [seeds::Mixed; 2]: --------------
+seeds::Opt<(bool, u8)> -> seeds::Opt<[u8; 2]>: ------------++
+seeds::Opt<(bool, u8)> -> seeds::Opt<[bool; 2]>: --------------
+seeds::Opt<(bool, u8)> -> seeds::Opt<(bool, u8)>: ------------++
+seeds::Opt<(bool, u8)> -> seeds::Tagged: --------------
+seeds::Opt<(bool, u8)> -> seeds::Plain: --------------
+seeds::Opt<(bool, u8)> -> seeds::Kept: --------------
+seeds::Opt<(bool, u8)> -> core::option::Option<bool>: --------------
+seeds::Opt<(bool, u8)> -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+--+----++---
+seeds::Opt<(bool, u8)> -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+seeds::Tagged -> u8: --------------
+seeds::Tagged -> bool: --------------
+seeds::Tagged -> [u8; 2]: --------------
+seeds::Tagged -> [u8; 4]: --------------
+seeds::Tagged -> [bool; 2]: --------------
+seeds::Tagged -> [bool; 4]: --------------
+seeds::Tagged -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Tagged -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+seeds::Tagged -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Tagged -> (bool, [u8; 3]): --------------
+seeds::Tagged -> (u8, u8): --------------
+seeds::Tagged -> (bool, bool): --------------
+seeds::Tagged -> (bool, u8): --------------
+seeds::Tagged -> (u8, u16): --------------
+seeds::Tagged -> (u8, u16, u8): --------------
+seeds::Tagged -> seeds::Mixed: --------------
+seeds::Tagged -> seeds::Ordered: --------------
+seeds::Tagged -> seeds::Twins: --------------
+seeds::Tagged -> seeds::Holds: --------------
+seeds::Tagged -> seeds::Ruled: --------------
+seeds::Tagged -> seeds::Carries: --------------
+seeds::Tagged -> seeds::InOrder: --------------
+seeds::Tagged -> seeds::Wraps: --------------
+seeds::Tagged -> seeds::Either: --------------
+seeds::Tagged -> [seeds::Mixed; 2]: --------------
+seeds::Tagged -> seeds::Opt<[u8; 2]>: --------------
+seeds::Tagged -> seeds::Opt<[bool; 2]>: --------------
+seeds::Tagged -> seeds::Opt<(bool, u8)>: --------------
+seeds::Tagged -> seeds::Tagged: ++++++++++++++
+seeds::Tagged -> seeds::Plain: --------------
+seeds::Tagged -> seeds::Kept: --------------
+seeds::Tagged -> core::option::Option<bool>: --------------
+seeds::Tagged -> core::option::Option<core::num::nonzero::NonZero<u16>>: --------------
+seeds::Tagged -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: --------------
+seeds::Plain -> u8: --------------
+seeds::Plain -> bool: --------------
+seeds::Plain -> [u8; 2]: --------------
+seeds::Plain -> [u8; 4]: --------------
+seeds::Plain -> [bool; 2]: --------------
+seeds::Plain -> [bool; 4]: --------------
+seeds::Plain -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Plain -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+seeds::Plain -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Plain -> (bool, [u8; 3]): --------------
+seeds::Plain -> (u8, u8): --------------
+seeds::Plain -> (bool, bool): --------------
+seeds::Plain -> (bool, u8): --------------
+seeds::Plain -> (u8, u16): --------------
+seeds::Plain -> (u8, u16, u8): --------------
+seeds::Plain -> seeds::Mixed: --------------
+seeds::Plain -> seeds::Ordered: --------------
+seeds::Plain -> seeds::Twins: --------------
+seeds::Plain -> seeds::Holds: --------------
+seeds::Plain -> seeds::Ruled: --------------
+seeds::Plain -> seeds::Carries: --------------
+seeds::Plain -> seeds::InOrder: --------------
+seeds::Plain -> seeds::Wraps: --------------
+seeds::Plain -> seeds::Either: --------------
+seeds::Plain -> [seeds::Mixed; 2]: --------------
+seeds::Plain -> seeds::Opt<[u8; 2]>: --------------
+seeds::Plain -> seeds::Opt<[bool; 2]>: --------------
+seeds::Plain -> seeds::Opt<(bool, u8)>: --------------
+seeds::Plain -> seeds::Tagged: --------------
+seeds::Plain -> seeds::Plain: ++++++++++++++
+seeds::Plain -> seeds::Kept: --------------
+seeds::Plain -> core::option::Option<bool>: --------------
+seeds::Plain -> core::option::Option<core::num::nonzero::NonZero<u16>>: --------------
+seeds::Plain -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: --------------
+seeds::Kept -> u8: ++++++---++-++
+seeds::Kept -> bool: ++++++++++++++
+seeds::Kept -> [u8; 2]: --------------
+seeds::Kept -> [u8; 4]: --------------
+seeds::Kept -> [bool; 2]: --------------
+seeds::Kept -> [bool; 4]: --------------
+seeds::Kept -> core::num::nonzero::NonZero<u16>: --------------
+seeds::Kept -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+seeds::Kept -> (core::num::nonzero::NonZero<u16>, u16): --------------
+seeds::Kept -> (bool, [u8; 3]): --------------
+seeds::Kept -> (u8, u8): --------------
+seeds::Kept -> (bool, bool): --------------
+seeds::Kept -> (bool, u8): --------------
+seeds::Kept -> (u8, u16): --------------
+seeds::Kept -> (u8, u16, u8): --------------
+seeds::Kept -> seeds::Mixed: --------------
+seeds::Kept -> seeds::Ordered: --------------
+seeds::Kept -> seeds::Twins: --------------
+seeds::Kept -> seeds::Holds: --------------
+seeds::Kept -> seeds::Ruled: --------------
+seeds::Kept -> seeds::Carries: --------------
+seeds::Kept -> seeds::InOrder: --------------
+seeds::Kept -> seeds::Wraps: --------------
+seeds::Kept -> seeds::Either: --------------
+seeds::Kept -> [seeds::Mixed; 2]: --------------
+seeds::Kept -> seeds::Opt<[u8; 2]>: --------------
+seeds::Kept -> seeds::Opt<[bool; 2]>: --------------
+seeds::Kept -> seeds::Opt<(bool, u8)>: --------------
+seeds::Kept -> seeds::Tagged: --------------
+seeds::Kept -> seeds::Plain: --------------
+seeds::Kept -> seeds::Kept: ++++++++++++++
+seeds::Kept -> core::option::Option<bool>: --------------
+seeds::Kept -> core::option::Option<core::num::nonzero::NonZero<u16>>: --------------
+seeds::Kept -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: ++++++---++-++
+core::option::Option<bool> -> u8: --------------
+core::option::Option<bool> -> bool: --------------
+core::option::Option<bool> -> [u8; 2]: --------------
+core::option::Option<bool> -> [u8; 4]: --------------
+core::option::Option<bool> -> [bool; 2]: --------------
+core::option::Option<bool> -> [bool; 4]: --------------
+core::option::Option<bool> -> core::num::nonzero::NonZero<u16>: --------------
+core::option::Option<bool> -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+core::option::Option<bool> -> (core::num::nonzero::NonZero<u16>, u16): --------------
+core::option::Option<bool> -> (bool, [u8; 3]): --------------
+core::option::Option<bool> -> (u8, u8): --------------
+core::option::Option<bool> -> (bool, bool): --------------
+core::option::Option<bool> -> (bool, u8): --------------
+core::option::Option<bool> -> (u8, u16): --------------
+core::option::Option<bool> -> (u8, u16, u8): --------------
+core::option::Option<bool> -> seeds::Mixed: --------------
+core::option::Option<bool> -> seeds::Ordered: --------------
+core::option::Option<bool> -> seeds::Twins: --------------
+core::option::Option<bool> -> seeds::Holds: --------------
+core::option::Option<bool> -> seeds::Ruled: --------------
+core::option::Option<bool> -> seeds::Carries: --------------
+core::option::Option<bool> -> seeds::InOrder: --------------
+core::option::Option<bool> -> seeds::Wraps: --------------
+core::option::Option<bool> -> seeds::Either: --------------
+core::option::Option<bool> -> [seeds::Mixed; 2]: --------------
+core::option::Option<bool> -> seeds::Opt<[u8; 2]>: --------------
+core::option::Option<bool> -> seeds::Opt<[bool; 2]>: --------------
+core::option::Option<bool> -> seeds::Opt<(bool, u8)>: --------------
+core::option::Option<bool> -> seeds::Tagged: --------------
+core::option::Option<bool> -> seeds::Plain: --------------
+core::option::Option<bool> -> seeds::Kept: --------------
+core::option::Option<bool> -> core::option::Option<bool>: ++++++++++++++
+core::option::Option<bool> -> core::option::Option<core::num::nonzero::NonZero<u16>>: --------------
+core::option::Option<bool> -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> u8: -+--+----++---
+core::option::Option<core::num::nonzero::NonZero<u16>> -> bool: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> [u8; 2]: ++++++++++++++
+core::option::Option<core::num::nonzero::NonZero<u16>> -> [u8; 4]: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> [bool; 2]: --+--+-------+
+core::option::Option<core::num::nonzero::NonZero<u16>> -> [bool; 4]: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> core::num::nonzero::NonZero<u16>: --+--+-+-----+
+core::option::Option<core::num::nonzero::NonZero<u16>> -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> (core::num::nonzero::NonZero<u16>, u16): --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> (bool, [u8; 3]): --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> (u8, u8): ++++++++++++++
+core::option::Option<core::num::nonzero::NonZero<u16>> -> (bool, bool): --+--+-+-----+
+core::option::Option<core::num::nonzero::NonZero<u16>> -> (bool, u8): --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> (u8, u16): --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> (u8, u16, u8): --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Mixed: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Ordered: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Twins: --+--+-+-----+
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Holds: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Ruled: --+--+-+-----+
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Carries: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::InOrder: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Wraps: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Either: ++++++---++-++
+core::option::Option<core::num::nonzero::NonZero<u16>> -> [seeds::Mixed; 2]: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Opt<[u8; 2]>: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Opt<[bool; 2]>: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Opt<(bool, u8)>: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Tagged: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Plain: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Kept: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> core::option::Option<bool>: --------------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> core::option::Option<core::num::nonzero::NonZero<u16>>: ++++++++++++++
+core::option::Option<core::num::nonzero::NonZero<u16>> -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++---
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> u8: ++++++++++++++
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> bool: --+--+-+-----+
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> [u8; 2]: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> [u8; 4]: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> [bool; 2]: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> [bool; 4]: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> core::num::nonzero::NonZero<u16>: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> [core::num::nonzero::NonZero<u16>; 2]: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> (core::num::nonzero::NonZero<u16>, u16): --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> (bool, [u8; 3]): --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> (u8, u8): --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> (bool, bool): --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> (bool, u8): --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> (u8, u16): --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> (u8, u16, u8): --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Mixed: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Ordered: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Twins: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Holds: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Ruled: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Carries: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::InOrder: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Wraps: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Either: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> [seeds::Mixed; 2]: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Opt<[u8; 2]>: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Opt<[bool; 2]>: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Opt<(bool, u8)>: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Tagged: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Plain: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Kept: --+--+-+-----+
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> core::option::Option<bool>: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> core::option::Option<core::num::nonzero::NonZero<u16>>: --------------
+core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: ++++++++++++++
+[u8] -> u8: 5 of 5 (3378e3d0c52edfaf)
+[u8] -> bool: 2 of 5 (08328707b4eb6e3a)
+[u8] -> [u8; 2]: 25 of 25 (0a8d07925296ef6f)
+[u8] -> [u8; 4]: 625 of 625 (30506356cc91c7df)
+[u8] -> [bool; 2]: 4 of 25 (448cf77f98f481b1)
+[u8] -> [bool; 4]: 16 of 625 (21bf5c9a9a1951e9)
+[u8] -> core::num::nonzero::NonZero<u16>: 24 of 25 (c256bdfe287b7c9d)
+[u8] -> [core::num::nonzero::NonZero<u16>; 2]: 576 of 625 (c3d2f169fb122c75)
+[u8] -> (core::num::nonzero::NonZero<u16>, u16): refused
+[u8] -> (bool, [u8; 3]): refused
+[u8] -> (u8, u8): 25 of 25 (0a8d07925296ef6f)
+[u8] -> (bool, bool): 4 of 25 (448cf77f98f481b1)
+[u8] -> (bool, u8): refused
+[u8] -> (u8, u16): 625 of 625 (30506356cc91c7df)
+[u8] -> (u8, u16, u8): refused
+[u8] -> seeds::Mixed: refused
+[u8] -> seeds::Ordered: refused
+[u8] -> seeds::Twins: 4 of 25 (448cf77f98f481b1)
+[u8] -> seeds::Holds: refused
+[u8] -> seeds::Ruled: 10 of 25 (f4a79f43e36c377f)
+[u8] -> seeds::Carries: refused
+[u8] -> seeds::InOrder: 20 of 125 (fc6278f00a2d384f)
+[u8] -> seeds::Wraps: refused
+[u8] -> seeds::Either: 25 of 25 (0a8d07925296ef6f)
+[u8] -> [seeds::Mixed; 2]: refused
+[u8] -> seeds::Opt<[u8; 2]>: refused
+[u8] -> seeds::Opt<[bool; 2]>: refused
+[u8] -> seeds::Opt<(bool, u8)>: refused
+[u8] -> seeds::Tagged: refused
+[u8] -> seeds::Plain: refused
+[u8] -> seeds::Kept: 2 of 5 (08328707b4eb6e3a)
+[u8] -> core::option::Option<bool>: refused
+[u8] -> core::option::Option<core::num::nonzero::NonZero<u16>>: 25 of 25 (0a8d07925296ef6f)
+[u8] -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: 5 of 5 (3378e3d0c52edfaf)

@@ -10,7 +10,7 @@ use core::fmt;
 
 use crate::{
   Scalar,
-  layout::{Endian, Spec},
+  layout::{Endian, Id, Spec},
 };
 
 macro_rules! endian {
@@ -197,6 +197,7 @@ macro_rules! ints {
     // SAFETY: a byte array.
     unsafe impl Scalar for $name {
       const SPEC: Spec = Spec::any::<Self>().with_endian(Endian::$endian);
+      const ID: Id = Id::new(stringify!($name), &[]);
     }
 
     impl From<$name> for $raw {
@@ -310,6 +311,8 @@ macro_rules! ints {
         let _ = Self::new();
         Spec::ranges::<Self>(Endian::$endian, const { &[(V as u128, V as u128)] })
       };
+      // `V` may not fit a `usize`: its bytes are in the layout, which identical types share.
+      const ID: Id = Id::sized(stringify!($literal), &[], V as usize);
     }
 
     impl<const V: $raw> Default for $literal<V> {
@@ -465,6 +468,7 @@ macro_rules! numbers {
     // SAFETY: a byte array.
     unsafe impl Scalar for $name {
       const SPEC: Spec = Spec::any::<Self>().with_endian(Endian::$endian).not_a_number();
+      const ID: Id = Id::new(stringify!($name), &[]);
     }
 
     impl From<$name> for $raw {
@@ -585,6 +589,7 @@ impl<const V: u8> u8c<V> {
 // SAFETY: the only value that `new` makes.
 unsafe impl<const V: u8> Scalar for u8c<V> {
   const SPEC: Spec = Spec::ranges::<Self>(Endian::NATIVE, const { &[(V as u128, V as u128)] });
+  const ID: Id = Id::sized("u8c", &[], V as usize);
 }
 
 impl<const V: u8> Default for u8c<V> {
@@ -659,6 +664,7 @@ impl<const MIN: u8, const MAX: u8> u8in<MIN, MAX> {
 // SAFETY: the only values that `new` makes.
 unsafe impl<const MIN: u8, const MAX: u8> Scalar for u8in<MIN, MAX> {
   const SPEC: Spec = Spec::ranges::<Self>(Endian::NATIVE, const { &[(MIN as u128, MAX as u128)] });
+  const ID: Id = Id::sized("u8in", &[], MIN as usize * 256 + MAX as usize);
 }
 
 impl<const MIN: u8, const MAX: u8> fmt::Debug for u8in<MIN, MAX> {

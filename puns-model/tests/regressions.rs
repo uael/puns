@@ -64,8 +64,10 @@ fn a_rule_that_reads_padding_needs_it_initialized() {
   // In the variant of an enum, from an enum and from bytes.
   let v = const { verdict::<HoldsPlain, HoldsReadsPadding>() };
   assert!(!v.try_pun_ref && v.why().contains("padding"), "{}", v.why());
+  // Of a tuple, which only the `unstable` feature looks into.
   let v = const { verdict::<(u8, u8, Plain), HoldsReadsPadding>() };
-  assert!(!v.try_pun_ref && v.why().contains("padding"), "{}", v.why());
+  let why = if cfg!(feature = "unstable") { v.why().contains("padding") } else { v.unspecified() };
+  assert!(!v.try_pun_ref && why, "{}", v.why());
   assert!(const { verdict::<[u8; 6], HoldsReadsPadding>() }.try_pun);
   // A `&mut` is about what the type system enforces: rules do not matter.
   assert!(const { verdict::<Plain, ReadsPadding>() }.why().contains("padding"));
