@@ -105,8 +105,8 @@ impl Checks for All {
 ///
 /// - `ptr` is valid for reads of a `T`. It need not be aligned.
 /// - Every byte that a check marked by `C` reads is initialized. A marked scalar reads its own
-///   bytes, unless it is one that a pun never makes and `C::NEVER` accepts it unread, and a marked
-///   pattern reads its tail. An enum or a union with a marked
+///   bytes, unless it is one that a pun never makes, which is never read: `C::NEVER` accepts it,
+///   and otherwise it is refused. A marked pattern reads its tail. An enum or a union with a marked
 ///   leaf reads its tag and what the checks of its variants read, which check every part. A struct
 ///   whose rules are marked reads the fields that its rules load and, if one of its rules reads
 ///   bytes by offset ([`Layout::rules_read_bytes`]), all of its bytes, padding included.
@@ -120,9 +120,9 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
   // initialized, by contract on the caller. A leaf of `T` is marked, since the function did not
   // return above. `T::LAYOUT` is the layout of `T`, and `T::Elem`, `T::Fields` and `T::Variants`
   // are its lists (`Pun`, section Safety). For each shape:
-  // - A scalar is `T` itself, of `spec.size` bytes, and is marked. So its bytes are initialized,
-  //   as `Spec::matches` requires. A scalar that a pun never makes is not read when `C::NEVER`
-  //   accepts it.
+  // - A scalar is `T` itself, of `spec.size` bytes, and is marked. If it is one that a pun never
+  //   makes, nothing reads it: `C::NEVER` accepts it, and `Spec::matches` refuses it otherwise.
+  //   Any other scalar reads its own bytes, so they are initialized, as `Spec::matches` requires.
   // - An array or a slice is `len` or `ptr::metadata(ptr)` elements of type `T::Elem`, one after
   //   the other, each valid for reads. Its elements share their leaves, so what is marked in one
   //   is marked in each, as `validate_elems` requires.

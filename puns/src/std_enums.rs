@@ -271,9 +271,9 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
 // compiler that its module documentation lists. The variant `Some` holds the layout of `T` at the
 // offset observed on a sample, and the lists of variants and fields are those of this layout (see
 // `OptionNone`, `OptionSome` and `OptionSomeField`). Where `T` is a scalar that a pun never makes,
-// the layout is that of `never_option`, whose shape is checked there, and `Option<T>` is no enum to
-// a pun: no function of this crate reads its lists of variants and fields. `Option<T>` holds a `T`
-// or nothing, and a tag, so no `UnsafeCell`, since `T: Pun`.
+// the layout is that of `never_option`, whose shape is checked there: a scalar, whose lists `puns`
+// does not read, so they may be anything (`Pun`, section Safety). `Option<T>` holds a `T` or
+// nothing, and a tag, so no `UnsafeCell`, since `T: Pun`.
 unsafe impl<T: Pun> Pun for Option<T> {
   type Elem = ();
   type Fields = ();

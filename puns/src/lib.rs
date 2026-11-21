@@ -281,10 +281,11 @@
 //!
 //! `Infallible` and an enum without variants are types without values. No value of a type that has
 //! values can be one of them, so such a pun is refused as never valid, and a variant or struct that
-//! holds one has no value either. As a source, a type without values proves any target, since no
-//! value of it exists. Without this rule, a variant of a `repr(u8)` enum whose field has no value
-//! would be proven from a variant whose field does, because no byte of a zero-sized type is ever
-//! compared.
+//! holds one has no value either. As a source, a variant of an enum without values needs no proof,
+//! since no value of it exists, so an enum proves a target by its other variants. A struct that
+//! holds a type without values is related field by field, as any struct is. Without the first rule,
+//! a variant of a `repr(u8)` enum whose field has no value would be proven from a variant whose
+//! field does, because no byte of a zero-sized type is ever compared.
 //!
 //! ## What deriving `Pun` means
 //!
@@ -793,9 +794,8 @@
 //!   compile-pass tests check what compiles. Other compile-fail tests run with the feature, and the
 //!   rest are the same both ways.
 //! - With the feature, the tests that need it run as well: enums of the `Rust` representation,
-//!   `validate_but_never` of `Option<bool>`, and the tests of the layout that `rustc` chose. CI
-//!   also builds the example `codegen`, which needs it. The benchmark needs it too, and is run by
-//!   hand.
+//!   `Option` and `Result`, and the tests of the layout that `rustc` chose. CI also builds the
+//!   example `codegen`, which needs it. The benchmark needs it too, and is run by hand.
 //!
 //! # Minimum Rust version
 //!
@@ -1357,8 +1357,9 @@ pub use layout::{crc32, sum16};
 /// - The variants of a view all hold a reference with the same named lifetime, `&'a T`.
 /// - The type of each variant of a view meets the compile-time conditions of [`from_bytes`], where
 ///   `from_head` or `from_bytes` of the view is used.
-/// - No field of an enum with fields of the `Rust` representation holds a scalar that a pun never
-///   makes.
+/// - The sample of each variant of an enum with fields of the `Rust` representation holds no
+///   scalar that a pun never makes, since `puns` cannot make one. A sample holds the least value
+///   of each field, and of an enum its first variant that has values.
 /// - The compiler lays out an enum with fields of the `Rust` representation in a way that the
 ///   derive recognizes. The variant of a value is given by a tag of 1, 2, 4, 8 or 16 bytes before
 ///   the fields of every variant, or by a niche in a scalar among the fields of one variant. Any
@@ -1699,8 +1700,10 @@ pub unsafe trait Scalar {
 /// An implementation guarantees that the layout it describes is the layout of `Self`: its size, its
 /// alignment, the offset of each field, the values each scalar may hold, and its rules. Every value
 /// of `Self` holds what the layout says every value holds, and every value that the layout accepts
-/// is a valid `Self`. The lists of fields, variants and elements of the implementation are those of
-/// the layout. No byte of `Self` is inside an [`UnsafeCell`](core::cell::UnsafeCell).
+/// is a valid `Self`. The lists of the implementation are those of the layout: its fields if it is a
+/// struct, its variants if it is an enum or a union, and its element if it is an array or a slice.
+/// `puns` reads no list of a layout of another kind, which may then be anything. No byte of `Self`
+/// is inside an [`UnsafeCell`](core::cell::UnsafeCell).
 ///
 /// If `T: Pun`, unsafe code may assume that the layout of `T` is exact in this sense, and that `T`
 /// holds no `UnsafeCell`. The functions of `puns` are sound only under this assumption.

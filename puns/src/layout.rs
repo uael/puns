@@ -47,8 +47,8 @@
 //! - A **union** (`repr(C)`) is an enum without a tag whose variants are its fields, each at offset
 //!   0. A value of it must be one of its fields ([Unions](crate#unions)).
 //! - A type **without values** is an enum without variants ([`Layout::uninhabited`]), such as
-//!   `Infallible`. No value has its layout ([`Layout::is_inhabited`]), so as a source such a type
-//!   proves any target.
+//!   `Infallible`. No value has its layout ([`Layout::is_inhabited`]), so as a source, a variant of
+//!   an enum without values needs no proof.
 //! - `MaybeUninit<T>` is padding with the size of `T`.
 //! - An **array** is the layout of an element and a count, and a **slice** is the layout of an
 //!   element alone, since its length is not part of its type.
@@ -224,6 +224,11 @@ impl Spec {
   /// `Option` has the size of the scalar ([Scalars that a pun never
   /// makes](crate#scalars-that-a-pun-never-makes)).
   ///
+  /// # Panics
+  ///
+  /// Panics if `T` has a size of 0. A pun relates bytes, so it would make such a scalar from no
+  /// bytes at all. In the `SPEC` of a [`Scalar`](crate::Scalar), this is an error at compile time.
+  ///
   /// # Examples
   ///
   /// ```
@@ -242,6 +247,7 @@ impl Spec {
   #[must_use]
   pub const fn never<T>() -> Self {
     let size = size_of::<T>();
+    assert!(size > 0, "a scalar that a pun never makes has at least one byte");
     Self { size, endian: Endian::NATIVE, valid: Valid::Never, known: Valid::Any, number: false }
   }
 
@@ -616,22 +622,22 @@ impl Spec {
 
   /// Returns whether the scalar accepts the value of its bytes at `ptr`.
   ///
-  /// A scalar that accepts any initialized bytes, or uninitialized ones, reads nothing.
+  /// A scalar that accepts any initialized bytes, or uninitialized ones, reads nothing, and neither
+  /// does a scalar that a pun never makes, which accepts no value.
   ///
   /// # Safety
   ///
   /// The caller must ensure that:
   ///
-  /// - If the scalar accepts only some values, `ptr` is valid for reads of `self.size` bytes, which
-  ///   are initialized. It need not be aligned.
+  /// - If the scalar accepts some values but not all (`Spec::ranges`), `ptr` is valid for reads of
+  ///   `self.size` bytes, which are initialized. It need not be aligned.
   #[inline(always)]
   pub(crate) const unsafe fn matches(&self, ptr: *const u8) -> bool {
     match self.valid {
       Valid::Uninit | Valid::Any => true,
-      // SAFETY: The scalar accepts only some values, so `ptr` is valid for reads of `self.size`
-      // initialized bytes, by contract on the caller. Only `Spec::with_ranges` makes a
-      // `Valid::In`, and it asserts that the size is 1 to 16. These are the requirements of
-      // `load`.
+      // SAFETY: The scalar accepts some values but not all, so `ptr` is valid for reads of
+      // `self.size` initialized bytes, by contract on the caller. Only `Spec::with_ranges` makes a
+      // `Valid::In`, and it asserts that the size is 1 to 16. These are the requirements of `load`.
       Valid::In(ranges) => contains(ranges, unsafe { load(ptr, self.size, self.endian) }),
       Valid::Never => false,
     }
@@ -1727,8 +1733,8 @@ impl Layout {
   ///
   /// # Panics
   ///
-  /// Panics if `T` has no value, or holds a scalar that a pun never makes, since `puns` cannot make
-  /// a sample value of one.
+  /// Panics if `T` has no value, or if its sample holds a scalar that a pun never makes, since
+  /// `puns` cannot make a value of one.
   #[doc(hidden)]
   #[must_use]
   pub const fn sample<T: crate::Pun>() -> mem::MaybeUninit<T> {
