@@ -3047,7 +3047,8 @@ impl Layout {
   /// variants.
   ///
   /// The layout is an enum without variants. No value of a type that has values is a value of this
-  /// one. As a source, it proves any target, since it has no value.
+  /// one. As a source, a variant of an enum that holds it needs no proof where the variants of two
+  /// enums are related, since no value is that variant.
   ///
   /// # Examples
   ///

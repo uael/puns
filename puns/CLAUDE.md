@@ -52,8 +52,8 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   equal only if they require and guarantee the same values.
 - No function makes a value that holds a scalar that a pun never makes (`Spec::never`), and no
   function gives a `&mut` to one. As a target, such a scalar is disjoint from every source
-  (`atom_relation`), and a part that holds one proves nothing, not even itself
-  (`Layout::holds_never`). Only `validate_but_never` accepts one, unread, and makes no value.
+  (`atom_relation`), and a part of a target that holds one is proven by nothing, not even by
+  itself (`Layout::holds_never`). Only `validate_but_never` accepts one, unread, and makes no value.
   `Option` of one is one of the same size (`std_enums::never_option`), found without a sample, which
   `puns` has none of: its size and the bytes of `None` are checked in const evaluation.
 - The validation of the `try_` and `from_` functions compares the rules of what the derive or a

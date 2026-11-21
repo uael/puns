@@ -191,8 +191,9 @@
 //!   the multiples of the greatest common divisor of the sizes, of which every sum of sizes is one.
 //!   A few of these offsets are in no order, such as the second byte of a `(bool, [u8; 3])`, so
 //!   more is then required, never less. A struct that has a rule, which names fields, proves only
-//!   itself, as an enum does. A part that holds a scalar that a pun never makes proves nothing, not
-//!   even itself ([`Layout::holds_never`]), and is refused in every layout.
+//!   itself, as an enum does. As a target, a part that holds a scalar that a pun never makes is
+//!   proven by nothing, not even by itself ([`Layout::holds_never`]), and is refused in every
+//!   layout.
 //! - **Nothing in an opaque node is checked at run time,** since a check would read where the
 //!   compiler may not have put the field. What is not proven does not compile
 //!   ([`Relation::unspecified`]), and whatever reads a relation reads this, including what a
@@ -1711,7 +1712,8 @@ const fn gather(a: &mut Cursor, start: usize, end: usize) -> ([Piece; 16], usize
 ///
 /// # Errors
 ///
-/// Returns `None` if one of the pieces may be uninitialized.
+/// Returns `None` if one of the pieces may be uninitialized, unless `spec` is a scalar that a pun
+/// never makes, which no source is, whatever its pieces hold.
 const fn atom_relation(pieces: &[Piece; 16], len: usize, spec: &Spec) -> Option<Rel> {
   let ranges = match spec.valid {
     Valid::In(ranges) => ranges,

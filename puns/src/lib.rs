@@ -281,11 +281,12 @@
 //!
 //! `Infallible` and an enum without variants are types without values. No value of a type that has
 //! values can be one of them, so such a pun is refused as never valid, and a variant or struct that
-//! holds one has no value either. As a source, a variant of an enum without values needs no proof,
-//! since no value of it exists, so an enum proves a target by its other variants. A struct that
-//! holds a type without values is related field by field, as any struct is. Without the first rule,
-//! a variant of a `repr(u8)` enum whose field has no value would be proven from a variant whose
-//! field does, because no byte of a zero-sized type is ever compared.
+//! holds one has no value either. As a source, a variant without values needs no proof where an
+//! enum is related to a target enum variant by variant, since no value is that variant. Against any
+//! other target, the tag of the enum is read as a scalar that may hold the tag of that variant too,
+//! and a struct that holds a type without values is related field by field, as any struct is.
+//! Without the first rule, a variant of a `repr(u8)` enum whose field has no value would be proven
+//! from a variant whose field does, because no byte of a zero-sized type is ever compared.
 //!
 //! ## What deriving `Pun` means
 //!
@@ -1840,7 +1841,9 @@ pub unsafe trait Fields {
 ///
 /// An implementation must ensure that the list, from `Self` through `Next`, is the variants of the
 /// layout of its enum, with their tags and their fields, in order, and that it ends with `()`,
-/// whose `TAG` is `None`. Only `#[derive(Pun)]` and this crate implement this trait.
+/// whose `TAG` is `None`. Where the layout of the type is not an enum or a union, `puns` reads no
+/// list of its variants, which may then be anything ([`Pun`](trait@Pun), section Safety). Only
+/// `#[derive(Pun)]` and this crate implement this trait.
 #[doc(hidden)]
 pub unsafe trait Variants {
   /// First field of the variant.
@@ -2935,8 +2938,8 @@ impl Message {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - `size_of::<S>() == size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
 /// - Every value of `S` is a [valid](crate#soundness) `D`.
@@ -2976,8 +2979,8 @@ pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - `size_of::<S>() >= size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in the first
 ///   `size_of::<D>()` bytes of every value of `S`.
@@ -3019,8 +3022,8 @@ pub const fn head<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - `size_of::<S>() >= size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in the last `size_of::<D>()`
 ///   bytes of every value of `S`.
@@ -3091,8 +3094,8 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - `size_of::<S>() == size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
 /// - Each part of `D` (each scalar that is not in an enum or a union, some variant of each enum,
@@ -3177,8 +3180,8 @@ const unsafe fn pun_unchecked<S: Copy, D: Copy>(value: S) -> D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - Whatever the length of its slice, every value of `S` has a size that `D` can have. For sized
 ///   types, this means `size_of::<S>() == size_of::<D>()`.
 /// - `D` needs no greater alignment than `S`. Use [`try_pun_ref`] to check the address at run
@@ -3241,8 +3244,8 @@ pub const fn pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 /// A call compiles only if all of the following hold:
 ///
 /// - Neither `S` nor `D` holds a scalar that a pun never makes
-///   ([`Spec::never`](layout::Spec::never)), except in a variant of an enum, which a check never
-///   accepts.
+///   ([`Spec::never`](layout::Spec::never)) in a part that the pun covers, except in a variant of
+///   an enum, which a check never accepts.
 /// - Whatever the length of its slice, every value of `S` has a size that `D` can have. For sized
 ///   types, this means `size_of::<S>() == size_of::<D>()`.
 /// - `D` needs no greater alignment than `S`. Use [`try_pun_mut`] to check the address at run
@@ -3296,8 +3299,8 @@ pub const fn pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D 
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - Every value of `S` is at least as large as the smallest `D`. For sized types, this means
 ///   `size_of::<S>() >= size_of::<D>()`.
 /// - `D` needs no greater alignment than `S`.
@@ -3349,8 +3352,8 @@ pub const fn head_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - `S` is sized, because where the last bytes of an unsized value start is known only at run
 ///   time. Use [`from_tail`] to take a value from the end of bytes.
 /// - `D` is sized.
@@ -3562,8 +3565,8 @@ pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - Some length of `value` gives it a size that `D` can have. For sized types, this means
 ///   `size_of::<S>() == size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
@@ -3639,8 +3642,8 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
 /// A call compiles only if all of the following hold:
 ///
 /// - Neither `S` nor `D` holds a scalar that a pun never makes
-///   ([`Spec::never`](layout::Spec::never)), except in a variant of an enum, which a check never
-///   accepts.
+///   ([`Spec::never`](layout::Spec::never)) in a part that the pun covers, except in a variant of
+///   an enum, which a check never accepts.
 /// - Some length of `value` gives it a size that `D` can have. For sized types, this means
 ///   `size_of::<S>() == size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
@@ -3702,8 +3705,8 @@ pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Res
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `T` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `T` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - A `T` whose bytes are all zero is a [valid](crate#soundness) `T`, apart from its rules.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
@@ -3828,8 +3831,8 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - `D` is [inhabited].
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
@@ -3992,8 +3995,8 @@ pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Err
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - `D` is [inhabited].
 /// - Every byte of every value of `D` is initialized.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
@@ -4190,8 +4193,8 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - `D` is [inhabited].
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
@@ -4285,8 +4288,8 @@ pub const fn rejects<D: ?Sized + Pun>(bytes: &[u8]) -> bool {
 ///
 /// - `D` is sized, because where an unsized `D` starts cannot be found from the end of the bytes.
 ///   Use [`from_head`] or [`from_bytes`].
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - `D` is [inhabited].
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
@@ -4356,8 +4359,8 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&[u8], &D), Err
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - `D` is [inhabited].
 /// - Every byte of every value of `D` is initialized.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
@@ -4428,8 +4431,8 @@ pub const fn from_head_mut<D: ?Sized + Pun>(
 /// A call compiles only if all of the following hold:
 ///
 /// - `D` is sized. Use [`from_head_mut`] or [`from_bytes_mut`] for an unsized `D`.
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)), except in a
-///   variant of an enum, which a check never accepts.
+/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
+///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - `D` is [inhabited].
 /// - Every byte of every value of `D` is initialized.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a

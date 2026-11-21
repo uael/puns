@@ -377,7 +377,9 @@ const fn found_field<E: Pun + Found>(index: usize) -> Option<Field> {
 
 // SAFETY: `TAG` and `RANGES` are those of the variant 0 of the layout of `Option<T>`, `None`,
 // which has no field, and `Next` is the variant 1. So the list is the variants of the layout, in
-// order, as the `# Safety` of `Variants` requires.
+// order, as the `# Safety` of `Variants` requires. Where `Option<T>` is no enum (`never_option`),
+// `tag` and `ranges` give 0 and `None`, and `puns` reads no list of its variants, which may then be
+// anything (`Variants`, section Safety).
 unsafe impl<T: Pun> Variants for OptionNone<T> {
   type Fields = ();
   type Next = OptionSome<T>;
@@ -386,7 +388,7 @@ unsafe impl<T: Pun> Variants for OptionNone<T> {
 }
 
 // SAFETY: As for `OptionNone`: the variant 1, `Some`, whose field is `OptionSomeField<T>`, and
-// the last.
+// the last. Where `Option<T>` is no enum, nothing reads the list, as for `OptionNone`.
 unsafe impl<T: Pun> Variants for OptionSome<T> {
   type Fields = OptionSomeField<T>;
   type Next = ();
