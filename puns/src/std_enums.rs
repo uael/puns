@@ -10,18 +10,6 @@
 //! `Option<bool>` is the niche 2. `Option<Option<bool>>` has two niches, and `rustc` puts `None`
 //! at 255 today, below the valid values rather than after them. This is found, not assumed.
 //! `Option<u16>` has a tag of two bytes. `Result<u32, Infallible>` is a struct of its `u32`.
-//!
-//! If `T::OPTION` gives the layout of `Option<T>`, `Option<T>` has that layout. This is the case of
-//! a self-relative pointer, whose `Option` [`self_relative!`](crate::self_relative) makes the same
-//! pointer, which may be null. Nothing is found then, and the lists of the variants of `Option<T>`
-//! are empty, since a pointer is not looked into. [`deep`](crate::deep) does not look into the
-//! pointer either, except for what it aims at, its `Pointee`, which is `T::Pointee`. The rules of
-//! `deep` apply to it as to any pointer. A crate that declares a pointer gets this from the macro
-//! alone. The tests show it with an offset whose zero is a niche (`Nz32le`). They reinterpret
-//! `Option<One<T, Nz32le>>` as `Opt<T, i32le>` and back, through values of a buffer. An offset that
-//! has no niche at zero, such as a byte array, makes `Option` of the pointer larger, with a tag of
-//! its own. That fails to build where it is used, with a message (compile-fail test
-//! `option_of_pointer_without_niche`).
 
 use core::{marker::PhantomData, mem::MaybeUninit};
 
@@ -56,10 +44,8 @@ const unsafe fn offset<F, E>(field: &F, whole: &MaybeUninit<E>) -> usize {
 ///
 /// The constants are those that the derive writes for an enum of the `Rust` representation.
 trait Found: Sized {
-  /// Whether the layout is given by `Pun::OPTION` rather than found.
-  const GIVEN: bool;
   /// A sample of each of the two variants. It is an uninitialized value for a variant without
-  /// values, and for `Some` if the layout is given.
+  /// values.
   const SAMPLES: [MaybeUninit<Self>; 2];
   /// The offset of the field of each variant, or 0 if it has none.
   const OFFSETS: [usize; 2];
@@ -111,19 +97,16 @@ macro_rules! variant {
 }
 
 impl<T: Pun> Found for Option<T> {
-  const GIVEN: bool = T::OPTION.is_some();
-  const SAMPLES: [MaybeUninit<Self>; 2] = if Self::GIVEN || !T::LAYOUT.is_inhabited() {
-    [Layout::wrap(None), Layout::uninit()]
-  } else {
+  const SAMPLES: [MaybeUninit<Self>; 2] = if T::LAYOUT.is_inhabited() {
     // SAFETY: `Layout::sample::<T>()` is a valid `T`, as `assume_init` requires. It writes the
     // least valid value of each scalar in the layout of `T`, the tag and the fields of its first
     // variant that has values, and leaves padding as it is. Every value that the layout accepts is
-    // a valid `T` (`Pun`, section Safety). `T` has values: it is checked above.
+    // a valid `T` (`Pun`, section Safety). `T` has values: the condition checks it.
     [Layout::wrap(None), Layout::wrap(Some(unsafe { Layout::sample::<T>().assume_init() }))]
-  };
-  const OFFSETS: [usize; 2] = if Self::GIVEN || !T::LAYOUT.is_inhabited() {
-    [0, 0]
   } else {
+    [Layout::wrap(None), Layout::uninit()]
+  };
+  const OFFSETS: [usize; 2] = if T::LAYOUT.is_inhabited() {
     let sample = &<Self as Found>::SAMPLES[1];
     // SAFETY: The reference made from `sample.as_ptr()` meets the requirements of a reference [1]:
     // - It is not null, aligned, and not dangling, because `sample` is a reference to a
@@ -142,18 +125,16 @@ impl<T: Pun> Found for Option<T> {
       // Not the variant: `discover` finds that the sample is not.
       None => [0, 0],
     }
-  };
-  const DESC: Desc<2> = if Self::GIVEN {
-    Desc::none()
   } else {
-    // SAFETY: `DESC` is an associated constant, so the call is evaluated at compile time, which is
-    // what `discover` requires.
-    unsafe {
-      crate::discover::discover::<Self, 2>(
-        &<Self as Found>::SAMPLES,
-        &[&[], &[Field::new(<Self as Found>::OFFSETS[1], &T::LAYOUT)]],
-      )
-    }
+    [0, 0]
+  };
+  // SAFETY: `DESC` is an associated constant, so the call is evaluated at compile time, which is
+  // what `discover` requires.
+  const DESC: Desc<2> = unsafe {
+    crate::discover::discover::<Self, 2>(
+      &<Self as Found>::SAMPLES,
+      &[&[], &[Field::new(<Self as Found>::OFFSETS[1], &T::LAYOUT)]],
+    )
   };
   const TAG: Layout = const { &<Self as Found>::DESC }.tag();
   const VARIANTS: [Variant; 2] = [variant!(Self, 0), variant!(Self, 1, T)];
@@ -166,7 +147,6 @@ impl<T: Pun> Found for Option<T> {
 }
 
 impl<T: Pun, E: Pun> Found for Result<T, E> {
-  const GIVEN: bool = false;
   const SAMPLES: [MaybeUninit<Self>; 2] = [
     if T::LAYOUT.is_inhabited() {
       // SAFETY: `Layout::sample::<T>()` is a valid `T`, as `assume_init` requires (see the
@@ -233,27 +213,19 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
   );
 }
 
-// SAFETY: The layout meets the `# Safety` of `Pun` in one of two ways.
-// - If `T::OPTION` is `Some`, it is the layout of `Option<T>`, by the `# Safety` of `Pun` for
-//   `T`. The lists of variants and fields are then empty: `tag` and `field` return `None`.
-// - Otherwise it is the layout that `rustc` gave `Option<T>`, found by the experiments of
-//   `discover`. These fail to compile rather than find a wrong layout, under the facts of the
-//   compiler that its module documentation lists. The variant `Some` holds the layout of `T` at
-//   the offset observed on a sample, and the lists of variants and fields are those of this
-//   layout (see `OptionNone`, `OptionSome` and `OptionSomeField`).
+// SAFETY: The layout is the one that `rustc` gave `Option<T>`, found by the experiments of
+// `discover`. These fail to compile rather than find a wrong layout, under the facts of the
+// compiler that its module documentation lists. The variant `Some` holds the layout of `T` at the
+// offset observed on a sample, and the lists of variants and fields are those of this layout (see
+// `OptionNone`, `OptionSome` and `OptionSomeField`).
 // `Option<T>` holds a `T` or nothing, and a tag, so no `UnsafeCell`, since `T: Pun`.
 unsafe impl<T: Pun> Pun for Option<T> {
   type Elem = ();
   type Fields = ();
   type Variants = OptionNone<T>;
   type Rules = ();
-  // What a pointer that may be null aims at, when `T` is a pointer.
-  type Pointee = T::Pointee;
   const PROBE: *const Self = core::ptr::null();
-  const LAYOUT: Layout = if let Some(layout) = T::OPTION {
-    // `Layout::nullable` checked that `Option<T>` has the size of `T` and that `None` is zeros.
-    layout
-  } else {
+  const LAYOUT: Layout = {
     let layout = Layout::enumeration::<Self>(const { &<Self as Found>::ENUM })
       .identified(Id::new("Option", &[T::LAYOUT.id]));
     // Where `core` documents it (a `NonZero`, a `repr(transparent)` struct around one), what is
@@ -264,7 +236,7 @@ unsafe impl<T: Pun> Pun for Option<T> {
 }
 
 // SAFETY: The layout is the one that `rustc` gave `Result<T, E>`, found by the experiments of
-// `discover`, as for `Option<T>` when `T::OPTION` is `None`. The variants `Ok` and `Err` hold the
+// `discover`, as for `Option<T>`. The variants `Ok` and `Err` hold the
 // layouts of `T` and `E` at the offsets observed on their samples, and the lists of variants and
 // fields are those of this layout (see `ResultOk`, `ResultErr`, `ResultOkField` and
 // `ResultErrField`). `Result<T, E>` holds a `T` or an `E`, and a tag, so no `UnsafeCell`.
@@ -273,7 +245,6 @@ unsafe impl<T: Pun, E: Pun> Pun for Result<T, E> {
   type Fields = ();
   type Variants = ResultOk<T, E>;
   type Rules = ();
-  type Pointee = ();
   const PROBE: *const Self = core::ptr::null();
   const LAYOUT: Layout = {
     let layout = Layout::enumeration::<Self>(const { &<Self as Found>::ENUM })
@@ -317,37 +288,29 @@ pub struct ResultOkField<T, E>(PhantomData<(T, E)>);
 #[doc(hidden)]
 pub struct ResultErrField<T, E>(PhantomData<(T, E)>);
 
-/// Returns the tag of the `index`th variant of `E`, or `None` if the layout of `E` is given.
-///
-/// In a list of variants, `None` ends the list: a given layout lists no variant.
-const fn tag<E: Pun + Found>(index: usize) -> Option<u128> {
-  if E::GIVEN { None } else { Some(E::LAYOUT.variant_tag(index)) }
+/// Returns the tag of the `index`th variant of `E`.
+const fn tag<E: Pun + Found>(index: usize) -> u128 {
+  E::LAYOUT.variant_tag(index)
 }
 
 /// Returns the values of the tag of the `index`th variant of `E`, or `None` if they are its tag
-/// alone or if the layout of `E` is given.
+/// alone.
 const fn ranges<E: Pun + Found>(index: usize) -> Option<&'static [(u128, u128)]> {
-  if E::GIVEN { None } else { E::LAYOUT.variant_ranges(index) }
+  E::LAYOUT.variant_ranges(index)
 }
 
-/// Returns the field of the `index`th variant of `E`, or `None` if the variant has no value or
-/// if the layout of `E` is given.
+/// Returns the field of the `index`th variant of `E`, or `None` if the variant has no value.
 const fn field<E: Pun + Found>(index: usize) -> Option<Field> {
-  if E::GIVEN || !E::DESC.inhabited(index) {
-    None
-  } else {
-    Some(*E::LAYOUT.variant_field(index, 0))
-  }
+  if E::DESC.inhabited(index) { Some(*E::LAYOUT.variant_field(index, 0)) } else { None }
 }
 
-// SAFETY: If the layout of `Option<T>` is found, `TAG` and `RANGES` are those of its variant 0,
-// `None`, which has no field, and `Next` is the variant 1. If it is given, `TAG` is `None`, which
-// ends the list: the layout is a pointer, which has no variant. Either way the list is the
-// variants of the layout, in order, as the `# Safety` of `Variants` requires.
+// SAFETY: `TAG` and `RANGES` are those of the variant 0 of the layout of `Option<T>`, `None`,
+// which has no field, and `Next` is the variant 1. So the list is the variants of the layout, in
+// order, as the `# Safety` of `Variants` requires.
 unsafe impl<T: Pun> Variants for OptionNone<T> {
   type Fields = ();
   type Next = OptionSome<T>;
-  const TAG: Option<u128> = tag::<Option<T>>(0);
+  const TAG: Option<u128> = Some(tag::<Option<T>>(0));
   const RANGES: Option<&'static [(u128, u128)]> = ranges::<Option<T>>(0);
 }
 
@@ -356,7 +319,7 @@ unsafe impl<T: Pun> Variants for OptionNone<T> {
 unsafe impl<T: Pun> Variants for OptionSome<T> {
   type Fields = OptionSomeField<T>;
   type Next = ();
-  const TAG: Option<u128> = tag::<Option<T>>(1);
+  const TAG: Option<u128> = Some(tag::<Option<T>>(1));
   const RANGES: Option<&'static [(u128, u128)]> = ranges::<Option<T>>(1);
 }
 
@@ -377,7 +340,7 @@ unsafe impl<T: Pun> Fields for OptionSomeField<T> {
 unsafe impl<T: Pun, E: Pun> Variants for ResultOk<T, E> {
   type Fields = ResultOkField<T, E>;
   type Next = ResultErr<T, E>;
-  const TAG: Option<u128> = tag::<Result<T, E>>(0);
+  const TAG: Option<u128> = Some(tag::<Result<T, E>>(0));
   const RANGES: Option<&'static [(u128, u128)]> = ranges::<Result<T, E>>(0);
 }
 
@@ -385,7 +348,7 @@ unsafe impl<T: Pun, E: Pun> Variants for ResultOk<T, E> {
 unsafe impl<T: Pun, E: Pun> Variants for ResultErr<T, E> {
   type Fields = ResultErrField<T, E>;
   type Next = ();
-  const TAG: Option<u128> = tag::<Result<T, E>>(1);
+  const TAG: Option<u128> = Some(tag::<Result<T, E>>(1));
   const RANGES: Option<&'static [(u128, u128)]> = ranges::<Result<T, E>>(1);
 }
 

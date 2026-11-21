@@ -1,11 +1,10 @@
 name: Model check
 
 # The exhaustive model check: every pair of the types of the model, every part, every value over
-# the alphabets, every pair of the types that hold pointers, every pair of the types of 1 and 2
-# bytes as a view enum (`puns-model/tests/size*.rs`, `parts*.rs`, `pointers_full.rs` and
-# `views_full.rs`, behind the `full` feature, which `cargo test` does not build). It takes
-# minutes to build and a few to run, too long for every push, where CI runs a sample of it: here
-# on demand, and every night.
+# the alphabets, every pair of the types of 1 and 2 bytes as a view enum
+# (`puns-model/tests/size*.rs`, `parts*.rs` and `views_full.rs`, behind the `full` feature, which
+# `cargo test` does not build). It takes minutes to build and a few to run, too long for every
+# push, where CI runs a sample of it: here on demand, and every night.
 
 on:
   workflow_dispatch:
@@ -33,19 +32,3 @@ jobs:
       # The tests that CI does not build on a push.
       - run: cargo clippy -p puns-model --tests --features full -- -D warnings
       - run: cargo clippy -p puns-model --tests --features full,unstable -- -D warnings
-      # What pointers aim at is proven by functions that are named and never called (`deep.rs`):
-      # their `const` blocks are evaluated because the compiler makes whatever is named, which
-      # the compile-fail tests hold it to in a debug build. Here in an optimized one, with LTO:
-      # the same program (a `u8` read as a `bool` two pointers down) must be refused, for the
-      # same reason. It is a check of the compiler: run it when `rust-toolchain` changes.
-      - name: A wrong view behind pointers is refused by an optimized build
-        env:
-          CARGO_PROFILE_RELEASE_LTO: "true"
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
-        run: |
-          cp puns/tests/compile-fail/view_behind_pointers.rs puns/examples/refused.rs
-          if cargo build -p puns --release --example refused 2> log; then
-            echo "a wrong view compiled"
-            exit 1
-          fi
-          grep "behind a pointer, some values of the source are not valid for the target" log

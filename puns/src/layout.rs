@@ -2,8 +2,8 @@
 //!
 //! Every [`Pun`](crate::Pun) type has a layout, a constant of type [`Layout`]. A layout is what
 //! `puns` knows about a type: its size, its alignment, where its fields are, and which values are
-//! [valid]. It is a tree, whose leaves are scalars ([`Spec`]), tails of bytes that an automaton
-//! accepts ([`Dfa`]) and self-relative pointers ([`Pointer`]), and whose nodes are arrays, slices,
+//! [valid]. It is a tree, whose leaves are scalars ([`Spec`]) and tails of bytes that an automaton
+//! accepts ([`Dfa`]), and whose nodes are arrays, slices,
 //! structs ([`Field`], with their [`Rule`]s), and enums with fields and unions ([`Enum`],
 //! [`Variant`]). A byte of a struct that no field covers is padding.
 //!
@@ -11,9 +11,9 @@
 //! compile time whether a pun is proven, checked or refused. At run time, the validation checks
 //! what the analysis could not prove, as the layouts describe it.
 //!
-//! `#[derive(Pun)]` and [`self_relative!`](crate::self_relative) make layouts with the functions of
-//! this module. A layout stands for a type only through an implementation of `Pun`, which is an
-//! `unsafe trait`.
+//! `#[derive(Pun)]` and the implementations of [`Scalar`](crate::Scalar) make layouts with the
+//! functions of this module. A layout stands for a type only through an implementation of `Pun`,
+//! which is an `unsafe trait`.
 //!
 //! The functions of this module are `const fn`s, meant to be evaluated in constants, where a panic
 //! is a compile error.
@@ -57,8 +57,9 @@
 //!   code can write, only serves to tell two automata apart, and two patterns are the same layout
 //!   only if their automata are the same, state by state. A value is checked with `str::from_utf8`
 //!   only where the automaton is the UTF-8 one, which is decided at compile time.
-//! - A **self-relative pointer** ([`Pointer`]) is an offset in a byte order. What it aims at is
-//!   not in the layout.
+//! - A **scalar that a pun never makes** ([`Spec::never`]), such as the offset of a self-relative
+//!   pointer, is initialized bytes as a source, and accepts no value as a target. What makes a
+//!   value of it valid is not in the layout.
 //!
 //! A layout is an automaton written as a tree, where a position in it is a state. The analysis
 //! walks the layouts of the source and the target together, position by position.
@@ -66,7 +67,7 @@
 //! [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
 //! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
 
-use core::{marker::PhantomData, mem};
+use core::mem;
 
 #[doc(hidden)]
 pub use crate::discover::Desc;
@@ -78,7 +79,7 @@ use crate::{
 // -------------------------------------------------------------------------------------------------
 // `Endian`
 
-/// The byte order of a scalar or of the offset of a pointer.
+/// The byte order of a scalar.
 ///
 /// # Examples
 ///
@@ -130,6 +131,9 @@ pub(crate) enum Valid {
   /// The ranges are sorted, disjoint and not adjacent. They are never empty, and never the single
   /// range of every value, which is [`Valid::Any`].
   In(&'static [(u128, u128)]),
+  /// No value. Only in [`Spec::valid`], for a scalar that a pun reads but never makes
+  /// ([`Spec::never`]). It is known to hold initialized bytes ([`Valid::Any`]).
+  Never,
 }
 
 /// The size, the byte order and the valid values of a scalar.
@@ -203,6 +207,37 @@ impl Spec {
   pub const fn any<T>() -> Self {
     let size = size_of::<T>();
     Self { size, endian: Endian::NATIVE, valid: Valid::Any, known: Valid::Any, number: true }
+  }
+
+  /// Returns the `Spec` of a scalar of type `T` that a pun reads as initialized bytes, but never
+  /// makes, because what makes a value of it valid is not in its bytes.
+  ///
+  /// A self-relative pointer is such a scalar: its bytes are an offset, and whether it is valid
+  /// depends on where it is and on what it aims at. A pun proves from such a scalar what
+  /// initialized bytes prove. A pun whose target holds one does not compile, nor does a check of
+  /// one: only the crate that declares the scalar makes a value of it, and proves it.
+  /// [`validate_but_never`](crate::validate_but_never) checks the rest of a value that holds one.
+  /// Rules do not read it, since it is not a number.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::layout::{Layout, Spec};
+  ///
+  /// let spec = Spec::never::<u32>();
+  /// // No value is accepted, so no check makes one.
+  /// assert!(!spec.contains(0) && !spec.contains(8));
+  /// // Its bytes are initialized: a value that holds one is plain.
+  /// assert!(Layout::scalar::<u32>(spec).is_plain());
+  /// ```
+  ///
+  /// The scalar of a type is declared with [`Scalar`](crate::Scalar), as in the example of
+  /// [`validate_but_never`](crate::validate_but_never).
+  #[inline]
+  #[must_use]
+  pub const fn never<T>() -> Self {
+    let size = size_of::<T>();
+    Self { size, endian: Endian::NATIVE, valid: Valid::Never, known: Valid::Any, number: false }
   }
 
   /// Returns the scalar of `size` bytes, in the byte order of the target, that accepts any
@@ -349,6 +384,13 @@ impl Spec {
       "only a scalar that restricts its values may also be uninitialized"
     );
     Self { known: Valid::Uninit, ..self }
+  }
+
+  /// Returns whether no value is valid for the scalar, which a pun reads but never makes
+  /// ([`Spec::never`]).
+  #[inline]
+  pub(crate) const fn is_never(&self) -> bool {
+    matches!(self.valid, Valid::Never)
   }
 
   /// Returns whether a source may hold uninitialized bytes in this scalar.
@@ -539,10 +581,10 @@ impl Spec {
     unsafe { load(ptr, self.size, self.endian) }
   }
 
-  /// Returns whether the scalar accepts only some initialized values.
+  /// Returns whether the scalar accepts only some initialized values, or none.
   #[inline]
   pub(crate) const fn is_constrained(&self) -> bool {
-    matches!(self.valid, Valid::In(_))
+    matches!(self.valid, Valid::In(_) | Valid::Never)
   }
 
   /// Returns whether the scalar accepts `value`, the value of its bytes as an unsigned integer.
@@ -563,6 +605,7 @@ impl Spec {
     match self.valid {
       Valid::Uninit | Valid::Any => self.size >= 16 || value <= max_value(self.size),
       Valid::In(ranges) => contains(ranges, value),
+      Valid::Never => false,
     }
   }
 
@@ -585,6 +628,7 @@ impl Spec {
       // `Valid::In`, and it asserts that the size is 1 to 16. These are the requirements of
       // `load`.
       Valid::In(ranges) => contains(ranges, unsafe { load(ptr, self.size, self.endian) }),
+      Valid::Never => false,
     }
   }
 }
@@ -722,7 +766,8 @@ pub(crate) enum Uniform {
 /// ([`Layout::is_opaque`]). As a source, such a layout is what every choice of it is (initialized
 /// bytes if `init`, and otherwise bytes that may be padding). As a target, it is proven by the same
 /// type at the same place (`Id`). A struct whose size is the same in every layout, and that has
-/// no rule and no pointer, is also proven field by field, at every offset each field may have.
+/// no rule and no scalar that a pun never makes, is also proven field by field, at every offset
+/// each field may have.
 #[derive(Copy, Clone, Debug)]
 #[expect(clippy::struct_excessive_bools, reason = "five facts of a layout, each asked alone")]
 pub(crate) struct Stable {
@@ -805,7 +850,7 @@ impl Stable {
 /// are equal only if both are known, with the same name, length and parameters.
 ///
 /// [`Id::NONE`] is the identity of a type that has none (a generic type that derives `Pun`,
-/// `PhantomData`, a `Scalar` implemented by hand, or a self-relative pointer). It is equal to no
+/// `PhantomData`, or a `Scalar` implemented by hand). It is equal to no
 /// identity, not even itself, and neither is an identity with a parameter that has none. Where two
 /// types have the same identity, the analysis still requires their layouts to be the same, so an
 /// identity can only refuse.
@@ -897,413 +942,6 @@ pub(crate) enum Kind {
   /// An enum with fields, a union, or a type without values: a tag, and the fields of the variant
   /// that the tag selects.
   Enum(&'static Enum),
-  /// A self-relative pointer.
-  Pointer(Pointer),
-}
-
-/// What a self-relative pointer aims at, in the buffer that holds it.
-///
-/// # Examples
-///
-/// ```
-/// use puns::layout::{Aim, Endian, Pointer};
-///
-/// let list = Pointer::sequence::<u32>("my crate", 4, Endian::Little, 8);
-/// assert_eq!(list.aim(), Aim::Sequence { align: 8 });
-/// assert_eq!(Pointer::text("my crate", 4, Endian::Little).aim(), Aim::Text);
-/// ```
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Aim {
-  /// One value of the target type, at an address that is a multiple of its alignment.
-  One,
-  /// Values of the target type one after another, `size_of` bytes apart, the first at an address
-  /// that is a multiple of `align`. The bytes of the buffer tell how many there are, as the scheme
-  /// of the pointer defines.
-  Sequence {
-    /// The alignment of the first element, which the crate that declares the pointer guarantees. It
-    /// is a power of two, at least the alignment of the element type.
-    align: usize,
-  },
-  /// Bytes that are UTF-8. The bytes of the buffer tell how many there are, as the scheme of the
-  /// pointer defines.
-  Text,
-}
-
-/// The description of a self-relative pointer, an offset from its own address to its target, in the
-/// same buffer.
-///
-/// A `Pointer` holds what the analysis needs to know about a pointer, and nothing about how the
-/// crate that declares it keeps its targets. [`SelfRelative`](crate::SelfRelative) says how a crate
-/// declares a pointer type, and [`Pointer::one`], [`Pointer::sequence`] and [`Pointer::text`] make
-/// a description of the following:
-///
-/// - Its **scheme**, a name that the declaring crate chooses. The scheme stands for the way a
-///   pointer and the bytes of its buffer tell where its target is and how long it is. `puns`
-///   neither knows nor needs to know that way, because a pointer is only reinterpreted as a pointer
-///   of the same scheme, which finds the same target from the same bytes.
-/// - Its **offset**, an integer of 1 to 16 bytes in a byte order, which makes up all the bytes of
-///   the pointer.
-/// - What it **aims** at ([`Aim`]), with the size and alignment of the target type, or of an
-///   element of a sequence.
-/// - Whether it is **nullable** ([`Pointer::or_null`]), in which case an offset whose bytes are all
-///   zero is no pointer.
-///
-/// What is at the target is not part of the layout, since the layout of a recursive type would
-/// never end. It is the `Pun::Pointee` of the pointer type, a type through which the analysis
-/// follows the pointer.
-///
-/// A pointer guarantees that its target is where it says, valid, and its own. This is not a
-/// property of its bytes, so no bytes prove a pointer. Only a pointer at the same place proves one,
-/// if its target can be reinterpreted as the target of the other. No check at run time can replace
-/// a pointer that is not proven, and `puns` gives no `&mut` to a value that holds a pointer.
-///
-/// # Examples
-///
-/// ```
-/// use puns::layout::{Aim, Endian, Pointer};
-///
-/// // An offset of 4 bytes, little-endian, to a `u64`.
-/// const NEXT: Pointer = Pointer::one::<u64>("my crate: an offset", 4, Endian::Little);
-///
-/// assert_eq!(NEXT.scheme(), "my crate: an offset");
-/// assert_eq!((NEXT.width(), NEXT.endian(), NEXT.aim()), (4, Endian::Little, Aim::One));
-/// assert_eq!((NEXT.size(), NEXT.align()), (size_of::<u64>(), align_of::<u64>()));
-/// assert!(!NEXT.is_nullable() && NEXT.or_null().is_nullable());
-/// ```
-#[derive(Copy, Clone, Debug)]
-pub struct Pointer {
-  pub(crate) scheme: &'static str,
-  pub(crate) aim: Aim,
-  /// Whether an offset whose bytes are all zero is no pointer.
-  pub(crate) nullable: bool,
-  /// Whether the pointer type has no value whose bytes are all zero, as when its offset is a
-  /// `NonZero`. `Layout::pointer` finds this from the type, and the declaring crate does not state
-  /// it.
-  pub(crate) nonzero: bool,
-  /// The size of the offset in bytes, which is the size of the pointer, from 1 to 16.
-  pub(crate) width: usize,
-  /// The byte order of the offset.
-  pub(crate) endian: Endian,
-  /// The size of the target type, or of an element of a sequence. It is 0 for text, the size of
-  /// `()`.
-  pub(crate) size: usize,
-  /// The alignment of the target type, or of an element of a sequence. It is 1 for text, the
-  /// alignment of `()`.
-  pub(crate) align: usize,
-}
-
-impl Pointer {
-  /// Returns the description of a pointer that may not be null, of these parts.
-  ///
-  /// # Panics
-  ///
-  /// Panics if `width` is not 1 to 16.
-  const fn new(
-    scheme: &'static str,
-    aim: Aim,
-    width: usize,
-    endian: Endian,
-    (size, align): (usize, usize),
-  ) -> Self {
-    assert!(width >= 1 && width <= 16, "the offset of a pointer is 1 to 16 bytes");
-    Self { scheme, aim, nullable: false, nonzero: false, width, endian, size, align }
-  }
-
-  /// Returns the size and the alignment of `T`, the type that a pointer aims at.
-  ///
-  /// # Panics
-  ///
-  /// Panics if `T` has a size of 0.
-  const fn target<T>() -> (usize, usize) {
-    // A target of size 0 could be anywhere, the pointer itself included, and is nothing that a
-    // pointer can be reinterpreted as, so the proof stops at it (`deep::behind`).
-    assert!(size_of::<T>() != 0, "a pointer aims at a type with a size");
-    (size_of::<T>(), align_of::<T>())
-  }
-
-  /// Returns the description of a pointer of the scheme `scheme` to one `T`, whose offset is an
-  /// integer of `width` bytes in the byte order `endian`.
-  ///
-  /// The pointer may not be null. [`Pointer::or_null`] makes one that may be.
-  ///
-  /// # Panics
-  ///
-  /// Panics if `width` is not 1 to 16, or if `T` has a size of 0.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Aim, Endian, Pointer};
-  ///
-  /// let pointer = Pointer::one::<[u16; 3]>("my crate", 2, Endian::Big);
-  /// assert_eq!(pointer.aim(), Aim::One);
-  /// assert_eq!((pointer.size(), pointer.align()), (size_of::<[u16; 3]>(), align_of::<u16>()));
-  /// ```
-  #[must_use]
-  pub const fn one<T>(scheme: &'static str, width: usize, endian: Endian) -> Self {
-    Self::new(scheme, Aim::One, width, endian, Self::target::<T>())
-  }
-
-  /// Returns the description of a pointer of the scheme `scheme` to a sequence of `T`, whose offset
-  /// is an integer of `width` bytes in the byte order `endian`.
-  ///
-  /// The first element is at an address that is a multiple of `align`, which the declaring crate
-  /// guarantees. The pointer may not be null. [`Pointer::or_null`] makes one that may be.
-  ///
-  /// # Panics
-  ///
-  /// Panics if `width` is not 1 to 16, if `T` has a size of 0, or if `align` is not a power of two
-  /// at least as large as the alignment of `T`.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Aim, Endian, Pointer};
-  ///
-  /// // Elements of 2 bytes, the first at a multiple of 4.
-  /// let pointer = Pointer::sequence::<u16>("my crate", 4, Endian::Little, 4);
-  /// assert_eq!(pointer.aim(), Aim::Sequence { align: 4 });
-  /// assert_eq!(pointer.size(), size_of::<u16>());
-  /// ```
-  ///
-  /// ```should_panic
-  /// use puns::layout::{Endian, Pointer};
-  ///
-  /// // Not a power of two.
-  /// let _ = Pointer::sequence::<u8>("my crate", 4, Endian::Little, 3);
-  /// ```
-  #[must_use]
-  pub const fn sequence<T>(
-    scheme: &'static str,
-    width: usize,
-    endian: Endian,
-    align: usize,
-  ) -> Self {
-    assert!(
-      align.is_power_of_two() && align >= align_of::<T>(),
-      "the elements of a sequence are at an address aligned for them: a power of two, at least \
-       the alignment of their type"
-    );
-    Self::new(scheme, Aim::Sequence { align }, width, endian, Self::target::<T>())
-  }
-
-  /// Returns the description of a pointer of the scheme `scheme` to text, whose offset is an
-  /// integer of `width` bytes in the byte order `endian`.
-  ///
-  /// Its target type is `()`, of size 0 and alignment 1, so the analysis has nothing to relate
-  /// behind it. The pointer may not be null. [`Pointer::or_null`] makes one that may be.
-  ///
-  /// # Panics
-  ///
-  /// Panics if `width` is not 1 to 16.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Aim, Endian, Pointer};
-  ///
-  /// let pointer = Pointer::text("my crate", 4, Endian::Little);
-  /// assert_eq!((pointer.aim(), pointer.size(), pointer.align()), (Aim::Text, 0, 1));
-  /// ```
-  #[must_use]
-  pub const fn text(scheme: &'static str, width: usize, endian: Endian) -> Self {
-    Self::new(scheme, Aim::Text, width, endian, (size_of::<()>(), align_of::<()>()))
-  }
-
-  /// Returns the description of the same pointer, which may be null.
-  ///
-  /// An offset whose bytes are all zero is then no pointer, and aims at nothing. Any other offset
-  /// is a pointer, as it would be for `self`.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Endian, Pointer};
-  ///
-  /// let pointer = Pointer::one::<u32>("my crate", 4, Endian::Little).or_null();
-  /// assert!(pointer.is_nullable());
-  /// assert_eq!(pointer.size(), size_of::<u32>());
-  /// ```
-  #[must_use]
-  pub const fn or_null(self) -> Self {
-    Self { nullable: true, nonzero: false, ..self }
-  }
-
-  /// Returns whether an offset whose bytes are all zero is no pointer ([`Pointer::or_null`]).
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Endian, Pointer};
-  ///
-  /// let pointer = Pointer::one::<u32>("my crate", 4, Endian::Little);
-  /// assert!(!pointer.is_nullable());
-  /// assert!(pointer.or_null().is_nullable());
-  /// ```
-  #[must_use]
-  pub const fn is_nullable(&self) -> bool {
-    self.nullable
-  }
-
-  /// Returns the scheme, the name that the declaring crate gave to the way to the target.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Endian, Pointer};
-  ///
-  /// let pointer = Pointer::text("my crate: a length before the text", 4, Endian::Little);
-  /// assert_eq!(pointer.scheme(), "my crate: a length before the text");
-  /// ```
-  #[must_use]
-  pub const fn scheme(&self) -> &'static str {
-    self.scheme
-  }
-
-  /// Returns what the pointer aims at: one value, a sequence with the alignment that the declaring
-  /// crate guarantees of its first element, or text.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Aim, Endian, Pointer};
-  ///
-  /// let pointer = Pointer::sequence::<u8>("my crate", 4, Endian::Little, 16);
-  /// assert_eq!(pointer.aim(), Aim::Sequence { align: 16 });
-  /// ```
-  #[must_use]
-  pub const fn aim(&self) -> Aim {
-    self.aim
-  }
-
-  /// Returns the size of the offset in bytes, which is the size of the pointer.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Endian, Pointer};
-  ///
-  /// assert_eq!(Pointer::one::<u64>("my crate", 2, Endian::Little).width(), 2);
-  /// ```
-  #[must_use]
-  pub const fn width(&self) -> usize {
-    self.width
-  }
-
-  /// Returns the byte order of the offset.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Endian, Pointer};
-  ///
-  /// assert_eq!(Pointer::one::<u64>("my crate", 4, Endian::Big).endian(), Endian::Big);
-  /// ```
-  #[must_use]
-  pub const fn endian(&self) -> Endian {
-    self.endian
-  }
-
-  /// Returns the size of the target type, or of an element of a sequence. It is 0 for text.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Endian, Pointer};
-  ///
-  /// let pointer = Pointer::sequence::<[u8; 3]>("my crate", 4, Endian::Little, 1);
-  /// assert_eq!(pointer.size(), 3);
-  /// ```
-  #[must_use]
-  pub const fn size(&self) -> usize {
-    self.size
-  }
-
-  /// Returns the alignment of the target type, or of an element of a sequence. It is 1 for text.
-  ///
-  /// This is not the alignment that the declaring crate guarantees for the first element of a
-  /// sequence, which [`Pointer::aim`] returns.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Endian, Pointer};
-  ///
-  /// // The alignment of a `u16`, not the alignment of 8 that the crate of the pointer guarantees
-  /// // of the first element (see `aim`).
-  /// let pointer = Pointer::sequence::<u16>("my crate", 4, Endian::Little, 8);
-  /// assert_eq!(pointer.align(), align_of::<u16>());
-  /// ```
-  #[must_use]
-  pub const fn align(&self) -> usize {
-    self.align
-  }
-
-  /// Returns whether a pointer described by `self` can be reinterpreted as a pointer described by
-  /// `to`, as far as the pointers themselves go.
-  ///
-  /// Returns `None` if it never can, `Some(true)` if it always can, and `Some(false)` if it can
-  /// only when the bytes of the offset are not all zero, which must then be checked at run time.
-  /// The answer is `Some(false)` where `to` may not be null, the bytes of `self` may be all zero
-  /// (because `self` may be null, or its type has an all-zero value), and such bytes are not a
-  /// pointer of `to` (because its type has no all-zero value, or they are null in `self`). What the
-  /// targets hold is related through the types, by `deep.rs`.
-  ///
-  /// Both pointers must have the same scheme, and offsets of the same width and byte order, so that
-  /// they find the same target in the same buffer. They must also have the same kind of aim. One
-  /// value is reinterpreted as a value that is no larger and needs no more alignment. A sequence is
-  /// reinterpreted as a sequence of elements of the same size, since its length is a number of
-  /// elements, with a declared alignment that is no greater. Text is reinterpreted as text.
-  pub(crate) const fn reads_as(&self, to: &Pointer) -> Option<bool> {
-    let fits = str_equals(self.scheme, to.scheme)
-      && self.width == to.width
-      && self.endian.equals(to.endian)
-      && match (self.aim, to.aim) {
-        (Aim::One, Aim::One) => to.size <= self.size && to.align <= self.align,
-        (Aim::Sequence { align: from }, Aim::Sequence { align: into }) => {
-          to.size == self.size && into <= from
-        }
-        (Aim::Text, Aim::Text) => true,
-        _ => false,
-      };
-    // What may be zero (a null, or an offset of zero of a type that has one) is reinterpreted as
-    // what may not be only when it is not zero, which is then checked at run time.
-    let zero = self.nullable || !self.nonzero;
-    if fits { Some(to.nullable || !to.nonzero && !self.nullable || !zero) } else { None }
-  }
-
-  /// Returns whether two descriptions are the same in every part.
-  const fn same(&self, other: &Pointer) -> bool {
-    let aims = match (self.aim, other.aim) {
-      (Aim::One, Aim::One) | (Aim::Text, Aim::Text) => true,
-      (Aim::Sequence { align: a }, Aim::Sequence { align: b }) => a == b,
-      _ => false,
-    };
-    aims
-      && str_equals(self.scheme, other.scheme)
-      && self.nullable == other.nullable
-      && self.nonzero == other.nonzero
-      && self.width == other.width
-      && self.endian.equals(other.endian)
-      && self.size == other.size
-      && self.align == other.align
-  }
-}
-
-/// Returns whether two strings are the same, in `const`.
-const fn str_equals(a: &str, b: &str) -> bool {
-  let (a, b) = (a.as_bytes(), b.as_bytes());
-  if a.len() != b.len() {
-    return false;
-  }
-  let mut i = 0;
-  while i < a.len() {
-    if a[i] != b[i] {
-      return false;
-    }
-    i += 1;
-  }
-  true
 }
 
 /// The tag and the variants of an enum with fields, or the fields of a union.
@@ -1953,7 +1591,7 @@ pub struct Layout {
   /// Whether the type is unsized, ending with a slice or a pattern.
   pub(crate) unsized_: bool,
   /// The number of leaves, the parts that the validation may have to check: scalars that accept
-  /// only some values, patterns, pointers, enums with fields, unions, types without values, and
+  /// only some values (or none), patterns, enums with fields, unions, types without values, and
   /// structs with rules. The element of an array or a slice counts once.
   pub(crate) leaves: usize,
   /// What every byte is, if every byte is the same thing.
@@ -1977,7 +1615,6 @@ pub(crate) enum Shape {
   Struct,
   Pattern(&'static Dfa),
   Enum(&'static Enum),
-  Pointer(Pointer),
 }
 
 /// Returns `value` rounded up to a multiple of `align`, or `None` if that overflows a `usize`.
@@ -2010,29 +1647,6 @@ pub const fn tail_offset(end: usize, align: usize, pack: usize) -> usize {
   }
 }
 
-/// Returns whether the type `P`, the offset of a self-relative pointer, has no value whose bytes
-/// are all zero.
-///
-/// This is so when `Option<P>` has the size of `P`, with a `None` whose bytes are all zero, since
-/// `rustc` then put `None` in a niche of `P` at zero, as it does for a `NonZero`.
-///
-/// # Panics
-///
-/// Panics if `Option<P>` has the size of `P` with a `None` whose bytes are not all zero, because
-/// such a niche means that some values of the offset are not pointers, which is not supported. The
-/// bytes of `None` are read at compile time, so an uninitialized one fails to compile.
-const fn excludes_zero<P>() -> bool {
-  if size_of::<Option<P>>() != size_of::<P>() {
-    return false;
-  }
-  assert!(
-    NoneOf::<P>::IS_ZEROS,
-    "the offset of a self-relative pointer excludes values other than zero (a niche that is not \
-     zero): not supported, nothing tells which"
-  );
-  true
-}
-
 /// An enum of the `Rust` representation whose layout `#[derive(Pun)]` finds by experiments on a
 /// sample of each of its `V` variants, as the module documentation of `discover` explains.
 #[doc(hidden)]
@@ -2050,34 +1664,6 @@ pub trait Discover<const V: usize>: Sized {
   // SAFETY: `DESC` is an associated constant, so the call is evaluated at compile time, which is
   // what `discover` requires.
   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
-}
-
-/// The bytes of `None::<P>`.
-struct NoneOf<P>(PhantomData<P>);
-
-impl<P> NoneOf<P> {
-  /// Whether `Option<P>` has the size of `P`, and every byte of `None` is zero.
-  ///
-  /// It is a constant, so the bytes of `None` are read at compile time only. Some may be
-  /// uninitialized, as when `P` is `(NonZero<u8>, u16)`, and reading one at run time is undefined
-  /// behavior. Const evaluation reports an error instead, as the module documentation of
-  /// `discover` explains ("Const evaluation fails on what is not a value").
-  const IS_ZEROS: bool = {
-    let none = mem::MaybeUninit::new(None::<P>);
-    let mut zeros = size_of::<Option<P>>() == size_of::<P>();
-    let mut i = 0;
-    while zeros && i < size_of::<P>() {
-      // SAFETY: `zeros` holds only if `Option<P>` has the size of `P`, and `i < size_of::<P>()`,
-      // so `add(i)` stays within `none`, and the byte is valid for reads and aligned. A read of a
-      // `u8` also requires the byte to be initialized, which is not established. This is the
-      // initializer of a constant, evaluated at compile time, where `rustc` reports an error
-      // instead of reading an uninitialized byte. No documentation promises this behavior, which
-      // the crate documentation discloses (section Soundness).
-      zeros = unsafe { *none.as_ptr().cast::<u8>().add(i) } == 0;
-      i += 1;
-    }
-    zeros
-  };
 }
 
 /// The tag of a union and of an enum without variants, a scalar of size 0.
@@ -2101,14 +1687,6 @@ fn pin<T>(_: T) {}
 /// feature also compiles with it and does the same, and more compiles. See [The `unstable`
 /// feature](crate#the-unstable-feature).
 pub const UNSTABLE: bool = cfg!(feature = "unstable");
-
-/// The message of the compile error of a function of [`Visit`](crate::Visit), for a type that has
-/// something to check, or a pointer, in a part whose layout Rust leaves to the compiler.
-pub(crate) const VISIT_UNSPECIFIED: &str = "the type has a part whose layout Rust leaves to the \
-  compiler (a struct, a tuple or an enum of the `Rust` representation), \
-  and something to check or a pointer in it, which would be at another place with another \
-  compiler.\nAdd `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the \
-  `unstable` feature of `puns`";
 
 impl Layout {
   /// The types that the code of `#[derive(Pun)]` names by a path, pinned to the types of this
@@ -2144,8 +1722,8 @@ impl Layout {
   ///
   /// # Panics
   ///
-  /// Panics if `T` has no value, or holds a self-relative pointer, since `puns` cannot make a
-  /// sample value of a pointer.
+  /// Panics if `T` has no value, or holds a scalar that a pun never makes, since `puns` cannot make
+  /// a sample value of one.
   #[doc(hidden)]
   #[must_use]
   pub const fn sample<T: crate::Pun>() -> mem::MaybeUninit<T> {
@@ -2265,7 +1843,7 @@ impl Layout {
       uniform: match spec.valid {
         Valid::Uninit => Uniform::Pad,
         Valid::Any => Uniform::Any,
-        Valid::In(_) => Uniform::No,
+        Valid::In(_) | Valid::Never => Uniform::No,
       },
       has_rules: false,
       stable: Stable::FIXED,
@@ -2287,7 +1865,7 @@ impl Layout {
       uniform: match spec.valid {
         Valid::Uninit => Uniform::Pad,
         Valid::Any => Uniform::Any,
-        Valid::In(_) => Uniform::No,
+        Valid::In(_) | Valid::Never => Uniform::No,
       },
       has_rules: false,
       stable: Stable::FIXED,
@@ -2461,143 +2039,12 @@ impl Layout {
     }
   }
 
-  /// Returns the layout of the self-relative pointer type `P`, described by `pointer`, which aims
-  /// at `T`, for [`self_relative!`](crate::self_relative).
-  ///
-  /// `P` is the offset of `pointer` and nothing else, and `T` is the target type, the element type
-  /// of a sequence, or `()` for text. Whether `P` has an all-zero value is found here, from
-  /// `Option<P>`.
-  ///
-  /// # Panics
-  ///
-  /// Panics if `P` does not have the size of the offset, or if `pointer` was not made for a `T`
-  /// (with its size and alignment). Also panics if `Option<P>` has the size of `P` but a `None`
-  /// whose bytes are not all zero, or if `pointer` may be null while `P` has no all-zero value. The
-  /// bytes of `None` are read at compile time, so an uninitialized one fails to compile.
-  #[doc(hidden)]
-  #[must_use]
-  pub const fn pointer<P, T>(pointer: Pointer) -> Self {
-    assert!(size_of::<P>() == pointer.width, "a self-relative pointer is its offset");
-    // `P` has no all-zero value if `Option<P>` has the size of `P` and a `None` of zeros, as for a
-    // `NonZero`. A niche anywhere else would mean that some values of the offset are not pointers,
-    // which a `Pointer` cannot describe, so `excludes_zero` refuses it.
-    let nonzero = excludes_zero::<P>();
-    assert!(
-      !(nonzero && pointer.nullable),
-      "a self-relative pointer that may be null has a value of zeros: its offset is no `NonZero`"
-    );
-    let pointer = Pointer { nonzero, ..pointer };
-    assert!(
-      size_of::<T>() == pointer.size && align_of::<T>() == pointer.align,
-      "the `POINTER` of a `SelfRelative` type is made for its `Target`"
-    );
-    Self {
-      kind: Kind::Pointer(pointer),
-      size: pointer.width,
-      align: align_of::<P>(),
-      tail: 0,
-      unsized_: false,
-      // A leaf: what validation may have to check of it is that it is not null.
-      leaves: 1,
-      uniform: Uniform::No,
-      has_rules: false,
-      stable: Stable::FIXED,
-      id: Id::NONE,
-    }
-  }
-
-  /// Returns the layout of `Option<P>`, where `P` is a self-relative pointer described by `pointer`
-  /// that aims at `T`. It is the same pointer, which may be null.
-  ///
-  /// [`self_relative!`](crate::self_relative) gives this layout as that of `Option<P>`. It is right
-  /// when `Option<P>` has the size of `P` and `None` is all-zero bytes, which this function checks.
-  /// Every byte of `P` is an initialized byte of its offset
-  /// ([`SelfRelative`](crate::SelfRelative)), so `rustc` put `None` in a niche of `P` at zero, and
-  /// the bytes of `Some(p)` are the bytes of `p`, which are not all zero. A value of `Option<P>`
-  /// whose bytes are all zero then aims at nothing, and any other is a pointer, as a `P` is.
-  ///
-  /// This holds for a `repr(transparent)` struct around a `NonZero`, as `core` documents for
-  /// `Option`. An offset without a niche at zero, such as a byte array, makes `Option<P>` larger.
-  ///
-  /// # Panics
-  ///
-  /// Panics if `pointer` may already be null, if `Option<P>` is larger than `P`, if the bytes of
-  /// `None` are not all zero, or if `Option<Option<P>>` has the size of `Option<P>`, since the
-  /// offset then has a niche other than zero. Also panics if `P` does not have the size of the
-  /// offset, or if `pointer` was not made for a `T` (with its size and alignment).
-  ///
-  /// # Compile-time errors
-  ///
-  /// The bytes of `None` are read at compile time, even when the call is evaluated at run time. A
-  /// call does not compile if one of them is uninitialized.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use core::num::NonZero;
-  ///
-  /// use puns::layout::{Endian, Layout, Pointer};
-  ///
-  /// // An offset that is never zero, to a `u32`.
-  /// const POINTER: Pointer = Pointer::one::<u32>("my crate", 4, Endian::NATIVE);
-  /// const OPTION: Layout = Layout::nullable::<NonZero<i32>, u32>(POINTER);
-  ///
-  /// assert!(OPTION.as_pointer().unwrap().is_nullable());
-  /// assert_eq!(OPTION.size(), size_of::<Option<NonZero<i32>>>());
-  /// ```
-  ///
-  /// ```should_panic
-  /// use puns::layout::{Endian, Layout, Pointer};
-  ///
-  /// // An `i32` has no niche: `Option<i32>` is larger.
-  /// let pointer = Pointer::one::<u32>("my crate", 4, Endian::NATIVE);
-  /// let _ = Layout::nullable::<i32, u32>(pointer);
-  /// ```
-  #[must_use]
-  pub const fn nullable<P, T>(pointer: Pointer) -> Self {
-    assert!(!pointer.is_nullable(), "`Option` of a pointer that may be null is not a pointer");
-    assert!(
-      size_of::<Option<P>>() == size_of::<P>(),
-      "`Option` of this self-relative pointer is larger than it: its offset has no niche at zero \
-       (a `NonZero` has one), so `None` is not the pointer of zeros"
-    );
-    assert!(NoneOf::<P>::IS_ZEROS, "`None` of this self-relative pointer is not zeros");
-    Self::pointer::<Option<P>, T>(pointer.or_null())
-  }
-
-  /// Returns the description of the self-relative pointer that the layout is, or `None` if it is
-  /// not one.
-  ///
-  /// A struct, an array or an enum that holds a pointer is not one.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use core::num::NonZero;
-  ///
-  /// use puns::layout::{Endian, Layout, Pointer, Spec};
-  ///
-  /// const POINTER: Pointer = Pointer::one::<u32>("my crate", 4, Endian::NATIVE);
-  /// const OPTION: Layout = Layout::nullable::<NonZero<i32>, u32>(POINTER);
-  ///
-  /// assert_eq!(OPTION.as_pointer().map(|pointer| pointer.scheme()), Some("my crate"));
-  /// assert!(Layout::scalar::<i32>(Spec::any::<i32>()).as_pointer().is_none());
-  /// assert!(Layout::array(&OPTION, 2).as_pointer().is_none());
-  /// ```
-  #[must_use]
-  pub const fn as_pointer(&self) -> Option<Pointer> {
-    match self.kind {
-      Kind::Pointer(pointer) => Some(pointer),
-      _ => None,
-    }
-  }
-
   /// Returns whether the validation has nothing to check of a value of the layout.
   ///
-  /// This is so if the layout has no scalar that accepts only some values, no pattern, no pointer,
-  /// no enum with fields, no union, no type without values, and no rule. Any bytes that are
-  /// initialized wherever the layout is not padding are then a valid value, and
-  /// [`validate_in`](crate::validate_in) reads nothing of such a value.
+  /// This is so if the layout has no scalar that accepts only some values (or none), no pattern, no
+  /// enum with fields, no union, no type without values, and no rule. Any bytes that are
+  /// initialized wherever the layout is not padding are then a valid value, and a check of such a
+  /// value reads nothing.
   ///
   /// # Examples
   ///
@@ -2615,12 +2062,11 @@ impl Layout {
     self.leaves == 0
   }
 
-  /// Returns whether every byte of every value of the layout is initialized, and no byte is part of
-  /// a pointer.
+  /// Returns whether every byte of every value of the layout is initialized.
   ///
-  /// Such a value can be copied as bytes. An enum with fields is never plain, since which of its
-  /// bytes are padding depends on its tag, and neither is a union, a type without values, a
-  /// pointer, or an unsized type.
+  /// Such a value can be read as bytes. An enum with fields is never plain, since which of its
+  /// bytes are padding depends on its tag, and neither is a union, a type without values, or an
+  /// unsized type.
   ///
   /// # Examples
   ///
@@ -2667,56 +2113,7 @@ impl Layout {
         }
         !self.unsized_ && covered == self.size
       }
-      Kind::Slice(_) | Kind::Pattern(_) | Kind::Enum(_) | Kind::Pointer(_) => false,
-    }
-  }
-
-  /// Returns whether values of the layout hold a self-relative pointer, not counting what the
-  /// pointers aim at.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use core::num::NonZero;
-  ///
-  /// use puns::layout::{Endian, Layout, Pointer, Spec};
-  ///
-  /// const POINTER: Pointer = Pointer::one::<u32>("my crate", 4, Endian::NATIVE);
-  /// const OPTION: Layout = Layout::nullable::<NonZero<i32>, u32>(POINTER);
-  ///
-  /// assert!(OPTION.has_pointers() && Layout::array(&OPTION, 2).has_pointers());
-  /// assert!(!Layout::scalar::<i32>(Spec::any::<i32>()).has_pointers());
-  /// ```
-  #[must_use]
-  pub const fn has_pointers(&self) -> bool {
-    // A pointer is a leaf.
-    if self.leaves == 0 {
-      return false;
-    }
-    match self.kind {
-      Kind::Pointer(_) => true,
-      Kind::Scalar(_) | Kind::Pattern(_) => false,
-      Kind::Array(elem, _) | Kind::Slice(elem) => elem.has_pointers(),
-      Kind::Struct(fields, _) => {
-        let mut i = 0;
-        while i < fields.len() {
-          if fields[i].layout.has_pointers() {
-            return true;
-          }
-          i += 1;
-        }
-        false
-      }
-      Kind::Enum(layout) => {
-        let mut i = 0;
-        while i < layout.variants.len() {
-          if layout.variants[i].layout.has_pointers() {
-            return true;
-          }
-          i += 1;
-        }
-        false
-      }
+      Kind::Slice(_) | Kind::Pattern(_) | Kind::Enum(_) => false,
     }
   }
 
@@ -3472,7 +2869,7 @@ impl Layout {
         }
         !self.unsized_ && covered == self.size
       }
-      Kind::Slice(_) | Kind::Pattern(_) | Kind::Enum(_) | Kind::Pointer(_) => false,
+      Kind::Slice(_) | Kind::Pattern(_) | Kind::Enum(_) => false,
     }
   }
 
@@ -3480,9 +2877,9 @@ impl Layout {
   /// the compiler.
   ///
   /// A struct whose field orders all make the same bytes counts, as `(u8, u8)` does, though which
-  /// byte holds which field depends on the compiler. What [`validate_in`](crate::validate_in)
-  /// checks of a value of such a layout is the same in every layout that Rust allows. The answer
-  /// does not depend on the `unstable` feature.
+  /// byte holds which field depends on the compiler. What
+  /// [`validate_but_never`](crate::validate_but_never) checks of a value of such a layout is the
+  /// same in every layout that Rust allows. The answer does not depend on the `unstable` feature.
   ///
   /// # Examples
   ///
@@ -3509,11 +2906,46 @@ impl Layout {
     self.stable.deep
   }
 
-  /// Returns whether no part that is not `fixed`, at any depth, has something to check or a
-  /// pointer, or whether the `unstable` feature is enabled.
+  /// Returns whether a part of the layout, at any depth, is a scalar that a pun never makes
+  /// ([`Spec::never`]).
+  pub(crate) const fn holds_never(&self) -> bool {
+    // Such a scalar is a leaf.
+    if self.leaves == 0 {
+      return false;
+    }
+    match self.kind {
+      Kind::Scalar(spec) => spec.is_never(),
+      Kind::Pattern(_) => false,
+      Kind::Array(elem, _) | Kind::Slice(elem) => elem.holds_never(),
+      Kind::Struct(fields, _) => {
+        let mut i = 0;
+        while i < fields.len() {
+          if fields[i].layout.holds_never() {
+            return true;
+          }
+          i += 1;
+        }
+        false
+      }
+      Kind::Enum(layout) => {
+        let mut i = 0;
+        while i < layout.variants.len() {
+          if layout.variants[i].layout.holds_never() {
+            return true;
+          }
+          i += 1;
+        }
+        false
+      }
+    }
+  }
+
+  /// Returns whether no part that is not `fixed`, at any depth, has something to check, or whether
+  /// the `unstable` feature is enabled.
   ///
-  /// What [`validate_in`](crate::validate_in) and the other functions of [`Visit`](crate::Visit) do
-  /// with a value of the layout is then the same in every layout that Rust allows.
+  /// What a check of every part of a value of the layout does, as
+  /// [`validate_but_never`](crate::validate_but_never) makes, is then the same in every layout that
+  /// Rust allows.
   pub(crate) const fn checks_kept(&self) -> bool {
     if UNSTABLE {
       return true;
@@ -3522,7 +2954,7 @@ impl Layout {
       return true;
     }
     if !self.stable.fixed {
-      return self.leaves == 0 && !self.has_pointers();
+      return self.leaves == 0;
     }
     match self.kind {
       Kind::Array(elem, _) | Kind::Slice(elem) => elem.checks_kept(),
@@ -3546,7 +2978,7 @@ impl Layout {
         }
         true
       }
-      Kind::Scalar(_) | Kind::Pattern(_) | Kind::Pointer(_) => true,
+      Kind::Scalar(_) | Kind::Pattern(_) => true,
     }
   }
 
@@ -3649,7 +3081,7 @@ impl Layout {
   #[must_use]
   pub const fn is_inhabited(&self) -> bool {
     match self.kind {
-      Kind::Scalar(_) | Kind::Pattern(_) | Kind::Pointer(_) | Kind::Slice(_) => true,
+      Kind::Scalar(_) | Kind::Pattern(_) | Kind::Slice(_) => true,
       Kind::Array(elem, len) => len == 0 || elem.is_inhabited(),
       Kind::Struct(fields, _) => {
         let mut i = 0;
@@ -3685,8 +3117,8 @@ impl Layout {
   /// # Panics
   ///
   /// Panics if `layout` is not the layout of a union as `#[derive(Pun)]` makes it, if the layout of
-  /// a variant does not have the size of `T`, has more than one field, or holds a self-relative
-  /// pointer, or if a field is not at offset 0, is larger than `T`, or is unsized.
+  /// a variant does not have the size of `T`, has more than one field, or holds a scalar that a pun
+  /// never makes, or if a field is not at offset 0, is larger than `T`, or is unsized.
   ///
   /// # Examples
   ///
@@ -3732,7 +3164,7 @@ impl Layout {
         assert!(field.offset == 0 && field.layout.size <= size, "the fields of a union are at 0");
         assert!(!field.layout.unsized_, "the fields of a union are sized");
       }
-      assert!(!variant.layout.has_pointers(), "a union holds no self-relative pointer");
+      assert!(!variant.layout.holds_never(), "a union holds no scalar that a pun never makes");
       i += 1;
     }
     Self {
@@ -3804,8 +3236,6 @@ impl Layout {
       Kind::Scalar(spec) => {
         (!matches!(if always { spec.known } else { spec.valid }, Valid::Uninit), self.size)
       }
-      // The bytes of a pointer are initialized.
-      Kind::Pointer(_) => (true, self.size),
       Kind::Pattern(_) | Kind::Slice(_) => panic!("not sized"),
       Kind::Array(..) => (!always, self.size),
       Kind::Struct(fields, _) => {
@@ -4033,7 +3463,6 @@ impl Layout {
       Kind::Struct(..) => Shape::Struct,
       Kind::Pattern(dfa) => Shape::Pattern(dfa),
       Kind::Enum(layout) => Shape::Enum(layout),
-      Kind::Pointer(pointer) => Shape::Pointer(pointer),
     }
   }
 
@@ -4121,7 +3550,7 @@ impl Layout {
         }
         true
       }
-      Kind::Slice(_) | Kind::Pattern(_) | Kind::Enum(_) | Kind::Pointer(_) => false,
+      Kind::Slice(_) | Kind::Pattern(_) | Kind::Enum(_) => false,
     }
   }
 
@@ -4268,8 +3697,6 @@ impl Layout {
         true
       }
       Kind::Pattern(dfa) => dfa.states[0].accept,
-      // No pointer.
-      Kind::Pointer(pointer) => pointer.nullable,
       // A field of a union that zeros are.
       Kind::Enum(layout) if layout.union => {
         let mut i = 0;
@@ -4341,8 +3768,8 @@ impl Layout {
   /// and guarantee the same values, at the same places.
   ///
   /// Identities are not compared. A scalar that may be uninitialized is equal to none. Two patterns
-  /// are equal only if their automata are, state by state, and two pointers only if their
-  /// descriptions are.
+  /// are equal only if their automata are, state by state. Two layouts that are the same prove
+  /// nothing of a scalar that a pun never makes: the analysis refuses it whatever the source.
   #[expect(
     clippy::many_single_char_names,
     reason = "`a` and `x` are parts of `self`, `b` and `y` the same parts of `other`"
@@ -4393,8 +3820,6 @@ impl Layout {
       // The same automaton, state by state: an `id` only tells two apart (it is a field that
       // safe code writes, and proves nothing).
       (Kind::Pattern(a), Kind::Pattern(b)) => a.id == b.id && a.same(b),
-      // As far as the pointers themselves go: what they aim at is related through the types.
-      (Kind::Pointer(a), Kind::Pointer(b)) => a.same(&b),
       (Kind::Enum(a), Kind::Enum(b)) => {
         if a.tag.offset != b.tag.offset
           || a.union != b.union
@@ -4428,7 +3853,9 @@ impl Layout {
 )]
 const fn same_valid(a: Valid, b: Valid, endian_a: Endian, endian_b: Endian) -> bool {
   match (a, b) {
-    (Valid::Uninit, Valid::Uninit) | (Valid::Any, Valid::Any) => true,
+    (Valid::Uninit, Valid::Uninit) | (Valid::Any, Valid::Any) | (Valid::Never, Valid::Never) => {
+      true
+    }
     (Valid::In(x), Valid::In(y)) => {
       let mut i = 0;
       while i < x.len() && i < y.len() && x[i].0 == y[i].0 && x[i].1 == y[i].1 {

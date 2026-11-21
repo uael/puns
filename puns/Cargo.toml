@@ -43,10 +43,6 @@ required-features = ["unstable"]
 name = "rust_enums"
 required-features = ["unstable"]
 
-[[test]]
-name = "validate_in"
-required-features = ["unstable"]
-
 # What `puns` does without the `unstable` feature, which `-Zrandomize-layout` must not change: the
 # verdicts of `puns::hook`.
 [[test]]

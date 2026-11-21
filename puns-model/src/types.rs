@@ -593,6 +593,65 @@ impl Oracle for Zero {
   }
 }
 
+// --- Scalars that a pun never makes -------------------------------------------------------------
+
+/// A byte whose validity is not in its bytes, as the offset of a self-relative pointer of another
+/// crate: a pun reads it as an initialized byte, and never makes it.
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct Opaque(pub u8);
+
+// SAFETY: `Opaque` is `repr(transparent)` over a `u8`, so `SPEC`, of a `u8`, has its size. The
+// items of the `# Safety` of `Scalar` hold:
+// - `SPEC` is made with `Spec::never`, and every byte of every value of `Opaque` is initialized.
+// - `SPEC` accepts no value.
+// - `Opaque` holds no `UnsafeCell`.
+unsafe impl puns::Scalar for Opaque {
+  const SPEC: puns::layout::Spec = puns::layout::Spec::never::<u8>();
+}
+
+impl Oracle for Opaque {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+    // As a target, a requirement that no byte meets, which reads none: only the crate of the
+    // scalar makes one. As a source, an initialized byte.
+    if target {
+      return require(off, "Opaque", Ok(false));
+    }
+    int(b, off, 1, true, reads)?;
+    Ok(true)
+  }
+}
+
+model_struct!(
+  /// A struct of a `bool`, then a byte that a pun never makes.
+  #[repr(C)]
+  struct HoldsOpaque {
+    b: bool,
+    o: Opaque,
+  }
+);
+
+/// An enum whose second variant holds a byte that a pun never makes.
+///
+/// A check accepts `Empty` only.
+#[derive(Pun, Clone, Copy)]
+#[repr(u8)]
+pub enum MaybeOpaque {
+  Empty,
+  Full(Opaque),
+}
+
+impl Oracle for MaybeOpaque {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+    // The tag, then the byte of `Full`; the second byte of `Empty` is padding.
+    match int(b, off, 1, true, reads)? {
+      0 => Ok(true),
+      1 => Opaque::check(b, off + 1, reads, target),
+      _ => Ok(false),
+    }
+  }
+}
+
 impl<T: Pun + Copy + 'static> Oracle for core::mem::MaybeUninit<T> {
   fn check(_: &Bytes, _: usize, _: &mut [bool], _: bool) -> Valid {
     Ok(true)

@@ -78,90 +78,6 @@ pub const fn verdict<S: ?Sized + Pun, D: ?Sized + Pun>() -> Verdict {
   }
 }
 
-/// Returns whether [`view_ref`](crate::view_ref) compiles for `S` and `D`.
-///
-/// It checks the plan of `view_ref`, then what the pointers of `D` aim at, followed `fuel`
-/// times. `view_ref` itself follows pointers through instances of functions, without a bound.
-/// The answer is that of `view_ref` only if `fuel` is at least the number of pairs of types
-/// that can be met.
-#[must_use]
-pub const fn views<S: ?Sized + Pun, D: ?Sized + Pun>(fuel: usize) -> bool {
-  ok::<S, D>(Need::VIEW) && crate::deep::local::<S, D>(fuel).is_none()
-}
-
-/// Returns whether [`try_view_ref`](crate::try_view_ref) compiles for `S` and `D`.
-///
-/// `fuel` is as for [`views`].
-#[must_use]
-pub const fn tries_view<S: ?Sized + Pun, D: ?Sized + Pun>(fuel: usize) -> bool {
-  ok::<S, D>(Need::TRY_VIEW) && crate::deep::local::<S, D>(fuel).is_none()
-}
-
-/// Returns what [`view_ref`](crate::view_ref) returns, or `None` if it does not compile.
-///
-/// `FUEL` is as for [`views`].
-///
-/// # Safety
-///
-/// The caller must ensure that:
-///
-/// - `FUEL` is at least the number of pairs of types that can be met from `S` and `D`, so that
-///   [`views`] is `true` only if `view_ref` compiles.
-#[must_use]
-pub unsafe fn view_ref<S: ?Sized + Pun, D: ?Sized + Pun, const FUEL: usize>(
-  value: &S,
-) -> Option<&D> {
-  if const { !views::<S, D>(FUEL) } {
-    return None;
-  }
-  // SAFETY: `views::<S, D>(FUEL)` is `true`, and `FUEL` is at least the number of pairs of types
-  // that can be met, by contract on the caller. So `crate::view_ref::<S, D>` compiles: `Plan::<S,
-  // D>::VIEW` and `deep::proof::<S, D>` do. As in `pun_ref` below, the pointer that `Plan::cast`
-  // returns is not null, is aligned for `D`, and is in the allocation of `value`, and the bytes
-  // there are a valid `D` when its pointers are taken as plain bytes. What the pointers of `D` aim
-  // at is proven as well:
-  // - The relation records no `pointer`, so each pointer of `D` is, in `S`, a pointer of the same
-  //   scheme, offset and kind of aim, which may be null only if that of `D` may. It aims where the
-  //   pointer of `S` aims (`SelfRelative`, section Safety).
-  // - `deep::proof::<S, D>` compiles, so each value that a pointer of `S` aims at is a valid target
-  //   of the pointer of `D` at the same place, and so on behind every pointer (`deep`, module
-  //   documentation).
-  // - What a pointer of `S` aims at is there and valid, and nothing writes to it, while a shared
-  //   reference to the pointer lives (`SelfRelative`, section Safety).
-  // The reference has the lifetime of the shared borrow `value`, and neither type holds an
-  // `UnsafeCell` (`Pun`, section Safety).
-  Some(unsafe { &*Plan::<S, D>::cast(value) })
-}
-
-/// Returns what [`try_view_ref`](crate::try_view_ref) returns, or `None` if it does not compile.
-///
-/// `FUEL` is as for [`views`].
-///
-/// # Safety
-///
-/// The caller must ensure that:
-///
-/// - `FUEL` is at least the number of pairs of types that can be met from `S` and `D`, so that
-///   [`tries_view`] is `true` only if `try_view_ref` compiles.
-#[must_use]
-pub unsafe fn try_view_ref<S: ?Sized + Pun, D: ?Sized + Pun, const FUEL: usize>(
-  value: &S,
-) -> Option<Result<&D, Error>> {
-  if const { !tries_view::<S, D>(FUEL) } {
-    return None;
-  }
-  // SAFETY: `tries_view::<S, D>(FUEL)` is `true`, and `FUEL` is at least the number of pairs of
-  // types that can be met, by contract on the caller. So `crate::try_view_ref::<S, D>` compiles:
-  // `Plan::<S, D>::TRY_VIEW` and `deep::proof::<S, D>` do. `value` is a reference, so it points to
-  // a valid `S`, valid for reads, as `try_cast` requires. If `try_cast` returns `Ok`, `target` is
-  // not null, is aligned for `D`, and is in the allocation of `value`, and the bytes there are a
-  // valid `D` when its pointers are taken as plain bytes, as in `try_pun_ref` below. `validate`
-  // checked that a pointer of `D` that may not be null is not null where that of `S` may be. What
-  // the pointers aim at is proven as in `view_ref` above. The reference has the lifetime of the
-  // shared borrow `value`.
-  Some(unsafe { Plan::<S, D>::try_cast(value) }.map(|target| unsafe { &*target }))
-}
-
 /// Whether each public function that takes a part of a value compiles for a pun from `S` to `D`.
 ///
 /// It is apart from [`Verdict`], so that a test of whole values does not run the analyses of the
@@ -213,7 +129,7 @@ pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Option<Result<D,
   }
   // SAFETY: `S` and `D` have the same size. `validate` found every part of `D` that the analysis
   // marked to be valid in `value`. Every part that it did not mark is valid in every value of `S`,
-  // since the relation records no disjoint part, no pointer, and nothing that Rust leaves to the
+  // since the relation records no disjoint part, and nothing that Rust leaves to the
   // compiler. So `value` is a valid `D`, as `pun_unchecked` requires.
   Some(Ok(unsafe { pun_unchecked(value) }))
 }
@@ -306,7 +222,7 @@ pub fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Option<Result
   //   `value`.
   // - It points to a valid `D`. `validate` found every part that the analysis marked to be valid.
   //   Every other part is valid in every value of `S`, since the relation records no byte read from
-  //   padding, no disjoint part, no pointer, and nothing that Rust leaves to the compiler.
+  //   padding, no disjoint part, and nothing that Rust leaves to the compiler.
   // The reference has the lifetime of the shared borrow `value`, and neither type holds an
   // `UnsafeCell` (`Pun`, section Safety).
   Some(unsafe { Plan::<S, D>::try_cast(value) }.map(|target| unsafe { &*target }))
@@ -388,8 +304,8 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Option
   // `Plan::cast` returns is not null, is aligned for `D`, is within `value`, and points to a valid
   // `D`. It is made from `source`, a pointer that may write. The reference has the lifetime of the
   // exclusive borrow `value`, so nothing else reads or writes the bytes while it lives.
-  // `mutable_part` found that neither type holds a self-relative pointer, that every value of `D`
-  // is valid for what `S` has over its bytes, and that nothing of `S` outside them depends on them.
+  // `mutable_part` found that every value of `D` is valid for what `S` has over its bytes, and that
+  // nothing of `S` outside them depends on them.
   // So `value` is a valid `S` when the borrow ends, whatever `D` is written through the reference.
   Some(unsafe { &mut *Plan::<S, D>::cast(source).cast_mut() })
 }
@@ -429,7 +345,7 @@ pub const fn from_head<D: ?Sized + Pun>(bytes: &[u8]) -> Option<Result<(&D, &[u8
     // - It is aligned. The address was checked if `D` is aligned to more than 1.
     // - It is not dangling, because it is within `bytes`.
     // - It points to a valid `D`. `validate` found every part that the analysis marked to be valid.
-    //   The relation records no disjoint part, no pointer, and nothing that Rust leaves to the
+    //   The relation records no disjoint part, and nothing that Rust leaves to the
     //   compiler, so every other part accepts any initialized bytes.
     // The reference has the lifetime of the shared borrow `bytes`, and `D` holds no `UnsafeCell`
     // (`Pun`, section Safety).

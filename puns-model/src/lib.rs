@@ -78,6 +78,17 @@
 //! oracle is "one of its fields", a variant without values, `MaybeUninit`, and a scalar that may be
 //! uninitialized (`Zero`). Against `Zero`, reading such a scalar as initialized is found unsound.
 //!
+//! A scalar that a pun never makes (`Opaque`, made with `Spec::never`) is in the model alone, in a
+//! struct, and in a variant of an enum. Its oracle reads an initialized byte as a source, and as a
+//! target requires what no byte meets, without reading it. A check that accepts it is found
+//! incorrect, which was tried. A check that rejects its variant need not read its byte, which may
+//! be uninitialized in the source (`ByteZero -> MaybeOpaque`): only the value of a decision that
+//! needs an uninitialized byte in both modes is unsound to check (`check_pair`), and Miri runs the
+//! pair.
+//! That the same type does not prove it is not a verdict that the oracle can judge, since a source
+//! that does not meet its own requirements implies any requirement: the compile-fail case
+//! `never_same_type` of `puns` holds it.
+//!
 //! # Parts
 //!
 //! Parts are checked over the same types, for about four thousand pairs whose target is not larger
@@ -100,38 +111,6 @@
 //! base for `from_head` that takes other bytes, extents compared with their trailing padding, and a
 //! variant rebuilt from its state with another length.
 //!
-//! # Self-relative pointers
-//!
-//! Self-relative pointers have a model of their own ([`pointers`]), on the pointers of the tests of
-//! `puns` ([`relative`]). These pointers aim at one value, a sequence, or text, and may be
-//! nullable. They are declared through the public API only, built in a buffer, and followed through
-//! it. Sixteen types that hold pointers are each described by hand: recursive structs, through a
-//! nullable pointer and through a sequence, enums, a pointer to a `bool`, to a `u8`, to two bytes,
-//! to a sequence and to text, another byte order, and bytes. What the oracle alone says of pairs
-//! whose answer is known is asserted, so that the oracle cannot accept everything. The builder
-//! leaves a byte that nothing writes after every value, so that a target read past its end is seen.
-//! `hook::views` answers with the `const` code that decides the pairing (`deep::local`, pointers
-//! followed a bounded number of times). The functions themselves are called for the pairs that it
-//! accepts, and the compile-fail tests of `puns` are the pairs that they refuse. The model counts
-//! as imprecise what is refused by design: a target of another size, a sequence or text
-//! reinterpreted as something else, and a check that would be behind a pointer.
-//!
-//! The model holds `puns::validate_in`, `puns::pointers_in` and `puns::copy_in` to the oracle of
-//! pointers. Its visitor follows the pointers of the tests through their buffer.
-//!
-//! - `validate_in` accepts exactly what the oracle accepts, on the corpus and on every copy with
-//!   one byte changed, padding and gaps included ([`pointers::check_validate`]).
-//! - On every image that `validate_in` accepts, `pointers_in`, following the pointers in turn,
-//!   hands over the same pointers, at the same positions and with the same types, in the same order
-//!   ([`pointers::check_pointers_in`]).
-//! - `copy_in` writes the bytes that the oracle says the value holds, and only those, into bytes of
-//!   two fills ([`pointers::check_copy_in`]). Those bytes are its scalars, the tag and the fields
-//!   of its variant, and a null pointer, but not the bytes of the other pointers.
-//!
-//! The model checks `pointers_in` and `copy_in` only on images that `validate_in` accepts, so on
-//! none whose rules do not hold. That they need not hold rests on the fact that neither reads a
-//! rule, and on a test of `puns` (`rules_need_not_hold_for_pointers_in_and_copy_in`).
-//!
 //! # What runs where
 //!
 //! Every check that CI runs on a push takes at most a minute. So `cargo test` runs a sample of the
@@ -141,18 +120,14 @@
 //! declarations, and the unsafe code that they reach is that of the library, which its own tests
 //! and `ethernet` run there.
 //!
-//! The exhaustive run, every pair and every part of every type, every pointer pair and every mask
-//! of one bit, is behind the `full` feature, which `cargo test` does not build. It runs with
+//! The exhaustive run, every pair and every part of every type, and every mask of one bit, is
+//! behind the `full` feature, which `cargo test` does not build. It runs with
 //! `cargo test --profile model -p puns-model --features full`, optimized and without LTO. It takes
 //! minutes to build and a few minutes to run. The workflow `model.yml` runs it without and with the
 //! `unstable` feature, every night and on demand.
 //!
 //! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
 
-pub mod pointers;
-// The self-relative pointers of the tests of `puns`, declared through its public API only.
-#[path = "../../puns/tests/support/relative.rs"]
-pub mod relative;
 pub mod types;
 pub mod views;
 
@@ -743,7 +718,11 @@ pub fn check_pair<S: Oracle, D: Oracle>(limit: usize) {
   // Whatever the requirements of the target that a value does not meet are implied by those of
   // the source.
   let claims: Vec<bool> = if ds <= ss { implied::<S, D>(&source, 0) } else { vec![] };
-  let any_uninit = truths.iter().any(|t| t.hard.is_err());
+  // A value whose decision needs an uninitialized byte: what the type system guarantees reads one,
+  // and so does what the target requires, which is what a check decides. Every oracle reads in
+  // target mode what it reads without it, but that of a scalar that a pun never makes, whose
+  // requirement holds of no byte and reads none: a check rejects its variant unread.
+  let any_uninit = truths.iter().any(|t| t.hard.is_err() && t.soft.is_err());
   // A requirement that reads uninitialized bytes is unsound to check: only one that the source
   // implies may be read so, as it is then not checked.
   let soft_uninit = truths.iter().zip(&claims).any(|(t, c)| t.soft.is_err() && !c);

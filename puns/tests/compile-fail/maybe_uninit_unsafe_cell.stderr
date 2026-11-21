@@ -5,7 +5,7 @@ error[E0277]: `MaybeUninit<Cell<u8>>` is not a `Pun` type: `puns` does not know 
   |                                   ^^^^^^^^^^^^^^^^^^^^ not a `Pun` type
   |
   = help: the trait `Pun` is not implemented for `MaybeUninit<Cell<u8>>`
-  = note: a struct, an enum or a union is one with `#[derive(Pun)]`, a self-relative pointer with `SelfRelative` and `self_relative!`
+  = note: a struct, an enum or a union is one with `#[derive(Pun)]`, a scalar with `Scalar`
 help: the trait `Pun` is conditionally implemented for `MaybeUninit<T>`
  --> src/lib.rs
   |

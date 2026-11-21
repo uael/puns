@@ -53,8 +53,8 @@
 //! checked by its tag and its variant, with the same precision. A variant whose fields have no
 //! value is in the layout, with no tag. The lists of fields and variants are the declared ones. A
 //! field of a variant without values is not in the layout, and its entry in the list says so (its
-//! `FIELD` is `None`). No field may hold a self-relative pointer, because `puns` cannot make a
-//! sample value of a pointer. `Option<T>` and `Result<T, E>` are found the same way
+//! `FIELD` is `None`). No field may hold a scalar that a pun never makes, because `puns` cannot
+//! make a sample value of one. `Option<T>` and `Result<T, E>` are found the same way
 //! (`std_enums.rs`).
 //!
 //! # What the experiments rely on
@@ -160,8 +160,8 @@ use crate::layout::{Endian, Field, Kind, Layout, Spec, Valid, load, max_value};
 ///
 /// # Panics
 ///
-/// Panics if `T` has no value, or if it holds a self-relative pointer, since no pointer is made
-/// of nothing.
+/// Panics if `T` has no value, or if it holds a scalar that a pun never makes, since no value of
+/// one is made of nothing.
 pub const fn sample<T: crate::Pun>() -> MaybeUninit<T> {
   assert!(T::LAYOUT.is_inhabited(), "a type without values has no sample");
   let mut value = MaybeUninit::<T>::uninit();
@@ -175,7 +175,7 @@ pub const fn sample<T: crate::Pun>() -> MaybeUninit<T> {
 ///
 /// # Panics
 ///
-/// Panics if `layout` holds a self-relative pointer, a slice or a pattern.
+/// Panics if `layout` holds a scalar that a pun never makes, a slice or a pattern.
 ///
 /// # Safety
 ///
@@ -204,6 +204,7 @@ const unsafe fn write(layout: &Layout, ptr: *mut u8) {
         Valid::Uninit => {}
         Valid::Any => store(ptr, spec.size, spec.endian, 0),
         Valid::In(ranges) => store(ptr, spec.size, spec.endian, ranges[0].0),
+        Valid::Never => panic!("a scalar that a pun never makes has no sample value"),
       },
       Kind::Array(elem, len) => {
         if len == 0 || elem.size == 0 {
@@ -239,7 +240,6 @@ const unsafe fn write(layout: &Layout, ptr: *mut u8) {
         // The variant that holds a niche: its fields are a value of it.
         write(variant.layout, ptr);
       }
-      Kind::Pointer(_) => panic!("a self-relative pointer is not made of nothing"),
       Kind::Slice(_) | Kind::Pattern(_) => panic!("a field of an enum is sized"),
     }
   }
@@ -419,10 +419,7 @@ pub struct Desc<const V: usize> {
 }
 
 impl<const V: usize> Desc<V> {
-  /// Returns a description in which no variant has values.
-  ///
-  /// This is what an enum whose layout is given otherwise is found to be, so that nothing is
-  /// tried of it: `Option` of a self-relative pointer (`Pun::OPTION`).
+  /// Returns a description in which no variant has values, from which the experiments start.
   #[must_use]
   pub const fn none() -> Self {
     Self {
@@ -609,8 +606,8 @@ const unsafe fn read<E>(sample: &MaybeUninit<E>, offset: usize, len: usize) -> u
 /// # Panics
 ///
 /// Panics, with the reason, if the layout is not of a shape that `rustc` gives ([one scalar tells
-/// the variant](crate::discover#one-scalar-tells-the-variant)), if a field holds a self-relative
-/// pointer, or if a sample is not its own variant ([the discriminant is the
+/// the variant](crate::discover#one-scalar-tells-the-variant)), if a field holds a scalar that a
+/// pun never makes, or if a sample is not its own variant ([the discriminant is the
 /// index](crate::discover#the-discriminant-is-the-index)).
 ///
 /// # Safety
@@ -636,10 +633,6 @@ pub const unsafe fn discover<E, const V: usize>(
     let mut inhabited = true;
     while i < these.len() {
       let field = &these[i];
-      assert!(
-        !field.layout.has_pointers(),
-        "an enum of the `Rust` representation holds no self-relative pointer"
-      );
       inhabited &= field.layout.is_inhabited();
       i += 1;
     }
@@ -980,7 +973,7 @@ impl Candidates {
           self.push(base + layout.tag.offset, spec);
         }
       }
-      Kind::Slice(_) | Kind::Pattern(_) | Kind::Pointer(_) => {}
+      Kind::Slice(_) | Kind::Pattern(_) => {}
     }
   }
 }

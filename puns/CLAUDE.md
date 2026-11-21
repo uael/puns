@@ -14,13 +14,14 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - The documentation of `#[derive(Pun)]` (on `pub use puns_derive::Pun` in
   [`src/lib.rs`](src/lib.rs)) says what a rule means, what it reads, and what the derive trusts
   ("What the derive trusts").
-- [`SelfRelative`](src/relative.rs) states the contract of a crate that declares self-relative
-  pointers, and what `puns` guarantees it in return.
+- [`Scalar`](src/lib.rs) states the contract of a scalar declared by hand, a scalar that a pun
+  never makes (`Spec::never`) included, and the crate documentation ("Scalars that a pun never
+  makes") what `puns` guarantees its crate in return.
 
 ## How it works
 
 - **A layout is a value.** [`layout`](src/layout.rs) ("Nodes") describes a type as a `const` tree
-  of scalars, structs, enums, unions, arrays, patterns and pointers.
+  of scalars, structs, enums, unions, arrays and patterns.
 - **The analysis compares two layouts at compile time.** [`analysis`](src/analysis.rs) decides
   whether a pun fits, which values are valid, what must be checked, and whether a `&mut` is allowed.
   Its module documentation has a section for each.
@@ -34,9 +35,6 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   [`std_enums`](src/std_enums.rs) applies it to `Option` and `Result`.
 - **Pointers to unsized types.** [`ptr`](src/ptr.rs) splits and builds wide pointers in `const`,
   verified for each type.
-- **Self-relative pointers.** [`deep`](src/deep.rs) proves what pointers aim at, by instances of
-  functions. [`visit`](src/visit.rs) validates, walks and copies a value in a buffer for the crate
-  that has the pointers.
 - **Measurements.** [`examples/codegen.rs`](examples/codegen.rs) records the machine code of most of
   its functions. [`benches/checks.rs`](benches/checks.rs) times each check next to the same check
   written by hand.
@@ -52,43 +50,25 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   what is the same in every layout that Rust allows.
 - A requirement (`valid(..)`, a rule) never proves a guarantee of another type. Two layouts are
   equal only if they require and guarantee the same values.
-- Only `view_ref` and `try_view_ref` make a value that holds a self-relative pointer, and no
-  function gives a `&mut` to one. The three rules and the eight invariants are named headings of
-  [`deep`](src/deep.rs) ("Rules that every function keeps", "Invariants").
-- What the derive or a hand-written `Pun` lists (fields, variants, elements, pointer targets) is
-  compared with the layout, list by list, where pointers are followed. `visit::listed` finds each
-  listed field among the fields of the layout, by its index, offset and layout. `deep::listed`
-  checks less: the number and order of the fields, the type of a field that holds a pointer, the
-  tags of the variants, the elements and the targets. It relies on the `# Safety` section of `Pun`
-  for the rest. The validation of the `try_` and `from_` functions compares the rules
-  (`validate::listed`) and the place of each field (`F::Path`), and relies on the `# Safety` section
-  of `Pun` for the other lists.
+- No function makes a value that holds a scalar that a pun never makes (`Spec::never`), and no
+  function gives a `&mut` to one. As a target, such a scalar is disjoint from every source
+  (`atom_relation`), and a part that holds one proves nothing, not even itself
+  (`Layout::holds_never`). Only `validate_but_never` accepts one, unread, and makes no value.
+- The validation of the `try_` and `from_` functions compares the rules of what the derive or a
+  hand-written `Pun` lists with the layout (`validate::listed`) and the place of each field
+  (`F::Path`), and relies on the `# Safety` section of `Pun` for the other lists.
 - What a layout is made of depends on no path that the deriving crate can redefine, though the
   generated code names `::core` and the root of `puns` ("What the derive trusts" in the
   documentation of `#[derive(Pun)]`). `fakecore` in `puns-model` tests that the derive meets it.
-- Every pointer type in the repository is declared through the public API only, as another crate
-  would declare it: in doc tests, which are outside the crate, and in the tests, the model check
-  and `examples/codegen.rs`. Most of them share
-  [`tests/support/relative.rs`](tests/support/relative.rs).
+- Every scalar that a pun never makes in the repository is declared through the public API only,
+  as another crate would declare it, with `Scalar` and `Spec::never`. Most of them share
+  [`tests/support/never.rs`](tests/support/never.rs).
 
 ## Not done yet
 
 The limits that users of the crate face are in "Limitations" of the crate documentation. This
 section lists changes that could lift some of them, and what each would cost.
 
-- **One walk to copy a value and pass its pointers to the visitor.** A deep copy is `copy_in` then
-  `pointers_in` on the same value, so the tag of an enum is read, and its variant chosen, twice. One
-  walk could do both, but it would have to store the pointers until the copy ends, because the
-  visitor of a deep copy allocates the targets, which can move the buffer while the copy runs. A
-  prototype that kept them on a stack of its own was twice as slow, with an indirect call, a push
-  and a pop for each pointer.
-- **Checks behind pointers.** Checking behind pointers is a walk of the buffer with the marks of
-  each pair of types. Only the crate that has the pointers can make that walk, because only that
-  crate can find the target of a pointer. The version of `validate_in` for a pair would be a
-  function of its own, `validate_pair_in::<S, D, V>`. It would check what the marks of the analysis
-  of `S` as `D` leave, and pass pairs of pointers to the visitor through a method added to `Visit`
-  with a default body, `pointer_pair::<PS, PD>(at)`, that validates the target of `PD` alone. Adding
-  either breaks nothing of `validate_in`.
 - **Precise mutable parts.** The operations of a rule show which fields and bytes it reads, so
   `head_mut` and `tail_mut` could allow a rule over other fields only, and an enum all of whose
   variants accept what is written. A `pun_mut` of a whole value does not require this of rules. The

@@ -40,16 +40,6 @@ fn main() {
   let _ = puns::try_pun::<u8, Option<bool>>(2);
   // What a `&mut` lets be written.
   let _ = puns::pun_mut::<(bool, u8), [u8; 2]>(&mut (true, 1));
-  // What `validate_in` would check.
-  let _ = puns::validate_in::<Mixed, _>(&[1, 1], 0, &mut NoPointers);
-}
-
-/// Refuses every pointer: for values that hold none.
-struct NoPointers;
-
-impl puns::Visit for NoPointers {
-  type Error = puns::Invalid;
-  fn pointer<P: ?Sized + Pun>(&mut self, at: usize) -> Result<(), puns::Invalid> {
-    Err(puns::Invalid::at(at))
-  }
+  // What a check of every part reads.
+  let _ = puns::validate_but_never::<Mixed>(&[1, 1]);
 }

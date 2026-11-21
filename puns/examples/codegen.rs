@@ -42,9 +42,6 @@
 //! | `from_head::<Position>(&[u8])`                        | the size, one `cmp` for the `bool`, 7 instructions |
 //! | `from_head::<Udp>(&[u8])` (a size in the value)       | 15 instructions                               |
 //! | `from_tail::<Trailer>(&[u8])` (an enum, a magic)      | the size, `bt`, one `cmp`, 18 instructions, no loop |
-//! | `view_ref::<Old, New>` (recursive, with pointers)     | `mov rax, rdi; ret`                           |
-//! | `view_ref::<[Old], [New]>`                            | `mov rdx, rsi; mov rax, rdi; ret`             |
-//! | `try_view_ref::<Maybe, Owned>` (checks a pointer)     | one `cmp dword ptr [rdi + 4], 0`, 4 instructions |
 //!
 //! A count is not a time. The check of a slice of `bool`s takes 64 bytes at a time with no branch
 //! inside a block. It has more instructions than a loop of one `cmp` per byte that stops at the
@@ -59,12 +56,9 @@
   reason = "the code of the Rust ABI is what is measured; `no_mangle` only names it in the assembly"
 )]
 
-use core::marker::PhantomData;
-
 use puns::{
-  Pun, SelfRelative, Tag, from_head, from_tail, head_ref,
-  layout::{Endian, Pointer},
-  num::{i32le, u16be, u16bec, u32bec, u32le},
+  Pun, Tag, from_head, from_tail, head_ref,
+  num::{u16be, u16bec, u32bec},
   pun, pun_ref, tail_ref, try_pun, try_pun_ref,
 };
 
@@ -184,90 +178,6 @@ pub enum Drawing {
   Rect(u8, u8),
   Empty,
   Line(u8, u8) = 9,
-}
-
-/// Declares self-relative pointers through the public API, as another crate would.
-///
-/// Each pointer is a little-endian offset of 4 bytes, aligned to 1 byte. No value of these
-/// pointers is made, since only the code of the views is compiled.
-macro_rules! pointers {
-  ($($(#[$doc:meta])* $name:ident[$($param:ident)?] $target:ty, $pointer:expr;)+) => {$(
-    $(#[$doc])*
-    #[repr(transparent)]
-    pub struct $name<$($param)?>(i32le, PhantomData<($($param,)?)>);
-
-    // SAFETY: Each requirement of `SelfRelative` holds:
-    // - The type is its offset: it is `repr(transparent)` over an `i32le`, a byte array, every
-    //   byte of which is initialized, and none in an `UnsafeCell`. Every value is an offset.
-    // - The scheme is the way to the target: only this file declares types of `SCHEME`, and
-    //   nothing follows them.
-    // - What it aims at is there, valid, and its own, and Null: no value of the type is made, so
-    //   there is no pointer.
-    // - The target is the type: each use of the macro makes `POINTER` for its `Target`, by
-    //   `Pointer::one`, `Pointer::sequence` or `Pointer::text`.
-    // - Nothing follows a pointer, so nothing relies on more.
-    unsafe impl<$($param: Pun)?> SelfRelative for $name<$($param)?> {
-      type Target = $target;
-      const POINTER: Pointer = $pointer;
-    }
-
-    puns::self_relative!(impl[$($param: Pun)?] $name<$($param)?>);
-  )+};
-}
-
-const SCHEME: &str = "codegen";
-
-/// Returns the alignment of the first element of a sequence of `T`, the larger of 4 and the
-/// alignment of `T`.
-const fn first<T>() -> usize {
-  if align_of::<T>() > 4 { align_of::<T>() } else { 4 }
-}
-
-pointers! {
-  /// A pointer to one `T`.
-  Rel[T] T, Pointer::one::<T>(SCHEME, 4, Endian::Little);
-  /// A pointer to one `T`, or a null pointer.
-  RelOpt[T] T, Pointer::one::<T>(SCHEME, 4, Endian::Little).or_null();
-  /// A pointer to a sequence of `T`, whose first element is aligned to at least 4 bytes.
-  RelSeq[T] T, Pointer::sequence::<T>(SCHEME, 4, Endian::Little, first::<T>());
-  /// A pointer to text.
-  RelStr[] (), Pointer::text(SCHEME, 4, Endian::Little);
-}
-
-/// An expression of a schema, which `view_new` views as its next version, [`New`].
-///
-/// [`New`] reinterprets the `bool` of `Leaf` as a `u8`, and has one more variant, `Pair`.
-#[derive(Pun)]
-#[repr(u8)]
-pub enum Old {
-  Leaf(bool),
-  Neg(Rel<Old>),
-  Call(RelStr, RelSeq<Old>),
-}
-
-#[derive(Pun)]
-#[repr(u8)]
-pub enum New {
-  Leaf(u8),
-  Neg(Rel<New>),
-  Call(RelStr, RelSeq<New>),
-  Pair(Rel<New>, Rel<New>),
-}
-
-/// A record whose pointer may be null, which `try_view_owned` views as an [`Owned`] after it
-/// checks that the pointer is not null.
-#[derive(Pun)]
-#[repr(C)]
-pub struct Maybe {
-  pub id: u32le,
-  pub owner: RelOpt<Old>,
-}
-
-#[derive(Pun)]
-#[repr(C)]
-pub struct Owned {
-  pub id: u32le,
-  pub owner: Rel<New>,
 }
 
 // Nothing to check.
@@ -398,21 +308,6 @@ pub fn front_position(b: &[u8]) -> Option<&Position> {
 #[unsafe(no_mangle)]
 pub fn back_trailer(b: &[u8]) -> Option<&Trailer> {
   from_tail::<Trailer>(b).ok().map(|(_, t)| t)
-}
-
-// Proven, pointers followed through a recursive type: nothing is compiled.
-#[unsafe(no_mangle)]
-pub fn view_new(old: &Old) -> &New {
-  puns::view_ref(old)
-}
-#[unsafe(no_mangle)]
-pub fn view_slice(old: &[Old]) -> &[New] {
-  puns::view_ref(old)
-}
-// What is not proven of the value itself: here that a pointer is not null.
-#[unsafe(no_mangle)]
-pub fn try_view_owned(maybe: &Maybe) -> Option<&Owned> {
-  puns::try_view_ref(maybe).ok()
 }
 
 /// A packet whose payload is a typed region of its bytes, like `Ipv4` in `ethernet.rs`.

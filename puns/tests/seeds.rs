@@ -22,27 +22,22 @@
 #![cfg(not(miri))]
 #![cfg(not(feature = "unstable"))]
 
-use core::{any::type_name, fmt::Write as _, marker::PhantomData, num::NonZero};
+use core::{any::type_name, fmt::Write as _, num::NonZero};
 
-use puns::{
-  Pun, SelfRelative, hook,
-  layout::{Endian, Pointer},
-};
+use puns::{Pun, Scalar, hook, layout::Spec};
 
-/// A self-relative pointer to a `T` that may be null. It holds the distance from its own address
-/// as an `i32`, and zero for null.
+/// A scalar that a pun reads as initialized bytes but never makes, as an offset of another crate
+/// would be.
+#[derive(Clone, Copy)]
 #[repr(transparent)]
-struct Opt<T>(i32, PhantomData<T>);
+struct Sealed(u32);
 
-// SAFETY: `Opt<T>` is `repr(transparent)` over an `i32`, its offset, every byte of which is
-// initialized, and none in an `UnsafeCell`. Its scheme is its own. No value of it is made here, so
-// no pointer of it is followed, and nothing relies on more.
-unsafe impl<T: Pun> SelfRelative for Opt<T> {
-  type Target = T;
-  const POINTER: Pointer = Pointer::one::<T>("seeds", 4, Endian::NATIVE).or_null();
+// SAFETY: `Sealed` is `repr(transparent)` over a `u32`, so it has its size, and every value is 4
+// initialized bytes, which is all that `Spec::never` says is known of it. It accepts no value, so
+// no pun makes one. It holds no `UnsafeCell`.
+unsafe impl Scalar for Sealed {
+  const SPEC: Spec = Spec::never::<Sealed>();
 }
-
-puns::self_relative!(impl[T: Pun] Opt<T>);
 
 /// A struct of the `Rust` representation. Rust specifies its size and that its bytes are
 /// initialized, but leaves to the compiler which byte is its `bool`.
@@ -168,9 +163,6 @@ fn line<S: Pun, D: Pun>() -> String {
     p.tail,
     p.tail_ref,
     p.tail_mut,
-    // With what the pointers aim at.
-    hook::views::<S, D>(1),
-    hook::tries_view::<S, D>(1),
   ];
   let flags: String = flags.iter().map(|&ok| if ok { '+' } else { '-' }).collect();
   format!("{} -> {}: {flags}\n", type_name::<S>(), type_name::<D>())
@@ -183,7 +175,7 @@ fn line<S: Pun, D: Pun>() -> String {
 /// `D` from bytes, the line says so.
 fn accepts<D: Pun>() -> String {
   let name = type_name::<D>();
-  if !hook::tries_view::<[u8], D>(0) {
+  if !hook::verdict::<[u8], D>().try_pun_ref {
     return format!("[u8] -> {name}: refused\n");
   }
   let size = size_of::<D>();
@@ -196,9 +188,7 @@ fn accepts<D: Pun>() -> String {
       *byte = BYTES[rest % BYTES.len()];
       rest /= BYTES.len();
     }
-    // SAFETY: `[u8]` holds no pointer, so no pointer of `D` is paired with one, and no pair of
-    // types is met behind a pointer. A fuel of 0 is enough, as `hook::try_view_ref` requires.
-    let tried = unsafe { hook::try_view_ref::<[u8], D, 0>(&buffer.0[..size]) };
+    let tried = hook::try_pun_ref::<[u8], D>(&buffer.0[..size]);
     let accepted = matches!(tried, Some(Ok(_)));
     if accepted {
       count += 1;
@@ -253,9 +243,8 @@ fn the_same_whatever_the_layout() {
     Wraps,
     Either,
     [Mixed; 2],
-    Opt<[u8; 2]>,
-    Opt<[bool; 2]>,
-    Opt<(bool, u8)>,
+    Sealed,
+    (u8, Sealed),
     Tagged,
     Plain,
     Kept,
