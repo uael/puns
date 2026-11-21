@@ -2387,7 +2387,7 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
 /// the compiler.
 ///
 /// The layout is found by experiments in const evaluation on a sample of each variant
-/// (`Layout::discover`). The layouts of the fields make the samples (`Layout::sample`). The
+/// (`Discover::DESC`). The layouts of the fields make the samples (`Layout::sample`). The
 /// offsets of the fields are found by a `match` on the sample. Every function that the generated
 /// code calls is an associated function of a type that `Layout::PIN` fixes, or a method of a
 /// value that one of them makes, as in the rest of the derive.
@@ -2471,7 +2471,7 @@ fn derive_discovered(
               // requires. The distance is the offset of the field, not negative.
               unsafe { (#bindings as *const #types).byte_offset_from(base) } as #usize
             ),*],
-            // Not the variant: `Layout::discover` finds that the sample is not.
+            // Not the variant: `Discover::DESC` finds that the sample is not.
             #[allow(unreachable_patterns)]
             _ => [0; #n],
           }
@@ -2606,11 +2606,8 @@ fn derive_discovered(
         #[allow(unreachable_code)]
         const SAMPLES: [::core::mem::MaybeUninit<Self>; #count] = [#(#samples),*];
         #(#offsets)*
-        // SAFETY: `DESC` is an associated constant, so the call is evaluated at compile time,
-        // which is what `Layout::discover` requires.
-        const DESC: #root::layout::Desc<#count> = unsafe {
-          #layout::discover::<Self, #count>(&<Self as __PunDiscover>::SAMPLES, &[#(#observed),*])
-        };
+        const DESC: #root::layout::Desc<#count> =
+          <Self as #root::layout::Discover<#count>>::DESC;
         const TAG: #root::layout::Layout = const { &<Self as __PunDiscover>::DESC }.tag();
         const VARIANTS: [#root::layout::Variant; #count] = [#(#variants),*];
         const ENUM: #root::layout::Enum = #root::layout::Enum::discovered(
@@ -2621,8 +2618,13 @@ fn derive_discovered(
         );
       }
 
+      impl #impl_generics #root::layout::Discover<#count> for #this #where_clause {
+        const SAMPLES: [::core::mem::MaybeUninit<Self>; #count] = <Self as __PunDiscover>::SAMPLES;
+        const FIELDS: [&'static [#root::layout::Field]; #count] = [#(#observed),*];
+      }
+
       // SAFETY: The layout is the one that `rustc` gave the enum, found by the experiments of
-      // `Layout::discover`. These fail to compile rather than find a wrong layout, under the
+      // `Discover::DESC`. These fail to compile rather than find a wrong layout, under the
       // facts of the compiler that the module documentation of `discover` lists. Each variant
       // holds its fields at the offsets observed on its sample, each with the layout of its type.
       // `Variants` lists the variants in order, each with its fields. The other lists are `()`,

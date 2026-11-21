@@ -66,7 +66,7 @@
 //! [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
 //! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
 
-use core::mem;
+use core::{marker::PhantomData, mem};
 
 #[doc(hidden)]
 pub use crate::discover::Desc;
@@ -2025,44 +2025,59 @@ const fn excludes_zero<P>() -> bool {
   if size_of::<Option<P>>() != size_of::<P>() {
     return false;
   }
-  // SAFETY: The call is in a `const` block, so it is evaluated at compile time, which is what
-  // `none_is_zeros` requires.
-  let zeros = const { unsafe { none_is_zeros::<P>() } };
   assert!(
-    zeros,
+    NoneOf::<P>::IS_ZEROS,
     "the offset of a self-relative pointer excludes values other than zero (a niche that is not \
      zero): not supported, nothing tells which"
   );
   true
 }
 
-/// Returns whether `Option<P>` has the size of `P`, and every byte of `None` is zero.
-///
-/// # Safety
-///
-/// The call must be evaluated at compile time, in a `const` item or block. Some bytes of `None`
-/// may be uninitialized, as when `P` is `(NonZero<u8>, u16)`, and reading one at run time is
-/// undefined behavior. Const evaluation reports an error instead, as the module documentation of
-/// `discover` explains ("Const evaluation fails on what is not a value").
-const unsafe fn none_is_zeros<P>() -> bool {
-  if size_of::<Option<P>>() != size_of::<P>() {
-    return false;
-  }
-  let none = mem::MaybeUninit::new(None::<P>);
-  let mut i = 0;
-  while i < size_of::<P>() {
-    // SAFETY: `i < size_of::<P>()`, which is the size of `Option<P>`, so `add(i)` stays within
-    // `none`, and the byte is valid for reads and aligned. A read of a `u8` also requires the byte
-    // to be initialized, which is not established. By contract on the caller, the call is evaluated
-    // at compile time, where `rustc` reports an error instead of reading an uninitialized byte. No
-    // documentation promises this behavior, which the crate documentation discloses (section
-    // Soundness).
-    if unsafe { *none.as_ptr().cast::<u8>().add(i) } != 0 {
-      return false;
+/// An enum of the `Rust` representation whose layout `#[derive(Pun)]` finds by experiments on a
+/// sample of each of its `V` variants, as the module documentation of `discover` explains.
+#[doc(hidden)]
+pub trait Discover<const V: usize>: Sized {
+  /// A sample of each variant, in the order of declarations, or anything for a variant that has
+  /// no value.
+  const SAMPLES: [mem::MaybeUninit<Self>; V];
+  /// The fields of each variant, at the offsets observed on its sample.
+  const FIELDS: [&'static [Field]; V];
+  /// The layout that the experiments find.
+  ///
+  /// It is a constant, so the experiments are evaluated at compile time only. They read bytes
+  /// that may be uninitialized, which is undefined behavior at run time, and an error of const
+  /// evaluation at compile time.
+  // SAFETY: `DESC` is an associated constant, so the call is evaluated at compile time, which is
+  // what `discover` requires.
+  const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
+}
+
+/// The bytes of `None::<P>`.
+struct NoneOf<P>(PhantomData<P>);
+
+impl<P> NoneOf<P> {
+  /// Whether `Option<P>` has the size of `P`, and every byte of `None` is zero.
+  ///
+  /// It is a constant, so the bytes of `None` are read at compile time only. Some may be
+  /// uninitialized, as when `P` is `(NonZero<u8>, u16)`, and reading one at run time is undefined
+  /// behavior. Const evaluation reports an error instead, as the module documentation of
+  /// `discover` explains ("Const evaluation fails on what is not a value").
+  const IS_ZEROS: bool = {
+    let none = mem::MaybeUninit::new(None::<P>);
+    let mut zeros = size_of::<Option<P>>() == size_of::<P>();
+    let mut i = 0;
+    while zeros && i < size_of::<P>() {
+      // SAFETY: `zeros` holds only if `Option<P>` has the size of `P`, and `i < size_of::<P>()`,
+      // so `add(i)` stays within `none`, and the byte is valid for reads and aligned. A read of a
+      // `u8` also requires the byte to be initialized, which is not established. This is the
+      // initializer of a constant, evaluated at compile time, where `rustc` reports an error
+      // instead of reading an uninitialized byte. No documentation promises this behavior, which
+      // the crate documentation discloses (section Soundness).
+      zeros = unsafe { *none.as_ptr().cast::<u8>().add(i) } == 0;
+      i += 1;
     }
-    i += 1;
-  }
-  true
+    zeros
+  };
 }
 
 /// The tag of a union and of an enum without variants, a scalar of size 0.
@@ -2121,37 +2136,9 @@ impl Layout {
     mem::MaybeUninit::uninit()
   }
 
-  /// Returns what experiments find about the layout of the enum `E` of the `Rust` representation,
-  /// for `#[derive(Pun)]`.
-  ///
-  /// `samples[v]` is a value of the `v`th variant in declaration order, made by [`Layout::sample`]
-  /// and [`Layout::wrap`], or anything for a variant that has no value. `fields[v]` is the fields
-  /// of that variant, at the offsets observed on its sample, and `discover.rs` says what each
-  /// experiment relies on.
-  ///
-  /// # Panics
-  ///
-  /// Panics, with the reason, if the layout is not of a shape that the experiments recognize.
-  ///
-  /// # Safety
-  ///
-  /// The call must be evaluated at compile time, in a `const` item or block. The experiments read
-  /// bytes that may be uninitialized, and the variants of values whose tags may be invalid, which
-  /// is undefined behavior at run time. Const evaluation reports an error instead, as the module
-  /// documentation of `discover` explains ("Const evaluation fails on what is not a value").
-  #[doc(hidden)]
-  #[must_use]
-  pub const unsafe fn discover<E, const V: usize>(
-    samples: &[mem::MaybeUninit<E>; V],
-    fields: &[&[Field]; V],
-  ) -> Desc<V> {
-    // SAFETY: The caller evaluates this call at compile time, which is what `discover` requires.
-    unsafe { crate::discover::discover(samples, fields) }
-  }
-
   /// Returns a `T` that is valid in the sense of the Reference, whose rules may not hold, made from
-  /// its layout alone, for the variant samples of an enum of the
-  /// `Rust` representation ([`Layout::discover`]).
+  /// its layout alone, for the samples of the variants of an enum of the `Rust` representation
+  /// (`Discover`).
   ///
   /// Every scalar holds the least of its values, and padding is uninitialized.
   ///
@@ -2165,7 +2152,7 @@ impl Layout {
     crate::discover::sample::<T>()
   }
 
-  /// Returns `value` as a sample, for [`Layout::discover`].
+  /// Returns `value` as a sample, for `Discover`.
   #[doc(hidden)]
   #[must_use]
   pub const fn wrap<T>(value: T) -> mem::MaybeUninit<T> {
@@ -2537,8 +2524,12 @@ impl Layout {
   /// Panics if `pointer` may already be null, if `Option<P>` is larger than `P`, if the bytes of
   /// `None` are not all zero, or if `Option<Option<P>>` has the size of `Option<P>`, since the
   /// offset then has a niche other than zero. Also panics if `P` does not have the size of the
-  /// offset, or if `pointer` was not made for a `T` (with its size and alignment). The bytes of
-  /// `None` are read at compile time, so an uninitialized one fails to compile.
+  /// offset, or if `pointer` was not made for a `T` (with its size and alignment).
+  ///
+  /// # Compile-time errors
+  ///
+  /// The bytes of `None` are read at compile time, even when the call is evaluated at run time. A
+  /// call does not compile if one of them is uninitialized.
   ///
   /// # Examples
   ///
@@ -2570,10 +2561,7 @@ impl Layout {
       "`Option` of this self-relative pointer is larger than it: its offset has no niche at zero \
        (a `NonZero` has one), so `None` is not the pointer of zeros"
     );
-    // SAFETY: The call is in a `const` block, so it is evaluated at compile time, which is what
-    // `none_is_zeros` requires.
-    let zeros = const { unsafe { none_is_zeros::<P>() } };
-    assert!(zeros, "`None` of this self-relative pointer is not zeros");
+    assert!(NoneOf::<P>::IS_ZEROS, "`None` of this self-relative pointer is not zeros");
     Self::pointer::<Option<P>, T>(pointer.or_null())
   }
 

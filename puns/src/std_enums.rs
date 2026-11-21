@@ -139,7 +139,7 @@ impl<T: Pun> Found for Option<T> {
       // SAFETY: `value` is the field of `Some` in the value that `sample` holds, as `offset`
       // requires.
       Some(value) => [0, unsafe { offset(value, sample) }],
-      // Not the variant: `Layout::discover` finds that the sample is not.
+      // Not the variant: `discover` finds that the sample is not.
       None => [0, 0],
     }
   };
@@ -147,9 +147,9 @@ impl<T: Pun> Found for Option<T> {
     Desc::none()
   } else {
     // SAFETY: `DESC` is an associated constant, so the call is evaluated at compile time, which is
-    // what `Layout::discover` requires.
+    // what `discover` requires.
     unsafe {
-      Layout::discover::<Self, 2>(
+      crate::discover::discover::<Self, 2>(
         &<Self as Found>::SAMPLES,
         &[&[], &[Field::new(<Self as Found>::OFFSETS[1], &T::LAYOUT)]],
       )
@@ -192,7 +192,7 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
         // SAFETY: `value` is the field of `Ok` in the value that `ok` holds, as `offset`
         // requires.
         Ok(value) => unsafe { offset(value, ok) },
-        // Not the variant: `Layout::discover` finds that the sample is not.
+        // Not the variant: `discover` finds that the sample is not.
         Err(_) => 0,
       }
     } else {
@@ -213,9 +213,9 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
     [at, other]
   };
   // SAFETY: `DESC` is an associated constant, so the call is evaluated at compile time, which is
-  // what `Layout::discover` requires.
+  // what `discover` requires.
   const DESC: Desc<2> = unsafe {
-    Layout::discover::<Self, 2>(
+    crate::discover::discover::<Self, 2>(
       &<Self as Found>::SAMPLES,
       &[
         &[Field::new(<Self as Found>::OFFSETS[0], &T::LAYOUT)],
