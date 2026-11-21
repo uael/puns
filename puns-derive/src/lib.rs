@@ -1,4 +1,4 @@
-//! `#[derive(Pun)]`, see the documentation of the `puns` crate.
+//! The derive macro `#[derive(Pun)]` of the `puns` crate, which documents it.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -15,161 +15,13 @@ use syn::{
   visit_mut::{self, VisitMut},
 };
 
-/// Derive `Pun`: tell the layout and the valid values of a type, so that it can be punned.
-///
-/// # Structs
-///
-/// Every field must be `Pun`. Any `repr` will do, but a struct whose last field is unsized must
-/// be `repr(C)` or `repr(transparent)`. The types of the fields must be at least as visible as
-/// the struct (`pub` types for a `pub` struct, wherever they are declared).
-///
-/// Without `repr`, Rust lets the compiler choose the order of the fields: without the `unstable`
-/// feature of `puns`, the struct is what every order has (all of it if every order is the same
-/// bytes, as of `(u8, [u8; 3])` or `(bool, bool)`; else that its bytes are initialized, if they
-/// are in every order, and itself). See `puns::layout::UNSTABLE`.
-///
-/// Options of the struct:
-/// - `#[pun(size = EXPR)]`: the size in bytes of a value is `EXPR`;
-/// - `#[pun(assert(EXPR))]`: `EXPR` is true;
-/// - `#[pun(get(name: Type = EXPR, ..))]`: a `const fn` method `name` that returns
-///   `(EXPR) as Type`, for bit fields and the like. Here `EXPR` is any Rust expression, in which
-///   an unsigned integer field, wherever it is named (by name or as `self.name`, but for a name
-///   that a `let` or a closure declares), is its value as a `u128`; a field of another type is
-///   refused. It is read by reference, but in a packed struct, where it is copied;
-/// - `#[pun(tag(Key = Type, ..))]`: when the struct is carried by something that tells what it
-///   carries with a `Key`, that `Key` is a `Type` (see the `Tag` trait);
-/// - `#[pun(crate = path)]`: path of the `puns` crate;
-/// - `#[pun(bound(T: Trait, ..))]`, also of an enum with fields: what the implementation of `Pun`
-///   is bounded by, on top of the bounds of the type, instead of what the derive finds (the type
-///   of each field that depends on a parameter is `Pun`, unless it names the type itself). For
-///   generic types that hold each other behind pointers, whose bounds would be found in a
-///   circle: `#[pun(bound())]` when the bounds of the type are enough.
-///
-/// The byte order of a field is the one of its type: `u32be`, `i16le`, `f64be`... of
-/// `puns::num`. A byte order that a value tells (ELF, TIFF) is a choice between two types, which
-/// an enum of references makes.
-///
-/// Options of a field:
-/// - `#[pun(valid(0x45..=0x4f, 0x60))]`: the field, an integer, only takes these values, which
-///   are unsigned integers (literals or constants, as in an `EXPR` below);
-/// - `#[pun(len = EXPR)]`, on the last field: its slice has `EXPR` elements;
-/// - `#[pun(regions(first = EXPR, second = EXPR, last))]`, on the last field: it is made of
-///   consecutive regions of `EXPR` bytes, the last one may take what remains. A method that
-///   returns the bytes of the region is generated for each name. With a type
-///   (`first: Type = EXPR`, `last: Type`), the method returns the region as a `&Type`, if it is
-///   one. A type parameter that only a region names is one that no field uses, which Rust refuses
-///   (E0392) before the derive is run: a field `PhantomData<P>`, which has no byte, uses it.
-///
-/// An `EXPR` is an expression over the unsigned integer fields of the struct (`u8`, `u16be`,
-/// `NonZero<u32>`, ..., by name, or `self.0` for tuple structs; a signed or floating-point
-/// number, a `bool` or an enum is refused, since its bits are not its value),
-/// `size_of_val(self)`, integer constants and the operators
-/// `+ - * / % & | ^ << >> == != < <= > >= && || !`. It is compiled to a constant: it can be
-/// evaluated in `const fn`s, and costs what the arithmetic costs.
-///
-/// It means what the same Rust expression means where every integer is a `u128`, and is typed as
-/// Rust types it: arithmetic is on integers, `&&`, `||` and the condition of an `if` are `bool`s,
-/// an `assert` is a `bool`, and a `size`, a `len` or a region is an integer. Rust has no
-/// truthiness: `flags & 1` is not an assertion, `flags & 1 != 0` is. So:
-/// - `!` is a bitwise not on an integer (`!3` is `0xffff..fffc`), a logical one on a `bool`;
-/// - `as u8` (or `u16`, `u32`, `u64`, `usize`) keeps the low bits, `as u128` keeps everything,
-///   `true as u8` is `1`, and a cast to any other type is refused;
-/// - an integer literal has no suffix or the one of an unsigned type (`1u8`), `b'a'` is one; a
-///   constant (`MAX_LEN`, `u16::MAX`, a const parameter `N`, `size_of::<Header>()`,
-///   `offset_of!(Self, field)`, `self::f(3)` for a `const fn f`) is computed by Rust, and must be
-///   of an unsigned integer type. Floating-point numbers, negative numbers, signed integers and
-///   `char`s are refused, since they would mean something else.
-///
-/// Where Rust would panic, the rule fails (does not hold): an overflow of `+`, `-` or `*`, a
-/// division or a remainder by zero, a shift by 128 or more (which Rust also panics on, with debug
-/// assertions), and a read out of the value. `<<` drops the bits that it shifts out, as in Rust:
-/// `(1 << 127) << 1` is `0`. As in Rust, the right side of `&&` and `||` is only computed if the
-/// left one does not decide, and the branch of an `if` that is not taken is not computed: what is
-/// not computed cannot fail and costs nothing, so `kind != 7 || be(40, 2) == 0` holds for a value
-/// that is not of kind 7, however short, without reading it.
-///
-/// A rule names the integer fields of its struct, not the fields of a field or the elements of
-/// an array, which `le` and `be` read; it calls no method and no function but the ones below.
-///
-/// It can name what it computes, and choose: `{ let name = EXPR; .. EXPR }` (at most 8 names at
-/// once, `let name: u128` or `let name: bool` if the type is written), `if EXPR { EXPR } else {
-/// EXPR }`. As in Rust, what a `let` binds is computed whether it is used or not: a block fails if
-/// one of its `let`s does. Its evaluator has a stack of 16 values: `a + (b + (c + ..))` needs
-/// one more for each level, which a `let` or another order saves (the derive tells).
-///
-/// It can also read the value beyond its fields, where `start`, `end` and `offset` are
-/// expressions that count bytes from the start of the value. A `size` or a `len` can too (but for
-/// `size_of_val(self)`, which it defines): when `from_head` takes a value, it reads in the bytes
-/// that there are, so `size = 2 + if length == 126 { 2 + be(2, 2) } else { length }` takes
-/// WebSocket frames from a stream.
-/// - `le(offset, N)`, `be(offset, N)`: the integer of `N` bytes at `offset`;
-/// - `leb128(offset)`, `quic(offset)`, `vlq(offset)`: the variable-length integer at `offset`, of
-///   LEB128 (7 bits a byte, least significant first: Protocol Buffers, WebAssembly, MQTT), of
-///   QUIC (RFC 9000: 1, 2, 4 or 8 bytes, told by the two high bits) or of big-endian base 128
-///   (ASN.1 tag numbers and object identifiers); `leb128_len(offset)`, `quic_len(offset)`,
-///   `vlq_len(offset)`: its number of bytes. They fail if the integer is not over within the
-///   value, or does not fit in a `u128`; a longer encoding than needed is read as it is (a rule
-///   can refuse it: `leb128_len(1) <= 4`);
-/// - `crc32(start, end)`: the CRC-32 (of Ethernet) of the bytes from `start` to `end`;
-/// - `sum16(start, end)`: the ones' complement sum of the 16 bits words from `start` to `end`
-///   (`0xffff` over data that holds its own IP checksum);
-/// - `crc::<WIDTH, POLY, INIT, REFLECT, XOROUT>(start, end)`: any CRC of up to 64 bits, by the
-///   parameters of the catalogue of CRCs (`crc::<16, 0x8005, 0xffff, true, 0>` is the one of
-///   Modbus, `crc::<32, 0x1edc6f41, 0xffffffff, true, 0xffffffff>` CRC-32C, see
-///   `puns::layout::Crc`); with two more offsets, `crc32(start, end, from, to)` or
-///   `crc::<..>(start, end, from, to)`, the bytes from `from` to `to` are taken as zeros (a CRC
-///   over the header that holds it, as in GPT);
-/// - `fletcher16(start, end)`, `adler32(start, end)`: Fletcher-16 (`0` over data that holds its
-///   ISO 8473 checksum, as OSPF and IS-IS do) and Adler-32; `sum(start, end)`: the sum of the
-///   bytes (tar);
-/// - `matches(DFA, start, end)`: whatever the bytes from `start` to `end` are accepted by an
-///   automaton, a `&'static puns::layout::Dfa` (`Dfa::ASCII`, `Dfa::DIGITS`, `Dfa::OCTAL`,
-///   `Dfa::HEX`, `Dfa::UTF8`, `Dfa::UTF8_NO_NUL`, or one of yours): a pattern that the struct
-///   requires of its bytes. As any rule, it proves nothing of them: a type that guarantees a
-///   pattern, as `str` does, cannot be derived, since its field can be written by safe code;
-/// - `walk(START, |at| COND, |at| NEXT)`: what `START` becomes when it is replaced by `NEXT` for
-///   as long as `COND` is true of it. This is how what is at an offset that depends on what is
-///   before is reached: after options, at the end of a chain of headers
-///   (`walk(0, |at| be(at, 1) != 0, |at| at + 2 + be(at + 1, 1))` is the offset of the first
-///   "type, length, value" whose type is 0), or at the end of a string
-///   (`size = walk(0, |at| be(at, 1) != 0, |at| at + 1) + 1`). A walk can be anywhere: in any
-///   rule, in another walk, several in an expression. It takes at most
-///   `8 * size_of_val(self) + 128` steps (a step for each bit of the value, or of a `u128`), and
-///   fails beyond.
-///
-/// # Enums
-///
-/// Enums without fields, of any `repr`: their valid values are read from the compiler. Without
-/// `repr`, Rust does not specify them: without the `unstable` feature of `puns`, such an enum only
-/// proves itself.
-///
-/// Enums with fields, of a layout that is specified (`repr(C)`, `repr(u8)` or any other integer,
-/// or both) or of none: without `repr`, the layout that `rustc` chose is found by experiments in
-/// const evaluation on a value of each variant, which the layouts of the fields make (no field may
-/// hold a self-relative pointer). Every field must be `Pun`, and can have the `valid` option.
-/// What is known of such an enum is its tag; making one out of anything but itself checks the
-/// tag, then what the fields of the variant require. Without `repr`, what is found is what the
-/// compiler chose, which Rust does not keep: without the `unstable` feature of `puns`, the enum
-/// only proves itself.
-///
-/// An enum without variants has no value: nothing is made of one.
-///
-/// Enums whose variants each hold a reference, such as
-/// `enum Frame<'a> { Ipv4(&'a Ipv4), Arp(&'a Arp), Other(&'a [u8]) }`, are not data but *views* of
-/// data that is one thing or another. For them, two functions are generated, which answer as
-/// trying the variants in order would: `from_head(bytes)` takes the first variant that `bytes`
-/// start with, and returns it with what remains; `from_bytes(bytes)` returns the first variant
-/// that `bytes` are, whole. Each variant is checked once at most, and only for what is not known
-/// of it already: a variant whose first constrained scalar (an EtherType) the bytes do not have
-/// is passed over on that scalar alone, and one whose values are all values of a later variant
-/// (`Frame<Ipv4<Udp>>` of `Frame<Ipv4>`) is decided after that one, from it: it fails with it,
-/// or is checked for what that one does not prove of it (the protocol, not the checksums again).
+/// Implements `Pun` as [`puns::Pun`](https://docs.rs/puns/latest/puns/derive.Pun.html) documents.
 #[proc_macro_derive(Pun, attributes(pun))]
 pub fn derive_pun(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
   let tokens = TokenStream::from(input.clone());
   let mut input = parse_macro_input!(input as DeriveInput);
-  // The generated items are named `__Pun..`: a type of the input of that name would be one of
-  // them where the generated code names it, not what the input means.
+  // The generated items are named `__Pun..`. A type of the input with such a name would be taken
+  // for one of them where the generated code names it.
   if let Some(ident) = find_reserved(tokens) {
     return Error::new(
       ident.span(),
@@ -213,8 +65,8 @@ pub fn derive_pun(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
-/// The types of the variants of a view, as a balanced tree (`puns::view::List`): the first half,
-/// then the second.
+/// Returns the types of the variants of a view as a balanced tree (`puns::view::List`): the first
+/// half, then the second.
 fn view_tree(types: &[&Type], root: &TokenStream) -> TokenStream {
   if let [ty] = types {
     return quote!(#root::view::Leaf<#ty>);
@@ -224,7 +76,7 @@ fn view_tree(types: &[&Type], root: &TokenStream) -> TokenStream {
   quote!(#root::view::Pair<#first, #second>)
 }
 
-/// The place of the variant `index` of `count` in the tree of [`view_tree`], as a type.
+/// Returns the place of the variant `index` of `count` in the tree of [`view_tree`], as a type.
 fn view_place(index: usize, count: usize, root: &TokenStream) -> TokenStream {
   if count == 1 {
     return quote!(#root::view::Here);
@@ -239,8 +91,10 @@ fn view_place(index: usize, count: usize, root: &TokenStream) -> TokenStream {
   }
 }
 
-/// What stands for the implementations of the derive when it fails, so that its error is the only
-/// one, rather than one at each use of the type. Never used: the crate does not compile.
+/// Returns what stands for the implementations of the derive when it fails.
+///
+/// The error of the derive is then the only one, rather than one at each use of the type. The
+/// fallback is never used, since the crate does not compile.
 fn fallback(input: &DeriveInput) -> TokenStream {
   let Ok(options) = parse_options(&input.attrs, "the type", &ALL_OPTIONS) else {
     return TokenStream::new();
@@ -263,7 +117,9 @@ fn fallback(input: &DeriveInput) -> TokenStream {
     }
   });
   quote! {
-    // SAFETY: never used, as the crate does not compile.
+    // SAFETY: This implementation is emitted only next to the compile error of the derive, so
+    // the crate that holds it does not compile, and no code uses it. Its `PROBE` and `LAYOUT`
+    // panic, so any evaluation of them is a compile error too.
     unsafe impl #impl_generics #root::Pun for #ident #ty_generics #where_clause {
       type Elem = ();
       type Fields = ();
@@ -278,7 +134,7 @@ fn fallback(input: &DeriveInput) -> TokenStream {
   }
 }
 
-/// The first identifier of `tokens` that starts with `__Pun`, if any.
+/// Returns the first identifier of `tokens` that starts with `__Pun`, if any.
 fn find_reserved(tokens: TokenStream) -> Option<Ident> {
   tokens.into_iter().find_map(|token| match token {
     proc_macro2::TokenTree::Ident(ident) if ident.to_string().starts_with("__Pun") => Some(ident),
@@ -287,7 +143,7 @@ fn find_reserved(tokens: TokenStream) -> Option<Ident> {
   })
 }
 
-/// `tokens`, with `Self` replaced by `this`.
+/// Returns `tokens`, with `Self` replaced by `this`.
 fn replace_self(tokens: TokenStream, this: &TokenStream) -> TokenStream {
   tokens
     .into_iter()
@@ -307,9 +163,12 @@ fn replace_self(tokens: TokenStream, this: &TokenStream) -> TokenStream {
 // -------------------------------------------------------------------------------------------------
 // Attributes
 
-/// The identity of the type of `input` (`puns::layout::Id`): where it is declared, and its name.
-/// A generic type has none: two of its instances are other types, which `rustc` may arrange
-/// otherwise, and what makes one is not all `Pun` (`PhantomData<T>`).
+/// Returns the identity of the type of `input` (`puns::layout::Id`): where it is declared, and
+/// its name.
+///
+/// A generic type has none (`Id::NONE`), since two of its instances are other types, which `rustc`
+/// may lay out differently, and what makes one is not all `Pun` (`PhantomData<T>`). Lifetime
+/// parameters do not count.
 fn identity(input: &DeriveInput, root: &TokenStream) -> TokenStream {
   // One crate is expanded by one process, in which each derive takes the next number.
   static DERIVES: AtomicUsize = AtomicUsize::new(0);
@@ -320,23 +179,33 @@ fn identity(input: &DeriveInput, root: &TokenStream) -> TokenStream {
   }
   let ident = &input.ident;
   let n = proc_macro2::Literal::usize_unsuffixed(DERIVES.fetch_add(1, Ordering::Relaxed));
-  // Of the type that the traits name, whatever the path leads to (see `Layout::PIN`).
+  // Of the type that the traits name, whatever type the path names (see `Layout::PIN`).
   quote!({
     let id: #root::layout::Id = #root::layout::Id::new(#root::__site!(#ident, #n), &[]);
     id
   })
 }
 
+/// The `repr` of a type, as far as the derive reads it.
 #[derive(Default)]
 struct Repr {
+  /// Whether it has `repr(C)`.
   c: bool,
+  /// Whether it has `repr(transparent)`.
   transparent: bool,
-  /// `N` of `packed(N)`.
+  /// The `N` of `packed(N)`, which is 1 for `packed`.
   packed: Option<TokenStream>,
-  /// `u8`, `i32`...
+  /// The integer of `repr(u8)`, `repr(i32)` or another primitive representation.
   int: Option<Ident>,
 }
 
+/// Returns the `repr` of the type of `attrs`.
+///
+/// `align(N)` is read and ignored.
+///
+/// # Errors
+///
+/// Returns an error if a `repr` attribute does not parse.
 fn parse_repr(attrs: &[Attribute]) -> Result<Repr> {
   let mut repr = Repr::default();
   for attr in attrs.iter().filter(|attr| attr.path().is_ident("repr")) {
@@ -371,7 +240,8 @@ fn parse_repr(attrs: &[Attribute]) -> Result<Repr> {
   Ok(repr)
 }
 
-/// `name`, `name: Type`, `name = EXPR` or `name: Type = EXPR`
+/// A region of `#[pun(regions(..))]`: `name`, `name: Type`, `name = EXPR` or
+/// `name: Type = EXPR`.
 struct Region {
   name: Ident,
   ty: Option<Type>,
@@ -397,7 +267,7 @@ impl Parse for Region {
   }
 }
 
-/// `Key = Type`
+/// A tag of `#[pun(tag(..))]`: `Key = Type`.
 struct TagOption {
   key: Type,
   tag: Type,
@@ -411,7 +281,7 @@ impl Parse for TagOption {
   }
 }
 
-/// `name: Type = EXPR`
+/// A getter of `#[pun(get(..))]`: `name: Type = EXPR`.
 struct Getter {
   name: Ident,
   ty: Type,
@@ -428,6 +298,7 @@ impl Parse for Getter {
   }
 }
 
+/// The options of `#[pun(..)]` of a type, a variant or a field.
 #[derive(Default)]
 struct Options {
   root: Option<TokenStream>,
@@ -442,23 +313,37 @@ struct Options {
   bounds: Option<Punctuated<syn::WherePredicate, Token![,]>>,
 }
 
-/// The options of `attrs`, which are those of `place`: only the options in `allowed` mean
-/// something there, the others are refused rather than ignored.
+/// Returns the options of `attrs`, which are those of `place`.
+///
+/// Only the options in `allowed` mean something there.
+///
+/// # Errors
+///
+/// Returns an error if an option is not in `allowed`, rather than ignore it, if an option of one
+/// value is given twice, rather than keep the last, or if an option is unknown or does not parse.
 fn parse_options(attrs: &[Attribute], place: &str, allowed: &[&str]) -> Result<Options> {
   let mut options = Options::default();
+  let mut given = Vec::new();
   for attr in attrs.iter().filter(|attr| attr.path().is_ident("pun")) {
     attr.parse_nested_meta(|meta| {
       if let Some(name) = meta.path.get_ident().map(ToString::to_string)
-        && !allowed.contains(&name.as_str())
         && ALL_OPTIONS.contains(&name.as_str())
       {
-        let of = match name.as_str() {
-          "crate" | "bound" => "the type",
-          "size" | "assert" | "tag" | "get" => "a struct",
-          "valid" => "a field",
-          _ => "the last field of a struct",
-        };
-        return Err(meta.error(format!("`{name}` is an option of {of}, not of {place}")));
+        if !allowed.contains(&name.as_str()) {
+          let of = match name.as_str() {
+            "crate" => "the type",
+            "bound" => "a struct, an enum with fields that is not a view, or a union",
+            "size" | "assert" | "tag" | "get" => "a struct",
+            "valid" => "a field",
+            _ => "the last field of a struct",
+          };
+          return Err(meta.error(format!("`{name}` is an option of {of}, not of {place}")));
+        }
+        // `bound`, `assert`, `tag` and `get` add to what they gave before.
+        if !matches!(name.as_str(), "bound" | "assert" | "tag" | "get") && given.contains(&name) {
+          return Err(meta.error(format!("`{name}` is given twice")));
+        }
+        given.push(name);
       }
       if meta.path.is_ident("crate") {
         options.root = Some(if meta.input.peek(Token![=]) {
@@ -511,6 +396,7 @@ const ALL_OPTIONS: [&str; 9] =
 // -------------------------------------------------------------------------------------------------
 // Expressions
 
+/// A field of a struct, as the derive compiles it.
 struct FieldInfo<'a> {
   member: Member,
   ty: &'a Type,
@@ -520,17 +406,22 @@ struct FieldInfo<'a> {
   offset: TokenStream,
 }
 
-/// The limits of the evaluator, which `layout::check_rules` checks again: the depth of its stack,
-/// and the number of variables of an expression. The validation applies each operation in an
-/// instance of a function of its own, down a tree of the operations: an expression has at most
-/// `MAX_OPS` of them, and nests at most `MAX_WALKS` walks.
+/// The depth of the stack of the evaluator, which `layout::check_ops` checks again.
+///
+/// The validation applies each operation in an instance of a function of its own, down a tree of
+/// the operations, so an expression also has at most [`MAX_OPS`] operations and nests at most
+/// [`MAX_WALKS`] walks. It has at most [`VARIABLES`] variables.
 const STACK: usize = 16;
+/// The number of variables of an expression.
 const VARIABLES: usize = 8;
+/// The number of operations of an expression.
 const MAX_OPS: usize = 256;
+/// The depth of walks within walks of an expression.
 const MAX_WALKS: usize = 4;
 
-/// `tokens`, located at `span`: so that an error in what they compute is reported there. What
-/// their names resolve to does not change.
+/// Returns `tokens` located at `span`, so that an error in what they compute is reported there.
+///
+/// What their names resolve to does not change.
 fn located(tokens: TokenStream, span: Span) -> TokenStream {
   tokens
     .into_iter()
@@ -547,7 +438,7 @@ fn located(tokens: TokenStream, span: Span) -> TokenStream {
     .collect()
 }
 
-/// The name of an operation: the first after `Op::`.
+/// Returns the name of an operation: the first identifier after `Op::`.
 fn op_name(op: &TokenStream) -> Option<String> {
   let tokens = op.clone().into_iter().collect::<Vec<_>>();
   tokens.windows(4).find_map(|window| match window {
@@ -561,7 +452,8 @@ fn op_name(op: &TokenStream) -> Option<String> {
   })
 }
 
-/// What an operation takes off the stack of the evaluator, and what it puts on it.
+/// Returns how many values an operation takes off the stack of the evaluator, and how many it
+/// puts on it.
 fn effect(op: &TokenStream) -> (usize, usize) {
   match op_name(op).as_deref() {
     Some("Lit" | "load" | "Size" | "Get") => (0, 1),
@@ -575,8 +467,13 @@ fn effect(op: &TokenStream) -> (usize, usize) {
   }
 }
 
-/// Check that `ops`, the operations of what `spanned` is, fit the stack of the evaluator, and are
-/// not too many.
+/// Checks that `ops`, the operations of what `spanned` is, fit the stack of the evaluator, and
+/// are not too many.
+///
+/// # Errors
+///
+/// Returns an error at `spanned`, with the numbers, if there are more than [`MAX_OPS`]
+/// operations or they need more than [`STACK`] values.
 fn limits(ops: &[TokenStream], spanned: &impl ToTokens) -> Result<()> {
   if ops.len() > MAX_OPS {
     return Err(Error::new_spanned(
@@ -611,11 +508,14 @@ fn limits(ops: &[TokenStream], spanned: &impl ToTokens) -> Result<()> {
 /// The type of a value of an expression, as Rust types it, where every integer is a `u128`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Ty {
+  /// An integer.
   Int,
+  /// A `bool`.
   Bool,
 }
 
 impl Ty {
+  /// Returns the name of the type in a message.
   const fn name(self) -> &'static str {
     match self {
       Ty::Int => "an integer",
@@ -624,14 +524,18 @@ impl Ty {
   }
 }
 
-/// `Ok` if `found` is `expected`, else an error at what `spanned` is.
+/// Checks that `found` is `expected`.
+///
+/// # Errors
+///
+/// Returns an error at `spanned`, with a hint, if `found` is not `expected`.
 fn expect(found: Ty, expected: Ty, spanned: &impl ToTokens) -> Result<()> {
   if found == expected {
     return Ok(());
   }
   let hint = match expected {
     Ty::Int => "`EXPR as u8` is `0` or `1`",
-    Ty::Bool => "Rust has no truthiness: write `EXPR != 0`",
+    Ty::Bool => "Rust does not convert an integer to a `bool`: write `EXPR != 0`",
   };
   Err(Error::new_spanned(
     spanned,
@@ -642,17 +546,24 @@ fn expect(found: Ty, expected: Ty, spanned: &impl ToTokens) -> Result<()> {
 /// The variables of an expression: its `let`s, and the parameters of the closures of a `walk`.
 #[derive(Default)]
 struct Scope {
+  /// Each variable in scope: its name, its index and its type.
   names: Vec<(Ident, u8, Ty)>,
   /// How many closures of `walk`s the expression is in.
   walking: usize,
   /// For each `walk` of the expression that is being compiled, in order (not those in another
   /// `walk`): its two expressions, as types.
   walks: Vec<(TokenStream, TokenStream)>,
-  /// In a `size` or a `len`, which cannot be computed from `size_of_val(self)`.
+  /// Whether the expression is a `size` or a `len`, which cannot be computed from
+  /// `size_of_val(self)`.
   sizing: bool,
 }
 
 impl Scope {
+  /// Declares the variable `name` of type `ty`, and returns its index.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the expression already has [`VARIABLES`] variables in scope.
   fn declare(&mut self, name: &Ident, ty: Ty) -> Result<u8> {
     let index = self.names.len() as u8;
     if usize::from(index) >= VARIABLES {
@@ -668,6 +579,7 @@ impl Scope {
     Ok(index)
   }
 
+  /// Returns the index and the type of the variable `name` in scope, the last one declared.
   fn get(&self, name: &Ident) -> Option<(u8, Ty)> {
     self
       .names
@@ -678,7 +590,12 @@ impl Scope {
   }
 }
 
-/// `{ let name = EXPR; .. EXPR }`
+/// Compiles the block `{ let name = EXPR; .. EXPR }` to operations, and returns its type.
+///
+/// # Errors
+///
+/// Returns an error if a statement is not `let name = EXPR;` or `let name: TYPE = EXPR;`, if the
+/// block does not end with its value, or if an expression does not compile.
 fn compile_block(
   block: &syn::Block,
   fields: &[FieldInfo],
@@ -735,13 +652,21 @@ fn compile_block(
   Ok(ty)
 }
 
-/// The number of operations of a part of an expression that may not be computed (see
-/// `layout::Op::Shortcut`), as an operation holds it.
+/// Returns the number of operations in a part of an expression that may not be computed, as an
+/// operation holds it (`layout::Op::Shortcut`).
+///
+/// # Errors
+///
+/// Returns an error if the number does not fit a `u16`.
 fn part(len: usize) -> Result<u16> {
   u16::try_from(len).map_err(|_| Error::new(Span::call_site(), "this expression is too long"))
 }
 
-/// Compile `expr` to the operations of a postfix expression: returns its type.
+/// Compiles `expr` to the operations of a postfix expression, and returns its type.
+///
+/// # Errors
+///
+/// Returns an error at what Rust would not compile, or at what a rule does not compute.
 fn compile(
   expr: &Expr,
   fields: &[FieldInfo],
@@ -851,8 +776,8 @@ fn compile(
       ty
     }
     Expr::Binary(binary) => {
-      // The name of the operation, the type of its operands (`None`: any, but the same), whatever
-      // it compares.
+      // The name of the operation, the type of its operands (`None` for either type, if both are
+      // the same), and whether it compares them.
       let (name, operands, compares) = match binary.op {
         BinOp::Add(_) => ("Add", Some(Ty::Int), false),
         BinOp::Sub(_) => ("Sub", Some(Ty::Int), false),
@@ -923,7 +848,7 @@ fn compile(
       ops.push(quote!(#op::At { size: #size, big: #big }));
       Ty::Int
     }
-    // `matches(DFA, start, end)`: whatever the bytes are accepted by an automaton.
+    // `matches(DFA, start, end)`: whether an automaton accepts the bytes.
     Expr::Call(call) if call.args.len() == 3 && is_call(call, "matches") => {
       int(&call.args[1], ops, scope)?;
       int(&call.args[2], ops, scope)?;
@@ -996,7 +921,7 @@ fn compile(
   })
 }
 
-/// The functions that a rule can call.
+/// The functions that a rule can call, as messages name them.
 const FUNCTIONS: &str = "`size_of_val(self)`, `le`, `be`, `leb128`, `leb128_len`, `quic`, \
                          `quic_len`, `vlq`, `vlq_len`, `crc32`, `crc::<..>`, `sum16`, `sum`, \
                          `fletcher16`, `adler32`, `matches` and `walk`";
@@ -1021,7 +946,12 @@ const ARITIES: [(&str, usize); 16] = [
   ("walk", 3),
 ];
 
-/// The operation of the checksum that `call` is, if it is one with the right number of arguments.
+/// Returns the operation of the checksum that `call` is, if it is one with the right number of
+/// arguments.
+///
+/// # Errors
+///
+/// Returns `Some` of an error if a call of `crc` lacks its 5 parameters.
 fn checksum(
   call: &syn::ExprCall,
   op: &TokenStream,
@@ -1082,7 +1012,8 @@ fn checksum(
   None
 }
 
-/// The form of the variable-length integer that `call` reads, and whatever it is its length.
+/// Returns the form of the variable-length integer that `call` reads, and whether `call` reads
+/// its length.
 fn varint(call: &syn::ExprCall) -> Option<(&'static str, bool)> {
   [
     ("leb128", "Leb128", false),
@@ -1097,8 +1028,15 @@ fn varint(call: &syn::ExprCall) -> Option<(&'static str, bool)> {
   .map(|(_, form, length)| (form, length))
 }
 
-/// The value of an integer literal, as a `u128`. Its type is the one of a suffix, if any, which
-/// must be an unsigned integer type.
+/// Returns the value of a literal as a `u128`.
+///
+/// The literal is an integer or a byte. The suffix of an integer, if any, must be an unsigned
+/// integer type.
+///
+/// # Errors
+///
+/// Returns an error if the literal is not an integer or a byte, or if its suffix is not an
+/// unsigned integer type.
 fn literal(lit: &Lit) -> Result<TokenStream> {
   let unsigned = "`#[pun(..)]` computes on unsigned integers";
   match lit {
@@ -1123,15 +1061,18 @@ fn literal(lit: &Lit) -> Result<TokenStream> {
   }
 }
 
-/// Whatever `tokens` name a field or a variable of the expression, or `self`: what a constant
-/// cannot name.
+/// Returns whether `tokens` name a field or a variable of the expression, or `self`, which a
+/// constant cannot name.
 fn mentions(tokens: TokenStream, fields: &[FieldInfo], scope: &Scope) -> bool {
   // After `.` or `::`, a name is a field or an item of something else.
   let mut qualified = false;
-  for token in tokens {
+  let mut tokens = tokens.into_iter().peekable();
+  while let Some(token) = tokens.next() {
     match token {
       proc_macro2::TokenTree::Ident(ident) => {
-        let named = ident == "self"
+        // `self::` starts the path of an item of this module, such as `self::f(3)`, not the value.
+        let path = matches!(tokens.peek(), Some(proc_macro2::TokenTree::Punct(punct)) if punct.as_char() == ':');
+        let named = (ident == "self" && !path)
           || scope.get(&ident).is_some()
           || fields.iter().any(|field| field.member == Member::Named(ident.clone()));
         if named && !qualified {
@@ -1154,8 +1095,16 @@ fn mentions(tokens: TokenStream, fields: &[FieldInfo], scope: &Scope) -> bool {
   false
 }
 
-/// Check that `expr`, which is not something that a rule computes, is a constant: Rust
-/// computes it, and it must be an unsigned integer. A macro (`offset_of!(Self, field)`) is one.
+/// Checks that `expr`, which is not something that a rule computes, is a constant.
+///
+/// Rust computes a constant, which must be an unsigned integer. A macro (`offset_of!(Self,
+/// field)`) is one.
+///
+/// # Errors
+///
+/// Returns an error, which says what a rule computes, if `expr` names a field, a variable or
+/// `self`, or if it calls a function by its name alone: a function of rules with the wrong number
+/// of arguments, or another function.
 fn constant(expr: &Expr, fields: &[FieldInfo], scope: &Scope) -> Result<()> {
   let error = |message: String| Err(Error::new_spanned(expr, message));
   let bytes = "read its bytes with `le(offset, size)` or `be(offset, size)`";
@@ -1200,8 +1149,12 @@ fn constant(expr: &Expr, fields: &[FieldInfo], scope: &Scope) -> Result<()> {
   }
 }
 
-/// What `as TYPE` keeps of a `u128`: `None` for `u128`, the mask of the bits of another unsigned
-/// integer type. Rules compute on unsigned integers: other types are refused.
+/// Returns what `as TYPE` keeps of a `u128`: `None` for `u128`, else the mask of the bits of
+/// another unsigned integer type.
+///
+/// # Errors
+///
+/// Returns an error if `ty` is not an unsigned integer type, since rules compute on those only.
 fn cast_mask(ty: &Type, op: &TokenStream) -> Result<Option<TokenStream>> {
   let name = match ty {
     Type::Path(path) if path.qself.is_none() => path.path.get_ident().map(ToString::to_string),
@@ -1224,19 +1177,19 @@ fn cast_mask(ty: &Type, op: &TokenStream) -> Result<Option<TokenStream>> {
   })
 }
 
-/// Whatever `call` is a call of `crc::<..>`.
+/// Returns whether `call` is a call of `crc::<..>`.
 fn is_crc(call: &syn::ExprCall) -> bool {
   matches!(&*call.func, Expr::Path(path) if path.qself.is_none()
     && path.path.segments.len() == 1 && path.path.segments[0].ident == "crc")
 }
 
-/// Whatever `call` is a call of the function `name`.
+/// Returns whether `call` is a call of the function `name`.
 fn is_call(call: &syn::ExprCall, name: &str) -> bool {
   matches!(&*call.func, Expr::Path(path) if path.path.is_ident(name))
 }
 
-/// Turn the expression of a getter into Rust, where an integer field, wherever it is named (by
-/// name, or as `self.name`), is its value as a `u128`.
+/// Returns the expression of a getter as Rust, in which an integer field is its value as a
+/// `u128`, wherever it is named, by its name or as `self.name`.
 fn rust(expr: &Expr, fields: &[FieldInfo], root: &TokenStream, packed: bool) -> TokenStream {
   let mut expr = expr.clone();
   Fielder { fields, root, packed, shadowed: vec![] }.visit_expr_mut(&mut expr);
@@ -1245,7 +1198,9 @@ fn rust(expr: &Expr, fields: &[FieldInfo], root: &TokenStream, packed: bool) -> 
 
 /// What replaces the fields of the expression of a getter.
 struct Fielder<'a> {
+  /// The fields of the struct.
   fields: &'a [FieldInfo<'a>],
+  /// The path of the `puns` crate.
   root: &'a TokenStream,
   /// The fields of a packed struct cannot be borrowed: they are copied.
   packed: bool,
@@ -1254,7 +1209,7 @@ struct Fielder<'a> {
 }
 
 impl Fielder<'_> {
-  /// The value of `member` as a `u128`, if it is a field, read where `span` is.
+  /// Returns the value of `member` as a `u128`, read where `span` is, if it is a field.
   fn value(&self, member: &Member, span: Span) -> Option<Expr> {
     self.fields.iter().any(|field| &field.member == member).then(|| {
       let root = self.root;
@@ -1269,7 +1224,7 @@ impl Fielder<'_> {
   }
 }
 
-/// The names that `pat` declares.
+/// Appends to `names` the names that `pat` declares.
 fn declared(pat: &syn::Pat, names: &mut Vec<Ident>) {
   match pat {
     syn::Pat::Ident(pat) => {
@@ -1341,15 +1296,22 @@ impl VisitMut for Fielder<'_> {
   }
 }
 
-/// An expression, as operations: `&[Op, ...]`.
+/// A compiled expression.
 struct Expression {
+  /// The operations, as `&[Op, ...]`.
   ops: TokenStream,
   /// The same, as a type (`puns::Steps`).
   steps: TokenStream,
 }
 
-/// Compile an expression whose value is a `ty`; with `sizing`, a size or a length, which
-/// `size_of_val(self)` cannot be in.
+/// Compiles an expression whose value is a `ty`.
+///
+/// With `sizing`, the expression is a size or a length, which `size_of_val(self)` cannot be in.
+///
+/// # Errors
+///
+/// Returns an error if the expression does not compile, is not of type `ty`, or exceeds the
+/// limits of the evaluator.
 fn expression(
   expr: &Expr,
   ty: Ty,
@@ -1365,11 +1327,17 @@ fn expression(
   Ok(Expression { ops: quote!(&[#(#ops),*]), steps })
 }
 
-/// The operations `ops` as a type: a tree (`puns::steps::Two`) whose leaves are the operations,
-/// each `One<INDEX>` or, for a walk, `Walk<INDEX, COND, NEXT>`, where `COND` and `NEXT` are its
-/// expressions as types: `walks`, in the order of the walks of `ops`. The validation applies each
-/// operation in an instance of its own, down this tree: it is balanced, so that the recursion is
-/// as deep as its logarithm.
+/// Returns the operations `ops` as a type: a balanced tree (`puns::steps::Two`) whose leaves are
+/// the operations.
+///
+/// Each leaf is `One<INDEX>`, or `Walk<INDEX, COND, NEXT>` for a walk, where `COND` and `NEXT` are
+/// its expressions as types. `walks` holds them, in the order of the walks of `ops`. The
+/// validation applies each operation in an instance of its own, down this tree. The tree is
+/// balanced, so the recursion is as deep as the logarithm of the number of operations.
+///
+/// # Panics
+///
+/// Panics if `walks` has fewer entries than `ops` has walks.
 fn steps(
   ops: &[TokenStream],
   walks: Vec<(TokenStream, TokenStream)>,
@@ -1402,7 +1370,12 @@ fn steps(
   tree(&leaves, root)
 }
 
-/// The ranges of `#[pun(valid(..))]`, as `&'static [(u128, u128)]`.
+/// Returns the ranges of `#[pun(valid(..))]`, as an expression of type
+/// `&'static [(u128, u128)]`.
+///
+/// # Errors
+///
+/// Returns an error if a bound is negative, or a literal that is not an unsigned integer.
 fn valid_ranges(
   ranges: &Punctuated<Expr, Token![,]>,
   ty: &Type,
@@ -1413,7 +1386,7 @@ fn valid_ranges(
     Expr::Lit(ExprLit { lit, .. }) => literal(lit),
     Expr::Unary(unary) if matches!(unary.op, UnOp::Neg(_)) => Err(Error::new_spanned(
       unary,
-      "the values of a field are told as unsigned integers: there is no negative number",
+      "the values of a field are given as unsigned integers: there is no negative number",
     )),
     expr => Ok(quote_spanned!(expr.span()=> #root::layout::Op::constant(&(#expr)))),
   };
@@ -1450,8 +1423,10 @@ fn valid_ranges(
   }))
 }
 
-/// Require `ty: Pun` of `generics`, unless they do already: a bound written twice is one that
-/// clippy sees twice, at the span of the one that the user wrote.
+/// Adds `ty: Pun` to the bounds of `generics`, unless they hold it already.
+///
+/// A bound written twice is one that clippy sees twice, at the span of the one that the user
+/// wrote.
 fn bound(generics: &mut syn::Generics, ty: &Type, root: &TokenStream) {
   let pun = |bounds: &Punctuated<syn::TypeParamBound, Token![+]>| {
     bounds.iter().any(|bound| {
@@ -1478,6 +1453,18 @@ fn bound(generics: &mut syn::Generics, ty: &Type, root: &TokenStream) {
 // -------------------------------------------------------------------------------------------------
 // Structs
 
+/// Returns whether `ty` is unsized as written: a slice, `str` or a trait object, in parentheses or
+/// not.
+fn is_unsized(ty: &Type) -> bool {
+  match ty {
+    Type::Slice(_) | Type::TraitObject(_) => true,
+    Type::Paren(inner) => is_unsized(&inner.elem),
+    Type::Group(inner) => is_unsized(&inner.elem),
+    Type::Path(path) => path.qself.is_none() && path.path.is_ident("str"),
+    _ => false,
+  }
+}
+
 fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> {
   let repr = parse_repr(&input.attrs)?;
   let options =
@@ -1486,6 +1473,20 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   let ident = &input.ident;
   let (impl_generics, ty_generics, _) = input.generics.split_for_impl();
   let this = quote!(#ident #ty_generics);
+  // The offsets of the fields of any other representation are found on a value, which an unsized
+  // struct cannot be. Without this, the build fails in the generated code, where the struct is
+  // required to be `Sized`. A tail that is unsized by a type of the user (another struct, a
+  // parameter that is `?Sized`) is not seen here, and still fails there.
+  if !(repr.c || repr.transparent)
+    && let Some(last) = data.fields.iter().next_back()
+    && is_unsized(&last.ty)
+  {
+    return Err(Error::new_spanned(
+      &last.ty,
+      "`Pun` is derived for a struct that ends with an unsized field only with `repr(C)` or \
+       `repr(transparent)`, which say where that field is",
+    ));
+  }
 
   let fields = match &data.fields {
     Fields::Named(fields) => Some(&fields.named),
@@ -1511,21 +1512,34 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     .collect::<Result<Vec<_>>>()?;
   let count = fields.len();
 
-  // The offsets of the fields. Not with `offset_of!`, which is read from wherever `::core` leads
-  // (`extern crate other as core;` makes it another crate): with `repr(C)` and
-  // `repr(transparent)`, they are what these representations specify, from the sizes and
-  // alignments of the fields; otherwise the struct is `Sized` and they are found by projecting a
-  // pointer to an uninitialized value (`&raw const (*p).field`), which the language does.
+  // The offsets of the fields. Not with `offset_of!`, which comes from whatever crate `::core`
+  // names (`extern crate other as core;` makes it another crate): with `repr(C)` and
+  // `repr(transparent)`, they are what these representations specify, from the sizes and alignments
+  // of the fields; otherwise the struct is `Sized` and they are found by projecting a pointer to an
+  // uninitialized value (`&raw const (*p).field`), which the language does.
   for (i, field) in fields.iter_mut().enumerate() {
     let member = &field.member;
     field.offset = match () {
-      // The field that is not zero-sized is at 0; zero-sized ones have no bytes to be anywhere.
+      // The field whose size is not 0 is at 0; fields of size 0 have no bytes to be anywhere.
       () if repr.transparent => quote!(0),
       () if repr.c => quote!(<Self as __PunOffsets>::OFFSETS[#i]),
       () => quote!({
         let value = #root::layout::Layout::uninit::<Self>();
         let start: *const Self = value.as_ptr();
-        // SAFETY: a place in the value, which is not read.
+        // SAFETY: `start` points to `value`, an uninitialized `Self` that is `Sized` (the
+        // implementation requires it), so `(*start).#member` is a place in its allocation. `&raw
+        // const` makes a pointer to it without reading it, which needs neither initialized
+        // bytes nor alignment. That pointer and `start` are derived from the same allocation, and
+        // the bytes between them are in it, as `byte_offset_from` requires [1]. The distance is
+        // the offset of the field, which is not negative, so `as usize` keeps it.
+        //
+        // [1] Per https://doc.rust-lang.org/1.99.0/core/primitive.pointer.html#method.offset_from:
+        //
+        //     `self` and `origin` must either
+        //
+        //     - point to the same address, or
+        //     - both be derived from a pointer to the same allocation, and the memory range
+        //       between the two pointers must be in bounds of that object.
         unsafe { (&raw const (*start).#member).byte_offset_from(start) as usize }
       }),
     };
@@ -1538,7 +1552,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     if options.bounds.is_none() && needs_bound(field.ty, input) {
       bound(&mut generics, field.ty, &root);
     }
-    // What a region is read as.
+    // The types of the typed regions.
     for ty in field.options.regions.iter().flatten().filter_map(|region| region.ty.as_ref()) {
       bound(&mut generics, ty, &root);
     }
@@ -1641,7 +1655,14 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         });
         accessors.push(region.ty.as_ref().map_or_else(
           || {
-            let doc = format!("The bytes of the `{name}` region.");
+            let doc = format!(
+              "Returns the bytes of the `{name}` region of the tail, truncated if the fields that \
+               size the regions give more bytes than the tail holds. The region takes the rest of \
+               the tail if its expression fails.\n\n# Compile-time errors\n\n\
+               A call compiles only if every byte of the struct, up to the end of its tail, is \
+               initialized and, without the `unstable` feature of `puns`, this does not depend on \
+               a layout that Rust leaves to the compiler."
+            );
             quote! {
               #[doc = #doc]
               #[inline]
@@ -1651,7 +1672,18 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
             }
           },
           |ty| {
-            let doc = format!("The `{name}` region, if its bytes are what it is said to hold.");
+            let doc = format!(
+              "Returns the `{name}` region of the tail as the type it is said to hold, read with \
+               `puns::from_bytes`. The region is truncated if the fields that size the regions \
+               give more bytes than the tail holds, and takes the rest of the tail if its \
+               expression fails.\n\n# Errors\n\nReturns the error of \
+               `puns::from_bytes` if the bytes of the region are not a value of that type.\n\n\
+               # Compile-time errors\n\nA call compiles only if every byte of the struct, up \
+               to the end of its tail, is initialized and, without the `unstable` feature of \
+               `puns`, this does not depend on a layout that Rust leaves to the compiler. It also \
+               compiles only under the compile-time conditions of `puns::from_bytes` for the type \
+               of the region."
+            );
             quote! {
               #[doc = #doc]
               #[inline]
@@ -1669,7 +1701,15 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   for getter in &options.getters {
     let (name, ty, vis) = (&getter.name, &getter.ty, &input.vis);
     let expr = rust(&getter.expr, &fields, &root, repr.packed.is_some());
-    let doc = format!("`{}`", getter.expr.to_token_stream());
+    let doc = format!(
+      "Returns `{}`, computed from the fields of the value, as a `{}`.\n\n# Panics\n\nPanics \
+       where the expression, evaluated as Rust code, panics, such as on a division by zero.\n\n\
+       # Compile-time errors\n\nA call compiles only if each field that the expression names is \
+       an unsigned integer, or a sized struct whose only field with a size is one and is as large \
+       as the struct.",
+      getter.expr.to_token_stream(),
+      ty.to_token_stream()
+    );
     accessors.push(quote! {
       #[doc = #doc]
       #[inline]
@@ -1680,7 +1720,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     });
   }
 
-  // The tags the type goes with.
+  // The tags that the type can be carried next to.
   let tags = options.tags.iter().map(|TagOption { key, tag }| {
     quote! {
       impl #impl_generics #root::Tag<#key> for #this #where_clause {
@@ -1711,7 +1751,12 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       #[allow(non_camel_case_types)]
       #vis struct #marker #impl_generics(::core::marker::PhantomData<#this>) #where_clause;
 
-      // SAFETY: the field of the layout of the struct.
+      // SAFETY: `FIELD` is the field of the layout of the struct whose declaration index is `#i`:
+      // `layouts` holds the fields in the order of their declarations, each with the layout of
+      // its type or a restriction of it, and `Layout::sort_fields` gives each its index. Its type
+      // is `#ty`. `Next` is the field declared after it, or `()` after the last, and `Last` is the
+      // last. So the list from the first marker is the fields of the layout, in the order of
+      // their declarations, as the `# Safety` of `Fields` requires.
       unsafe impl #impl_generics #root::Fields for #marker #ty_generics #where_clause {
         type Type = #ty;
         type Next = #next;
@@ -1752,7 +1797,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
 
   Ok(quote! {
     const _: () = {
-      // The types whose functions are called are the ones of the crate (see `Layout::PIN`).
+      // The types whose functions are called are those of the crate (see `Layout::PIN`).
       const _: (
         fn(#root::layout::Rule),
         fn(#root::layout::Op),
@@ -1765,7 +1810,47 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
 
       #offsets_trait
 
-      // SAFETY: the layout comes from the compiler, field by field.
+      // SAFETY: For every struct that the derive accepts, the layout meets the `# Safety` of
+      // `Pun`:
+      // - `Layout::structure` takes the size and the alignment from the compiler. It asserts that
+      //   the fields do not overlap and are within the size, and that the trailing padding of an
+      //   unsized struct is the one it computes.
+      // - The offset of each field is that of the compiler: for `repr(C)`, the one that the
+      //   representation specifies [1], from the sizes and alignments of the fields
+      //   (`Layout::tail_offset`, `Layout::tail_offset_packed`); for `repr(transparent)`, 0 for
+      //   the field with a size [2]; otherwise, the offset of a place projected from a pointer to
+      //   the `Sized` struct.
+      // - Each field has the layout of its type (`Pun`, section Safety), or a restriction of it
+      //   (`Layout::restricted`), which guarantees the same values and accepts fewer. A struct is
+      //   valid if each of its fields is valid [3], and a byte that no field covers is padding.
+      //   Rules are requirements of `puns`, never of the language.
+      // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules
+      //   that have an expression, which `validate::check_rules` asserts against the layout. The
+      //   other lists are `()`, and `OPTION` is `None`. `NULL_OPTIMIZED` changes only what the
+      //   analysis takes to be the same in every layout that Rust allows.
+      // - Each field is `Pun`, so no byte is inside an `UnsafeCell`.
+      // The functions called are those of the types that `Layout::PIN` fixes, which no path can
+      // replace. A struct whose private fields keep an invariant must not derive `Pun` (crate
+      // documentation, section Soundness): the layout describes only what the language requires of
+      // its fields.
+      //
+      // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.struct.size-field-offset:
+      //
+      //     For each field in declaration order in the struct, first determine the size and
+      //     alignment of the field. If the current offset is not a multiple of the field's
+      //     alignment, then add padding bytes to the current offset until it is a multiple of the
+      //     field's alignment. The offset for the field is what the current offset is now. Then
+      //     increase the current offset by the size of the field.
+      //
+      // [2] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi:
+      //
+      //     Structs and enums with this representation have the same layout and ABI as the only
+      //     non-size 0 non-alignment 1 field, if present, or unit otherwise.
+      //
+      // [3] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.struct:
+      //
+      //     A struct, tuple, and array requires all fields/elements to be valid at their
+      //     respective type.
       unsafe impl #impl_generics #root::Pun for #this #where_clause {
         type Elem = ();
         type Fields = #first;
@@ -1773,8 +1858,13 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         type Rules = #rule_list;
         type Pointee = ();
         const PROBE: *const Self = #probe;
-        // SAFETY: if the struct is unsized, its probe is the one of its last field, whose tail
-        // is a slice.
+        // SAFETY: `Layout::structure` requires nothing of a `Sized` struct. An unsized struct has
+        // an unsized last field, whose `Pun` type is a slice, `str`, or a struct whose last field
+        // is one of these. Its probe is the probe of that field, `<[E] as Pun>::PROBE` cast with
+        // `as` casts, cast again to `*const Self`. The size of the struct with 8 elements in its
+        // tail must fit in an `isize`, which is not established. The derive relies on `rustc` to
+        // report an error in const evaluation where it does not fit. No documentation promises this
+        // behavior, which the crate documentation discloses (section Soundness).
         const LAYOUT: #root::layout::Layout = unsafe {
           #root::layout::Layout::structure::<Self>(
             Self::PROBE,
@@ -1798,7 +1888,34 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
 // Enums
 
 fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
-  let options = parse_options(&input.attrs, "an enum", &["crate", "bound"])?;
+  // Only an enum with fields that is not a view has bounds of its own: the others have no field
+  // whose type needs one.
+  let reference = |fields: &Fields| match fields {
+    Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+      matches!(&fields.unnamed[0].ty, Type::Reference(reference) if reference.mutability.is_none())
+    }
+    _ => false,
+  };
+  let place = if data.variants.is_empty() {
+    "an enum without variants"
+  } else if data.variants.iter().all(|variant| reference(&variant.fields)) {
+    "a view"
+  } else if data.variants.iter().all(|variant| matches!(variant.fields, Fields::Unit)) {
+    "an enum without fields"
+  } else {
+    "an enum"
+  };
+  let allowed: &[&str] = if place == "an enum" { &["crate", "bound"] } else { &["crate"] };
+  let options = parse_options(&input.attrs, place, allowed)?;
+  // No option means something on a variant, nor on the field of a view.
+  for variant in &data.variants {
+    parse_options(&variant.attrs, "a variant", &[])?;
+    if place == "a view" {
+      for field in &variant.fields {
+        parse_options(&field.attrs, "a field of a view", &[])?;
+      }
+    }
+  }
   let root = options.root.unwrap_or_else(|| quote!(::puns));
   let ident = &input.ident;
   let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -1806,7 +1923,15 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
   if data.variants.is_empty() {
     // No value: nothing is ever made of one, and nothing is valid for it.
     return Ok(quote! {
-      // SAFETY: an enum without variants has no value, which is what the layout says.
+      // SAFETY: An enum without variants has no valid value [1]. `Layout::uninhabited` has its
+      // size and alignment, and accepts no value. So every value that the layout accepts is
+      // valid, and every value holds what it says, since there are none. The lists are `()`,
+      // and it has no byte in an `UnsafeCell`.
+      //
+      // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.enum:
+      //
+      //     An enum must have a valid discriminant, and all fields of the variant indicated by
+      //     that discriminant must be valid at their respective type.
       unsafe impl #impl_generics #root::Pun for #ident #ty_generics #where_clause {
         type Elem = ();
         type Fields = ();
@@ -1819,7 +1944,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
       }
     });
   }
-  // An enum of references: a view of what is one thing or another.
+  // An enum of references: a view of data that is one of several types.
   let references = data
     .variants
     .iter()
@@ -1905,14 +2030,34 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
       impl #impl_generics #ident #ty_generics #where_clause {
         #(#deciders)*
 
-        /// Take the first of the variants that `bytes` start with: returns it and what remains.
+        /// Returns the first variant, in order, such that `bytes` start with a valid value of its
+        /// type, and the bytes after that value.
+        ///
+        /// # Errors
+        ///
+        /// Returns `Err(Error::Validity)` if `bytes` start with a value of no variant's type.
+        ///
+        /// # Compile-time errors
+        ///
+        /// A call compiles only if the type of each variant meets the compile-time conditions of
+        /// `puns::from_bytes`.
         #vis const fn from_head(bytes: #bytes) -> #result<(Self, #bytes), #root::Error> {
           let mut known = #root::view::Known::<Self, #count, true>::new(bytes);
           #(#from_heads)*
           #result::Err(#root::Error::Validity)
         }
 
-        /// The first of the variants that `bytes` are, whole.
+        /// Returns the first variant, in order, such that `bytes` as a whole are a valid value of
+        /// its type.
+        ///
+        /// # Errors
+        ///
+        /// Returns `Err(Error::Validity)` if `bytes` are a value of no variant's type.
+        ///
+        /// # Compile-time errors
+        ///
+        /// A call compiles only if the type of each variant meets the compile-time conditions of
+        /// `puns::from_bytes`.
         #vis const fn from_bytes(bytes: #bytes) -> #result<Self, #root::Error> {
           let mut known = #root::view::Known::<Self, #count, false>::new(bytes);
           #(#wholes)*
@@ -1927,15 +2072,31 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
   let mut variants = vec![];
   for variant in &data.variants {
     let variant = &variant.ident;
-    // SAFETY (of the generated code): an enum without fields has no padding.
-    variants.push(quote!(unsafe { #root::layout::Spec::bits_of(&Self::#variant) }));
+    // SAFETY (of the generated code): `bits_of` requires every byte of the value to be
+    // initialized, which is not established: `align` may add padding after the discriminant, and
+    // with the `Rust` representation, Rust does not say how the discriminant is stored. The call
+    // is evaluated in the constant `SPEC`, where `rustc` reports an error instead of reading an
+    // uninitialized byte. No documentation promises this behavior, which the crate documentation
+    // discloses (section Soundness).
+    variants.push(quote!(unsafe { #root::layout::Spec::bits_of(Self::#variant) }));
   }
   let count = variants.len();
   let repr = parse_repr(&input.attrs)?;
-  // Without `repr`, Rust does not specify how a variant is stored, nor its size.
+  // With the `Rust` representation, Rust does not specify how a variant is stored, nor its size.
   let specified = repr.c || repr.transparent || repr.int.is_some();
   Ok(quote! {
-    // SAFETY: the valid values are the ones of the variants, read from the compiler.
+    // SAFETY: `SPEC` has the size of `Self`, and the items of the `# Safety` of `Scalar` hold:
+    // - A valid value of an enum without fields is one of its variants [1]. `SPEC` accepts the
+    //   bytes of each variant, read from a value of it, as an unsigned integer in the byte order
+    //   of the target. An enum of size 0 has one variant, and no byte.
+    // - Each value that `SPEC` accepts is the bytes of a variant, so a valid `Self`. The derive
+    //   is told of no other invariant.
+    // - An enum without fields holds no `UnsafeCell`.
+    //
+    // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.enum:
+    //
+    //     An enum must have a valid discriminant, and all fields of the variant indicated by
+    //     that discriminant must be valid at their respective type.
     unsafe impl #impl_generics #root::Scalar for #ident #ty_generics #where_clause {
       const ID: #root::layout::Id = #id;
       const SPECIFIED: bool = #specified;
@@ -1950,14 +2111,14 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
   })
 }
 
-/// Whatever the implementation of `Pun` for the type of `input` is to be bounded by "the type
-/// `ty` of a field is `Pun`".
+/// Returns whether the implementation of `Pun` for the type of `input` needs the bound `ty: Pun`,
+/// for the type `ty` of a field.
 ///
-/// Only a type that depends on a parameter needs the bound: any other is `Pun` or is not,
-/// whatever the parameters are. And a type that names the type of `input` itself must not have
-/// it: a type that holds itself behind a pointer (`next: Option<Near<Self>>`) would be `Pun` if
-/// its field is, which is `Pun` if the type is, and the compiler does not go round such a cycle.
-/// What such a field needs of the parameters is then told by their own bounds.
+/// Only a type that names a type parameter needs the bound: any other is `Pun` or is not,
+/// whatever the parameters are. A type that names the type of `input` itself must not have it. A
+/// type that holds itself behind a pointer (`next: Option<Near<Self>>`) would be `Pun` if its
+/// field is, which is `Pun` if the type is, and the compiler does not resolve such a cycle. What
+/// such a field needs of the parameters is then said by their own bounds.
 fn needs_bound(ty: &Type, input: &DeriveInput) -> bool {
   fn names(tokens: TokenStream, idents: &[String]) -> bool {
     tokens.into_iter().any(|token| match token {
@@ -1972,8 +2133,12 @@ fn needs_bound(ty: &Type, input: &DeriveInput) -> bool {
   names(ty.to_token_stream(), &parameters) && !names(ty.to_token_stream(), &this)
 }
 
-/// An enum with fields, of a specified layout (RFC 2195): the offsets of the fields are the ones
-/// of `repr(C)` structs, which the compiler is asked for.
+/// Derives `Pun` for an enum with fields, and passes one of the `Rust` representation to
+/// [`derive_discovered`].
+///
+/// With `repr(C)` or an integer, Rust specifies the layout (RFC 2195): the offsets of the fields
+/// are those of `repr(C)` structs, computed from the sizes and the alignments of the fields
+/// (`Layout::repr_c`).
 fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Result<TokenStream> {
   let repr = parse_repr(&input.attrs)?;
   if !repr.c && repr.int.is_none() {
@@ -2010,7 +2175,7 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
   // A `repr(C)` struct for each variant (RFC 2195), which starts with the tag unless the enum is
   // `repr(C)`: their layouts, from the sizes and alignments of the fields. Not measured from
   // structs declared here, which would hold a marker of the generic parameters, `PhantomData`,
-  // named by a path that `extern crate other as core;` can lead elsewhere.
+  // named by a path that `extern crate other as core;` can make name another type.
   let shadows = (0..count).map(|i| format_ident!("__PunVariant{}", i)).collect::<Vec<_>>();
   let shapes = (0..count).map(|i| format_ident!("V{}", i)).collect::<Vec<_>>();
   let usize = quote!(::core::primitive::usize);
@@ -2071,7 +2236,11 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
         #[allow(non_camel_case_types)]
         #vis struct #marker #impl_generics(::core::marker::PhantomData<#this>) #where_clause;
 
-        // SAFETY: the field of the layout of the variant.
+        // SAFETY: `FIELD` is the field `#j` of the variant `#i` in the layout of the enum, of
+        // type `#ty`: `layouts` holds the fields of the variant in the order of their
+        // declarations. `Next` is the field after it, or `()` after the last. So the list is
+        // the fields of the variant in the layout, in order, as the `# Safety` of `Fields`
+        // requires.
         unsafe impl #impl_generics #root::Fields for #marker #ty_generics #where_clause {
           type Type = #ty;
           type Next = #next;
@@ -2091,7 +2260,10 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
       #[allow(dead_code, non_camel_case_types)]
       #vis struct #shadow #impl_generics(::core::marker::PhantomData<#this>) #where_clause;
 
-      // SAFETY: the variant of the layout of the enum.
+      // SAFETY: `TAG` is the tag of the variant `#i` of the layout of the enum, whose fields are
+      // the list from its first marker. `Next` is the variant after it, or `()` after the last.
+      // So the list is the variants of the layout, in order, as the `# Safety` of `Variants`
+      // requires.
       unsafe impl #impl_generics #root::Variants for #shadow #ty_generics #where_clause {
         type Fields = #fields;
         type Next = #next;
@@ -2100,8 +2272,11 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
       }
     });
     variants.push(quote!(#root::layout::Variant::new(
-      // SAFETY (of the generated code): an enum without fields has no padding.
-      unsafe { #root::layout::Spec::bits_of(&#tag::#name) },
+      // SAFETY (of the generated code): `bits_of` requires every byte of the value to be
+      // initialized. `#tag` is an enum without fields, `repr(C)` or of a primitive representation,
+      // without `align`. Such an enum is an integer that holds its discriminant (the crate
+      // documentation, "What Rust documents"), so every byte of it is initialized.
+      unsafe { #root::layout::Spec::bits_of(#tag::#name) },
       const {
         &#root::layout::Layout::variant::<Self>(
           const { &#root::layout::Layout::sort_fields([#(#layouts),*]) },
@@ -2113,7 +2288,7 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
 
   Ok(quote! {
     const _: () = {
-      // The types whose functions are called are the ones of the crate (see `Layout::PIN`).
+      // The types whose functions are called are those of the crate (see `Layout::PIN`).
       const _: (
         fn(#root::layout::Rule),
         fn(#root::layout::Op),
@@ -2127,13 +2302,16 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
       #[allow(dead_code, non_camel_case_types, clippy::enum_variant_names)]
       enum #tag { #(#tags),* }
 
-      // SAFETY: the valid values are the ones of the variants, read from the compiler.
+      // SAFETY: `#tag` is an enum without fields, of the variants of the enum and their
+      // discriminants. As for any enum without fields, `SPEC` accepts exactly the bytes of its
+      // variants, which are its valid values, and it holds no `UnsafeCell`.
       unsafe impl #root::Scalar for #tag {
         const SPEC: #root::layout::Spec = {
           let merged: &'static ([(u128, u128); #count], usize) = const {
-            // SAFETY: an enum without fields has no padding.
+            // SAFETY: As for `Variant::new` above, every byte of a value of `#tag` is
+            // initialized, which is what `bits_of` requires.
             &#root::layout::Spec::sorted_ranges([
-              #(unsafe { #root::layout::Spec::bits_of(&#tag::#names) }),*
+              #(unsafe { #root::layout::Spec::bits_of(#tag::#names) }),*
             ])
           };
           #root::layout::Spec::native_ranges::<Self>(merged.0.split_at(merged.1).0)
@@ -2150,9 +2328,37 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
         #(#shape_defs)*
       }
 
-      // SAFETY: the layout is the one that RFC 2195 specifies, made from the sizes and alignments
-      // of the fields of each variant; it is checked against the size and the alignment of the
-      // enum.
+      // SAFETY: For every enum that `derive_tagged` accepts, the layout meets the `# Safety` of
+      // `Pun`:
+      // - The enum is `repr(C)` or of a primitive representation, whose layout Rust specifies
+      //   [1] [2]. Its tag is `#tag`, an enum without fields of the same representation and
+      //   discriminants. Each variant is a `repr(C)` struct, after the tag or in a union next to
+      //   it, and `Layout::repr_c` computes the offsets of its fields as `repr(C)` specifies.
+      //   `Layout::enumeration` asserts the result against the size and the alignment of the
+      //   enum, and asserts that the tag and the fields are within it.
+      // - Each field has the layout of its type, or a restriction of it. An enum is valid if its
+      //   tag is that of a variant and the fields of that variant are valid [3], which is what
+      //   the layout accepts.
+      // - `Variants` lists the variants in order, each with its fields (see the markers above).
+      //   The other lists are `()`, and `OPTION` is `None`.
+      // - Each field is `Pun`, and the tag is an integer, so no byte is in an `UnsafeCell`.
+      //
+      // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.adt:
+      //
+      //     The representation of a primitive representation enum is a `repr(C)` union of
+      //     `repr(C)` structs for each variant with a field. The first field of each struct in
+      //     the union is the primitive representation version of the enum with all fields
+      //     removed ("the tag") and the remaining fields are the fields of that variant.
+      //
+      // [2] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.adt.intro:
+      //
+      //     The representation of a `repr(C)` enum with fields is a `repr(C)` struct with two
+      //     fields, also called a "tagged union" in C
+      //
+      // [3] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.enum:
+      //
+      //     An enum must have a valid discriminant, and all fields of the variant indicated by
+      //     that discriminant must be valid at their respective type.
       unsafe impl #impl_generics #root::Pun for #this #where_clause {
         type Elem = ();
         type Fields = ();
@@ -2177,13 +2383,14 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
   })
 }
 
-/// An enum with fields whose layout is not specified (no `repr`): `rustc` chose it, and it is
-/// found by experiments in const evaluation on a sample of each variant (`Layout::discover`).
+/// Derives `Pun` for an enum with fields, of the `Rust` representation, whose layout Rust leaves to
+/// the compiler.
 ///
-/// The samples are made by the layouts of the fields (`Layout::sample`), the offsets of the
-/// fields are those of the fields of the sample, by a `match` on it. Every function that is
-/// called is an associated function of a type that `Layout::PIN` fixes, or a method of a value
-/// that one of them makes, as in the rest of the derive.
+/// The layout is found by experiments in const evaluation on a sample of each variant
+/// (`Discover::DESC`). The layouts of the fields make the samples (`Layout::sample`). The
+/// offsets of the fields are found by a `match` on the sample. Every function that the generated
+/// code calls is an associated function of a type that `Layout::PIN` fixes, or a method of a
+/// value that one of them makes, as in the rest of the derive.
 fn derive_discovered(
   input: &DeriveInput,
   data: &DataEnum,
@@ -2234,7 +2441,9 @@ fn derive_discovered(
     samples.push(quote! {
       if #layout::inhabited_all(&[#(&<#types as #root::Pun>::LAYOUT),*]) {
         #layout::wrap(Self::#name {
-          // SAFETY (of the generated code): a valid value of each field, made by its layout.
+          // SAFETY (of the generated code): Each field type has values, which is checked above,
+          // so `Layout::sample` makes a valid value of it from its layout, as `assume_init`
+          // requires (see the samples of `Option<T>` in `std_enums.rs`).
           #(#members: unsafe { #layout::sample::<#types>().assume_init() }),*
         })
       } else {
@@ -2247,13 +2456,22 @@ fn derive_discovered(
         let sample = &<Self as __PunDiscover>::SAMPLES[#i];
         let base = sample.as_ptr();
         if #layout::inhabited_all(&[#(&<#types as #root::Pun>::LAYOUT),*]) {
-          // SAFETY (of the generated code): the sample of a variant that has values is one.
+          // SAFETY (of the generated code): The reference made from `base` meets the
+          // requirements of a reference:
+          // - It is not null, aligned, and not dangling, because `base` is `as_ptr` of `sample`,
+          //   a reference to a `MaybeUninit<Self>` in the constant `SAMPLES`.
+          // - It points to a valid `Self`, because the variant has values, which is checked
+          //   above, so its sample is the variant made of valid fields.
+          // `SAMPLES` is a constant, which nothing writes while the reference lives.
           match unsafe { &*base } {
             Self::#name { #(#members: #bindings),* } => [#(
-              // SAFETY (of the generated code): a field of the value at `base`.
+              // SAFETY (of the generated code): Each binding is a reference to a field of the
+              // value at `base`, made from `base`. So both pointers are derived from the same
+              // allocation, and the bytes between them are in it, as `byte_offset_from`
+              // requires. The distance is the offset of the field, not negative.
               unsafe { (#bindings as *const #types).byte_offset_from(base) } as #usize
             ),*],
-            // Not the variant: `Layout::discover` finds that the sample is not.
+            // Not the variant: `Discover::DESC` finds that the sample is not.
             #[allow(unreachable_patterns)]
             _ => [0; #n],
           }
@@ -2314,8 +2532,11 @@ fn derive_discovered(
         #[allow(non_camel_case_types)]
         #vis struct #marker #impl_generics(::core::marker::PhantomData<#this>) #where_clause;
 
-        // SAFETY: the field of the layout of the variant, if it has values (else the variant has
-        // no field in the layout, and the list ends).
+        // SAFETY: If the variant `#i` has values, `FIELD` is its field `#j` in the layout of the
+        // enum, of type `#ty`, at the offset observed on its sample, and `Next` is the field
+        // after it. Otherwise the layout of the variant has no field, and `FIELD` is `None`,
+        // which ends the list. Either way the list is the fields of the variant in the layout,
+        // in order, as the `# Safety` of `Fields` requires.
         unsafe impl #impl_generics #root::Fields for #marker #ty_generics #where_clause {
           type Type = #ty;
           type Next = #next;
@@ -2339,7 +2560,9 @@ fn derive_discovered(
       #[allow(dead_code, non_camel_case_types)]
       #vis struct #shadow #impl_generics(::core::marker::PhantomData<#this>) #where_clause;
 
-      // SAFETY: the variant of the layout of the enum: its index, and its tags.
+      // SAFETY: `TAG` is the index of the variant `#i`, and `RANGES` its tags, in the layout of
+      // the enum. `Next` is the variant after it, or `()` after the last. So the list is the
+      // variants of the layout, in order, as the `# Safety` of `Variants` requires.
       unsafe impl #impl_generics #root::Variants for #shadow #ty_generics #where_clause {
         type Fields = #first_field;
         type Next = #next;
@@ -2358,7 +2581,7 @@ fn derive_discovered(
 
   Ok(quote! {
     const _: () = {
-      // The types whose functions are called are the ones of the crate (see `Layout::PIN`).
+      // The types whose functions are called are those of the crate (see `Layout::PIN`).
       const _: (
         fn(#root::layout::Rule),
         fn(#root::layout::Op),
@@ -2400,8 +2623,12 @@ fn derive_discovered(
         const FIELDS: [&'static [#root::layout::Field]; #count] = [#(#observed),*];
       }
 
-      // SAFETY: the layout that `rustc` gave the enum, found by experiments that fail to compile
-      // rather than find a wrong one (see `discover.rs`).
+      // SAFETY: The layout is the one that `rustc` gave the enum, found by the experiments of
+      // `Discover::DESC`. These fail to compile rather than find a wrong layout, under the
+      // facts of the compiler that the module documentation of `discover` lists. Each variant
+      // holds its fields at the offsets observed on its sample, each with the layout of its type.
+      // `Variants` lists the variants in order, each with its fields. The other lists are `()`,
+      // and `OPTION` is `None`. Each field is `Pun`, so no byte is in an `UnsafeCell`.
       unsafe impl #impl_generics #root::Pun for #this #where_clause {
         type Elem = ();
         type Fields = ();
@@ -2419,8 +2646,15 @@ fn derive_discovered(
   })
 }
 
-/// A `repr(C)` union: each field is a variant of one field, at offset 0, and a value is valid if
-/// it is one of them (see `Layout::union`).
+/// Derives `Pun` for a `repr(C)` union.
+///
+/// Each field is a variant of one field, at offset 0. A value is valid if it is a valid value of
+/// one of them (`Layout::union`).
+///
+/// # Errors
+///
+/// Returns an error if the union is not `repr(C)`, if it is packed, or if an option does not
+/// parse or does not belong there.
 fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStream> {
   let repr = parse_repr(&input.attrs)?;
   if !repr.c || repr.packed.is_some() {
@@ -2476,7 +2710,9 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
       #[allow(non_camel_case_types)]
       #vis struct #marker #impl_generics(::core::marker::PhantomData<#this>) #where_clause;
 
-      // SAFETY: the field of the layout of the variant, the field of the union.
+      // SAFETY: `FIELD` is the one field of the variant `#i` of the layout of the union, the
+      // field `#i` of the union, of type `#ty`, at offset 0. `Next` is `()`. So the list is the
+      // fields of the variant, as the `# Safety` of `Fields` requires.
       unsafe impl #impl_generics #root::Fields for #marker #ty_generics #where_clause {
         type Type = #ty;
         type Next = ();
@@ -2489,7 +2725,9 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
       #[allow(dead_code, non_camel_case_types)]
       #vis struct #shadow #impl_generics(::core::marker::PhantomData<#this>) #where_clause;
 
-      // SAFETY: the variant of the layout of the union: its field.
+      // SAFETY: `TAG` is `#i`, the index of the variant of the union layout that is its field `#i`.
+      // `Next` is the variant after it, or `()` after the last. So the list is the variants of the
+      // layout, in order, as the `# Safety` of `Variants` requires.
       unsafe impl #impl_generics #root::Variants for #shadow #ty_generics #where_clause {
         type Fields = #marker #ty_generics;
         type Next = #next;
@@ -2501,7 +2739,7 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
   let first = shadows.first().map_or_else(|| quote!(()), |shadow| quote!(#shadow #ty_generics));
   Ok(quote! {
     const _: () = {
-      // The types whose functions are called are the ones of the crate (see `Layout::PIN`).
+      // The types whose functions are called are those of the crate (see `Layout::PIN`).
       const _: (
         fn(#root::layout::Rule),
         fn(#root::layout::Op),
@@ -2512,8 +2750,22 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
 
       #(#items)*
 
-      // SAFETY: the fields of a `repr(C)` union are at offset 0; a value is taken to be valid if
-      // it is one of them, and nothing is known of one (see `Layout::union`).
+      // SAFETY: The union is `repr(C)`, so each field is at offset 0 [1], which is where the
+      // layout puts it, with the layout of its type or a restriction of it. `Layout::union`
+      // takes the size and the alignment from the compiler. As a target, the layout accepts
+      // bytes that are a valid value of one field. Such bytes are a value that safe code makes
+      // by writing that field, which is valid [2]. As a source, the layout guarantees nothing,
+      // not even that a byte is initialized, which every value holds. `Variants` lists the
+      // fields in order. The other lists are `()`, and `OPTION` is `None`. Each field is `Pun`,
+      // so no byte is in an `UnsafeCell`.
+      //
+      // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.union.size-align:
+      //
+      //     Each field lives at byte offset 0 from the beginning of the union.
+      //
+      // [2] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.union:
+      //
+      //     Obviously, all values that can be created entirely in safe code are valid.
       unsafe impl #impl_generics #root::Pun for #this #where_clause {
         type Elem = ();
         type Fields = ();

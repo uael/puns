@@ -1,5 +1,5 @@
-//! The two types are the same but for what is two pointers down: a `u8` read as a `bool`. Only
-//! the proof that follows the pointers, through the types, sees it.
+//! The two types are the same except for what is two pointers down: a `u8` reinterpreted as a
+//! `bool`. Only the proof that follows the pointers, through the types, sees it.
 //!
 //! It declares its own pointer, and needs nothing else: `model.yml` builds it as an example, in
 //! an optimized build, which must refuse it too.
@@ -18,7 +18,7 @@ impl<T> Opt<T> {
   pub const NONE: Self = Self(0, PhantomData);
 }
 
-// SAFETY: the type is its `i32`; the only values of this program are null.
+// SAFETY: The type is its `i32`, and the only values of this program are null: none is followed.
 unsafe impl<T: Pun> SelfRelative for Opt<T> {
   type Target = T;
   const POINTER: Pointer = Pointer::one::<T>("refused", 4, Endian::NATIVE).or_null();

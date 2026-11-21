@@ -7,7 +7,9 @@ use puns::layout::{Endian, Spec};
 #[repr(transparent)]
 struct Zero(MaybeUninit<u8>);
 
-// SAFETY: 0 is a value of a `MaybeUninit<u8>`, which is known to be anything.
+// SAFETY: `Zero` is `repr(transparent)` over a `MaybeUninit<u8>`, so `SPEC`, of a `u8`, has its
+// size. A `Zero` may hold any byte, uninitialized ones included, as `Spec::maybe_uninit` allows.
+// The one value that `SPEC` accepts, 0, is a valid `Zero`, and a `Zero` holds no `UnsafeCell`.
 unsafe impl puns::Scalar for Zero {
   const SPEC: Spec = Spec::ranges::<u8>(Endian::Little, &[(0, 0)]).maybe_uninit();
 }

@@ -10,6 +10,6 @@ union Either {
 fn main() {
   let value = Either { small: 1 };
   let mut dst = [0u8; 4];
-  // SAFETY: a valid `Either`, `dst` its size; refused at compile time anyway.
+  // SAFETY: `value` and `dst` meet the requirements of `copy_in`. The call is refused anyway.
   unsafe { puns::copy_in::<Either>(core::ptr::from_ref(&value).cast(), dst.as_mut_ptr()) };
 }

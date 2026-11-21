@@ -1,5 +1,5 @@
-//! A pointer is read as a pointer whose offset is the same integer: not one of another byte
-//! order.
+//! A pointer is reinterpreted as a pointer whose offset is the same integer: not one of another
+//! byte order.
 #[path = "../support/relative.rs"]
 #[allow(dead_code)]
 mod relative;

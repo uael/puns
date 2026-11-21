@@ -1,4 +1,4 @@
-//! The time of what `puns` checks at run time, next to the same check written by hand.
+//! Benchmarks of the checks that `puns` makes at run time, next to the same checks by hand.
 //!
 //! ```text
 //! cargo bench -p puns --features unstable --bench checks              # every case
@@ -6,11 +6,54 @@
 //! cargo bench -p puns --features unstable --bench checks -- '=sum16, 1500 bytes'  # the case of that name only
 //! ```
 //!
-//! Each case is a check made by `puns` and the same check written by hand, the way a careful
-//! programmer writes it with the same algorithm (the checksums are computed the same way: what
-//! is compared is everything else). Both must agree on the input before they are timed. A time is
-//! the best of 7 samples of about 20 ms each, in nanoseconds per check; the machine should be
-//! idle. This is not a test, and not run by `cargo test`.
+//! Each case is a check made by `puns` and the same check written by hand, as a careful programmer
+//! writes it with the same algorithm. The checksums are computed the same way, so the comparison
+//! measures everything else, except in the cases of CRC-16, which the hand-written side computes a
+//! byte at a time while `puns` computes 16 bytes at a time. Both sides must agree on the input
+//! before they are timed. A time is the best of 7 samples of about 20 ms each, in nanoseconds per
+//! check. The machine should be idle.
+//!
+//! With `PUNS_BENCH_RUNS=n`, each chosen case runs `n` times without timing, on the side that
+//! `PUNS_BENCH_SIDE` names (`puns`, the default, or `hand`). This gives a count of instructions
+//! under `valgrind --tool=callgrind --toggle-collect='*checks*runs*'`.
+//!
+//! This is not a test, and `cargo test` does not run it. It needs the `unstable` feature, because
+//! two of its cases read slices of enums of the `Rust` representation (`[Small]`, `[MaybeFlag]`).
+//!
+//! # Instructions
+//!
+//! The tables give the instructions of each check, counted with `valgrind --tool=callgrind` as
+//! above, next to the same check written by hand.
+//!
+//! | Check                                  | `puns` | by hand |
+//! |----------------------------------------|-------:|--------:|
+//! | IPv4, UDP, 64 bytes                    |    241 |     217 |
+//! | IPv4, protocol 253                     |    120 |     106 |
+//! | IPv6, TCP behind 3 extension headers   |     75 |     106 |
+//! | IPv6, TCP behind 12 extension headers  |    210 |     322 |
+//! | IPv6, UDP behind 3, 64 bytes           |    209 |     229 |
+//! | IPv6, UDP, 1400 bytes                  |    803 |     798 |
+//! | a frame of 6 things, UDP over IPv4     |    267 |     244 |
+//!
+//! The IPv6 packet packs the state of its walk at bit 64 (see [`Ipv6`]). Behind 12 extension
+//! headers, its check is then 210 instructions against 322 for the same check by hand.
+//!
+//! The second table is of the checks of the `AnyFrame` view enum (6 variants). The column "a call"
+//! is `from_bytes` behind a function that is not inlined, as the check by hand is. Where the bench
+//! calls the view directly, the optimizer inlines it, and its checksums stay calls.
+//!
+//! | `AnyFrame` of the bench (6 variants)   | `puns` | `puns`, a call | by hand (a call) |
+//! |----------------------------------------|-------:|---------------:|-----------------:|
+//! | UDP over IPv4 (the first variant)      |    283 |            273 |              244 |
+//! | TCP over IPv4                          |    302 |            290 |              286 |
+//! | UDP over IPv4, a wrong checksum        |    266 |            255 |              246 |
+//! | ARP                                    |     25 |             41 |               46 |
+//! | VLAN                                   |     25 |             41 |               45 |
+//! | another EtherType (the last variant)   |     21 |             36 |               40 |
+//!
+//! A wrong checksum is computed once, for `Frame<Ipv4>`, the base of the first three variants. The
+//! UDP variant is then its protocol alone. The EtherType is one decision, a `cmp` of its 16 bits
+//! for each value, then the variant.
 
 use std::{hint::black_box, time::Instant};
 
@@ -41,7 +84,8 @@ pub struct Frame<P: ?Sized + Tag<EtherType> = [u8]> {
 #[repr(transparent)]
 pub struct Protocol(pub u8);
 
-/// IPv4, as in `examples/ethernet.rs`: the checksum of its header, and the one of UDP and TCP.
+/// An IPv4 packet, as in `examples/ethernet.rs`, with the checksum of its header and the
+/// checksums of UDP and TCP.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(EtherType = u16bec<0x0800>))]
@@ -122,7 +166,7 @@ pub struct Arp {
   pub addresses: [u8; 20],
 }
 
-/// A frame, by what it carries: the first of these that the bytes are.
+/// A frame, by what it carries. The variant is the first of these types that the bytes are.
 #[derive(Pun)]
 pub enum AnyFrame<'a> {
   Udp(&'a Frame<Ipv4<Udp>>),
@@ -133,10 +177,12 @@ pub enum AnyFrame<'a> {
   Other(&'a Frame),
 }
 
-/// IPv6 and the checksum of UDP behind any chain of extension headers: a walk.
+/// An IPv6 packet, with the checksum of UDP behind any chain of extension headers, found by a
+/// walk.
 ///
-/// Its state is the kind of a header in its high 64 bits and where it starts in the low ones: two
-/// registers (see "Walks" in `DESIGN.md`).
+/// The state of the walk holds the kind of a header in its high 64 bits, and where the header
+/// starts in its low 64 bits. The two halves are two registers (see the documentation of `walk`
+/// in `#[derive(Pun)]`).
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = payload_length + 40)]
@@ -164,7 +210,7 @@ pub struct Ipv6 {
   pub data: [u8],
 }
 
-/// No `repr`: a direct tag, then what the variant holds.
+/// An enum of the `Rust` representation, with a direct tag followed by what the variant holds.
 #[derive(Pun, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Small {
   Byte(u8),
@@ -172,7 +218,7 @@ pub enum Small {
   Word(u16),
 }
 
-/// No `repr`: a niche in the `bool`.
+/// An enum of the `Rust` representation, with a niche in the `bool`.
 #[derive(Pun, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MaybeFlag {
   Nothing,
@@ -196,13 +242,17 @@ static XMODEM: Crc = Crc::new(16, 0x1021, 0, false, 0);
 // By hand
 
 mod hand {
-  /// Big-endian `u16` at `at`; the callers check the length first.
+  /// Returns the big-endian `u16` at `at`.
+  ///
+  /// # Panics
+  ///
+  /// Panics if `b` has fewer than `at + 2` bytes. The callers check the length first.
   #[inline(always)]
   pub fn be16(b: &[u8], at: usize) -> u128 {
     u128::from(u16::from_be_bytes([b[at], b[at + 1]]))
   }
 
-  /// `puns::sum16`, the same algorithm: eight bytes at a time.
+  /// Computes what `puns::sum16` computes, with the same algorithm, eight bytes at a time.
   #[inline(always)]
   pub fn sum16(bytes: &[u8]) -> u128 {
     let (blocks, rest) = bytes.as_chunks::<8>();
@@ -229,7 +279,8 @@ mod hand {
     sum as u16
   }
 
-  /// IPv4: the version, the sizes, the checksum of the header, and the one of UDP and TCP.
+  /// Returns whether `b` is an `Ipv4`, by checking the version, the sizes, the checksum of the
+  /// header, and the checksums of UDP and TCP.
   #[inline(always)]
   pub fn ipv4(b: &[u8]) -> bool {
     if b.len() < 20 || !(0x45..=0x4f).contains(&b[0]) || be16(b, 2) != b.len() as u128 {
@@ -250,7 +301,7 @@ mod hand {
     (total + sum16(&b[header..])).is_multiple_of(0xffff)
   }
 
-  /// IPv6, behind its extension headers.
+  /// Returns whether `b` is an `Ipv6`, by walking its extension headers.
   #[inline(always)]
   pub fn ipv6(b: &[u8]) -> bool {
     if b.len() < 40 || be16(b, 4) + 40 != b.len() as u128 {
@@ -274,8 +325,9 @@ mod hand {
     (total + sum16(&b[start..])).is_multiple_of(0xffff)
   }
 
-  /// A frame, by what it carries, as `AnyFrame`: the index of its variant. (The payload of an
-  /// `Ipv4<Udp>` is a region, which is not checked: the protocol is.)
+  /// Returns the index of the variant of `AnyFrame` that `b` is, or `None` if it is none.
+  ///
+  /// The payload of an `Ipv4<Udp>` is a region, which is not checked. Only the protocol is.
   #[inline(always)]
   pub fn any_frame(b: &[u8]) -> Option<usize> {
     if b.len() < 14 {
@@ -302,7 +354,7 @@ mod hand {
     (ether_type >= 0x0600).then_some(5)
   }
 
-  /// A table of the CRC of each byte.
+  /// Returns the table of the CRC of each byte, for the reflected polynomial `poly`.
   const fn table(poly: u32) -> [u32; 256] {
     let (mut table, mut i) = ([0u32; 256], 0);
     while i < 256 {
@@ -317,7 +369,7 @@ mod hand {
     table
   }
 
-  /// A reflected CRC-32 (`poly` reversed), a byte at a time with a table.
+  /// Computes a reflected CRC-32 of the reversed polynomial `POLY`, a byte at a time with a table.
   pub fn crc32_bytewise<const POLY: u32>(bytes: &[u8]) -> u32 {
     let table = const { &table(POLY) };
     let mut crc = !0u32;
@@ -327,7 +379,7 @@ mod hand {
     !crc
   }
 
-  /// A reflected CRC-32, 16 bytes at a time (slicing by 16: 16 KiB of tables).
+  /// Computes a reflected CRC-32, 16 bytes at a time, by slicing by 16 with 16 KiB of tables.
   pub fn crc32_slice16<const POLY: u32>(bytes: &[u8]) -> u32 {
     let tables = const {
       &{
@@ -362,7 +414,7 @@ mod hand {
     !crc
   }
 
-  /// CRC-16/MODBUS (reflected), a byte at a time with a table.
+  /// Computes CRC-16/MODBUS, which is reflected, a byte at a time with a table.
   pub fn modbus(bytes: &[u8]) -> u16 {
     let table = const { &table(0xa001) };
     let mut crc = 0xffffu32;
@@ -372,7 +424,7 @@ mod hand {
     crc as u16
   }
 
-  /// CRC-16/XMODEM (not reflected), a byte at a time with a table.
+  /// Computes CRC-16/XMODEM, which is not reflected, a byte at a time with a table.
   pub fn xmodem(bytes: &[u8]) -> u16 {
     let table = const {
       &{
@@ -400,7 +452,7 @@ mod hand {
 // -------------------------------------------------------------------------------------------------
 // Inputs
 
-/// Pseudo-random bytes.
+/// Returns `len` pseudo-random bytes, the same on every run.
 fn noise(len: usize) -> Vec<u8> {
   let mut seed = 0x9e37_79b9_7f4a_7c15u64;
   (0..len)
@@ -413,7 +465,7 @@ fn noise(len: usize) -> Vec<u8> {
     .collect()
 }
 
-/// The ones' complement of the sum of `bytes`, as a checksum field holds it.
+/// Returns the ones' complement of `sum` folded to 16 bits, as a checksum field holds it.
 const fn checksum(sum: u128) -> [u8; 2] {
   let mut sum = sum;
   while sum > 0xffff {
@@ -422,7 +474,7 @@ const fn checksum(sum: u128) -> [u8; 2] {
   (!(sum as u16)).to_be_bytes()
 }
 
-/// An IPv4 packet of `protocol` that carries `payload` bytes, with valid checksums.
+/// Returns an IPv4 packet of `protocol` that carries `payload` bytes, with correct checksums.
 fn ipv4_packet(protocol: u8, payload: usize) -> Vec<u8> {
   let mut upper = match protocol {
     17 => [0x30, 0x39, 0x00, 0x35, 0, 0, 0, 0].to_vec(),
@@ -450,8 +502,8 @@ fn ipv4_packet(protocol: u8, payload: usize) -> Vec<u8> {
   packet
 }
 
-/// An IPv6 packet behind `headers` extension headers, carrying `protocol` (UDP with a checksum
-/// that does not hold: computed all the same).
+/// Returns an IPv6 packet that carries `protocol` behind `headers` extension headers. For UDP,
+/// the checksum does not hold, but the check computes it all the same.
 fn ipv6_packet(headers: usize, protocol: u8, payload: usize) -> Vec<u8> {
   let mut p = vec![0x60, 0, 0, 0];
   p.extend(((headers * 8 + payload) as u16).to_be_bytes());
@@ -466,7 +518,7 @@ fn ipv6_packet(headers: usize, protocol: u8, payload: usize) -> Vec<u8> {
   p
 }
 
-/// An Ethernet frame of `ether_type` around `payload`.
+/// Returns an Ethernet frame of `ether_type` around `payload`.
 fn frame(ether_type: u16, payload: &[u8]) -> Vec<u8> {
   let mut frame = vec![2, 0, 0, 0, 0, 0xa, 2, 0, 0, 0, 0, 0xb];
   frame.extend(ether_type.to_be_bytes());
@@ -477,7 +529,7 @@ fn frame(ether_type: u16, payload: &[u8]) -> Vec<u8> {
 // -------------------------------------------------------------------------------------------------
 // Timing
 
-/// The best time of `f` in nanoseconds, over 7 samples of about 20 ms.
+/// Returns the best time of `f` in nanoseconds, over 7 samples of about 20 ms each.
 #[expect(clippy::cast_precision_loss, reason = "a number of iterations, far below 2^52")]
 fn time<R>(mut f: impl FnMut() -> R) -> f64 {
   let mut iterations = 1u64;
@@ -502,7 +554,12 @@ fn time<R>(mut f: impl FnMut() -> R) -> f64 {
     .fold(f64::INFINITY, f64::min)
 }
 
-/// Time a case: `puns` and the same check by hand, which must agree on `input`.
+/// Times the case `name`, a check by `puns` and the same check by hand, unless `filter` leaves
+/// it out.
+///
+/// # Panics
+///
+/// Panics if the two checks disagree on `input`.
 fn case<I: ?Sized, R: PartialEq + std::fmt::Debug>(
   filter: &[String],
   name: &str,
@@ -531,7 +588,7 @@ fn case<I: ?Sized, R: PartialEq + std::fmt::Debug>(
   println!("{name:44} {a:10.2} {b:10.2} {:8.2}", a / b);
 }
 
-/// `f`, `n` times.
+/// Calls `f` `n` times.
 #[inline(never)]
 fn runs<R>(mut f: impl FnMut() -> R, n: u64) {
   for _ in 0..n {
@@ -629,12 +686,13 @@ fn main() {
     |b: &[u8]| from_bytes::<[Kind]>(b).is_ok(),
     |b: &[u8]| b.iter().all(|&b| matches!(b, 1..=3 | 7)),
   );
-  // Enums without `repr`: a direct tag, then what its variant requires; a niche in a `bool`.
+  // Enums of the `Rust` representation: a direct tag, then what its variant requires; a niche in a
+  // `bool`.
   let smalls: Vec<u8> =
     noise(4 << 10).chunks(4).flat_map(|c| [c[0] % 3, c[1] & 1, c[2], c[3]]).collect();
   case(
     &filter,
-    "[u8] -> [Small] (no repr: a tag, a bool), 4 KiB",
+    "[u8] -> [Small] (repr(Rust): a tag, a bool), 4 KiB",
     &smalls[..],
     |b: &[u8]| from_bytes::<[Small]>(b).is_ok(),
     |b: &[u8]| {
@@ -647,7 +705,7 @@ fn main() {
   let flags: Vec<u8> = noise(64 << 10).iter().map(|b| b % 3).collect();
   case(
     &filter,
-    "[u8] -> [MaybeFlag] (no repr: a niche), 64 KiB",
+    "[u8] -> [MaybeFlag] (repr(Rust): a niche), 64 KiB",
     &flags[..],
     |b: &[u8]| from_bytes::<[MaybeFlag]>(b).is_ok(),
     |b: &[u8]| b.iter().all(|&b| b <= 2),

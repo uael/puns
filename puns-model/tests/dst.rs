@@ -1,7 +1,10 @@
-//! Slices, `str` and structs that end with a slice, from bytes of every length up to 6 (over an
-//! alphabet that reaches every decision of the types below), at an aligned and a misaligned
-//! address: `try_pun_ref`, `from_head` and the infallible conversions back to bytes, against
-//! oracles written from what the types are.
+//! Checks slices, `str` and structs that end with a slice against oracles written from what the
+//! types are.
+//!
+//! The functions checked are `try_pun_ref` and `from_head` from bytes, and the infallible
+//! conversions back to bytes. The bytes are every pattern of every length up to 6, over an
+//! alphabet that reaches every decision of the types below. Each pattern is placed at an aligned
+//! and at a misaligned address. Under Miri, the lengths go up to 3, over a smaller alphabet.
 
 use core::num::NonZero;
 
@@ -51,28 +54,35 @@ struct ZeroTail {
   t: [()],
 }
 
-/// What a target is: its head, the size of an element, its alignment, and whatever bytes (of a
-/// length that fits) are a valid value, with the number of elements of its slice. `from_head` is
-/// told how long the value is by `prefix`, if it has a rule for it.
+/// An oracle of a target that ends with a slice, written from what the type is.
 struct Oracle {
+  /// The name of the type, by which [`ORACLES`] is searched.
   name: &'static str,
+  /// The size of the part before the slice.
   head: usize,
+  /// The size of an element of the slice.
   stride: usize,
+  /// The alignment of the type.
   align: usize,
+  /// Returns whether bytes of a length that fits are a valid value, the slice taking every byte
+  /// after the head.
   valid: fn(&[u8]) -> bool,
-  /// For `from_head`: the size of the value that starts the bytes, if it can be told.
+  /// Returns the size of the value that starts the bytes, for `from_head`, or `None` if the bytes
+  /// do not tell it. A type with a rule for its size tells it from that rule.
   prefix: fn(&[u8]) -> Option<usize>,
 }
 
+/// Returns whether `b` is valid UTF-8.
 const fn utf8(b: &[u8]) -> bool {
   core::str::from_utf8(b).is_ok()
 }
 
-/// The size of a value of `head + n * stride` bytes, with its trailing padding.
+/// Returns the size of a value whose fields cover `extent` bytes, with its trailing padding.
 const fn padded(extent: usize, align: usize) -> usize {
   extent.div_ceil(align) * align
 }
 
+/// The oracles of the types of this file.
 const ORACLES: &[Oracle] = &[
   Oracle { name: "[u8]", head: 0, stride: 1, align: 1, valid: |_| true, prefix: |b| Some(b.len()) },
   Oracle {
@@ -158,15 +168,27 @@ const ORACLES: &[Oracle] = &[
   },
 ];
 
+/// The bytes of the patterns, natively.
 const ALPHABET: [u8; 8] = [0, 1, 2, 0x7f, 0x80, 0xc3, 0xa9, 0xff];
 
-/// Under Miri, which is there for undefined behaviour rather than for the verdicts (the native run
-/// has every pattern): what still accepts and rejects for each type, `0` (not a `NonZero`), `1`
-/// (a `bool`, a length), `0xff` (not ASCII, not UTF-8, not a `bool`), up to 3 bytes.
+/// The bytes of the patterns under Miri, which are at most 3 bytes long.
+///
+/// Miri is there for undefined behavior, and the native run has every pattern. These bytes still
+/// make each type accept and reject. `0` is not a `NonZero`, `1` is a `bool` and a length, and
+/// `0xff` is not ASCII, not UTF-8 and not a `bool`.
 const MIRI_ALPHABET: [u8; 3] = [0, 1, 0xff];
 
-/// Compare `try_pun_ref` and `from_head` with the oracle, for every pattern of up to 6 bytes,
-/// at an address that is a multiple of 4 and at one that is not.
+/// Checks `try_pun_ref` and `from_head` of `D` against `oracle`, and returns the number of sources
+/// tried.
+///
+/// The sources are every pattern of up to 6 bytes, at an address that is a multiple of 4 and at
+/// one that is not. Under Miri, they are the patterns of up to 3 bytes over [`MIRI_ALPHABET`].
+/// Each disagreement is pushed to `errors`. Only success must agree with the oracle, because the
+/// library may tell the errors apart in another order.
+///
+/// # Panics
+///
+/// Panics if `try_pun_ref::<[u8], D>` or `from_head::<D>` does not compile.
 fn check<D: ?Sized + Pun + core::fmt::Debug>(oracle: &Oracle, errors: &mut Vec<String>) -> usize {
   let mut count = 0;
   let alphabet: &[u8] = if cfg!(miri) { &MIRI_ALPHABET } else { &ALPHABET };
@@ -262,6 +284,7 @@ fn check<D: ?Sized + Pun + core::fmt::Debug>(oracle: &Oracle, errors: &mut Vec<S
   count
 }
 
+/// Checks every type of [`ORACLES`] from bytes against its oracle.
 #[test]
 fn slices_and_tails_from_bytes() {
   let mut errors = vec![];
@@ -286,7 +309,7 @@ fn slices_and_tails_from_bytes() {
   assert!(errors.is_empty(), "{} errors", errors.len());
 }
 
-/// Typed sources: what the verdicts are, and that the bytes are the same.
+/// Checks the verdicts on typed sources, and that the bytes stay the same through the puns.
 #[test]
 fn slices_and_tails_to_bytes() {
   let v = const { hook::verdict::<[bool], [u8]>() };

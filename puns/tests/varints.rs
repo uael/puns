@@ -1,8 +1,9 @@
-//! Variable-length integers: LEB128, the ones of QUIC, big-endian base 128.
+//! Tests variable-length integers: LEB128, the variable-length integers of QUIC, and big-endian
+//! base 128.
 
 use puns::{Error, Pun, from_bytes, from_head};
 
-/// A Protocol Buffers field of wire type 2: a key, a length, that many bytes.
+/// A Protocol Buffers field of wire type 2. It holds a key, a length, then that many bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = leb128_len(0) + leb128_len(leb128_len(0)) + leb128(leb128_len(0)))]
@@ -11,7 +12,8 @@ struct Delimited {
   bytes: [u8],
 }
 
-/// An MQTT packet: a byte, then the remaining length, of 1 to 4 bytes.
+/// An MQTT packet. It holds a byte, then the remaining length in 1 to 4 bytes, then that many
+/// bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = 1 + leb128_len(1) + leb128(1))]
@@ -44,7 +46,7 @@ fn leb128() {
   assert!(from_head::<Mqtt>(&[0x30, 0x80, 0x80, 0x80, 0x80, 0x01]).is_err());
 }
 
-/// As many bytes as a LEB128 integer takes.
+/// A struct of as many bytes as the LEB128 integer at its start takes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = leb128_len(0))]
@@ -52,8 +54,8 @@ struct Leb128 {
   bytes: [u8],
 }
 
-/// An integer that a `u128` does not hold is not one, however it is written: neither a panic nor
-/// another value.
+/// Checks that an integer that a `u128` does not hold is not valid, however it is written.
+/// Reading it neither panics nor returns another value.
 #[test]
 fn leb128_of_more_than_128_bits() {
   // 18 bytes of 7 bits and 2 bits: the most there is.
@@ -71,7 +73,8 @@ fn leb128_of_more_than_128_bits() {
   }
 }
 
-/// The examples of RFC 9000, appendix A.1, after the value that they are.
+/// Returns whether `bytes` encode `expected` as a QUIC variable-length integer, as `QuicAt8`
+/// checks it. The test gives it the examples of RFC 9000, appendix A.1.
 fn quic(expected: u64, bytes: &[u8]) -> bool {
   let mut value = expected.to_be_bytes().to_vec();
   value.extend(bytes);
@@ -97,7 +100,7 @@ fn quic_varints() {
   assert!(!quic(38, &[0x25]));
 }
 
-/// An object identifier arc: big-endian base 128.
+/// A byte, then an object identifier arc of that value, encoded in big-endian base 128.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(vlq(1) == arc && 1 + vlq_len(1) == size_of_val(self)))]

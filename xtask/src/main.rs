@@ -1,3 +1,6 @@
+mod build_time;
+mod checks_chart;
+
 use std::{path::PathBuf, sync::LazyLock};
 
 use anyhow::Result;
@@ -27,9 +30,18 @@ enum Command {
     #[arg(long)]
     fix: bool,
   },
+  /// Time the builds of the section "Build time" of `docs/performance.md`
+  BuildTime,
+  /// Write the table and the chart of the section "Time" of `docs/performance.md` from the record
+  /// of the benchmark
+  ChecksChart {
+    /// Fail if the table or the chart is not what this writes, rather than write them
+    #[arg(long)]
+    check: bool,
+  },
 }
 
-/// Project root directory.
+/// The root directory of the workspace.
 static ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
   std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(1).unwrap().to_path_buf()
 });
@@ -43,10 +55,13 @@ fn main() -> Result<()> {
   match cli.command {
     Command::Fmt { check } => fmt(&sh, check),
     Command::Lint { fix } => lint(&sh, fix),
+    Command::BuildTime => build_time::run(&ROOT),
+    Command::ChecksChart { check } => checks_chart::run(&ROOT, check),
   }
 }
 
-/// The nightly that `rustfmt.toml`'s unstable options need; the crates build on stable.
+/// The nightly toolchain that the unstable options of `rustfmt.toml` need. The crates build on
+/// stable.
 const FMT_TOOLCHAIN: &str = "+nightly-2026-11-17";
 
 fn fmt(sh: &Shell, check: bool) -> Result<()> {

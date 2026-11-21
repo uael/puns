@@ -12,7 +12,7 @@ struct Flag {
   on: bool,
 }
 
-// SAFETY: not kept: `Fields` is not the fields of the layout.
+// SAFETY: Not met, on purpose: `Fields` is not the fields of the layout, which must be refused.
 unsafe impl Pun for Flag {
   type Elem = ();
   type Fields = ();
@@ -20,7 +20,7 @@ unsafe impl Pun for Flag {
   type Rules = ();
   type Pointee = ();
   const PROBE: *const Self = core::ptr::null();
-  // SAFETY: a sized type.
+  // SAFETY: `Flag` is `Sized`, and `Layout::structure` requires nothing of a `Sized` type.
   const LAYOUT: Layout = unsafe {
     Layout::structure::<Self>(
       Self::PROBE,

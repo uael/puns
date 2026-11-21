@@ -1,0 +1,11 @@
+error: `Pun` is derived for a struct that ends with an unsized field only with `repr(C)` or `repr(transparent)`, which say where that field is
+ --> tests/compile-fail/unsized_without_repr.rs:6:9
+  |
+6 |   data: [u8],
+  |         ^^^^
+
+error: `Pun` is derived for a struct that ends with an unsized field only with `repr(C)` or `repr(transparent)`, which say where that field is
+  --> tests/compile-fail/unsized_without_repr.rs:10:18
+   |
+10 | struct Text(u16, str);
+   |                  ^^^

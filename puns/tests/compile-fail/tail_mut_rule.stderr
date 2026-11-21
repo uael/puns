@@ -1,5 +1,5 @@
 error[E0080]: evaluation panicked:
-              cannot pun: a rule of the source (a size, a length, an assertion, a region) holds over bytes that the `&mut` covers, and could stop holding when they are written.
+              cannot pun: a struct of the source that has a rule (a size, a length, an assertion, a region) overlaps the bytes that the `&mut` covers, and a write could break the rule.
 
     --> src/lib.rs
      |

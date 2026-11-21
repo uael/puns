@@ -1,5 +1,7 @@
-//! The types of the model, with their oracles. Each oracle is written from what the type is
-//! declared to be, not from what the library makes of it.
+//! The types of the model, each with its oracle.
+//!
+//! Each oracle is written from the declaration of its type, never from what the library makes of
+//! it.
 
 use core::{mem::offset_of, num::NonZero};
 
@@ -13,7 +15,8 @@ use puns::{
 
 use crate::{Bytes, Oracle, Uninit, Valid, all, int, require, require_whole};
 
-/// A struct whose oracle is the one of its fields, at the offsets that the compiler gives.
+/// Declares a struct whose oracle combines the oracles of its fields, at the offsets that the
+/// compiler gives.
 macro_rules! model_struct {
   ($(#[$attr:meta])* struct $name:ident { $($field:ident: $ty:ty),* $(,)? }) => {
     #[derive(Pun, Clone, Copy)]
@@ -28,7 +31,8 @@ macro_rules! model_struct {
   };
 }
 
-/// A fieldless enum: its valid values are the bits of its variants, read from values of it.
+/// Declares an enum without fields whose valid values are the bytes of its variants, read from a
+/// value of each variant.
 macro_rules! model_fieldless {
   ($(#[$attr:meta])* enum $name:ident { $($variant:ident $(= $value:expr)?),+ $(,)? }) => {
     #[derive(Pun, Clone, Copy, PartialEq, Eq, Debug)]
@@ -42,7 +46,17 @@ macro_rules! model_fieldless {
         Ok([$($name::$variant),+].iter().any(|variant| {
           let mut bits = 0u128;
           let bytes: &[u8] =
-            // SAFETY: a fieldless enum has no padding.
+            // SAFETY: `variant` is a reference to a value of `$name`, valid for reads of its `size`
+            // bytes, of alignment 1 as `u8`s. A value of an enum without fields is its
+            // discriminant. With `repr(C)` or a primitive representation, it has the size of that
+            // integer [1], so every byte is initialized. `Erust`, of the `Rust` representation,
+            // rests on the layout that `rustc` gives it, a one-byte tag. These are the requirements
+            // of `slice::from_raw_parts`.
+            //
+            // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.enum:
+            //
+            //     For field-less enums, primitive representations set the size and alignment to
+            //     be the same as the primitive type of the same name.
             unsafe { core::slice::from_raw_parts(core::ptr::from_ref::<$name>(variant).cast(), size) };
           for i in 0..size {
             let byte = if crate::NATIVE_LITTLE { bytes[size - 1 - i] } else { bytes[i] };
@@ -55,7 +69,7 @@ macro_rules! model_fieldless {
   };
 }
 
-// --- Size 1 ---------------------------------------------------------------------------------------
+// --- Size 1 --------------------------------------------------------------------------------------
 
 model_fieldless!(
   #[repr(u8)]
@@ -113,7 +127,9 @@ model_struct!(
   }
 );
 
-/// A soft restriction: required of a target, not known of a source.
+/// A struct whose field has a requirement, `valid(0..=1)`.
+///
+/// A target requires it, and a source does not guarantee it.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 pub struct SoftBit {
@@ -128,7 +144,9 @@ impl Oracle for SoftBit {
   }
 }
 
-/// A soft restriction of a type that is restricted already.
+/// A struct with a requirement on a field whose type already restricts its values.
+///
+/// The `bool` is required to be `true`.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 pub struct SoftTrue {
@@ -146,7 +164,7 @@ impl Oracle for SoftTrue {
   }
 }
 
-/// A rule over a field.
+/// A struct with a rule over its field, which requires `v` to be a multiple of 3.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(v % 3 == 0))]
@@ -161,6 +179,7 @@ impl Oracle for Third {
   }
 }
 
+/// A tuple of types of 1 byte of the model.
 pub type Size1 = (
   u8,
   i8,
@@ -192,7 +211,7 @@ pub type Size1 = (
   core::mem::ManuallyDrop<bool>,
 );
 
-// --- Size 2 ---------------------------------------------------------------------------------------
+// --- Size 2 --------------------------------------------------------------------------------------
 
 model_fieldless!(
   #[repr(u16)]
@@ -242,7 +261,7 @@ model_struct!(
   }
 );
 
-/// Fields and a rule that reads the value beyond them.
+/// A struct whose rule reads its two fields as one big-endian integer, which must not be `0x0101`.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(be(0, 2) != 0x0101))]
@@ -258,7 +277,11 @@ impl Oracle for NotOneOne {
   }
 }
 
-/// An enum with fields: the tag, then what the variant of that tag holds.
+/// Declares an enum with fields, whose oracle reads the tag, then the fields of the variant of that
+/// tag.
+///
+/// The offsets of the fields are read from a value of the variant, made from the `$sample` of each
+/// field.
 macro_rules! model_tagged {
   // `repr(C)` alone: the discriminants are implicit (0, 1...), and must be given in that order.
   (
@@ -323,7 +346,8 @@ model_tagged!(#[repr(u8)] enum Either: tag 1 { L(NonZero<u8> = NonZero::new(1).u
 model_tagged!(#[repr(C, u8)] enum EitherC: tag 1 { L(NonZero<u8> = NonZero::new(1).unwrap()) = 0, R(u8in<0, 3> = u8in::new(0).unwrap()) = 1 });
 model_tagged!(#[repr(u8)] enum Skewed: tag 1 { A(u8 = 0) = 2, B(bool = false) = 9, C() = 4 });
 
-/// The same, with a soft restriction in a variant: what the type system does not enforce.
+/// An enum like `Opt`, whose field in `Some` has a requirement that the type system does not
+/// guarantee.
 #[derive(Pun, Clone, Copy)]
 #[repr(u8)]
 pub enum OptSoftBit {
@@ -344,6 +368,7 @@ impl Oracle for OptSoftBit {
   }
 }
 
+/// A tuple of types of 2 bytes of the model.
 pub type Size2 = (
   u16,
   i16,
@@ -379,7 +404,7 @@ pub type Size2 = (
   (u8c<1>, u8),
 );
 
-// --- Size 3 ---------------------------------------------------------------------------------------
+// --- Size 3 --------------------------------------------------------------------------------------
 
 model_struct!(
   #[repr(C, packed)]
@@ -407,6 +432,7 @@ model_tagged!(#[repr(u8)] enum Wide: tag 1 { A(u16le = u16le::new(0)) = 0, B(boo
 model_tagged!(#[repr(u8)] enum WideBe: tag 1 { A(u16be = u16be::new(0)) = 0, B(u8 = 0, u8 = 0) = 1 });
 model_tagged!(#[repr(u8)] enum Lit: tag 1 { A(u16lec<0x1234> = u16lec::new()) = 0, B(u16bec<0x1234> = u16bec::new()) = 1 });
 
+/// A tuple of types of 3 bytes of the model.
 pub type Size3 = (
   [u8; 3],
   [bool; 3],
@@ -425,7 +451,7 @@ pub type Size3 = (
   (u8, [u8in<0x80, 0xff>; 2]),
 );
 
-// --- Size 4 ---------------------------------------------------------------------------------------
+// --- Size 4 --------------------------------------------------------------------------------------
 
 model_struct!(
   #[repr(C)]
@@ -462,7 +488,9 @@ model_tagged!(#[repr(C)] enum CTagged: tag 4, implicit { A(u8 = 0) = 0, B(bool =
 model_tagged!(#[repr(C, u8)] enum CU8: tag 1 { A(u16 = 0) = 0, B(u8 = 0) = 1 });
 model_tagged!(#[repr(u16)] enum Tag16: tag 2 { A(u8 = 0) = 0x100, B(u16 = 0) = 3 });
 
-/// A rule that reads padding: the oracle says that it reads it.
+/// A struct whose rule reads its byte of padding.
+///
+/// With `target`, its oracle marks that byte as read, so a check of the rule reads padding.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(le(1, 1) == 0))]
@@ -486,6 +514,7 @@ impl Oracle for ReadsPad {
   }
 }
 
+/// A tuple of types of 4 bytes of the model.
 pub type Size4 = (
   u32,
   i32,
@@ -515,10 +544,11 @@ pub type Size4 = (
   [NonZero<u16>; 2],
 );
 
-// --- Size 8 ---------------------------------------------------------------------------------------
+// --- Size 8 --------------------------------------------------------------------------------------
 
 model_tagged!(#[repr(C)] enum CTaggedB: tag 4, implicit { A(bool = false) = 0, B(u8 = 0) = 1, C(u8in<0, 1> = u8in::new(0).unwrap()) = 2 });
 
+/// A tuple of types of 8 bytes of the model.
 pub type Size8 = (
   u64,
   [u8; 8],
@@ -532,18 +562,22 @@ pub type Size8 = (
   (u16, u8, bool, u32),
 );
 
-// --- Uninitialized bytes --------------------------------------------------------------------------
+// --- Uninitialized bytes -------------------------------------------------------------------------
 
-/// A byte that a target requires to be 0, and of which a source knows nothing.
+/// A byte that a target requires to be 0, and of which a source guarantees nothing.
 ///
-/// Not even that it is initialized: as a type, it is any byte, since it holds a
-/// `MaybeUninit<u8>`. This is what `Spec::maybe_uninit` describes.
+/// A source does not even guarantee that the byte is initialized, because the type holds a
+/// `MaybeUninit<u8>`. `Spec::maybe_uninit` describes such a scalar.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct Zero(pub core::mem::MaybeUninit<u8>);
 
-// SAFETY: every value of `SPEC.valid` (0) is a value of a `MaybeUninit<u8>`, and what a source of
-// it is known to be (anything, uninitialized too) is what a `MaybeUninit<u8>` is.
+// SAFETY: `Zero` is `repr(transparent)` over `MaybeUninit<u8>`, so `SPEC`, of a `u8`, has its
+// size. The items of the `# Safety` of `Scalar` hold:
+// - `SPEC` is made with `Spec::maybe_uninit`, so a value of `Zero` may hold any byte,
+//   uninitialized included.
+// - `SPEC` accepts 0, which is a valid `MaybeUninit<u8>`. `Zero` has no other invariant.
+// - `Zero` holds no `UnsafeCell`.
 unsafe impl puns::Scalar for Zero {
   const SPEC: puns::layout::Spec =
     puns::layout::Spec::ranges::<u8>(puns::layout::Endian::Little, &[(0, 0)]).maybe_uninit();
@@ -566,7 +600,7 @@ impl<T: Pun + Copy + 'static> Oracle for core::mem::MaybeUninit<T> {
 }
 
 model_struct!(
-  /// A byte, then one that may be uninitialized.
+  /// A struct of a byte, then a byte that may be uninitialized.
   #[repr(C)]
   struct ByteZero {
     a: u8,
@@ -574,9 +608,11 @@ model_struct!(
   }
 );
 
-// --- Types without values -------------------------------------------------------------------------
+// --- Types without values ------------------------------------------------------------------------
 
-/// A variant that holds a type without values: no value is that variant.
+/// An enum with a variant that holds a type without values.
+///
+/// No value is that variant.
 #[derive(Pun, Clone, Copy)]
 #[repr(u8)]
 pub enum Never {
@@ -596,19 +632,23 @@ impl Oracle for Never {
   }
 }
 
-// --- Enums without `repr` -------------------------------------------------------------------------
+// --- Enums of the `Rust` representation ----------------------------------------------------------
 //
 // Their oracles are written from how `rustc` lays enums out today (a direct tag in the bytes before
 // the fields of every variant, or a niche: the values that follow the valid ones of a scalar of a
 // field). The offsets of the fields are taken from values, never from the library. The values of
 // the tags are written here: if `rustc` chooses others, the model check reports a disagreement.
 
-/// The offset of `field` in `value`.
+/// Returns the offset of `field` in `value`.
+///
+/// # Panics
+///
+/// Panics if `field` starts before `value` and overflow checks are enabled.
 fn offset_in<T, F>(value: &T, field: &F) -> usize {
   core::ptr::from_ref(field).addr() - core::ptr::from_ref(value).addr()
 }
 
-/// A niche in a `bool`: `Nothing` is 2.
+/// An enum of the `Rust` representation with a niche in a `bool`, where `Nothing` is 2.
 #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MaybeFlag {
   Nothing,
@@ -621,7 +661,9 @@ impl Oracle for MaybeFlag {
   }
 }
 
-/// A niche in a `NonZero`: `No` is 0, every byte is a value.
+/// An enum of the `Rust` representation with a niche in a `NonZero`, where `No` is 0.
+///
+/// Every byte is a value.
 #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NzOpt {
   No,
@@ -635,7 +677,7 @@ impl Oracle for NzOpt {
   }
 }
 
-/// A direct tag of one byte, then a byte in each variant.
+/// An enum of the `Rust` representation with a direct tag of one byte, and a byte in each variant.
 #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pair {
   A(u8),
@@ -654,9 +696,10 @@ impl Oracle for Pair {
   }
 }
 
-/// A niche in the tag of another enum without `repr`.
+/// An enum of the `Rust` representation with a niche in the tag of another enum of that
+/// representation.
 ///
-/// `Other` is 2, the first value that is no tag of `Pair`.
+/// `Other` is 2, the first value that is not a tag of `Pair`.
 #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NestPair {
   Inner(Pair),
@@ -677,8 +720,9 @@ impl Oracle for NestPair {
   }
 }
 
-/// A niche in the `bool` of `Both`, for `Byte` (2) and `Nothing` (3); the byte of `Byte` is
-/// beside it.
+/// An enum of the `Rust` representation with a niche in the `bool` of `Both`.
+///
+/// In that byte, `Byte` is 2 and `Nothing` is 3. The field of `Byte` is in another byte.
 #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mixed {
   Both(u8, bool),
@@ -699,7 +743,8 @@ impl Oracle for Mixed {
   }
 }
 
-/// One variant: a struct, whose fields `rustc` may reorder.
+/// An enum of the `Rust` representation with one variant, laid out as a struct whose fields `rustc`
+/// may reorder.
 #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Single {
   Only(u8, bool),
@@ -717,7 +762,9 @@ impl Oracle for Single {
   }
 }
 
-/// Two `bool`s, of which the first holds the niche of `B` (2).
+/// An enum of the `Rust` representation with a variant of two `bool`s.
+///
+/// The first `bool` holds the niche of `B`, which is 2.
 #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Flags2 {
   A(bool, bool),
@@ -736,7 +783,9 @@ impl Oracle for Flags2 {
   }
 }
 
-/// A niche in a `char`: `End` and `Error` are the two values after the last one.
+/// An enum of the `Rust` representation with a niche in a `char`.
+///
+/// `End` and `Error` are the two values after the last `char`.
 #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Letter {
   Char(char),
@@ -751,7 +800,8 @@ impl Oracle for Letter {
   }
 }
 
-/// A direct tag that `rustc` widened to two bytes, the alignment of the fields that follow it.
+/// An enum of the `Rust` representation with a direct tag that `rustc` widens to two bytes, the
+/// alignment of the fields that follow it.
 #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Wid {
   A(u16),
@@ -769,8 +819,9 @@ impl Oracle for Wid {
   }
 }
 
-/// One variant that has values, and one that has none but a field with a size: `rustc` gives
-/// them a tag.
+/// An enum of the `Rust` representation with a variant that has values and a variant that has none.
+///
+/// The second variant holds a field with a size, so `rustc` gives the enum a tag.
 #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OneOfTwo {
   A(u8),
@@ -788,24 +839,27 @@ impl Oracle for OneOfTwo {
   }
 }
 
-// --- Unions -----------------------------------------------------------------------------------------
+// --- Unions --------------------------------------------------------------------------------------
 //
 // The validity of unions is not settled by the language: the oracle takes the rule that every
 // proposal allows, valid if valid for one field. What the library knows of a union as a source is
 // nothing, which is less than that.
 
-/// The check of a field.
+/// The oracle of a field of a union.
 type Check = fn(&Bytes, usize, &mut [bool], bool) -> Valid;
 
-/// Valid if one of the `checks` of the fields of a union is, tried in order.
+/// Returns whether one of the fields of a union is valid, trying the oracles of `checks` in order.
 ///
-/// The bytes read are those of the fields tried: of the one that makes it valid, not of the ones after it (they may
-/// be padding of that value). A field decided by an uninitialized byte decides the union: the
-/// unions of the model have fields that all start with the same bytes, so that what such a byte
-/// decides of one it decides of all.
+/// The bytes read are those of the fields tried, up to the first valid one. The bytes of the
+/// fields after it are not read, because they may be padding of that value. A field decided by an
+/// uninitialized byte decides the union. The fields of each union of the model start with the same
+/// bytes, so an uninitialized byte decides the same for every field.
+///
+/// With `target`, the result is recorded as one requirement of the union ([`require_whole`]).
 ///
 /// # Errors
-/// [`Uninit`] if a field is decided by an uninitialized byte before one is valid.
+///
+/// Returns [`Uninit`] if a field is decided by an uninitialized byte before a field is valid.
 pub fn any(b: &Bytes, off: usize, reads: &mut [bool], target: bool, checks: &[Check]) -> Valid {
   let mut one = || {
     for check in checks {
@@ -822,7 +876,9 @@ pub fn any(b: &Bytes, off: usize, reads: &mut [bool], target: bool, checks: &[Ch
   if target { require_whole(off, "one of the fields of a union", one) } else { one() }
 }
 
-/// A `bool`, or a number up to 3: a byte up to 3.
+/// A union of a `bool` and of a number up to 3.
+///
+/// Its valid values are the bytes up to 3.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 pub union ChoiceU {
@@ -836,7 +892,7 @@ impl Oracle for ChoiceU {
   }
 }
 
-/// Two `bool`s, or a `NonZero<u16>`.
+/// A union of two `bool`s and of a `NonZero<u16>`.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 pub union FlagsU {
@@ -850,7 +906,9 @@ impl Oracle for FlagsU {
   }
 }
 
-/// A byte, or a byte and a `u16`: a value of the first field has three bytes of padding.
+/// A union of a byte and of a pair of a byte and a `u16`.
+///
+/// A value of the first field has three bytes of padding.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 pub union PaddedU {
@@ -864,15 +922,17 @@ impl Oracle for PaddedU {
   }
 }
 
-// --- Rules proven by the same rules ---------------------------------------------------------------
+// --- Rules proven by the same rules --------------------------------------------------------------
 //
 // A rule of the target is proven by the same rule of the source in a struct of the same extent at
 // the same place, whatever the fields: these are such structs, and ones that are not (another
 // rule, another extent), in each kind of type that can hold one. Their oracles say what each
 // requires, one requirement at a time (`require`): what the source implies, the oracle finds.
 
-/// The rule of `Third`, over a field that requires something of its own (`rustc` sees no niche in
-/// it: enums that hold it are laid out as those that hold a `Third`).
+/// The rule of `Third`, over a field with a requirement of its own, `valid(..=200)`.
+///
+/// A requirement is no niche for `rustc`, so an enum that holds a `ThirdSoft` has the layout of one
+/// that holds a `Third`.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(v % 3 == 0))]
@@ -894,7 +954,7 @@ impl Oracle for ThirdSoft {
   }
 }
 
-/// Another rule over the same byte.
+/// A struct with another rule over one byte, which requires `v` to be a multiple of 5.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(v % 5 == 0))]
@@ -909,7 +969,8 @@ impl Oracle for Fifth {
   }
 }
 
-/// A rule that reads the size of the value: its last byte is not `0xff`.
+/// A struct with a rule that reads the size of the value, and requires its last byte not to be
+/// `0xff`.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(be(size_of_val(self) - 1, 1) != 0xff))]
@@ -924,7 +985,10 @@ impl Oracle for LastNotFf1 {
   }
 }
 
-/// The same rule over 2 bytes: another function of the bytes, which a part of 1 byte is not.
+/// The rule of `LastNotFf1`, over 2 bytes.
+///
+/// Over 2 bytes, the same rule is another function of the bytes. So the rule of a part of 1 byte is
+/// not this rule.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(be(size_of_val(self) - 1, 1) != 0xff))]
@@ -941,7 +1005,7 @@ impl Oracle for LastNotFf2 {
   }
 }
 
-/// The rule of `NotOneOne`, over a `NonZero`.
+/// The rule of `NotOneOne`, over a first field that is a `NonZero<u8>`.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(be(0, 2) != 0x0101))]
@@ -963,10 +1027,27 @@ impl Oracle for NotOneOneNz {
 model_tagged!(#[repr(u8)] enum ThirdIn: tag 1 { A(Third = Third { v: 0 }) = 0, B(u8 = 0) = 1 });
 model_tagged!(#[repr(u8)] enum ThirdSoftIn: tag 1 { A(ThirdSoft = ThirdSoft { v: 0 }) = 0, B(u8 = 0) = 1 });
 
-/// The variant of an enum without `repr` of two variants of a byte each, by its tag (a direct
-/// tag of a byte at 0, as the bytes of the samples say), and the offset of the field of that
-/// variant (`samples`: a value of each variant, and the offset of its field).
-fn rust_variant<E: Copy>(
+/// Returns the index of the variant of the enum `E` at `off`, and the offset of its field.
+///
+/// `E` is of the `Rust` representation, and two variants of one byte each. `samples` holds a value
+/// of each variant and the offset of its field. `E` must have a direct tag of one byte at offset 0,
+/// whose value is the index of the variant, as the bytes of the samples show. Returns `None` if the
+/// tag is not the tag of a variant.
+///
+/// # Errors
+///
+/// Returns [`Uninit`] if the tag is uninitialized.
+///
+/// # Panics
+///
+/// Panics if `E` is not 2 bytes, or if the tags of the samples are not 0 and 1.
+///
+/// # Safety
+///
+/// The caller must ensure that:
+///
+/// - Both bytes of each sample are initialized.
+unsafe fn rust_variant<E: Copy>(
   samples: [(E, usize); 2],
   b: &Bytes,
   off: usize,
@@ -974,7 +1055,9 @@ fn rust_variant<E: Copy>(
 ) -> Result<Option<(usize, usize)>, Uninit> {
   assert_eq!(size_of::<E>(), 2, "not the layout of the oracle");
   for (i, (sample, _)) in samples.iter().enumerate() {
-    // SAFETY: both variants initialize both bytes: a tag, and a byte of a field.
+    // SAFETY: `E` is 2 bytes, which is asserted above, so `transmute_copy` reads the 2 bytes of
+    // `sample` as a `[u8; 2]`, which needs no alignment. Both are initialized, by contract on the
+    // caller, so they are a valid `[u8; 2]`.
     let bytes: [u8; 2] = unsafe { core::mem::transmute_copy(sample) };
     assert_eq!(usize::from(bytes[0]), i, "not the layout of the oracle");
   }
@@ -982,7 +1065,9 @@ fn rust_variant<E: Copy>(
   Ok(samples.get(tag).map(|(_, field)| (tag, *field)))
 }
 
-/// An enum without `repr` whose variant holds a struct with a rule: a direct tag.
+/// An enum of the `Rust` representation whose first variant holds a struct with a rule.
+///
+/// `rustc` gives it a direct tag.
 #[derive(Pun, Clone, Copy)]
 pub enum RustThird {
   A(Third),
@@ -994,7 +1079,10 @@ impl Oracle for RustThird {
     let (a, b_) = (RustThird::A(Third { v: 0 }), RustThird::B(0));
     let (RustThird::A(x), RustThird::B(y)) = (&a, &b_) else { unreachable!() };
     let samples = [(a, offset_in(&a, x)), (b_, offset_in(&b_, y))];
-    match rust_variant(samples, b, off, reads)? {
+    // SAFETY: Each sample is a tag and a field of 1 byte, a `Third` or a `u8`, in 2 bytes. So both
+    // of its bytes are initialized, as `rust_variant` requires. If `rustc` gave the enum another
+    // layout, a byte could be padding, which Miri reports.
+    match unsafe { rust_variant(samples, b, off, reads) }? {
       Some((0, at)) => Third::check(b, off + at, reads, target),
       Some((_, at)) => int(b, off + at, 1, true, reads).map(|_| true),
       None => Ok(false),
@@ -1002,7 +1090,7 @@ impl Oracle for RustThird {
   }
 }
 
-/// The same, with the rule of `Third` over another field.
+/// An enum like `RustThird`, whose first variant holds a `ThirdSoft`.
 #[derive(Pun, Clone, Copy)]
 pub enum RustThirdSoft {
   A(ThirdSoft),
@@ -1014,7 +1102,10 @@ impl Oracle for RustThirdSoft {
     let (a, b_) = (RustThirdSoft::A(ThirdSoft { v: 0 }), RustThirdSoft::B(0));
     let (RustThirdSoft::A(x), RustThirdSoft::B(y)) = (&a, &b_) else { unreachable!() };
     let samples = [(a, offset_in(&a, x)), (b_, offset_in(&b_, y))];
-    match rust_variant(samples, b, off, reads)? {
+    // SAFETY: Each sample is a tag and a field of 1 byte, a `ThirdSoft` or a `u8`, in 2 bytes. So
+    // both of its bytes are initialized, as `rust_variant` requires. If `rustc` gave the enum
+    // another layout, a byte could be padding, which Miri reports.
+    match unsafe { rust_variant(samples, b, off, reads) }? {
       Some((0, at)) => ThirdSoft::check(b, off + at, reads, target),
       Some((_, at)) => int(b, off + at, 1, true, reads).map(|_| true),
       None => Ok(false),
@@ -1022,7 +1113,7 @@ impl Oracle for RustThirdSoft {
   }
 }
 
-/// A rule, and a byte that may be uninitialized.
+/// A struct with the rule of `Third`, and a byte that may be uninitialized.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(v % 3 == 0))]
@@ -1038,7 +1129,7 @@ impl Oracle for ThirdUninit {
   }
 }
 
-/// The same rule, over another field.
+/// A struct with the rule and the field of `ThirdSoft`, and a byte that may be uninitialized.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(v % 3 == 0))]
@@ -1061,7 +1152,7 @@ impl Oracle for ThirdSoftUninit {
   }
 }
 
-/// A `Third`, or a `bool`.
+/// A union of a `Third` and of a `bool`.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 pub union ThirdU {

@@ -1,4 +1,9 @@
-//! The parts of every type of 8 bytes of the model, as every type of 4 bytes and some smaller.
+//! Checks the parts of every type of 8 bytes of the model as every type of 4 bytes, and as some
+//! smaller types.
+//!
+//! This file needs the `full` feature, which `cargo test` does not turn on. It runs with
+//! `cargo test --profile model -p puns-model --features full`, every night and on demand
+//! (`.github/workflows/model.yml`).
 
 use core::num::NonZero;
 

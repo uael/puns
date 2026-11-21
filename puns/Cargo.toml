@@ -13,10 +13,11 @@ categories = ["encoding", "parsing", "no-std", "rust-patterns"]
 
 [features]
 # The layout that `rustc` chose, as it is, where Rust lets it choose otherwise: the order of the
-# fields of a struct or a tuple without `repr`, the tag of an enum without `repr`, niches. Without
-# it, nothing that `puns` does depends on that choice (`puns::layout::UNSTABLE`). Most tests run
-# without it, the default (`cargo test -p puns --features verdict` adds the record of
-# `tests/seeds.rs`); `--features unstable` runs the targets and the tests about it.
+# fields of a struct or a tuple of the `Rust` representation, the tag of an enum of that
+# representation, niches. Without it, nothing that `puns` does depends on that choice
+# (`puns::layout::UNSTABLE`). Most tests run without it, the default (`cargo test -p puns --features
+# verdict` adds the record of `tests/seeds.rs`); `--features unstable` runs the targets and the
+# tests about it.
 unstable = []
 # Test-only, for `puns-model` and `tests/seeds.rs`: `puns::hook`, what the analysis says of a
 # pun without failing to compile. Not part of the API; nothing else changes with it.
@@ -29,14 +30,15 @@ puns-derive = { version = "=0.1.5", path = "../puns-derive" }
 trybuild = "1"
 
 # What is checked at run time, next to the same checks by hand: `cargo bench -p puns --features
-# unstable`. Not a test. Its view enums of enums without `repr` need the `unstable` feature.
+# unstable`. Not a test. Two of its cases read slices of enums of the `Rust` representation, which
+# needs the `unstable` feature.
 [[bench]]
 name = "checks"
 harness = false
 required-features = ["unstable"]
 
-# Enums without `repr` (found by experiments, `discover.rs`), and `Option` and `Result` of anything:
-# the `unstable` feature.
+# Enums of the `Rust` representation (found by experiments, `discover.rs`), and `Option` and
+# `Result` of anything: the `unstable` feature.
 [[test]]
 name = "rust_enums"
 required-features = ["unstable"]
@@ -51,7 +53,8 @@ required-features = ["unstable"]
 name = "seeds"
 required-features = ["verdict"]
 
-# Its counts of instructions (`DESIGN.md`) are of enums without `repr` too.
+# Its table of machine code (its module documentation) covers enums of the `Rust` representation
+# too.
 [[example]]
 name = "codegen"
 required-features = ["unstable"]

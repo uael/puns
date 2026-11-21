@@ -1,0 +1,28 @@
+error[E0080]: invalid metadata in wide pointer: slice is bigger than largest supported object
+ --> tests/compile-fail/structure_too_large.rs:6:10
+  |
+6 | #[derive(puns::Pun)]
+  |          ^^^^^^^^^ evaluation of `_::<impl puns::Pun for Huge>::LAYOUT` failed inside this call
+  |
+note: inside `puns::layout::Layout::structure::<Huge>`
+ --> src/layout.rs
+  |
+  |           let size = unsafe { mem::size_of_val_raw(ptr::raw_with_len(probe, len)) };
+  |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `size_of_val_raw::<Huge>`
+ --> $RUST/core/src/mem/mod.rs
+  = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+note: erroneous constant encountered
+ --> tests/compile-fail/structure_too_large.rs:6:10
+  |
+6 | #[derive(puns::Pun)]
+  |          ^^^^^^^^^
+  |
+  = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+note: erroneous constant encountered
+  --> tests/compile-fail/structure_too_large.rs:13:11
+   |
+13 |   let _ = <Huge as puns::Pun>::LAYOUT;
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^

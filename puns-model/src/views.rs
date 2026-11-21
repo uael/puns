@@ -1,17 +1,17 @@
-//! View enums (an enum whose variants each hold a reference, see `#[derive(Pun)]`) against what
-//! they mean.
+//! A check of view enums against what they mean.
 //!
-//! What a view means is the first variant that the bytes are (start with, for `from_head`), found
-//! by trying each variant in turn with `from_bytes` and `from_head` of its type, which the rest of
-//! the model checks against the oracles of the types.
+//! A view enum is an enum whose variants each hold a reference (see `#[derive(Pun)]`). A view of
+//! some bytes means the first variant that the bytes are, or that they start with for `from_head`.
+//! The model finds that variant by trying each variant in turn with `from_bytes` or `from_head` of
+//! its type. The rest of the model checks these functions against the oracles of the types.
 //!
 //! The derive decides a variant from its *base*, a later variant whose type takes every value of
-//! the type of the variant, and keeps what it decided (`puns::view`). For every pattern of bytes
-//! up to a length, at an aligned and a misaligned address, the variant that it returns, with its
-//! address, its size and what remains, must be the one of trying each in turn: a variant that its
-//! type does not take from the bytes, or with another address or size, is unsound; another
-//! variant, or none, is incorrect. How many variants have a base is counted: views without one
-//! would check nothing new.
+//! the type of the variant, and reuses what it decided (`puns::view`). [`check_view`] tries every
+//! pattern of bytes up to a length, at an aligned and at a misaligned address. The variant that
+//! the view returns, with its address, its size and what remains, must be the one found by trying
+//! each variant in turn. A variant that its type does not take from the bytes, or one with another
+//! address or size, is unsound. Another variant, or none, is incorrect. The number of variants
+//! that have a base is counted, because views without one would check nothing new.
 
 use puns::{
   Pun,
@@ -20,14 +20,16 @@ use puns::{
 
 use crate::{alphabet, record};
 
-/// A view of two types: every ordered pair of types of the model is one.
+/// A view enum of two types.
+///
+/// Every ordered pair of types of the model is checked as one.
 #[derive(Pun)]
 pub enum Two<'a, A: ?Sized + Pun, B: ?Sized + Pun> {
   A(&'a A),
   B(&'a B),
 }
 
-/// A view of three types: a chain of bases, a base shared by two variants.
+/// A view enum of three types, for a chain of bases or for a base shared by two variants.
 #[derive(Pun)]
 pub enum Three<'a, A: ?Sized + Pun, B: ?Sized + Pun, C: ?Sized + Pun> {
   A(&'a A),
@@ -35,31 +37,35 @@ pub enum Three<'a, A: ?Sized + Pun, B: ?Sized + Pun, C: ?Sized + Pun> {
   C(&'a C),
 }
 
-/// What a view, or a variant, takes of bytes: the index of the variant, its address and its
-/// size, and the number of bytes after it.
+/// What a view, or a variant alone, takes of some bytes, or `None` if it takes nothing.
+///
+/// The tuple holds the index of the variant, its address, its size, and the number of bytes after
+/// it.
 pub type Found = Option<(usize, usize, usize, usize)>;
 
-/// A view of the model.
+/// A view enum of the model, whose variants can also be tried one by one.
 pub trait View {
-  /// The types of its variants.
+  /// Returns the name of the view, with the types of its variants.
   fn name() -> String;
   /// The number of its variants.
   const LEN: usize;
-  /// `from_bytes` (`from_head` if `head`) of the view.
+  /// Returns what `from_bytes` of the view takes of `bytes`, or what `from_head` takes if `head`.
   fn view(bytes: &[u8], head: bool) -> Found;
-  /// `from_bytes` (`from_head` if `head`) of the type of the variant `index`, alone.
+  /// Returns what `from_bytes` of the type of the variant `index` alone takes of `bytes`, or what
+  /// `from_head` takes if `head`.
   fn variant(bytes: &[u8], head: bool, index: usize) -> Found;
-  /// How many variants have a base, for `from_bytes` and for `from_head`.
+  /// Returns the number of variants that have a base, for `from_bytes` and for `from_head`.
   fn bases() -> (usize, usize);
 }
 
-/// What `value`, the variant `index` of bytes, is: see [`Found`].
+/// Returns the [`Found`] of `value` as the variant `index`, with `rest` bytes after it.
 #[expect(clippy::unnecessary_wraps, reason = "what is found, which each caller returns")]
 fn found<T: ?Sized>(index: usize, value: &T, rest: usize) -> Found {
   Some((index, core::ptr::from_ref(value).cast::<u8>().addr(), size_of_val(value), rest))
 }
 
-/// `from_bytes` or `from_head` of `T`, as [`Found`].
+/// Returns what `from_bytes` of `T` takes of `bytes`, or what `from_head` takes if `head`, as the
+/// variant `index`.
 fn alone<T: ?Sized + Pun>(bytes: &[u8], head: bool, index: usize) -> Found {
   if head {
     let (value, rest) = puns::from_head::<T>(bytes).ok()?;
@@ -69,7 +75,7 @@ fn alone<T: ?Sized + Pun>(bytes: &[u8], head: bool, index: usize) -> Found {
   }
 }
 
-/// A base, counted.
+/// Returns 1 if `base` is the index of a base, and 0 if it is `usize::MAX`, which means no base.
 const fn based(base: usize) -> usize {
   (base != usize::MAX) as usize
 }
@@ -146,14 +152,18 @@ impl<A: ?Sized + Pun, B: ?Sized + Pun, C: ?Sized + Pun> View for Three<'static, 
   }
 }
 
-/// Compare `from_bytes` and `from_head` of the view `V` with trying each of its variants in turn.
+/// Checks `from_bytes` and `from_head` of the view `V` against trying each of its variants in turn,
+/// and records the findings in [`REPORT`](crate::REPORT).
 ///
-/// For every pattern of `lengths` bytes over the alphabet of values of that size (all bytes up to
-/// 2; with `sample`, the alphabet of 3 bytes for those, which has the values that the types of
-/// the model tell apart), at an address aligned for 8 bytes and at the next one.
+/// The bytes are every pattern of each length of `lengths`, over the initialized bytes of the
+/// [`alphabet`] of a type of that length. That alphabet has every byte for up to 2 bytes. With
+/// `sample`, a length under 3 takes the alphabet of a type of 3 bytes instead, which has the
+/// values that the types of the model tell apart. Each pattern is placed at an address aligned to
+/// 8 bytes, then at the next address.
 ///
 /// # Panics
-/// If the report is poisoned.
+///
+/// Panics if [`REPORT`](crate::REPORT) is poisoned.
 pub fn check_view<V: View>(lengths: &[usize], sample: bool) {
   let name = V::name();
   let (mut unsound, mut incorrect, mut checked) = (vec![], vec![], 0);
@@ -217,8 +227,10 @@ pub fn check_view<V: View>(lengths: &[usize], sample: bool) {
   });
 }
 
-/// Every ordered pair of the types as a [`Two`], through `check_view`, over `lengths` (a sample
-/// of the patterns if `sample`).
+/// Checks every ordered pair of the types, a type with itself included, as a [`Two`] with
+/// [`check_view`].
+///
+/// The view is checked over `lengths`, with a sample of the patterns if `sample`.
 #[macro_export]
 macro_rules! view_pairs {
   ($lengths:expr, $sample:expr; $($ty:ty),+ $(,)?) => {

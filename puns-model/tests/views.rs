@@ -1,6 +1,9 @@
-//! View enums against trying each of their variants in turn (`puns_model::views`): every pair of a
-//! few types of 1 and 2 bytes, chains of bases, and unsized types for what `from_head` takes. The
-//! full run (`views_full.rs`) has every pair of the types of 1 and 2 bytes of the model.
+//! Checks view enums against trying each of their variants in turn (`puns_model::views`).
+//!
+//! Natively, the views are every pair of a few types of 1 and 2 bytes, chains of bases, and
+//! unsized types for what `from_head` takes. The full check (`views_full.rs`) has every pair of the
+//! types of 1 and 2 bytes of the model. Under Miri, a selection of views reaches each unsafe path
+//! of `puns::view`.
 
 use core::num::NonZero;
 
@@ -10,7 +13,9 @@ use puns_model::{
   views::{Three, Two, check_view},
 };
 
-/// A slice of `bool`s after a `bool`: as many as there are, as `[u8]` takes.
+/// A `bool`, then a slice of `bool`s.
+///
+/// `from_head` takes as many elements as there are, as it does for `[u8]`.
 #[derive(Pun)]
 #[repr(C)]
 pub struct TailBool {
@@ -18,7 +23,7 @@ pub struct TailBool {
   t: [bool],
 }
 
-/// A number of elements that are not zero, and the elements.
+/// A count of elements, then that many elements that are not zero.
 #[derive(Pun)]
 #[repr(C)]
 pub struct Counted {
@@ -27,7 +32,7 @@ pub struct Counted {
   t: [NonZero<u8>],
 }
 
-/// A number of elements, and the elements: the same rule as `Counted`.
+/// A count of elements, then that many bytes, with the same rule as `Counted`.
 #[derive(Pun)]
 #[repr(C)]
 pub struct CountedAny {
@@ -36,7 +41,7 @@ pub struct CountedAny {
   t: [u8],
 }
 
-/// A size, and what follows.
+/// The size of the value, then the bytes that follow it.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = size)]
@@ -45,7 +50,9 @@ pub struct Sized1 {
   t: [u8],
 }
 
-/// The same, aligned to 2: `from_head` takes its trailing padding, which `Sized1` does not.
+/// A `Sized1` aligned to 2.
+///
+/// `from_head` also takes its trailing padding, which `Sized1` does not have.
 #[derive(Pun)]
 #[repr(C, align(2))]
 #[pun(size = size)]
@@ -54,6 +61,7 @@ pub struct Sized2 {
   t: [u8],
 }
 
+/// Checks the views of the native sample.
 #[test]
 #[cfg(not(miri))]
 fn views() {
@@ -84,12 +92,16 @@ fn views() {
   puns_model::finish("views");
 }
 
-/// Under Miri, which is there for undefined behaviour (the native run has the verdicts): a view
-/// for each unsafe path of `puns::view`, over the small alphabets of Miri. A variant decided from
-/// its base (`Third` from `u8`), and the address checked from a base less aligned (`u16` from
-/// `[u8; 2]`); a variant rebuilt from its state, unsized (`[u8]` after `[bool]`, its base, failed)
-/// and sized (`u8` in a chain); `from_head` from a base of the same extent, with and without
-/// trailing padding (`Counted`, `Sized2`).
+/// Checks a view for each unsafe path of `puns::view`, over the small alphabets of Miri.
+///
+/// Miri is there for undefined behavior, and the native run checks the verdicts. The paths are:
+///
+/// - A variant decided from its base (`Third` from `u8`).
+/// - The address checked from a base that is less aligned (`u16` from `[u8; 2]`).
+/// - A variant rebuilt from its state, unsized (`[u8]` after its base `[bool]` failed) and sized
+///   (`u8` in a chain).
+/// - `from_head` from a base of the same extent, with and without trailing padding (`Counted`,
+///   `Sized2`).
 #[test]
 #[cfg(miri)]
 fn views() {

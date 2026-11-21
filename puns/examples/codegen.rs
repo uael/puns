@@ -1,10 +1,59 @@
-//! Functions whose machine code is worth looking at:
+//! Functions whose machine code shows what `puns` checks at run time, and what it does not.
+//!
+//! Each function makes one call to `puns`: a pun, a view, a part, a read from the head or the tail
+//! of bytes, or a region. A pun that is proven compiles to no check. A pun that is checked
+//! compiles to the checks of what the analysis could not prove. Each function is `#[no_mangle]`,
+//! so that its name appears in the assembly.
+//!
+//! The following command writes the assembly:
 //!
 //! ```text
 //! cargo rustc --release --features unstable --example codegen -- --emit asm -C llvm-args=-x86-asm-syntax=intel
 //! ```
 //!
-//! and look for their names in `target/release/**/codegen*.s`. See `DESIGN.md` for what to expect.
+//! The functions are in `target/release/**/codegen*.s`, under their names. The table below records
+//! the machine code of most of them. A change of the library must not make any of them longer, so
+//! compare the assembly before and after it, and update the table.
+//!
+//! The table was measured on `x86_64-unknown-linux-gnu` with `rustc` 1.100.0, the release profile
+//! of the workspace (`opt-level = 3`, LTO, one codegen unit) and the `unstable` feature, with the
+//! command above. A count of instructions excludes labels and directives.
+//!
+//! | Function                                              | Machine code                                  |
+//! |-------------------------------------------------------|-----------------------------------------------|
+//! | `&Position -> &[u8; 2]`                               | `mov rax, rdi; ret`                           |
+//! | `[bool; 4] -> u32`                                    | `mov eax, edi; ret`                           |
+//! | `&Frame<Ipv4<[u8]>> -> &[u8]`                         | `lea rdx, [rsi + 34]` (the length)            |
+//! | `&Packet<Datagram> -> &Packet` (the same rules)       | `mov rdx, rsi; mov rax, rdi; ret`             |
+//! | `&[u8; 2] -> Option<&Position>` (a `u8`, a `bool`)    | one `cmp byte ptr [rdi + 1], 2`               |
+//! | `&[u8] -> Option<&Header>`                            | the size, a 4-byte compare, `bt`, `cmp`       |
+//! | `from_head::<Frame<Ipv4>>(&[u8])`                     | 29 instructions, no loop, no call             |
+//! | `Ipv4::options()` (a region)                          | 10 instructions, no branch                    |
+//! | `&[u8] -> Option<&[bool]>`                            | 64 bytes at a time, no branch in a block, 46 instructions |
+//! | `&[Shape] -> &[Drawing]` (enums with fields)          | `mov rdx, rsi; mov rax, rdi; ret`             |
+//! | `&Drawing -> Option<&Shape>`                          | the tag, then one `cmp` for a `bool`, 12 instructions |
+//! | `[u8; 4] -> Option<Shape>`                            | 14 instructions, no loop, no call             |
+//! | `Ticket <-> u32` (`repr(Rust)`, a niche in `NonZero`) | `mov eax, edi; ret`, both ways                |
+//! | `[u8; 4] -> Option<Small>` (`repr(Rust)`, direct tag) | the tag, one `cmp` for the `bool`, 13 instructions |
+//! | `u8 -> Option<Choice>` (a union of `bool`, `u8in`)    | one `cmp cl, 4`, 7 instructions               |
+//! | `&[u8] -> Option<&Ipv6>` (a walk, two checksums)      | 207 instructions, no call                     |
+//! | `head_ref::<Ipv6, [u8; 40]>`                          | `mov rax, rdi; ret`                           |
+//! | `tail_ref::<[u32; 4], u32>`                           | `lea rax, [rdi + 12]; ret`                    |
+//! | `from_head::<Position>(&[u8])`                        | the size, one `cmp` for the `bool`, 7 instructions |
+//! | `from_head::<Udp>(&[u8])` (a size in the value)       | 15 instructions                               |
+//! | `from_tail::<Trailer>(&[u8])` (an enum, a magic)      | the size, `bt`, one `cmp`, 18 instructions, no loop |
+//! | `view_ref::<Old, New>` (recursive, with pointers)     | `mov rax, rdi; ret`                           |
+//! | `view_ref::<[Old], [New]>`                            | `mov rdx, rsi; mov rax, rdi; ret`             |
+//! | `try_view_ref::<Maybe, Owned>` (checks a pointer)     | one `cmp dword ptr [rdi + 4], 0`, 4 instructions |
+//!
+//! A count is not a time. The check of a slice of `bool`s takes 64 bytes at a time with no branch
+//! inside a block. It has more instructions than a loop of one `cmp` per byte that stops at the
+//! first invalid byte, and takes a fraction of its time on a long slice. `benches/checks.rs` times
+//! the checks next to the same checks written by hand.
+//!
+//! The example requires the `unstable` feature, since some of its types have a layout that Rust
+//! leaves to the compiler (`Ticket`, `Small` and a tuple). `main` is empty, because the example is
+//! compiled to be read, not run.
 #![expect(
   clippy::no_mangle_with_rust_abi,
   reason = "the code of the Rust ABI is what is measured; `no_mangle` only names it in the assembly"
@@ -88,7 +137,8 @@ pub struct Ipv4<P: ?Sized + Pun = [u8]> {
 #[repr(C)]
 #[pun(size = payload_length + 40)]
 #[pun(assert({
-  // What a header is in the high 64 bits, where it starts in the low ones: two registers.
+  // The state holds the kind of a header in its high 64 bits and its offset in its low 64 bits,
+  // so each is one register.
   let upper = walk(
     (next_header << 64) + 40,
     |at| { let kind = at >> 64; kind == 0 || kind == 43 || kind == 60 },
@@ -112,7 +162,7 @@ pub struct Ipv6 {
   pub data: [u8],
 }
 
-/// A trailer: a kind, and a magic number.
+/// A trailer of a kind and a magic number, which `back_trailer` reads from the end of bytes.
 #[derive(Pun)]
 #[repr(C)]
 pub struct Trailer {
@@ -136,15 +186,26 @@ pub enum Drawing {
   Line(u8, u8) = 9,
 }
 
-/// Self-relative pointers, declared as a crate of its own would: an offset of 4 bytes,
-/// little-endian, of no alignment. No value of them is made here, only the views are compiled.
+/// Declares self-relative pointers through the public API, as another crate would.
+///
+/// Each pointer is a little-endian offset of 4 bytes, aligned to 1 byte. No value of these
+/// pointers is made, since only the code of the views is compiled.
 macro_rules! pointers {
   ($($(#[$doc:meta])* $name:ident[$($param:ident)?] $target:ty, $pointer:expr;)+) => {$(
     $(#[$doc])*
     #[repr(transparent)]
     pub struct $name<$($param)?>(i32le, PhantomData<($($param,)?)>);
 
-    // SAFETY: the type is its offset, a byte array; no value of it is made.
+    // SAFETY: Each requirement of `SelfRelative` holds:
+    // - The type is its offset: it is `repr(transparent)` over an `i32le`, a byte array, every
+    //   byte of which is initialized, and none in an `UnsafeCell`. Every value is an offset.
+    // - The scheme is the way to the target: only this file declares types of `SCHEME`, and
+    //   nothing follows them.
+    // - What it aims at is there, valid, and its own, and Null: no value of the type is made, so
+    //   there is no pointer.
+    // - The target is the type: each use of the macro makes `POINTER` for its `Target`, by
+    //   `Pointer::one`, `Pointer::sequence` or `Pointer::text`.
+    // - Nothing follows a pointer, so nothing relies on more.
     unsafe impl<$($param: Pun)?> SelfRelative for $name<$($param)?> {
       type Target = $target;
       const POINTER: Pointer = $pointer;
@@ -156,23 +217,26 @@ macro_rules! pointers {
 
 const SCHEME: &str = "codegen";
 
-/// The alignment of the first element of a sequence of `T`.
+/// Returns the alignment of the first element of a sequence of `T`, the larger of 4 and the
+/// alignment of `T`.
 const fn first<T>() -> usize {
   if align_of::<T>() > 4 { align_of::<T>() } else { 4 }
 }
 
 pointers! {
-  /// To one `T`.
+  /// A pointer to one `T`.
   Rel[T] T, Pointer::one::<T>(SCHEME, 4, Endian::Little);
-  /// To one `T`, or none.
+  /// A pointer to one `T`, or a null pointer.
   RelOpt[T] T, Pointer::one::<T>(SCHEME, 4, Endian::Little).or_null();
-  /// To a sequence of `T`, at least 4-aligned.
+  /// A pointer to a sequence of `T`, whose first element is aligned to at least 4 bytes.
   RelSeq[T] T, Pointer::sequence::<T>(SCHEME, 4, Endian::Little, first::<T>());
-  /// To text.
+  /// A pointer to text.
   RelStr[] (), Pointer::text(SCHEME, 4, Endian::Little);
 }
 
-/// An expression, and the next version of it: a `bool` read as a `u8`, one more variant.
+/// An expression of a schema, which `view_new` views as its next version, [`New`].
+///
+/// [`New`] reinterprets the `bool` of `Leaf` as a `u8`, and has one more variant, `Pair`.
 #[derive(Pun)]
 #[repr(u8)]
 pub enum Old {
@@ -190,7 +254,8 @@ pub enum New {
   Pair(Rel<New>, Rel<New>),
 }
 
-/// A pointer that may be null, read as one that is not.
+/// A record whose pointer may be null, which `try_view_owned` views as an [`Owned`] after it
+/// checks that the pointer is not null.
 #[derive(Pun)]
 #[repr(C)]
 pub struct Maybe {
@@ -271,8 +336,9 @@ pub fn drawing_shape(d: &Drawing) -> Option<&Shape> {
 pub fn bytes_shape(b: &[u8; 4]) -> Option<Shape> {
   try_pun(*b).ok()
 }
-// Enums without `repr`: a niche, proven both ways (every `u32` is a `Ticket`); a direct tag,
-// checked: the tag, then what its variant requires.
+// Two enums of the `Rust` representation. `Ticket` has a niche, and the pun is proven both ways,
+// since every `u32` is a `Ticket`. `Small` has a direct tag, and the pun is checked: the tag first,
+// then what its variant requires.
 #[derive(Pun, Clone, Copy)]
 pub enum Ticket {
   Free,
@@ -314,7 +380,8 @@ pub fn ipv6(b: &[u8]) -> Option<&Ipv6> {
   try_pun_ref(b).ok()
 }
 
-// Parts: the first bytes of a value are where it is, the last an addition away.
+// Parts. The first bytes of a value start at its address, and the last bytes start at that address
+// plus a constant.
 #[unsafe(no_mangle)]
 pub const fn ipv6_header(p: &Ipv6) -> &[u8; 40] {
   head_ref(p)
@@ -348,7 +415,7 @@ pub fn try_view_owned(maybe: &Maybe) -> Option<&Owned> {
   puns::try_view_ref(maybe).ok()
 }
 
-/// A packet of a protocol, whose payload is a typed region of its bytes, as `Ipv4` in the README.
+/// A packet whose payload is a typed region of its bytes, like `Ipv4` in `ethernet.rs`.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = 4 + length)]

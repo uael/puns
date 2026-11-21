@@ -1,6 +1,7 @@
-//! Rules proven by the same rules, in another struct: a packet of a protocol read as a packet of
-//! any protocol (as `Frame<Ipv4<Udp>> -> Frame<Ipv4>` of `examples/ethernet.rs`), whole, through a
-//! `&mut`, from its end, and in an array. Next to it in `compile-fail/`: `same_rule_other_extent`.
+//! Rules proven by the same rules, in another struct: a packet of a protocol reinterpreted as a
+//! packet of any protocol (as `Frame<Ipv4<Udp>> -> Frame<Ipv4>` of `examples/ethernet.rs`), whole,
+//! through a `&mut`, from its end, and in an array. Next to it in `compile-fail/`:
+//! `same_rule_other_extent`.
 use puns::{
   Pun, Tag,
   num::{u8c, u16be},

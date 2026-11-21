@@ -1,5 +1,5 @@
-//! `try_view_ref` checks the value, not what it points to: behind a pointer, a `u8` is not read
-//! as a `bool`.
+//! `try_view_ref` checks the value, not what it points to: behind a pointer, a `u8` is not
+//! reinterpreted as a `bool`.
 #[path = "../support/relative.rs"]
 #[allow(dead_code)]
 mod relative;

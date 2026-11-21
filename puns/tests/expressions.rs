@@ -1,9 +1,11 @@
-//! An expression of `#[pun(..)]` means what the same Rust expression means, where every integer
-//! is a `u128`: each test is a case where it did not.
+//! Tests that an expression of `#[pun(..)]` means what the same Rust expression means when every
+//! integer is a `u128`.
+//!
+//! Each test is a regression test for a case where the two meanings differed.
 
 use puns::{Pun, num::u16be, try_pun_ref};
 
-/// `as` truncates, as in Rust.
+/// A struct whose rules use `as`, which truncates as it does in Rust.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert((a + b) as u8 == 0))]
@@ -22,7 +24,8 @@ fn casts_truncate() {
   assert!(try_pun_ref::<_, Cast>(&[1u8, 254]).is_err());
 }
 
-/// A length in a field, rounded up to a multiple of 4.
+/// A struct whose data is as long as its `length` field, rounded up to a multiple of 4. The
+/// rounding uses `!`, which is bitwise, as in Rust.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = 4 + ((length + 3) & !3))]
@@ -38,7 +41,8 @@ fn not_of_an_integer_is_bitwise() {
   assert_eq!((padded.kind.get(), padded.data.len(), rest), (1, 8, &[9][..]));
 }
 
-/// Constants are unsigned integers, of any type, read as `u128`s; `b'a'` is one.
+/// A constant that a rule names. In a rule, a constant of any unsigned integer type is read as a
+/// `u128`, and so is a byte literal such as `b'a'`.
 const SMALL: u8 = 0xff;
 const WIDE: u64 = 0x1_0000_0000;
 
@@ -51,6 +55,24 @@ struct Constants {
   x: u8,
 }
 
+/// A `const fn` that a rule calls with constants, by its path. Rust computes the call.
+const fn twice(n: u8) -> u8 {
+  n * 2
+}
+
+#[derive(Pun)]
+#[repr(C)]
+#[pun(assert(x < self::twice(2) && x < crate::twice(3)))]
+struct Called {
+  x: u8,
+}
+
+#[test]
+fn a_const_fn_is_called_by_its_path() {
+  assert!(puns::from_bytes::<Called>(&[3]).is_ok());
+  assert!(puns::from_bytes::<Called>(&[4]).is_err());
+}
+
 #[test]
 fn constants_are_unsigned_integers() {
   assert!(puns::from_bytes::<Constants>(&[1]).is_ok());
@@ -59,8 +81,10 @@ fn constants_are_unsigned_integers() {
   assert!(puns::from_bytes::<Constants>(&[0xff]).is_err());
 }
 
-/// `<<` drops the bits shifted out, as Rust does; a shift by 128 or more fails, where Rust would
-/// panic (or, without debug assertions, shift by the amount modulo 128).
+/// A struct whose rule shifts by a field. `<<` drops the bits shifted out, as in Rust.
+///
+/// A shift by 128 or more fails the rule. Rust panics there with debug assertions, and shifts by
+/// the amount modulo 128 without them.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert((x << 127) << 1 == 0 && x << y > 0 && x >> y < 0x100))]
@@ -79,8 +103,10 @@ fn shifts_drop_bits_and_fail_beyond_the_width() {
   assert!(puns::from_bytes::<Shifts>(&[0xff, 200]).is_err());
 }
 
-/// `&&` and `||` compute their left side first, as Rust does: the right side is only computed if
-/// the left one does not decide, and what fails on the left fails.
+/// A struct whose rules depend on the order of evaluation of `&&` and `||`.
+///
+/// As in Rust, the left operand is evaluated first. The right operand is evaluated only if the
+/// left one does not decide the result. A failure in the left operand fails the rule.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(be(1, 2) == 0xcafe || self.0 != 7))]
@@ -99,8 +125,8 @@ fn and_or_compute_the_left_side_first() {
   assert!(puns::from_bytes::<LeftFirst>(&[8, 0xca, 0xfe]).is_ok());
 }
 
-/// A name that ends with a zero, and whose end matters only for some flags: what a `let` binds is
-/// computed, whether it is used or not, as in Rust.
+/// A name that ends with a zero byte, whose end the rule needs only for some flags. As in Rust,
+/// the expression that a `let` binds is evaluated whether the binding is used or not.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert({
@@ -112,7 +138,8 @@ struct Named {
   name: [u8],
 }
 
-/// A `let` in the branch of an `if` that is not taken is not computed.
+/// A struct whose rule has a `let` in a branch of an `if`. The `let` is not evaluated when its
+/// branch is not taken.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(if flags & 4 != 0 { let x = be(1, 1); x == 0 } else { true }))]
@@ -121,8 +148,8 @@ struct Branch {
   rest: [u8],
 }
 
-/// `let`s that the value does not need, which may or may not fail: `x - 1` and `x / y` may, `x +
-/// 40` cannot (`x` is a byte).
+/// A struct whose rule binds values that it does not need. `x - 1` and `x / y` can fail, and
+/// `x + 40` cannot, because `x` is a byte.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert({ let less = x - 1; let ratio = x / y; let more = x + 40; x == 0 || less + ratio + more > 0 }))]
@@ -146,7 +173,8 @@ fn what_a_let_binds_is_computed() {
   assert!(puns::from_bytes::<Branch>(&[4]).is_err());
 }
 
-/// A netmask: ones, then zeros. The walk takes a step per bit, more than the value has bytes.
+/// A netmask, which is ones followed by zeros. Its walk takes a step per bit, more steps than the
+/// value has bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert({
@@ -165,8 +193,8 @@ fn a_walk_takes_a_step_per_bit() {
   assert!(puns::from_bytes::<Netmask>(&[0xff, 0xff, 0, 0xff]).is_err());
 }
 
-/// What fails in an expression of a walk fails the walk, wherever it is computed: here above
-/// what the step would otherwise be (`at + 1`), which alone would end the walk at `4`.
+/// A struct whose walk fails in its step. A failure in any expression of a walk fails the walk.
+/// Here the step adds a term that can fail to `at + 1`, which alone would end the walk at `4`.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(walk(0, |at| at < 4, |at| at + 1 + be(at + 1, 1) * 0) == 4))]
@@ -175,7 +203,7 @@ struct FailingStep {
   rest: [u8],
 }
 
-/// The same, in the condition.
+/// A struct whose walk fails in its condition, as `FailingStep` fails in its step.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(walk(0, |at| at + be(at, 1) * 0 < 4, |at| at + 1) == 4))]
@@ -184,8 +212,10 @@ struct FailingCondition {
   rest: [u8],
 }
 
-/// A walk that is not computed does not fail: here walks that read past the value, on the right
-/// of a `||` (as the first walk of a rule, and as a second one) and in the branch of an `if`.
+/// A struct whose rules hold walks that read past the value when they are evaluated.
+///
+/// A walk that is not evaluated does not fail. The walks are on the right of a `||`, as the first
+/// walk of a rule and as a second one, and in a branch of an `if`.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(kind != 1 || walk(0, |at| be(at, 1) != 0, |at| at + 1) > 0))]
@@ -214,7 +244,8 @@ fn a_walk_fails_where_its_expressions_do() {
   assert!(puns::from_bytes::<FailingCondition>(&[0; 4]).is_err());
 }
 
-/// Getters are Rust, where an integer field, wherever it is named, is its value as a `u128`.
+/// A struct whose getters are Rust expressions. In a getter, an integer field is its value as a
+/// `u128`, wherever it is named.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(get(
@@ -228,7 +259,7 @@ struct Getters {
   bits: puns::num::u64le,
 }
 
-/// A getter over a field of a generic type, which is not `Copy`.
+/// A struct with a getter over a field of a generic type, which is not known to be `Copy`.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(get(is_two: bool = kind == 2))]
@@ -248,8 +279,8 @@ fn getters_are_rust() {
   assert!(!puns::from_bytes::<Generic<u8>>(&[3]).unwrap().is_two());
 }
 
-/// Bounds that the derive needs, written by the user: they are not repeated, which clippy would
-/// see (`trait_duplication_in_bounds`).
+/// A struct whose parameters have the bounds that the derive needs. The derive does not repeat
+/// these bounds, or clippy would report `trait_duplication_in_bounds`.
 #[derive(Pun)]
 #[repr(C)]
 struct Bounded<T: Pun, U>
@@ -280,7 +311,8 @@ fn bounds_are_not_repeated() {
   }
 }
 
-/// A parameter that only a typed region names is used by a `PhantomData`, as Rust requires.
+/// A struct whose parameter only a typed region names. A `PhantomData` field uses the parameter,
+/// as Rust requires.
 #[derive(Pun)]
 #[repr(C)]
 struct Packet<P: ?Sized + Pun> {

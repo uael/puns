@@ -1,17 +1,47 @@
 error: `len` is an option of the last field of a struct, not of a struct
- --> tests/compile-fail/misplaced_options.rs:5:7
+ --> tests/compile-fail/misplaced_options.rs:6:7
   |
-5 | #[pun(len = count)]
+6 | #[pun(len = count)]
   |       ^^^
 
 error: `size` is an option of a struct, not of a field
-  --> tests/compile-fail/misplaced_options.rs:14:9
+  --> tests/compile-fail/misplaced_options.rs:15:9
    |
-14 |   #[pun(size = 4)]
+15 |   #[pun(size = 4)]
    |         ^^^^
 
-error: `assert` is an option of a struct, not of an enum
-  --> tests/compile-fail/misplaced_options.rs:21:7
+error: `assert` is an option of a struct, not of an enum without fields
+  --> tests/compile-fail/misplaced_options.rs:22:7
    |
-21 | #[pun(assert(true))]
+22 | #[pun(assert(true))]
    |       ^^^^^^
+
+error: `bound` is an option of a struct, an enum with fields that is not a view, or a union, not of an enum without fields
+  --> tests/compile-fail/misplaced_options.rs:30:7
+   |
+30 | #[pun(bound(T: Copy))]
+   |       ^^^^^
+
+error: `bound` is an option of a struct, an enum with fields that is not a view, or a union, not of a view
+  --> tests/compile-fail/misplaced_options.rs:36:7
+   |
+36 | #[pun(bound(T: puns::Pun))]
+   |       ^^^^^
+
+error: `valid` is an option of a field, not of a variant
+  --> tests/compile-fail/misplaced_options.rs:45:9
+   |
+45 |   #[pun(valid(0..=3))]
+   |         ^^^^^
+
+error: `valid` is an option of a field, not of a field of a view
+  --> tests/compile-fail/misplaced_options.rs:51:15
+   |
+51 |   Bytes(#[pun(valid(0..=3))] &'a [u8]),
+   |               ^^^^^
+
+error: `size` is given twice
+  --> tests/compile-fail/misplaced_options.rs:57:7
+   |
+57 | #[pun(size = 4)]
+   |       ^^^^

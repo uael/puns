@@ -1,4 +1,5 @@
-//! Parts of a value: its first bytes (`head`), its last bytes (`tail`).
+//! Tests the parts of a value, its first bytes (`head`) and its last bytes (`tail`), by value, by
+//! reference, by mutable reference and in `const`.
 
 use puns::{Pun, head, head_mut, head_ref, num::u16be, pun_ref, tail, tail_mut, tail_ref};
 
@@ -19,7 +20,7 @@ enum Shape {
   Rect(u8, bool),
 }
 
-/// A rule over two bytes.
+/// A struct with a rule over its two bytes.
 #[derive(Pun, Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 #[pun(assert(a != b))]
@@ -28,7 +29,7 @@ struct Distinct {
   b: u8,
 }
 
-/// Something that ends with a rule.
+/// A struct whose last field has a rule.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 struct Framed {
@@ -76,7 +77,7 @@ fn head_and_tail_in_const() {
   assert_eq!((*LAST, PAIR, FIRST), (3, [2, 3], [1, 2]));
 }
 
-/// A header, then a payload that nothing else depends on.
+/// A struct with a header, then a payload that nothing else depends on.
 #[derive(Pun, Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 struct Message {

@@ -1,5 +1,5 @@
-//! A pointer is read as a pointer of the same scheme: another crate may find its target another
-//! way, from the same bytes.
+//! A pointer is reinterpreted as a pointer of the same scheme: another crate may find its target
+//! another way, from the same bytes.
 #[path = "../support/relative.rs"]
 #[allow(dead_code)]
 mod relative;
@@ -16,7 +16,7 @@ use relative::One;
 #[repr(transparent)]
 struct Other<T>(i32le, PhantomData<T>);
 
-// SAFETY: the type is its offset; no value of it is made.
+// SAFETY: The type is its `i32le` offset, of a scheme of its own, and no value of it is made.
 unsafe impl<T: Pun> SelfRelative for Other<T> {
   type Target = T;
   const POINTER: Pointer = Pointer::one::<T>("another scheme", 4, Endian::Little);

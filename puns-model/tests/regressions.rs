@@ -1,21 +1,29 @@
-//! Verdicts of the analysis that the soundness audit found wrong, as they must be now.
+//! Tests that the analysis does not take a requirement for a guarantee, and does not check a rule
+//! over padding.
+//!
+//! These are regression tests of verdicts of the analysis.
 #![expect(dead_code, reason = "the types are only analysed, never made")]
 
 use puns::{Pun, hook::verdict};
 
+/// An enum whose field has a requirement, `valid(0..=1)`.
 #[derive(Pun, Clone, Copy)]
 #[repr(u8)]
 enum SoftEnum {
   V(#[pun(valid(0..=1))] u8),
 }
 
+/// An enum whose field is a `bool`, which guarantees what `SoftEnum` requires.
 #[derive(Pun, Clone, Copy)]
 #[repr(u8)]
 enum HardEnum {
   V(bool),
 }
 
-/// `Layout::equals` compared what scalars require, not what they are known to be.
+/// Checks that two enums are not equal for the analysis when one requires what the other
+/// guarantees.
+///
+/// `Layout::equals` must compare what the scalars are guaranteed to be, not what they require.
 #[test]
 fn soft_enum_is_not_hard_enum() {
   let v = const { verdict::<SoftEnum, HardEnum>() };
@@ -25,6 +33,7 @@ fn soft_enum_is_not_hard_enum() {
   assert!(const { verdict::<SoftEnum, SoftEnum>() }.pun);
 }
 
+/// A struct with a rule that reads its byte of padding.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(le(1, 1) == 0))]
@@ -33,6 +42,7 @@ struct ReadsPadding {
   b: u16,
 }
 
+/// A struct with the fields of `ReadsPadding`, and no rule.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 struct Plain {
@@ -40,20 +50,24 @@ struct Plain {
   b: u16,
 }
 
+/// An enum that holds a `ReadsPadding`.
 #[derive(Pun, Clone, Copy)]
 #[repr(u8)]
 enum HoldsReadsPadding {
   A(ReadsPadding),
 }
 
+/// An enum that holds a `Plain`.
 #[derive(Pun, Clone, Copy)]
 #[repr(u8)]
 enum HoldsPlain {
   A(Plain),
 }
 
-/// A rule that reads the bytes of the value read the padding of the source (Miri: "using
-/// uninitialized data").
+/// Checks that a rule that reads the bytes of the value is not checked over padding of the
+/// source.
+///
+/// Such a check would read uninitialized bytes, which Miri reports as "using uninitialized data".
 #[test]
 fn a_rule_that_reads_padding_needs_it_initialized() {
   let v = const { verdict::<Plain, ReadsPadding>() };

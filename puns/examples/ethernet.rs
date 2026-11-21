@@ -1,39 +1,54 @@
-//! Ethernet, in safe Rust, with nothing but `#[derive(Pun)]` and its options.
+//! Ethernet frames and the packets they carry, declared with `#[derive(Pun)]` and read in place
+//! from bytes.
 //!
-//! The first half of this file is all there is to Ethernet here: type declarations. There is no
-//! `unsafe`, no `impl`, no parsing code, no dispatch and no size computation. The second half
-//! uses them: frames are read in place, from bytes.
+//! The first half of this file declares types, and nothing else in it describes Ethernet. The file
+//! has no `unsafe`, no `impl`, no parsing code, no code that chooses a type from an EtherType, and
+//! no size computation. The second half reads frames in place from bytes, in safe Rust.
 //!
-//! Any other EtherType, protocol or header is one more declaration of the same kind: what it is
-//! made of, and the `tag` it comes with.
+//! Another EtherType, protocol or header is one more declaration of the same kind. It says what
+//! the header is made of, and which `tag` comes with it.
 //!
-//! What is specific to Ethernet, and what tells it:
+//! The following table lists what is specific to Ethernet, and what in the declarations
+//! expresses it:
 //!
-//! | Specificity                                          | Told by                                |
-//! |------------------------------------------------------|----------------------------------------|
-//! | big-endian fields                                    | `u16be`                                |
-//! | the EtherType tells the type of the payload          | `tag(EtherType = u16bec<0x0800>)`      |
-//! | an EtherType is at least `0x0600`                    | `valid(0x0600..)`                      |
-//! | below `1500`, it is the length of the payload        | `valid(..=1500)`, `regions(..)`        |
-//! | frames are 60 to 1514 bytes, padded if needed        | `assert(size_of_val(self) >= 60 ..)`   |
-//! | the frame check sequence: 4 last bytes, a CRC-32     | `regions(..)`, `assert(crc32(..) ..)`  |
-//! | the preamble and the start frame delimiter           | `[u8c<0x55>; 7]`, `u8c<0xd5>`          |
-//! | LLC and SNAP headers                                 | `u8c<0xaa>`                            |
-//! | 802.1Q tags, nested or not                           | a payload that has a payload           |
-//! | bit fields (VLAN identifier, IPv4 header length)     | `get(..)`, `assert(..)`, `valid(..)`   |
-//! | the size of an IPv4 packet is in its header          | `size = total_length`                  |
-//! | IPv4 options, whose size is in the header too        | `regions(options = .., payload)`       |
-//! | the checksum of the IPv4 header                      | `assert(sum16(..) == 0xffff)`          |
-//! | the checksums of UDP and TCP, over the IP addresses  | `assert(.. sum16(12, 20) + ..)`        |
-//! | the bits of a MAC address (group, local)             | `get(multicast: bool = ..)`            |
-//! | a frame carries more bytes than its packet (padding) | `from_head` returns what remains          |
-//! | the protocol of a packet tells what it carries       | `tag(Protocol = u8c<17>)`              |
-//! | IPv6 extension headers, chained by "next header"     | a payload that has a payload           |
-//! | the checksums of UDP and TCP behind such a chain     | `assert({ let .. = walk(..); .. })`    |
-//! | a checksum over a whole message (ICMP)               | `assert(sum16(0, size_of_val(self)))`  |
-//! | label stacks, sessions, lengths in other units       | `get(..)`, `size = length * 8 + ..`    |
-//! | a frame is one thing or another                      | an enum of references ([`AnyFrame`])   |
-#![deny(unsafe_code)]
+//! | Specific to Ethernet                                | Declared with                         |
+//! |-----------------------------------------------------|---------------------------------------|
+//! | big-endian fields                                   | `u16be`                               |
+//! | the EtherType says what the payload is              | `tag(EtherType = u16bec<0x0800>)`     |
+//! | an EtherType is at least `0x0600`                   | `valid(0x0600..)`                     |
+//! | up to `1500`, the length of the payload             | `valid(..=1500)`, `regions(..)`       |
+//! | a frame has 60 to 1514 bytes, padded if shorter     | `assert(size_of_val(self) >= 60 ..)`  |
+//! | the frame check sequence, a CRC-32 at the end       | `regions(..)`, `assert(crc32(..) ..)` |
+//! | the preamble and the start frame delimiter          | `[u8c<0x55>; 7]`, `u8c<0xd5>`         |
+//! | LLC and SNAP headers                                | `u8c<0xaa>`                           |
+//! | 802.1Q tags, nested or not                          | a payload that has a payload          |
+//! | bit fields (VLAN identifier, IPv4 header length)    | `get(..)`, `assert(..)`, `valid(..)`  |
+//! | the size of an IPv4 packet, in its header           | `size = total_length`                 |
+//! | IPv4 options, whose size is in the header too       | `regions(options = .., payload)`      |
+//! | the checksum of the IPv4 header                     | `assert(sum16(..) == 0xffff)`         |
+//! | the checksums of UDP and TCP, over the IP addresses | `assert(.. sum16(12, 20) + ..)`       |
+//! | the bits of a MAC address (group, local)            | `get(multicast: bool = ..)`           |
+//! | a frame longer than its packet                      | `from_head` returns the rest          |
+//! | the protocol of a packet says what it carries       | `tag(Protocol = u8c<17>)`             |
+//! | IPv6 extension headers, chained by "next header"    | a payload that has a payload          |
+//! | the checksums of UDP and TCP behind such a chain    | `assert({ let .. = walk(..); .. })`   |
+//! | a checksum over a whole message (ICMP)              | `assert(sum16(0, ..) == 0xffff)`      |
+//! | label stacks, sessions, lengths in other units      | `get(..)`, `size = length * 8 + ..`   |
+//! | a frame that is one of several kinds                | an enum of references ([`AnyFrame`])  |
+//!
+//! The following are not covered:
+//!
+//! - The options of TCP and of the IPv6 hop-by-hop header are a region of bytes. No rule reads
+//!   them, so a wrong option is not an error.
+//! - A fragment is not the whole of what is carried, so it has no checksum to check. Putting the
+//!   fragments back together makes a copy, not a view of the bytes.
+//! - What is encrypted cannot be read, so the checksums of IPv6 are not checked behind it.
+//!
+//! `main` reads frames of each kind from bytes and asserts their fields, regions and getters. Some
+//! conversions are proven, and use [`pun_ref`], such as an ARP frame reinterpreted as bytes. `main`
+//! also changes bytes, such as an EtherType, a size or a checksum, and asserts the [`Error`] that
+//! the read then returns. Last, it tells frames apart with [`AnyFrame`], and prints `ok`.
+#![forbid(unsafe_code)]
 
 use puns::{
   Error, Pun, Tag, from_head,
@@ -54,16 +69,20 @@ use puns::{
 ))]
 pub struct Mac(pub u48be);
 
-/// An EtherType, when what it tells is not known: values up to 1500 are not one, but a length
-/// (see [`Frame8023`]).
+/// An EtherType whose meaning is not known.
 ///
-/// A payload tells the EtherType it comes with by `#[pun(tag(EtherType = ..))]`.
+/// An EtherType is at least `0x0600`. In an IEEE 802.3 frame, a value up to 1500 in its place is
+/// the length of the payload (see [`Frame8023`]).
+///
+/// A payload declares its EtherType with `#[pun(tag(EtherType = ..))]`.
 #[derive(Pun, Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct EtherType(#[pun(valid(0x0600..))] pub u16be);
 
-/// An Ethernet II frame, without preamble nor frame check sequence. Its payload is bytes, of any
-/// EtherType, unless told: a `Frame<Ipv4>` is a frame whose EtherType is the one of IPv4.
+/// An Ethernet II frame, without its preamble or its frame check sequence.
+///
+/// By default, the payload is bytes, of any EtherType. A `Frame<Ipv4>` is a frame whose EtherType
+/// is the one of IPv4, and whose payload is an [`Ipv4`] packet.
 #[derive(Pun)]
 #[repr(C)]
 pub struct Frame<P: ?Sized + Tag<EtherType> = [u8]> {
@@ -73,7 +92,7 @@ pub struct Frame<P: ?Sized + Tag<EtherType> = [u8]> {
   pub payload: P,
 }
 
-/// A frame as it is on the wire: 60 to 1514 bytes, padded if needed.
+/// A frame as it is on the wire, of 60 to 1514 bytes, padded if it would be shorter.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(size_of_val(self) >= 60 && size_of_val(self) <= 1514))]
@@ -84,8 +103,10 @@ pub struct WireFrame {
   pub payload: [u8],
 }
 
-/// A frame with its frame check sequence: its 4 last bytes, which are the CRC-32 of what is
-/// before them, least significant byte first.
+/// A frame with its frame check sequence.
+///
+/// The frame check sequence is the last 4 bytes. It is the CRC-32 of the bytes before it, least
+/// significant byte first.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(size_of_val(self) >= 64 && size_of_val(self) <= 1518))]
@@ -98,7 +119,7 @@ pub struct CheckedFrame {
   pub data: [u8],
 }
 
-/// A frame as it is on the medium: a preamble, a start frame delimiter, the frame and its
+/// A frame as it is on the medium, after a preamble and a start frame delimiter, with its frame
 /// check sequence.
 #[derive(Pun)]
 #[repr(C)]
@@ -108,7 +129,9 @@ pub struct Packet {
   pub frame: CheckedFrame,
 }
 
-/// An IEEE 802.3 frame: no EtherType, but the length of the payload, which is then padded.
+/// An IEEE 802.3 frame, which has the length of its payload in place of an EtherType.
+///
+/// The bytes after the payload, up to the end of the frame, are the region `padding`.
 #[derive(Pun)]
 #[repr(C)]
 pub struct Frame8023 {
@@ -120,7 +143,7 @@ pub struct Frame8023 {
   pub data: [u8],
 }
 
-/// LLC and SNAP headers: an EtherType in an 802.3 frame.
+/// LLC and SNAP headers, which carry an EtherType in an 802.3 frame.
 #[derive(Pun)]
 #[repr(C)]
 pub struct Snap<P: ?Sized + Tag<EtherType> = [u8]> {
@@ -132,20 +155,25 @@ pub struct Snap<P: ?Sized + Tag<EtherType> = [u8]> {
   pub payload: P,
 }
 
-/// An IEEE 802.1Q tag, and what follows it: a payload that has a payload.
+/// An IEEE 802.1Q tag, and the payload that follows it.
+///
+/// A `Vlan` is a payload that has a payload of its own, such as an [`Ipv4`] packet or another
+/// `Vlan`.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(EtherType = u16bec<0x8100>))]
 #[pun(get(priority: u8 = tci >> 13, drop_eligible: bool = tci & 0x1000 != 0, id: u16 = tci & 0x0fff))]
 #[pun(assert((tci & 0x0fff) != 0x0fff))]
 pub struct Vlan<P: ?Sized + Tag<EtherType> = [u8]> {
-  /// Priority (3 bits), drop eligible (1 bit), VLAN identifier (12 bits, `0xfff` is reserved).
+  /// The priority (3 bits), the drop eligible indicator (1 bit) and the VLAN identifier (12 bits).
+  ///
+  /// The identifier `0xfff` is reserved, and a rule of `Vlan` excludes it.
   pub tci: u16be,
   pub ether_type: P::Tag,
   pub payload: P,
 }
 
-/// An IEEE 802.1ad service tag: the outer tag of "Q-in-Q".
+/// An IEEE 802.1ad service tag, the outer tag of "Q-in-Q".
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(EtherType = u16bec<0x88a8>))]
@@ -159,15 +187,16 @@ pub struct ServiceVlan<P: ?Sized + Tag<EtherType> = [u8]> {
 // -------------------------------------------------------------------------------------------------
 // ARP
 
+/// The operation of an ARP message, a request or a reply, in network byte order.
 #[derive(Pun, Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u16)]
 pub enum Operation {
-  // The values an `u16` has in memory when it is big-endian on the wire.
+  // The values that a `u16` has in memory when it is big-endian on the wire.
   Request = 1u16.to_be(),
   Reply = 2u16.to_be(),
 }
 
-/// ARP, for IPv4 over Ethernet.
+/// An ARP message, for IPv4 over Ethernet.
 #[derive(Pun, Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C, packed)]
 #[pun(tag(EtherType = u16bec<0x0806>))]
@@ -184,7 +213,9 @@ pub struct Arp {
 // -------------------------------------------------------------------------------------------------
 // IPv4
 
-/// An IPv4 packet: its size is in its header, and so is the size of its options.
+/// An IPv4 packet.
+///
+/// The header holds the size of the packet and the size of its options.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(EtherType = u16bec<0x0800>))]
@@ -209,7 +240,8 @@ pub struct Arp {
   fragment_offset: u16 = flags_fragment_offset & 0x1fff,
 ))]
 pub struct Ipv4<P: ?Sized + Tag<Protocol> = [u8]> {
-  /// Version (4 bits, 4), then the length of the header in 32 bits words (4 bits, at least 5).
+  /// The version (4 bits, always 4), then the length of the header in 32-bit words (4 bits, at
+  /// least 5).
   #[pun(valid(0x45..=0x4f))]
   pub version_ihl: u8,
   pub type_of_service: u8,
@@ -225,23 +257,24 @@ pub struct Ipv4<P: ?Sized + Tag<Protocol> = [u8]> {
   pub data: [u8],
 }
 
-/// An IPv6 packet. Its extension headers are payloads that have a payload ([`HopByHop`],
-/// [`Routing`], [`Authentication`], [`Fragment`]).
+/// An IPv6 packet.
+///
+/// Its extension headers are payloads that have a payload of their own: [`HopByHop`],
+/// [`Routing`], [`Authentication`] and [`Fragment`].
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(EtherType = u16bec<0x86dd>))]
 #[pun(size = payload_length + 40)]
 #[pun(assert(version_class_flow >> 28 == 6))]
-// The checksum of UDP, of TCP and of ICMPv6, wherever they are: after the header, or after any
-// chain of extension headers, each of which tells what follows it and how long it is (in units
-// of 8 bytes that do not count the first 8; of 4 bytes for authentication). It is over the
-// addresses, the protocol and the size of what is carried, then over what is carried. (A fragment
-// is not the whole of what is carried, and what is encrypted cannot be read: the walk stops
-// there, on something that has no such checksum.)
+// The checksum of UDP, TCP and ICMPv6. Its protocol follows the header, or a chain of extension
+// headers. Each extension header gives the kind of the next header and its own size, in units of
+// 8 bytes after the first 8, or of 4 bytes for authentication. The checksum covers the addresses,
+// the protocol, the size of what is carried, and what is carried. The walk stops at a fragment or
+// at an encrypted payload, which have no such checksum.
 #[pun(assert({
-  // What a header is (the high 64 bits), and where it starts (the low 64 bits: a `u128` is two
-  // registers, which these read without a shift): down to the first one that is not an extension
-  // header.
+  // The state holds the kind of a header in its high 64 bits and its offset in its low 64 bits. A
+  // `u128` is two registers, so each half is read without a shift. The walk stops at the first
+  // header that is not an extension header.
   let upper = walk(
     (next_header << 64) + 40,
     |at| {
@@ -265,7 +298,7 @@ pub struct Ipv4<P: ?Sized + Tag<Protocol> = [u8]> {
   flow_label: u32 = version_class_flow & 0x000f_ffff,
 ))]
 pub struct Ipv6<P: ?Sized + Tag<Protocol> = [u8]> {
-  /// Version (4 bits, 6), traffic class (8 bits), flow label (20 bits).
+  /// The version (4 bits, always 6), the traffic class (8 bits) and the flow label (20 bits).
   pub version_class_flow: u32be,
   pub payload_length: u16be,
   pub next_header: P::Tag,
@@ -276,15 +309,17 @@ pub struct Ipv6<P: ?Sized + Tag<Protocol> = [u8]> {
   pub data: [u8],
 }
 
-/// The protocol of what an IP packet carries, when it is not known.
+/// The protocol of what an IP packet carries, when the protocol is not known.
 ///
-/// A payload tells the protocol it comes with by `#[pun(tag(Protocol = ..))]`.
+/// A payload declares its protocol with `#[pun(tag(Protocol = ..))]`.
 #[derive(Pun, Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct Protocol(pub u8);
 
-/// The hop-by-hop options of IPv6, and what follows them: an extension header, whose size is in
-/// its second byte, in units of 8 bytes that do not count the first 8.
+/// The hop-by-hop options of IPv6, and the payload that follows them.
+///
+/// This extension header has its size in its second byte, in units of 8 bytes, not counting the
+/// first 8 bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(Protocol = u8c<0>))]
@@ -295,7 +330,9 @@ pub struct HopByHop<P: ?Sized + Tag<Protocol> = [u8]> {
   pub data: [u8],
 }
 
-/// The routing header of IPv6, and what follows it: the same sizes as [`HopByHop`].
+/// The routing header of IPv6, and the payload that follows it.
+///
+/// Its size is given as for [`HopByHop`].
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(Protocol = u8c<43>))]
@@ -308,8 +345,9 @@ pub struct Routing<P: ?Sized + Tag<Protocol> = [u8]> {
   pub data: [u8],
 }
 
-/// The authentication header of IPsec, and what follows it: its size is in units of 4 bytes
-/// that do not count the first 8.
+/// The authentication header of IPsec, and the payload that follows it.
+///
+/// Its size is in units of 4 bytes, not counting the first 8 bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(Protocol = u8c<51>))]
@@ -332,13 +370,16 @@ pub struct Authentication<P: ?Sized + Tag<Protocol> = [u8]> {
 pub struct Fragment<P: ?Sized + Tag<Protocol> = [u8]> {
   pub next_header: P::Tag,
   pub reserved: u8,
-  /// Offset of the fragment in units of 8 bytes (13 bits), reserved (2 bits), "more" (1 bit).
+  /// The offset of the fragment in units of 8 bytes (13 bits), 2 reserved bits, and the "more
+  /// fragments" flag (1 bit).
   pub offset_flags: u16be,
   pub identification: u32be,
   pub payload: P,
 }
 
-/// An ICMP message: its checksum is the one of the whole message, whatever its size.
+/// An ICMP message.
+///
+/// Its checksum covers the whole message, whatever its size.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(Protocol = u8c<1>))]
@@ -351,8 +392,10 @@ pub struct Icmp {
   pub data: [u8],
 }
 
-/// An ICMPv6 message: its checksum also covers the addresses of the packet that carries it, so
-/// it is checked with that packet (see [`Ipv6`]).
+/// An ICMPv6 message.
+///
+/// Its checksum also covers the addresses of the packet that carries it. A rule of [`Ipv6`]
+/// checks it with that packet.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(Protocol = u8c<58>))]
@@ -363,7 +406,8 @@ pub struct Icmp6 {
   pub body: [u8],
 }
 
-/// An IPv4 option that has a length (all but "end of options" and "no operation").
+/// An IPv4 option that has a length, which is every option but "end of options" and "no
+/// operation".
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length)]
@@ -387,7 +431,9 @@ pub struct Udp {
   pub payload: [u8],
 }
 
-/// A TCP segment: the size of its header, options included, is in its header.
+/// A TCP segment.
+///
+/// The header holds its own size, options included.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(Protocol = u8c<6>))]
@@ -402,7 +448,7 @@ pub struct Tcp {
   pub destination_port: u16be,
   pub sequence: u32be,
   pub acknowledgment: u32be,
-  /// The size of the header in 32 bits words (4 bits), reserved (3 bits), flags (9 bits).
+  /// The size of the header in 32-bit words (4 bits), 3 reserved bits, and the flags (9 bits).
   pub offset_flags: u16be,
   pub window: u16be,
   pub checksum: u16be,
@@ -414,7 +460,9 @@ pub struct Tcp {
 // -------------------------------------------------------------------------------------------------
 // Other EtherTypes
 
-/// A MAC control frame that asks its peer to pause: an operation and a duration, padded.
+/// A MAC control frame that asks its peer to pause.
+///
+/// It holds an operation and a duration, then 42 zero bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(EtherType = u16bec<0x8808>))]
@@ -424,25 +472,29 @@ pub struct Pause {
   pub padding: [u8c<0>; 42],
 }
 
-/// An MPLS label stack entry, and what follows it: another entry, unless it is the bottom of
-/// the stack.
+/// An MPLS label stack entry, and what follows it.
+///
+/// Another entry follows, unless this entry is the bottom of the stack.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(EtherType = u16bec<0x8847>))]
 #[pun(get(label: u32 = entry >> 12, bottom: bool = entry & 0x100 != 0, time_to_live: u8 = entry & 0xff))]
 pub struct Mpls {
-  /// Label (20 bits), traffic class (3 bits), bottom of stack (1 bit), time to live (8 bits).
+  /// The label (20 bits), the traffic class (3 bits), the bottom of stack flag (1 bit) and the
+  /// time to live (8 bits).
   pub entry: u32be,
   pub payload: [u8],
 }
 
-/// A PPPoE session frame: the size of what it carries is in its header.
+/// A PPPoE session frame.
+///
+/// Its header holds the size of what it carries.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(EtherType = u16bec<0x8864>))]
 #[pun(size = length + 6)]
 pub struct Pppoe {
-  /// Version 1, type 1.
+  /// The version (4 bits, 1) and the type (4 bits, 1).
   pub version_type: u8c<0x11>,
   pub code: u8c<0>,
   pub session: u16be,
@@ -463,13 +515,13 @@ pub struct Eapol {
   pub body: [u8],
 }
 
-/// LLDP: a sequence of [`Tlv`]s.
+/// An LLDP data unit, a sequence of [`Tlv`]s.
 #[derive(Pun)]
 #[repr(transparent)]
 #[pun(tag(EtherType = u16bec<0x88cc>))]
 pub struct Lldp(pub [u8]);
 
-/// A type (7 bits), the length of a value (9 bits), and that value.
+/// An LLDP element: a type (7 bits), the length of a value (9 bits), and that value.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = (type_length & 0x01ff) + 2)]
@@ -480,9 +532,11 @@ pub struct Tlv {
 }
 
 // -------------------------------------------------------------------------------------------------
-// One thing or another
+// One of several kinds
 
-/// A frame, by what it carries: the first of these that the bytes are.
+/// A frame, by what it carries.
+///
+/// Bytes reinterpreted as an `AnyFrame` are the first variant whose type they are.
 #[derive(Pun)]
 pub enum AnyFrame<'a> {
   Udp(&'a Frame<Ipv4<Udp>>),
@@ -512,30 +566,32 @@ pub enum AnyFrame<'a> {
 const A: Mac = Mac(u48be::new(0x0200_0000_000a));
 const B: Mac = Mac(u48be::new(0x0200_0000_000b));
 
-/// An ARP request, as bytes.
+/// The bytes of an ARP request.
 const ARP: [u8; 28] =
   [0, 1, 0x08, 0, 6, 4, 0, 1, 0x02, 0, 0, 0, 0, 0x0a, 10, 0, 0, 1, 0, 0, 0, 0, 0, 0, 10, 0, 0, 2];
 
-/// An IPv4 packet, as bytes: an option that has a length, two that do not, a UDP datagram.
+/// The bytes of an IPv4 packet with three options and a UDP datagram.
+///
+/// The first option has a length, and the other two do not.
 const UDP: [u8; 41] = [
   0x47, 0x00, 0x00, 0x29, 0x00, 0x01, 0x40, 0x00, 0x40, 0x11, 0x18, 0xb0, 0x0a, 0x00, 0x00, 0x01,
   0x0a, 0x00, 0x00, 0x02, 0x07, 0x06, 0x04, 0x0a, 0x00, 0x00, 0x01, 0x01, 0x30, 0x39, 0x00, 0x35,
   0x00, 0x0d, 0x77, 0x91, 0x68, 0x65, 0x6c, 0x6c, 0x6f,
 ];
 
-/// An IPv4 packet, as bytes: a TCP segment with an option.
+/// The bytes of an IPv4 packet that carries a TCP segment with an option.
 const TCP: [u8; 46] = [
   0x45, 0x00, 0x00, 0x2e, 0x00, 0x02, 0x40, 0x00, 0x40, 0x06, 0x26, 0xc6, 0x0a, 0x00, 0x00, 0x01,
   0x0a, 0x00, 0x00, 0x02, 0x30, 0x39, 0x00, 0x50, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
   0x60, 0x02, 0x10, 0x00, 0xdb, 0x2e, 0x00, 0x00, 0x02, 0x04, 0x05, 0xb4, 0x68, 0x69,
 ];
 
-/// An IPv4 packet of a protocol that is not known, as bytes.
+/// The bytes of an IPv4 packet whose protocol is not known.
 const PING: [u8; 24] = [
   0x45, 0, 0, 24, 0, 1, 0, 0, 64, 253, 0x65, 0xe6, 10, 0, 0, 1, 10, 0, 0, 2, b'p', b'i', b'n', b'g',
 ];
 
-/// An IPv6 packet, as bytes: a UDP datagram.
+/// The bytes of an IPv6 packet that carries a UDP datagram.
 const UDP6: [u8; 53] = [
   0x60, 0x01, 0x23, 0x45, 0x00, 0x0d, 0x11, 0x40, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
@@ -543,14 +599,15 @@ const UDP6: [u8; 53] = [
   0x68, 0x65, 0x6c, 0x6c, 0x6f,
 ];
 
-/// An IPv4 packet, as bytes: an ICMP echo request of an odd size.
+/// The bytes of an IPv4 packet that carries an ICMP echo request of an odd size.
 const ECHO: [u8; 33] = [
   0x45, 0x00, 0x00, 0x21, 0x00, 0x03, 0x00, 0x00, 0x40, 0x01, 0x66, 0xd7, 0x0a, 0x00, 0x00, 0x01,
   0x0a, 0x00, 0x00, 0x02, 0x08, 0x00, 0xe5, 0xf9, 0x12, 0x34, 0x00, 0x01, 0x70, 0x69, 0x6e, 0x67,
   0x21,
 ];
 
-/// An IPv6 packet, as bytes: hop-by-hop options (a padding of 6 bytes), then a UDP datagram.
+/// The bytes of an IPv6 packet with hop-by-hop options (a `PadN` option of 6 bytes), then a UDP
+/// datagram.
 const OPTIONS6: [u8; 61] = [
   0x60, 0x00, 0x00, 0x00, 0x00, 0x15, 0x00, 0x40, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
@@ -558,8 +615,8 @@ const OPTIONS6: [u8; 61] = [
   0x30, 0x39, 0x00, 0x35, 0x00, 0x0d, 0x30, 0x1f, 0x68, 0x65, 0x6c, 0x6c, 0x6f,
 ];
 
-/// An IPv6 packet, as bytes: hop-by-hop options, a routing header, an authentication header,
-/// then a TCP segment.
+/// The bytes of an IPv6 packet with hop-by-hop options, a routing header and an authentication
+/// header, then a TCP segment.
 const CHAIN6: [u8; 102] = [
   0x60, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x40, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
@@ -570,7 +627,7 @@ const CHAIN6: [u8; 102] = [
   0xab, 0x78, 0x00, 0x00, 0x68, 0x69,
 ];
 
-/// An IPv6 packet, as bytes: an ICMPv6 echo request.
+/// The bytes of an IPv6 packet that carries an ICMPv6 echo request.
 const ECHO6: [u8; 52] = [
   0x60, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x3a, 0x40, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
@@ -578,7 +635,7 @@ const ECHO6: [u8; 52] = [
   0x70, 0x69, 0x6e, 0x67,
 ];
 
-/// An IPv6 packet, as bytes: the first fragment of a UDP datagram.
+/// The bytes of an IPv6 packet that carries the first fragment of a UDP datagram.
 const FRAGMENT6: [u8; 56] = [
   0x60, 0x00, 0x00, 0x00, 0x00, 0x10, 0x2c, 0x40, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
@@ -586,17 +643,20 @@ const FRAGMENT6: [u8; 56] = [
   0x66, 0x72, 0x61, 0x67, 0x6d, 0x65, 0x6e, 0x74,
 ];
 
-/// LLDP, as bytes: a chassis, a port, a time to live, the end.
+/// The bytes of an LLDP data unit: a chassis, a port, a time to live and the end.
 const LLDP: [u8; 19] =
   [0x02, 0x07, 4, 0x02, 0, 0, 0, 0, 0x0a, 0x04, 0x02, 5, b'1', 0x06, 0x02, 0, 120, 0x00, 0x00];
 
-/// A frame from `A` to `B`, as bytes: an EtherType or a length, then a payload.
+/// Returns the bytes of a frame from `A` to `B`, with `ether_type`, then `payload`.
+///
+/// `ether_type` is an EtherType or, up to 1500, the length of the payload.
 fn frame(ether_type: u16, payload: &[u8]) -> Vec<u8> {
   [&B.0.to_bytes()[..], &A.0.to_bytes()[..], &ether_type.to_be_bytes()[..], payload].concat()
 }
 
+/// Reads the samples of this file through its types, and asserts the results.
 pub fn main() {
-  // ---- A frame, of any payload, then of the payload that its EtherType tells.
+  // ---- A frame, of any payload, then of the payload that its EtherType names.
   let bytes = frame(0x0800, &UDP);
   let any: &Frame = try_pun_ref(&bytes[..]).unwrap();
   assert_eq!((any.destination, any.source, any.ether_type.0.get()), (B, A, 0x0800));
@@ -647,7 +707,7 @@ pub fn main() {
     let mut bytes = bytes.clone();
     bytes[at] ^= 1;
     if at == 14 + 12 {
-      // An address changed: `0x0a00` is now `0x0b00`, so is the checksum of the header.
+      // An address changed: `0x0a00` is now `0x0b00`, so the checksum of the header changes too.
       bytes[14 + 10] = 0x17;
     }
     assert_eq!(try_pun_ref::<_, Frame<Ipv4>>(&bytes[..]).err(), Some(Error::Validity));
@@ -676,7 +736,7 @@ pub fn main() {
   // Too short for the header.
   assert_eq!(try_pun_ref::<_, Frame<Ipv4>>(&bytes[..20]).err(), Some(Error::Size));
 
-  // ---- On the wire, a small frame is padded to 60 bytes: the packet tells where it ends.
+  // ---- On the wire, a small frame is padded to 60 bytes: the packet says where it ends.
   let mut wire = bytes.clone();
   wire.resize(60, 0);
   assert!(try_pun_ref::<_, WireFrame>(&wire[..]).is_ok());
@@ -690,7 +750,7 @@ pub fn main() {
   wire.extend(puns::crc32(&wire).to_le_bytes());
   let checked: &CheckedFrame = try_pun_ref(&wire[..]).unwrap();
   assert_eq!((checked.payload().len(), checked.fcs().len()), (46, 4));
-  // As anyone would check it: the CRC of a frame with its sequence is a constant.
+  // The usual check: the CRC of a frame followed by its frame check sequence is a constant.
   assert_eq!(puns::crc32(&wire), 0x2144_df1c);
   for at in [0, 30, 59, 60, 63] {
     let mut wire = wire.clone();
@@ -731,7 +791,7 @@ pub fn main() {
   assert!(try_pun_ref::<_, Frame>(&llc[..]).is_err());
   assert!(try_pun_ref::<_, Frame8023>(&frame(9, &[0; 7])[..]).is_err());
   assert!(try_pun_ref::<_, Frame8023>(&bytes[..]).is_err());
-  // LLC and SNAP headers, then what the EtherType of the SNAP header tells.
+  // LLC and SNAP headers, then what the EtherType of the SNAP header names.
   let snap =
     frame(8 + 28, &[&[0xaa, 0xaa, 0x03, 0, 0, 0, 0x08, 0x06][..], &ARP[..], &[0; 10]].concat());
   let frame8023: &Frame8023 = try_pun_ref(&snap[..]).unwrap();
@@ -763,7 +823,7 @@ pub fn main() {
   assert_eq!(bytes[14..], ARP);
   let any: &Frame = pun_ref(&request);
   assert_eq!((any.ether_type.0.get(), any.payload.len()), (0x0806, 28));
-  // And back: only what the bytes do not tell is checked.
+  // And back: only what the bytes do not prove is checked.
   let arp: &Frame<Arp> = try_pun_ref(bytes).unwrap();
   assert_eq!(arp.payload, request.payload);
   let mut reply = *bytes;
@@ -775,7 +835,7 @@ pub fn main() {
   assert_eq!(try_pun_ref::<_, Frame<Arp>>(&reply).err(), Some(Error::Validity));
 
   // ---- A protocol that is not known: nothing is read where UDP or TCP have their checksum,
-  // which is out of this packet.
+  // which is outside this packet.
   let ping = frame(0x0800, &PING);
   let ip: &Frame<Ipv4> = try_pun_ref(&ping[..]).unwrap();
   assert_eq!((ip.payload.protocol, ip.payload.payload()), (Protocol(253), Ok(&b"ping"[..])));
@@ -801,7 +861,7 @@ pub fn main() {
   let ip: &Frame<Ipv4<Icmp>> = try_pun_ref(&corrupted_echo[..]).unwrap();
   assert_eq!(ip.payload.payload().err(), Some(Error::Validity));
 
-  // ---- IPv6 extension headers: each tells what follows it, and how long it is.
+  // ---- IPv6 extension headers: each says what follows it, and how long it is.
   let options6 = frame(0x86dd, &OPTIONS6);
   let ip6: &Frame<Ipv6<HopByHop<Udp>>> = try_pun_ref(&options6[..]).unwrap();
   let extension = ip6.payload.payload().unwrap();
@@ -842,7 +902,7 @@ pub fn main() {
     corrupted[at] ^= 1;
     assert_eq!(try_pun_ref::<_, Frame<Ipv6>>(&corrupted[..]).err(), Some(Error::Validity));
   }
-  // A header of the chain that tells a size which is not its own: the segment is not where it
+  // A header of the chain that gives a size which is not its own: the segment is not where it
   // is looked for, or not in the packet.
   for (at, value) in [(14 + 57, 3), (14 + 57, 200)] {
     let mut corrupted = chain6.clone();
@@ -889,7 +949,7 @@ pub fn main() {
   assert_eq!((start.payload.version, start.payload.kind, start.payload.body.len()), (2, 1, 0));
   assert!(try_pun_ref::<_, Frame<Eapol>>(&frame(0x888e, &[4, 1, 0, 0])[..]).is_err());
 
-  // ---- MAC control, and LLDP: values that tell their type and their length.
+  // ---- MAC control, and LLDP: values that give their type and their length.
   let pause = frame(0x8808, &[&[0, 1, 0, 100][..], &[0; 42]].concat());
   assert_eq!(try_pun_ref::<_, Frame<Pause>>(&pause[..]).unwrap().payload.quanta.get(), 100);
   let lldp = frame(0x88cc, &LLDP);
@@ -901,8 +961,8 @@ pub fn main() {
   }
   assert_eq!((values, rest.len()), (vec![(1, 7), (2, 2), (3, 2), (0, 0)], 0));
 
-  // ---- One thing or another: the declaration of `AnyFrame` is all there is to telling them
-  // apart. What follows is what is made of each.
+  // ---- One of several kinds. The declaration of `AnyFrame` alone tells the kinds apart, and what
+  // follows uses each kind.
   let describe = |bytes: &[u8]| match AnyFrame::from_bytes(bytes) {
     Ok(AnyFrame::Udp(frame)) => match frame.payload.payload() {
       Ok(udp) => format!("UDP to port {}", udp.destination_port),
@@ -968,9 +1028,9 @@ pub fn main() {
     "not a frame: value is not valid for the target type"
   );
   assert_eq!(describe(&[0; 13]), "not a frame: value is not valid for the target type");
-  // A frame that does not hold what its EtherType tells is still a frame, of that EtherType.
+  // A frame that does not hold what its EtherType names is still a frame, of that EtherType.
   assert_eq!(describe(&corrupted), "EtherType 0x86dd");
-  // Padded, as on the wire: the packet tells where it ends.
+  // Padded, as on the wire: the packet says where it ends.
   let mut padded = frame(0x0800, &UDP);
   padded.resize(60, 0);
   let Ok((AnyFrame::Udp(frame), padding)) = AnyFrame::from_head(&padded) else { panic!() };

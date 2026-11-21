@@ -1,0 +1,194 @@
+Five runs of `cargo bench -p puns --features unstable --bench checks`, at commit 4176671,
+rustc 1.100.0, Apple M4 Max (14 cores, 36 GiB), macOS 26.7.2. Each run starts with its date
+and the output of `uptime`.
+
+== run 1
+2026-11-21 02:23:22
+ 2:23  up 8 days,  8:06, 6 users, load averages: 3.56 4.17 4.65
+ns per check                                       puns    by hand    ratio
+ipv4, udp, 64 bytes                                5.07       4.67     1.09
+ipv4, udp, 1472 bytes                             22.10      22.10     1.00
+ipv4, tcp, 1460 bytes                             22.24      21.84     1.02
+ipv4, protocol 253, 1480 bytes                     2.79       2.54     1.10
+ipv4, udp, 64 bytes, bad checksum                  5.04       4.62     1.09
+ipv6, tcp, 0 headers                               1.52       1.27     1.20
+ipv6, tcp, 3 headers                               2.29       3.31     0.69
+ipv6, tcp, 12 headers                              5.84      10.65     0.55
+ipv6, udp, 3 headers, 64 bytes                     4.68       6.00     0.78
+ipv6, udp, 0 headers, 1400 bytes                  20.60      21.11     0.98
+udp, from_head                                     0.76       0.77     1.00
+view enum, udp over ipv4 (first)                   5.59       5.08     1.10
+view enum, tcp over ipv4                           7.19       6.12     1.18
+view enum, udp, bad checksum                       5.09       5.13     0.99
+view enum, arp                                     0.91       1.01     0.90
+view enum, vlan                                    0.73       1.27     0.57
+view enum, other ethertype (last)                  0.76       1.02     0.75
+[u8] -> [bool], 64 KiB                           629.52   16611.67     0.04
+[u8] -> [Kind] (1, 2, 3, 7), 4 KiB                97.10    1050.34     0.09
+[u8] -> [Small] (repr(Rust): a tag, a bool), 4 KiB     499.70     805.68     0.62
+[u8] -> [MaybeFlag] (repr(Rust): a niche), 64 KiB   25355.63   16645.87     1.52
+[u32] -> [char], 4 KiB                            85.41     276.13     0.31
+crc32, 64 bytes                                   10.73      11.42     0.94
+crc32, 64 bytes (by hand: a byte at a time)       10.67      66.15     0.16
+crc-32c (a Crc), 64 bytes                         12.37      11.43     1.08
+crc-16/modbus (a Crc), 64 bytes                   12.38      66.26     0.19
+crc-16/xmodem (a Crc), 64 bytes                   12.07      74.14     0.16
+crc32, 1518 bytes                                491.47    1175.19     0.42
+crc32, 1518 bytes (by hand: a byte at a time)     488.40    2814.37     0.17
+crc-32c (a Crc), 1518 bytes                      398.51    1185.51     0.34
+crc-16/modbus (a Crc), 1518 bytes                388.27    2785.96     0.14
+crc-16/xmodem (a Crc), 1518 bytes                449.45    3187.11     0.14
+sum16, 1500 bytes                                 22.14      22.09     1.00
+
+== run 2
+2026-11-21 02:23:39
+ 2:23  up 8 days,  8:06, 6 users, load averages: 3.67 4.16 4.64
+ns per check                                       puns    by hand    ratio
+ipv4, udp, 64 bytes                                5.07       4.59     1.10
+ipv4, udp, 1472 bytes                             22.10      22.13     1.00
+ipv4, tcp, 1460 bytes                             22.29      22.04     1.01
+ipv4, protocol 253, 1480 bytes                     2.82       2.47     1.14
+ipv4, udp, 64 bytes, bad checksum                  5.08       4.57     1.11
+ipv6, tcp, 0 headers                               1.52       1.27     1.19
+ipv6, tcp, 3 headers                               2.30       3.81     0.60
+ipv6, tcp, 12 headers                              5.87      10.66     0.55
+ipv6, udp, 3 headers, 64 bytes                     4.57       5.53     0.83
+ipv6, udp, 0 headers, 1400 bytes                  20.44      21.09     0.97
+udp, from_head                                     0.76       0.78     0.97
+view enum, udp over ipv4 (first)                   5.58       5.11     1.09
+view enum, tcp over ipv4                           6.97       6.31     1.11
+view enum, udp, bad checksum                       5.19       5.24     0.99
+view enum, arp                                     0.85       1.13     0.75
+view enum, vlan                                    0.69       1.27     0.54
+view enum, other ethertype (last)                  0.76       1.02     0.75
+[u8] -> [bool], 64 KiB                           634.01   16649.45     0.04
+[u8] -> [Kind] (1, 2, 3, 7), 4 KiB                97.52    1056.72     0.09
+[u8] -> [Small] (repr(Rust): a tag, a bool), 4 KiB     509.48     813.39     0.63
+[u8] -> [MaybeFlag] (repr(Rust): a niche), 64 KiB   25339.11   16646.95     1.52
+[u32] -> [char], 4 KiB                            85.47     275.34     0.31
+crc32, 64 bytes                                   10.79      11.43     0.94
+crc32, 64 bytes (by hand: a byte at a time)       10.77      66.35     0.16
+crc-32c (a Crc), 64 bytes                         12.35      11.44     1.08
+crc-16/modbus (a Crc), 64 bytes                   12.38      65.75     0.19
+crc-16/xmodem (a Crc), 64 bytes                   12.14      74.69     0.16
+crc32, 1518 bytes                                497.16    1176.69     0.42
+crc32, 1518 bytes (by hand: a byte at a time)     491.97    2812.54     0.17
+crc-32c (a Crc), 1518 bytes                      399.48    1187.31     0.34
+crc-16/modbus (a Crc), 1518 bytes                389.07    2815.32     0.14
+crc-16/xmodem (a Crc), 1518 bytes                452.08    3176.56     0.14
+sum16, 1500 bytes                                 22.21      21.92     1.01
+
+== run 3
+2026-11-21 02:23:54
+ 2:23  up 8 days,  8:06, 6 users, load averages: 3.73 4.15 4.63
+ns per check                                       puns    by hand    ratio
+ipv4, udp, 64 bytes                                5.06       4.61     1.10
+ipv4, udp, 1472 bytes                             22.01      22.59     0.97
+ipv4, tcp, 1460 bytes                             22.19      22.06     1.01
+ipv4, protocol 253, 1480 bytes                     2.80       2.48     1.13
+ipv4, udp, 64 bytes, bad checksum                  5.06       4.59     1.10
+ipv6, tcp, 0 headers                               1.52       1.52     1.00
+ipv6, tcp, 3 headers                               2.28       3.46     0.66
+ipv6, tcp, 12 headers                              5.85      10.24     0.57
+ipv6, udp, 3 headers, 64 bytes                     4.56       5.59     0.81
+ipv6, udp, 0 headers, 1400 bytes                  20.34      21.15     0.96
+udp, from_head                                     0.77       0.76     1.01
+view enum, udp over ipv4 (first)                   5.57       5.20     1.07
+view enum, tcp over ipv4                           6.86       6.44     1.06
+view enum, udp, bad checksum                       5.17       5.35     0.97
+view enum, arp                                     0.86       1.15     0.75
+view enum, vlan                                    0.74       1.27     0.58
+view enum, other ethertype (last)                  0.76       1.12     0.68
+[u8] -> [bool], 64 KiB                           631.93   16610.35     0.04
+[u8] -> [Kind] (1, 2, 3, 7), 4 KiB                97.15    1057.19     0.09
+[u8] -> [Small] (repr(Rust): a tag, a bool), 4 KiB     489.99     820.38     0.60
+[u8] -> [MaybeFlag] (repr(Rust): a niche), 64 KiB   25232.87   16655.17     1.52
+[u32] -> [char], 4 KiB                            85.41     276.78     0.31
+crc32, 64 bytes                                   10.78      11.30     0.95
+crc32, 64 bytes (by hand: a byte at a time)       10.77      66.22     0.16
+crc-32c (a Crc), 64 bytes                         12.36      11.46     1.08
+crc-16/modbus (a Crc), 64 bytes                   12.38      65.89     0.19
+crc-16/xmodem (a Crc), 64 bytes                   12.10      74.51     0.16
+crc32, 1518 bytes                                492.13    1173.49     0.42
+crc32, 1518 bytes (by hand: a byte at a time)     495.10    2799.90     0.18
+crc-32c (a Crc), 1518 bytes                      396.85    1187.29     0.33
+crc-16/modbus (a Crc), 1518 bytes                389.72    2793.73     0.14
+crc-16/xmodem (a Crc), 1518 bytes                449.00    3191.09     0.14
+sum16, 1500 bytes                                 22.15      21.86     1.01
+
+== run 4
+2026-11-21 02:24:10
+ 2:24  up 8 days,  8:06, 6 users, load averages: 3.75 4.12 4.61
+ns per check                                       puns    by hand    ratio
+ipv4, udp, 64 bytes                                5.08       4.58     1.11
+ipv4, udp, 1472 bytes                             22.08      22.35     0.99
+ipv4, tcp, 1460 bytes                             22.20      22.09     1.01
+ipv4, protocol 253, 1480 bytes                     2.81       2.28     1.23
+ipv4, udp, 64 bytes, bad checksum                  5.08       4.61     1.10
+ipv6, tcp, 0 headers                               1.52       1.38     1.11
+ipv6, tcp, 3 headers                               2.26       3.61     0.63
+ipv6, tcp, 12 headers                              5.88      10.18     0.58
+ipv6, udp, 3 headers, 64 bytes                     4.57       6.10     0.75
+ipv6, udp, 0 headers, 1400 bytes                  20.45      20.99     0.97
+udp, from_head                                     0.77       0.75     1.02
+view enum, udp over ipv4 (first)                   5.58       5.08     1.10
+view enum, tcp over ipv4                           6.85       6.25     1.10
+view enum, udp, bad checksum                       5.08       5.22     0.97
+view enum, arp                                     0.94       1.27     0.74
+view enum, vlan                                    0.76       1.52     0.50
+view enum, other ethertype (last)                  0.76       1.27     0.60
+[u8] -> [bool], 64 KiB                           631.95   16656.11     0.04
+[u8] -> [Kind] (1, 2, 3, 7), 4 KiB                97.16    1045.46     0.09
+[u8] -> [Small] (repr(Rust): a tag, a bool), 4 KiB     488.95     806.25     0.61
+[u8] -> [MaybeFlag] (repr(Rust): a niche), 64 KiB   25351.52   16635.09     1.52
+[u32] -> [char], 4 KiB                            85.43     276.25     0.31
+crc32, 64 bytes                                   10.77      11.40     0.94
+crc32, 64 bytes (by hand: a byte at a time)       10.71      66.37     0.16
+crc-32c (a Crc), 64 bytes                         12.36      11.41     1.08
+crc-16/modbus (a Crc), 64 bytes                   12.38      65.97     0.19
+crc-16/xmodem (a Crc), 64 bytes                   12.11      74.18     0.16
+crc32, 1518 bytes                                491.51    1164.34     0.42
+crc32, 1518 bytes (by hand: a byte at a time)     489.53    2815.16     0.17
+crc-32c (a Crc), 1518 bytes                      398.81    1185.77     0.34
+crc-16/modbus (a Crc), 1518 bytes                388.77    2815.03     0.14
+crc-16/xmodem (a Crc), 1518 bytes                450.87    3187.80     0.14
+sum16, 1500 bytes                                 22.11      21.86     1.01
+
+== run 5
+2026-11-21 02:24:26
+ 2:24  up 8 days,  8:07, 6 users, load averages: 3.81 4.12 4.59
+ns per check                                       puns    by hand    ratio
+ipv4, udp, 64 bytes                                5.07       4.57     1.11
+ipv4, udp, 1472 bytes                             22.07      22.38     0.99
+ipv4, tcp, 1460 bytes                             22.38      21.92     1.02
+ipv4, protocol 253, 1480 bytes                     2.80       2.53     1.10
+ipv4, udp, 64 bytes, bad checksum                  5.07       4.58     1.11
+ipv6, tcp, 0 headers                               1.52       1.78     0.86
+ipv6, tcp, 3 headers                               2.29       3.30     0.69
+ipv6, tcp, 12 headers                              7.15      10.94     0.65
+ipv6, udp, 3 headers, 64 bytes                     4.57       5.33     0.86
+ipv6, udp, 0 headers, 1400 bytes                  20.45      21.02     0.97
+udp, from_head                                     0.77       0.77     0.99
+view enum, udp over ipv4 (first)                   5.58       5.10     1.09
+view enum, tcp over ipv4                           7.36       6.20     1.19
+view enum, udp, bad checksum                       5.09       5.33     0.96
+view enum, arp                                     0.86       1.27     0.68
+view enum, vlan                                    0.70       1.26     0.56
+view enum, other ethertype (last)                  0.76       1.01     0.75
+[u8] -> [bool], 64 KiB                           634.08   16640.44     0.04
+[u8] -> [Kind] (1, 2, 3, 7), 4 KiB                97.43    1057.62     0.09
+[u8] -> [Small] (repr(Rust): a tag, a bool), 4 KiB     476.38     815.17     0.58
+[u8] -> [MaybeFlag] (repr(Rust): a niche), 64 KiB   25362.26   16643.33     1.52
+[u32] -> [char], 4 KiB                            85.40     276.29     0.31
+crc32, 64 bytes                                   10.76      11.46     0.94
+crc32, 64 bytes (by hand: a byte at a time)       10.77      66.30     0.16
+crc-32c (a Crc), 64 bytes                         12.36      11.43     1.08
+crc-16/modbus (a Crc), 64 bytes                   12.37      65.98     0.19
+crc-16/xmodem (a Crc), 64 bytes                   12.10      73.97     0.16
+crc32, 1518 bytes                                489.88    1173.91     0.42
+crc32, 1518 bytes (by hand: a byte at a time)     489.05    2812.29     0.17
+crc-32c (a Crc), 1518 bytes                      398.93    1186.99     0.34
+crc-16/modbus (a Crc), 1518 bytes                389.39    2812.60     0.14
+crc-16/xmodem (a Crc), 1518 bytes                450.64    3190.24     0.14
+sum16, 1500 bytes                                 22.10      21.89     1.01
+

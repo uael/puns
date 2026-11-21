@@ -1,7 +1,7 @@
 error[E0080]: reading memory at alloc13[0x2..0x3], but memory is uninitialized at [0x2..0x3], and this operation requires initialized memory
-  --> tests/compile-fail/discover_reads_padding.rs:16:30
+  --> tests/compile-fail/discover_reads_padding.rs:17:30
    |
-16 | const PADDING: u8 = unsafe { *SAMPLE.as_ptr().cast::<u8>().add(2) };
+17 | const PADDING: u8 = unsafe { *SAMPLE.as_ptr().cast::<u8>().add(2) };
    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `PADDING` failed here
    |
    = note: the raw bytes of the constant (size: 8, align: 4) {
@@ -9,7 +9,7 @@ error[E0080]: reading memory at alloc13[0x2..0x3], but memory is uninitialized a
            }
 
 note: erroneous constant encountered
-  --> tests/compile-fail/discover_reads_padding.rs:19:11
+  --> tests/compile-fail/discover_reads_padding.rs:20:11
    |
-19 |   let _ = PADDING;
+20 |   let _ = PADDING;
    |           ^^^^^^^

@@ -1,9 +1,9 @@
-//! Sizes, lengths and regions read from the value: `be`, `le` and `walk` anywhere, several walks,
-//! walks in walks.
+//! Tests sizes, lengths and regions read from the value, with `be`, `le` and `walk` anywhere in
+//! an expression, several walks, and walks in walks.
 
 use puns::{Error, Pun, from_bytes, from_head};
 
-/// The length of a WebSocket frame: 7 bits, or 16 or 64 more if they are 126 or 127.
+/// A WebSocket frame. Its length is 7 bits, or 16 or 64 more bits if those 7 bits are 126 or 127.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = 2 + if length & 0x7f == 126 {
@@ -38,7 +38,8 @@ fn a_size_read_from_the_value() {
   assert!(from_bytes::<Frame>(&[0x81, 126, 0, 2, 1, 2, 3]).is_err());
 }
 
-/// A string that ends with a zero, and what follows it: a walk in a size, in a region.
+/// A string that ends with a zero byte, whose size is a walk. `Named` uses the same walk in a
+/// region, and has what follows the string.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = walk(0, |at| be(at, 1) != 0, |at| at + 1) + 1)]
@@ -64,8 +65,11 @@ fn a_walk_in_a_size_and_in_a_region() {
   assert_eq!((named.kind, named.name(), named.value()), (7, &b"key"[..], &b"value"[..]));
 }
 
-/// Two walks, and a walk in a walk: "type, length, value"s whose values are themselves made of
-/// "length, value"s, down to a type 0. Each walk adds the lengths that the other one does not.
+/// A struct whose length is the sum of two walks.
+///
+/// `Nested` has a walk in a walk, over type, length and value entries whose values are themselves
+/// length and value entries, up to a type of 0. Each walk adds the lengths that the other one
+/// does not.
 #[derive(Pun)]
 #[repr(C)]
 struct Twice {
@@ -98,8 +102,8 @@ fn walks_and_walks_in_walks() {
   assert!(from_bytes::<Nested>(&[1, 4, 1, 7, 1, 8, 2, 0]).is_err());
 }
 
-/// A step of 70 operations, and an expression of more than 80, each applied in an instance of a
-/// function of its own, as any other.
+/// A struct whose walk has a step of 70 operations. `LongExpression` has an expression of more
+/// than 80. Each is applied in an instance of a function of its own, as any other expression is.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(walk(0, |at| at < 4, |at| at + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1
@@ -127,8 +131,11 @@ fn long_walks() {
   assert!(from_bytes::<LongExpression>(&[200]).is_err());
 }
 
-/// The longest expression (256 operations: `a` and 125 times `+ 1` are 251, `a + 125` 3, then
-/// `!=` and `!`), and walks nested as deep as they can be (4).
+/// A struct with the longest expression that a rule can have, and walks nested as deep as they
+/// can be.
+///
+/// The expression has 256 operations: `a` and 125 times `+ 1` are 251, `a + 125` is 3, then `!=`
+/// and `!` are 2. The walks are nested 4 deep.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(!(a + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 != a + 125)))]
@@ -147,8 +154,11 @@ fn the_limits_of_an_expression() {
   assert!(from_bytes::<Longest>(&[200]).is_err());
 }
 
-/// A DER "type, length, value": the length is short (below 0x80) or long (0x81 to 0x84, then that
-/// many bytes). Five forms in a sum: deeper than 8 values. And six names at once.
+/// A DER type, length and value. The length is short, below 0x80, or long, 0x81 to 0x84 followed
+/// by that many bytes.
+///
+/// Its size is a sum of five forms, which nests deeper than 8 values. Its rule binds six names at
+/// once.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = 2 + (if length < 0x80 {

@@ -1,4 +1,4 @@
-//! A value is not read as a type that has fewer values: here a variant less.
+//! A value is not reinterpreted as a type that has fewer values: here a variant less.
 #[path = "../support/relative.rs"]
 #[allow(dead_code)]
 mod relative;

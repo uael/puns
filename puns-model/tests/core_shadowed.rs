@@ -1,12 +1,17 @@
-//! `#[derive(Pun)]` in a crate where `::core` is another crate (`extern crate .. as core;`, safe
-//! code): what it generates must not depend on what that crate says.
+//! Tests that the code that `#[derive(Pun)]` generates does not depend on what `::core` names.
+//!
+//! In this crate, `::core` is the crate `fakecore`, through `extern crate fakecore as core;`, which
+//! is safe code. Its `offset_of!` swaps the fields named `a` and `b`, and its `PhantomData` is
+//! aligned to 16 bytes.
 
 extern crate fakecore as core;
 
 use puns::{Error, Pun};
 
-/// The default representation: the offsets of the fields were `offset_of!`. Which byte is `b` is
-/// the layout that `rustc` chose: the `unstable` feature.
+/// A struct with the default representation, whose fields `a` and `b` the fake `offset_of!` swaps.
+///
+/// Which byte is `b` is a layout that Rust leaves to the compiler, so the struct needs the
+/// `unstable` feature.
 #[cfg(feature = "unstable")]
 #[derive(Pun, Debug)]
 struct Pair {
@@ -14,14 +19,17 @@ struct Pair {
   b: bool,
 }
 
-/// The layout of a variant was measured on a struct that held a `PhantomData` (not found
-/// exploitable: the size of the enum is checked, but nothing relies on it any more).
+/// An enum with one variant, aligned to 16 bytes like the fake `PhantomData`.
+///
+/// The derive must not measure the layout of a variant on a struct that holds a `PhantomData`
+/// named through `::core`.
 #[derive(Pun, Debug, Clone, Copy, PartialEq)]
 #[repr(C, align(16))]
 enum Aligned {
   A(bool),
 }
 
+/// Checks that the offsets of the fields of `Pair` are not read from `::core::mem::offset_of!`.
 #[cfg(feature = "unstable")]
 #[test]
 fn offsets_are_not_read_from_core() {
@@ -34,6 +42,7 @@ fn offsets_are_not_read_from_core() {
   assert_eq!(puns::try_pun_ref::<[u8; 2], Pair>(&bytes).err(), Some(Error::Validity));
 }
 
+/// Checks that the variant of `Aligned` is not measured with `::core::marker::PhantomData`.
 #[test]
 fn variants_are_not_measured_with_core() {
   // The tag (a C `int`), then the `bool`, at 4.

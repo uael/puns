@@ -35,7 +35,7 @@ note: erroneous constant encountered
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: the above error was encountered while instantiating `fn try_pun::<Zero, bool>`
-  --> tests/compile-fail/maybe_uninit_scalar.rs:16:11
+  --> tests/compile-fail/maybe_uninit_scalar.rs:18:11
    |
-16 |   let _ = puns::try_pun::<Zero, bool>(Zero(MaybeUninit::uninit()));
+18 |   let _ = puns::try_pun::<Zero, bool>(Zero(MaybeUninit::uninit()));
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

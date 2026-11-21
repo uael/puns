@@ -1,14 +1,15 @@
-//! What an expression of `#[pun(..)]` means is what the same Rust expression means where every
-//! integer is a `u128`, and where Rust would panic, the rule fails: each expression here is both
-//! a rule of a struct and the body of a function, and they must agree on every value.
+//! Tests that a rule means what the same Rust expression means when every integer is a `u128`.
 //!
-//! The evaluator computes in 64 or 32 bits what it knows to fit there (`narrow.rs`): the
-//! expressions after `e37` are at the limits of those widths (a sum, a product or a shift just
-//! past 64 bits, two numbers in the halves of a `u128`, a carry from one half into the other), and
-//! the ones of `walks!` walk over the bytes of the value, as `be` reads them.
+//! Each expression here is both the rule of a struct and the body of a function. The two must
+//! agree on every value, and the rule fails where Rust would panic.
 //!
-//! Not built under Miri: this is about what the derive makes of an expression, and the unsafe
-//! reads of the evaluator are the ones that `expressions.rs` runs there.
+//! The evaluator computes in 64 or 32 bits what it knows to fit there (`puns/src/narrow.rs`). The
+//! expressions after `e37` are at the limits of those widths: a sum, a product or a shift just
+//! past 64 bits, two numbers in the halves of a `u128`, and a carry from one half into the other.
+//! The expressions of `walks!` walk over the bytes of the value, as `be` reads them.
+//!
+//! This file is not built under Miri. It tests what the derive makes of an expression, and the
+//! unsafe reads of the evaluator are the ones that `expressions.rs` runs under Miri.
 
 #![cfg(not(miri))]
 #![expect(
@@ -23,8 +24,10 @@
   reason = "the expressions are there for what they compute, and how: as rules, they are not Rust"
 )]
 
-/// `name: |a, b, c, d| expression;`: a struct of four fields with the rule `assert(expression)`,
-/// and the function of four `u128`s that the expression is.
+/// Declares, for each `name: |a, b, c, d| expression;`, a struct of four fields with the rule
+/// `assert(expression)` and a function of four `u128`s whose body is the expression.
+///
+/// It also declares `compare`, which compares each struct with its function.
 macro_rules! rules {
   ($($name:ident: |$a:ident, $b:ident, $c:ident, $d:ident| $e:expr;)+) => {
     $(mod $name {
@@ -43,7 +46,12 @@ macro_rules! rules {
       }
     })+
 
-    /// Each expression, as a rule and as Rust, over the same values: `(holds, fails)` counts.
+    /// Evaluates each expression as a rule and as Rust over the same values. Returns, for each
+    /// expression, its name and how many values it holds and fails on.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rule and the function disagree on a value.
     fn compare(values: &[(u128, u128, u128, u128)]) -> Vec<(&'static str, usize, usize)> {
       let mut counts = vec![];
       $(
@@ -54,7 +62,8 @@ macro_rules! rules {
           bytes.extend((c as u32).to_be_bytes());
           bytes.extend((d as u64).to_le_bytes());
           let rule = puns::from_bytes::<$name::Rule>(&bytes).is_ok();
-          // A panic of Rust (an overflow, a division by zero, a shift too far) is a rule that fails.
+          // A panic of Rust (an overflow, a division by zero, a shift too far) is a rule that
+          // fails.
           let rust = std::panic::catch_unwind(|| $name::rust(a, b, c, d)).unwrap_or(false);
           assert_eq!(rule, rust, "{}: a = {a}, b = {b}, c = {c}, d = {d}", stringify!($name));
           if rust { holds += 1 } else { fails += 1 }
@@ -66,7 +75,10 @@ macro_rules! rules {
   };
 }
 
-/// Values of the four fields: the bounds of each, small ones, the ones around a sign bit, any.
+/// Returns `count` values of the four fields, the same on every run.
+///
+/// Each value is a bound of its field, a small number, a number around the sign bit of a byte, or
+/// any number.
 fn values(count: usize) -> Vec<(u128, u128, u128, u128)> {
   let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
   let mut next = move || {
@@ -106,9 +118,12 @@ fn rules_are_rust() {
   assert!(both >= 4, "{walks:?}");
 }
 
-/// `walks! { name: |a, b, c, d| expression; }`: as `rules!`, for expressions that read the bytes of
-/// the value (`be`) and walk: in Rust, `be` and `walk` are the functions below, which read the
-/// bytes of the value that is compared.
+/// Declares, as `rules!` does, a struct and a function for each `name: |a, b, c, d| expression;`
+/// whose expression reads the bytes of the value (`be`) and walks.
+///
+/// In the functions, `be` and `walk` are the functions below, which read the bytes of the value
+/// that is compared. It also declares `compare_walks`, which compares each struct with its
+/// function.
 macro_rules! walks {
   ($($name:ident: |$a:ident, $b:ident, $c:ident, $d:ident| $e:expr;)+) => {
     $(mod $name {
@@ -156,7 +171,11 @@ std::thread_local! {
   static BYTES: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// `be(offset, n)` of a rule: the `n` bytes at `offset` in the value, big-endian; a panic out of it.
+/// Returns the `n` bytes at `offset` in the value, big-endian, as `be(offset, n)` does in a rule.
+///
+/// # Panics
+///
+/// Panics if the bytes are not all in the value, where the rule fails.
 fn be(offset: u128, n: u128) -> u128 {
   BYTES.with_borrow(|bytes| {
     let (offset, n) = (usize::try_from(offset).unwrap(), usize::try_from(n).unwrap());
@@ -164,8 +183,13 @@ fn be(offset: u128, n: u128) -> u128 {
   })
 }
 
-/// `walk(start, cond, next)` of a rule: `start` replaced by `next` of it for as long as `cond` is
-/// true of it, in at most a step for each bit of the value and of a `u128` (else a panic).
+/// Returns `start` replaced by `next` of it for as long as `cond` holds of it, as
+/// `walk(start, cond, next)` does in a rule.
+///
+/// # Panics
+///
+/// Panics if the walk takes more steps than the value and a `u128` have bits, where the rule
+/// fails.
 fn walk(start: u128, cond: impl Fn(u128) -> bool, next: impl Fn(u128) -> u128) -> u128 {
   let limit = (BYTES.with_borrow(Vec::len) + 16) * 8;
   let (mut state, mut steps) = (start, 0);

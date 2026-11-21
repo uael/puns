@@ -1,5 +1,5 @@
 error[E0080]: evaluation panicked:
-              cannot pun: behind a pointer, the pun depends on a part of the source or of the target whose layout Rust does not keep from one compilation to the next (a struct or a tuple of the `Rust` representation, an enum without `repr`): only the same type at the same place proves it.
+              cannot pun: behind a pointer, the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation): only the same type at the same place proves it.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
 
     --> src/deep.rs

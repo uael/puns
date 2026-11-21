@@ -50,7 +50,7 @@ fn named(named: &Named) -> &Numbered {
 fn main() {
   let _: fn(&Old) -> &New = view;
   let _: fn(&Named) -> &Numbered = named;
-  // A pointer is read as bytes; a null one as a null one.
+  // A pointer is reinterpreted as bytes; a null one as a null one.
   let none: Opt<u32> = Opt::NONE;
   assert_eq!(puns::as_bytes(&none), [0; 4]);
   let _: &Opt<[u8; 4]> = puns::view_ref(&none);

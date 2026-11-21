@@ -1,5 +1,5 @@
 error[E0080]: evaluation panicked:
-              cannot pun: a pointer of the target is not, in the source, a pointer whose target it can read (the same scheme and offset, the same kind of target, not larger nor more aligned): only a pointer proves a pointer, and no check makes up for it.
+              cannot pun: a pointer of the target is not, in the source, a pointer whose target it can read (the same scheme and offset, the same kind of aim, not larger nor more aligned): only a pointer proves a pointer, and no check can replace that proof.
               This is at byte 0 of the target.
 
     --> src/lib.rs

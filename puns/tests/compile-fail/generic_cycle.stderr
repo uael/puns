@@ -17,7 +17,7 @@ note: required for `Opt<Ping<i32le>>` to implement `Pun`
    |                                           unsatisfied trait bound introduced here
 ...
    | / pointer! {
-   | |   /// A pointer to one `T`, or none: zero.
+   | |   /// A pointer to one `T` that may be null. Its offset is zero when it is null.
    | |   Opt[T] T, Pointer::one::<T>(SCHEME, size_of::<O>(), O::ENDIAN).or_null()
    | | }
    | |_- in this macro invocation

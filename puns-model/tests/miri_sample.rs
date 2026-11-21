@@ -1,33 +1,36 @@
-//! The sample of the model check that runs on every push: a selection of pairs that runs what
-//! Miri is there to see, and natively every pair of a few types of each size as well.
+//! Checks the sample of the model that runs on every push, natively and under Miri.
 //!
-//! Under Miri the point is not the verdicts (the full native run checks them all, exhaustively,
-//! see `size*.rs` and `parts*.rs`, behind the `full` feature) but undefined behaviour: the unsafe
-//! paths of the library that the model reaches (`try_pun` and `try_pun_ref` here, with values made
-//! by the oracle, `make`), once or a few times on each class of layout. Each pair is there for one
-//! of them, with the few values of the alphabet of `alphabet` under Miri:
+//! The sample is a selection of pairs that reaches what Miri is there to see. Natively, this file
+//! also checks every pair of a few types of each size.
+//!
+//! Under Miri, the point is undefined behavior, not the verdicts. The full native run checks every
+//! verdict, behind the `full` feature (`size*.rs`, `parts*.rs`). Miri runs the unsafe paths of the
+//! library that the model reaches, once or a few times for each class of layout. Here these paths
+//! are those of `try_pun` and `try_pun_ref`, with values that the oracle makes (`make`). Each pair
+//! is there for one path, over the few values that `alphabet` returns under Miri:
 //!
 //! | Path                                                   | Pair                               |
 //! |--------------------------------------------------------|------------------------------------|
 //! | nothing to check (a proven pun, through `try_*`)       | `bool -> u8`, `[bool; 2] -> u16`   |
-//! | a scalar checked: accepted, rejected for validity      | `u8 -> bool`, `u16 -> (u8, bool)`  |
+//! | a scalar checked, accepted or rejected for validity    | `u8 -> bool`, `u16 -> (u8, bool)`  |
 //! | a rule checked at run time                             | `u16 -> NotOneOne`                 |
-//! | a soft restriction (`valid(..)`) checked               | `u8 -> SoftBit`                    |
+//! | a requirement (`valid(..)`) checked                    | `u8 -> SoftBit`                    |
 //! | the address checked (aligned here, see `misaligned`)   | `[u8; 2] -> u16`                   |
-//! | an enum with fields checked: the tag, then the variant | `u32 -> Shape`                     |
+//! | an enum with fields checked, the tag then the variant  | `u32 -> Shape`                     |
 //! | a target with padding, read from initialized bytes     | `[u8; 4] -> PadMid`                |
-//! | the tags of a variant (a niche: several, `RANGES`)     | `u8 -> MaybeFlag`                  |
-//! | a direct tag of two bytes, no `repr` (widened)         | `[u8; 4] -> Wid`                   |
+//! | the tags of a variant (several for a niche, `RANGES`)  | `u8 -> MaybeFlag`                  |
+//! | a direct tag widened to two bytes, `repr(Rust)`        | `[u8; 4] -> Wid`                   |
 //! | a union, field by field                                | `u8 -> ChoiceU`                    |
 //!
-//! A pair is not there for what the analysis proves of it: an enum proven variant by variant
-//! (`Shape -> Drawing`) runs the same code as `bool -> u8`, nothing, and an enum checked from an
-//! enum (`Drawing -> Shape`) the same as from `u32`. Those are verdicts: the native run has them.
+//! A pair is not there for what the analysis proves of it. An enum proven variant by variant
+//! (`Shape -> Drawing`) runs the same code as `bool -> u8`, which is no code. An enum checked from
+//! an enum (`Drawing -> Shape`) runs the same code as one checked from `u32`. These are verdicts,
+//! which the native run checks.
 //!
-//! `misaligned` rejects an address for alignment (`try_pun_ref`, `from_tail`). The parts
-//! (`head*`, `tail*`) are in `parts.rs`, slices and unsized tails in `dst.rs`, view enums in
-//! `views.rs`. What the model does not run, `pun`, `pun_mut`, `try_pun_mut`, `from_head_mut`,
-//! `from_tail_mut` and the regions, the tests of `puns` run under Miri.
+//! `misaligned` checks that an address is rejected for its alignment (`try_pun_ref`, `from_tail`).
+//! The parts (`head*`, `tail*`) are in `parts.rs`, slices and unsized tails in `dst.rs`, and view
+//! enums in `views.rs`. The model does not run `pun`, `pun_mut`, `try_pun_mut`, `from_head_mut`,
+//! `from_tail_mut` and the regions, which the tests of `puns` run under Miri.
 
 #[cfg(not(miri))]
 use core::num::NonZero;
@@ -35,6 +38,7 @@ use core::num::NonZero;
 use puns::{Error, hook};
 use puns_model::types::*;
 
+/// Checks the first pairs of the table, then natively every pair of a few types of each size.
 #[test]
 fn sample() {
   // The selection of the table above: natively as well, so that it is checked on every push
@@ -51,10 +55,10 @@ fn sample() {
     puns_model::all_pairs!(6; u16, [bool; 2], (u8, bool), Aligned, Opt, NotOneOne);
     puns_model::all_pairs!(4; [u8; 3], Wide, Triple);
     puns_model::all_pairs!(4; u32, char, PadMid, Shape, Drawing);
-    // What is new of a kind, a pair or two each, both ways where both mean something (every pair
-    // of these types is in the full run): bytes that may be uninitialized, `MaybeUninit`, a
-    // variant without values, enums without `repr` (niches, a niche in a niche, two niches in one
-    // byte, a direct tag, a widened one, from what is not an enum and from an enum), unions.
+    // What is new of a kind, a pair or two each, both ways where both mean something (every pair of
+    // these types is in the full run): bytes that may be uninitialized, `MaybeUninit`, a variant
+    // without values, enums of the `Rust` representation (niches, a niche in a niche, two niches in
+    // one byte, a direct tag, a widened one, from what is not an enum and from an enum), unions.
     puns_model::pairs!(check_pair, 8;
       (Zero, u8), (u8, Zero), (Zero, bool), (u8, core::mem::MaybeUninit<u8>),
       (core::mem::MaybeUninit<u8>, u8), (ByteZero, u16), ([u8; 2], Never), (Never, Opt),
@@ -66,8 +70,10 @@ fn sample() {
   puns_model::finish("sample");
 }
 
-/// The rest of the selection, a test of its own: under Miri each of the two is a job of CI (a
-/// minute at most), told apart by name.
+/// Checks the other pairs of the table.
+///
+/// This is a test of its own because, under Miri, each of the two tests is a job of CI, told
+/// apart by name. A job takes a minute at most.
 #[test]
 fn sample_layouts() {
   puns_model::pairs!(check_pair, 3;
@@ -76,7 +82,8 @@ fn sample_layouts() {
   puns_model::finish("sample_layouts");
 }
 
-/// An address that is not aligned for the target, whatever where the allocator put the bytes.
+/// Checks that an address that is not aligned for the target is rejected, wherever the allocator
+/// put the bytes.
 #[test]
 fn misaligned() {
   let words = [0x0102_0304u32, 0x0506_0708];

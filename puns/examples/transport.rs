@@ -1,50 +1,57 @@
-//! Transport and session protocols, in safe Rust, with nothing but `#[derive(Pun)]` and its
-//! options: TLS records and handshakes, QUIC long headers, HTTP/2 frames, WebSocket frames, SSH
-//! binary packets, MQTT control packets, CoAP messages and SCTP packets.
+//! Transport and session protocols, declared with `#[derive(Pun)]` and read in place from bytes.
 //!
-//! As in `ethernet.rs`, the first half of this file is type declarations only: no `unsafe`, no
-//! `impl`, no parsing code. The second half reads messages in place, from bytes, and checks that
-//! corrupted ones are rejected.
+//! The protocols are TLS records and handshakes, QUIC long headers, HTTP/2 frames, WebSocket
+//! frames, SSH binary packets, MQTT control packets, CoAP messages and SCTP packets.
 //!
-//! What is specific to these protocols, and what tells it:
+//! As in `ethernet.rs`, the first half of this file only declares types, with no `unsafe`, no
+//! `impl` and no parsing code, and the second half reads messages in place from bytes, in safe
+//! Rust.
 //!
-//! | Specificity                                     | Told by                                    |
-//! |-------------------------------------------------|--------------------------------------------|
-//! | a TLS record tells what it carries              | `tag(ContentType = u8c<22>)`               |
-//! | lengths of 24 bits (TLS handshakes, HTTP/2)     | `u24be`, `size = length + 4`               |
-//! | vectors that follow each other                  | `regions(items = length, rest: R)`         |
-//! | the chain of vectors fills the message          | `assert({ let .. = be(..); .. })`          |
-//! | a server name is text                           | a `str` field                              |
-//! | QUIC connection IDs of variable length          | `regions(dcid = dcid_length, ..)`          |
-//! | QUIC integers of 1, 2, 4 or 8 bytes             | `1 << (be(at, 1) >> 6)`, `be(at, 8) >> ..` |
-//! | HTTP/2 SETTINGS: an array of settings           | `[Setting]`: a multiple of 6 bytes         |
-//! | HTTP/2 padding and priority, told by flags      | `if flags & 8 != 0 { .. }` in `regions`    |
-//! | the HTTP/2 connection preface                   | `u128bec<..>`, `u64bec<..>`                |
-//! | WebSocket lengths of 7, 16 or 64 bits           | `size = .. if .. { be(2, 2) } ..`          |
-//! | WebSocket: shortest forms, short control frames | `assert(.. be(2, 2) >= 126)`               |
-//! | WebSocket: masked from clients only             | `WebSocket<MASK>`, `assert(.. == MASK)`    |
-//! | SSH: a MAC whose size the bytes do not tell     | a const parameter: `SshPacket<_, MAC>`     |
-//! | SSH: padding to the block size                  | `assert((packet_length + 4) % BLOCK ..)`   |
-//! | SSH name-lists of US-ASCII                      | `regions(names: [u8in<0x21, 0x7e>] = ..)`  |
-//! | MQTT: a remaining length of 1 to 4 bytes        | `size = 1 + leb128_len(1) + leb128(1)`     |
-//! | MQTT: flags that depend on the packet type      | `assert({ let kind = ..; .. })`            |
-//! | MQTT strings: a length, then UTF-8 without NUL  | `matches(Dfa::UTF8_NO_NUL, ..)`, a `str`   |
-//! | CoAP options: nibbles that tell 0, 1 or 2 bytes | `size = { let delta = head >> 4; .. }`     |
-//! | CoAP: options up to a marker, then a payload    | `assert({ let end = walk(..); .. })`       |
-//! | SCTP chunks, padded to 4 bytes                  | `size = (length + 3) / 4 * 4`              |
-//! | SCTP: a CRC-32C, its own field taken as zeros   | `crc::<32, 0x1edc6f41, ..>(0, .., 8, 12)`  |
+//! The following table lists what is specific to these protocols, and what in the declarations
+//! expresses it:
 //!
-//! What is not covered, and why:
+//! | Specific to these protocols                    | Declared with                              |
+//! |------------------------------------------------|--------------------------------------------|
+//! | a TLS record says what it carries              | `tag(ContentType = u8c<22>)`               |
+//! | lengths of 24 bits (TLS handshakes, HTTP/2)    | `u24be`, `size = length + 4`               |
+//! | vectors that follow each other                 | `regions(items = length, rest: R)`         |
+//! | the chain of vectors fills the message         | `assert({ let .. = be(..); .. })`          |
+//! | a server name is text                          | a `str` field                              |
+//! | QUIC connection IDs of variable length         | `regions(dcid = dcid_length, ..)`          |
+//! | QUIC integers of 1, 2, 4 or 8 bytes            | `1 << (be(at, 1) >> 6)`, `be(at, 8) >> ..` |
+//! | HTTP/2 SETTINGS, an array of settings          | `[Setting]`, a multiple of 6 bytes         |
+//! | HTTP/2 padding and priority, present by flags  | `if flags & 8 != 0 { .. }` in `regions`    |
+//! | the HTTP/2 connection preface                  | `u128bec<..>`, `u64bec<..>`                |
+//! | WebSocket lengths of 7, 16 or 64 bits          | `size = .. if .. { be(2, 2) } ..`          |
+//! | WebSocket shortest forms, short control frames | `assert(.. be(2, 2) >= 126)`               |
+//! | WebSocket frames masked from clients only      | `WebSocket<MASK>`, `assert(.. == MASK)`    |
+//! | an SSH MAC whose size the bytes do not give    | a const parameter, `SshPacket<_, MAC>`     |
+//! | SSH padding to the block size                  | `assert((packet_length + 4) % BLOCK ..)`   |
+//! | SSH name-lists of US-ASCII                     | `regions(names: [u8in<0x21, 0x7e>] = ..)`  |
+//! | an MQTT remaining length of 1 to 4 bytes       | `size = 1 + leb128_len(1) + leb128(1)`     |
+//! | MQTT flags that depend on the packet type      | `assert({ let kind = ..; .. })`            |
+//! | MQTT strings, a length then UTF-8 without NUL  | `matches(Dfa::UTF8_NO_NUL, ..)`, a `str`   |
+//! | CoAP option nibbles that add 0, 1 or 2 bytes   | `size = { let delta = head >> 4; .. }`     |
+//! | CoAP options up to a marker, then a payload    | `assert({ let end = walk(..); .. })`       |
+//! | SCTP chunks, padded to 4 bytes                 | `size = (length + 3) / 4 * 4`              |
+//! | an SCTP CRC-32C, with its own field as zeros   | `crc::<32, 0x1edc6f41, ..>(0, .., 8, 12)`  |
 //!
-//! - CoAP: the option numbers are sums of the deltas before them: state carried along a
-//!   sequence, which use code keeps.
-//! - TLS: a handshake message can span records, and records are encrypted after the handshake;
-//!   reassembly and decryption are not views of the bytes. Typed regions are checked when they
-//!   are read: the cipher suites of a ClientHello are only checked when asked for.
-//! - QUIC: what follows the long header is protected (header protection, AEAD): not a view.
-//!   HTTP/2 header blocks are HPACK, Huffman codes and indexes into a table: not a view either.
-//! - WebSocket payloads from a client are masked: unmasking is a transformation, done by use code.
-#![deny(unsafe_code)]
+//! The following are not covered:
+//!
+//! - The option numbers of CoAP are sums of the deltas before them. This is state carried along
+//!   a sequence, which the code that reads the options carries.
+//! - A TLS handshake message can span records, and records are encrypted after the handshake.
+//!   Reassembly and decryption make copies, not views of the bytes. Typed regions are checked when
+//!   they are read, so the cipher suites of a ClientHello are checked only when they are read.
+//! - What follows a QUIC long header is protected (header protection, AEAD), so reading it makes
+//!   a copy. HTTP/2 header blocks are HPACK, with Huffman codes and indexes into a table, so
+//!   decoding them makes a copy too.
+//! - WebSocket payloads from a client are masked. Unmasking is a transformation, which the code
+//!   that reads the frames does.
+//!
+//! `main` reads a message of each protocol from bytes and asserts its fields, regions and getters.
+//! It then changes bytes, asserts that the read returns an error, and prints `ok`.
+#![forbid(unsafe_code)]
 
 use core::marker::PhantomData;
 
@@ -58,12 +65,14 @@ use puns::{
 // -------------------------------------------------------------------------------------------------
 // TLS
 
-/// The content type of a record, when what it carries is not known.
+/// The content type of a TLS record, when what the record carries is not known.
 #[derive(Pun, Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct ContentType(#[pun(valid(20..=24))] pub u8);
 
-/// A TLS record: its length is at most 2^14 + 2048 (`TLSCiphertext`).
+/// A TLS record.
+///
+/// Its length is at most 2^14 + 2048, the limit of `TLSCiphertext`.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 5)]
@@ -76,12 +85,12 @@ pub struct Record<P: ?Sized + Tag<ContentType> = [u8]> {
   pub fragment: P,
 }
 
-/// The type of a handshake message, when it is not known.
+/// The type of a TLS handshake message, when it is not known.
 #[derive(Pun, Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct HandshakeType(pub u8);
 
-/// A handshake message.
+/// A TLS handshake message.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(ContentType = u8c<22>))]
@@ -92,18 +101,20 @@ pub struct Handshake<P: ?Sized + Tag<HandshakeType> = [u8]> {
   pub body: P,
 }
 
-/// A vector of up to 255 bytes, then what follows it: `R`.
+/// A TLS vector of up to 255 bytes, followed by an `R`.
 #[derive(Pun)]
 #[repr(C)]
 pub struct V8<R: ?Sized = [u8]> {
   pub length: u8,
-  /// A type that only a region names must be named by a field too.
+  /// The type of the region `rest`.
+  ///
+  /// A type that only a region names must also be named by a field.
   pub rest_type: PhantomData<R>,
   #[pun(regions(items = length, rest: R))]
   pub data: [u8],
 }
 
-/// A vector of up to 65535 bytes, then what follows it.
+/// A TLS vector of up to 65535 bytes, followed by an `R`.
 #[derive(Pun)]
 #[repr(C)]
 pub struct V16<R: ?Sized = [u8]> {
@@ -113,7 +124,7 @@ pub struct V16<R: ?Sized = [u8]> {
   pub data: [u8],
 }
 
-/// Cipher suites: 2 to 65534 bytes of `u16`s, then what follows them.
+/// The cipher suites of a ClientHello, 2 to 65534 bytes of `u16`s, followed by an `R`.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(length >= 2 && length % 2 == 0))]
@@ -124,11 +135,11 @@ pub struct CipherSuites<R: ?Sized = [u8]> {
   pub data: [u8],
 }
 
-/// A ClientHello: a version, a random, then vectors that follow each other.
+/// A ClientHello, which is a version, a random value, then vectors that follow each other.
 ///
-/// The vectors are the session, the cipher suites, the compression methods and the extensions,
-/// a type each, whose `rest` is the next one. The extensions end the message: what remains
-/// after them is `[u8; 0]`.
+/// The vectors are the session ID, the cipher suites, the compression methods and the extensions.
+/// Each vector is a type of its own, whose `rest` is the next vector. The extensions end the
+/// message, so what remains after them is `[u8; 0]`.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(HandshakeType = u8c<1>))]
@@ -146,7 +157,7 @@ pub struct ClientHello {
   pub session: V8<CipherSuites<V8<V16<[u8; 0]>>>>,
 }
 
-/// An extension.
+/// A TLS extension.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 4)]
@@ -156,8 +167,10 @@ pub struct TlsExtension {
   pub data: [u8],
 }
 
-/// The server name extension, of a single host name. (A host name is ASCII: a `str` is UTF-8,
-/// which is more.)
+/// The data of the server name extension, which holds a single host name.
+///
+/// A host name is ASCII. The field `name` is a `str`, which accepts any UTF-8, so it accepts more
+/// than host names.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(list_length + 2 == size_of_val(self) && name_length + 5 == size_of_val(self)))]
@@ -171,7 +184,9 @@ pub struct ServerName {
 // -------------------------------------------------------------------------------------------------
 // QUIC
 
-/// Any long header packet of QUIC: the form and fixed bits set, connection IDs of up to 20 bytes.
+/// A QUIC packet with a long header, of any type.
+///
+/// The form bit and the fixed bit are set, and each connection ID has up to 20 bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(be(6 + dcid_length, 1) <= 20))]
@@ -186,14 +201,16 @@ pub struct LongHeader {
   pub data: [u8],
 }
 
-/// An Initial packet of QUIC v1: a token, the length of what remains of the packet (packet
-/// number and protected payload), then other packets, coalesced.
+/// An Initial packet of QUIC version 1, followed by other packets coalesced with it.
 ///
-/// The length of the token and the length of the packet are variable-length integers: their two
-/// first bits tell their size, 1, 2, 4 or 8 bytes (`1 << (be(at, 1) >> 6)`), the other bits are
-/// the value. Each is read as 8 bytes, shifted (`be(at, 8) >> (64 - 8 * n)`), and masked: at
-/// least 20 bytes follow both in a valid packet. A region cannot name what another one computed:
-/// each recomputes the offsets it needs.
+/// After the connection IDs come a token, then the length of the rest of the packet. The rest of
+/// the packet is the packet number and the protected payload.
+///
+/// The length of the token and the length of the packet are variable-length integers. Their first
+/// two bits give their size, 1, 2, 4 or 8 bytes (`1 << (be(at, 1) >> 6)`). The other bits are the
+/// value. Each integer is read as 8 bytes, shifted (`be(at, 8) >> (64 - 8 * n)`) and masked. At
+/// least 20 bytes follow both integers in a packet that satisfies the rules. A region cannot name
+/// a value that another region computed, so each region computes again the offsets it needs.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(be(6 + dcid_length, 1) <= 20))]
@@ -206,7 +223,9 @@ pub struct LongHeader {
   ((be(at, 8) >> (64 - 8 * m)) & ((1 << (8 * m - 2)) - 1)) >= 20
 }))]
 pub struct Initial {
-  /// Long header, fixed bit, type 0 (Initial); the 4 low bits are protected.
+  /// The long header bit, the fixed bit and the type 0 (Initial).
+  ///
+  /// The 4 low bits are protected.
   #[pun(valid(0xc0..=0xcf))]
   pub first: u8,
   pub version: u32bec<1>,
@@ -248,8 +267,10 @@ pub struct Initial {
 #[repr(transparent)]
 pub struct FrameType(pub u8);
 
-/// An HTTP/2 frame, of any type unless told. (The maximum size of a frame is a setting of the
-/// connection: not in the bytes.)
+/// An HTTP/2 frame, of any type unless `P` gives one.
+///
+/// The maximum size of a frame is a setting of the connection, which the bytes of the frame do
+/// not hold.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 9)]
@@ -263,7 +284,7 @@ pub struct Frame<P: ?Sized + Tag<FrameType> = [u8]> {
   pub payload: P,
 }
 
-/// A setting.
+/// An HTTP/2 setting.
 #[derive(Pun, Debug, Copy, Clone)]
 #[repr(C)]
 pub struct Setting {
@@ -271,14 +292,15 @@ pub struct Setting {
   pub value: u32be,
 }
 
-/// The payload of SETTINGS: settings, of 6 bytes each, which the slice says.
+/// The payload of a SETTINGS frame, a slice of settings of 6 bytes each.
 #[derive(Pun)]
 #[repr(transparent)]
 #[pun(tag(FrameType = u8c<4>))]
 pub struct Settings(pub [Setting]);
 
-/// A whole SETTINGS frame, with what involves both its header and its payload: it is on stream
-/// 0, and an ACK is empty.
+/// A whole SETTINGS frame, with the rules that involve both its header and its payload.
+///
+/// The frame is on stream 0, and an ACK holds no settings.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 9)]
@@ -292,8 +314,11 @@ pub struct SettingsFrame {
   pub settings: [Setting],
 }
 
-/// A DATA frame: if PADDED (flag `0x8`), a pad length, the data, then that much padding. A field
-/// that a flag tells is a region: the pad length is read again with `be`.
+/// An HTTP/2 DATA frame.
+///
+/// With the flag PADDED (`0x8`), the frame holds a pad length, the data, then that many pad bytes.
+/// A field that only a flag makes present is a region, so the size of `data` reads the pad length
+/// again with `be`.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 9)]
@@ -312,8 +337,10 @@ pub struct DataFrame {
   pub payload: [u8],
 }
 
-/// A HEADERS frame: a pad length (PADDED), a priority (PRIORITY, `0x20`), a header block
-/// fragment, padding.
+/// An HTTP/2 HEADERS frame.
+///
+/// It holds a pad length (with PADDED), a priority (with PRIORITY, `0x20`), a header block
+/// fragment, then pad bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 9)]
@@ -334,7 +361,7 @@ pub struct HeadersFrame {
   pub payload: [u8],
 }
 
-/// The connection preface of a client: `PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n`.
+/// The connection preface of an HTTP/2 client, `PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n`.
 #[derive(Pun)]
 #[repr(C)]
 pub struct Preface {
@@ -345,8 +372,10 @@ pub struct Preface {
 // -------------------------------------------------------------------------------------------------
 // WebSocket
 
-/// The first byte of a frame: FIN, RSV1-3 (0 without extension), an opcode (0 to 2 for data, 8 to
-/// 10 for control frames).
+/// The first byte of a WebSocket frame.
+///
+/// It holds FIN, RSV1 to RSV3 (0 without an extension) and an opcode (0 to 2 for data, 8 to 10 for
+/// control frames).
 #[derive(Pun, Debug, Copy, Clone)]
 #[repr(transparent)]
 #[pun(assert(self.0 & 0x70 == 0))]
@@ -356,10 +385,11 @@ pub struct Preface {
 #[pun(get(fin: bool = self.0 & 0x80 != 0, opcode: u8 = self.0 & 0x0f))]
 pub struct Head(pub u8);
 
-/// A WebSocket frame, of a client (`MASK` is 1: masked) or of a server (0).
+/// A WebSocket frame from a client (`MASK` is 1, masked) or from a server (`MASK` is 0).
 ///
-/// A head, a byte of a mask bit and a length of 7 bits (126 and 127: the length is the 16 or 64
-/// bits that follow), the key of the mask if it is masked, the payload.
+/// The frame holds a head, then a byte of a mask bit and a length of 7 bits. A length of 126 or
+/// 127 means that the length is in the 16 or 64 bits that follow. Then come the key of the mask,
+/// if the frame is masked, and the payload.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = {
@@ -384,10 +414,10 @@ pub struct WebSocket<const MASK: u8> {
   pub rest: [u8],
 }
 
-/// A frame from a server: never masked.
+/// A WebSocket frame from a server, which is never masked.
 pub type ServerFrame = WebSocket<0>;
 
-/// A frame from a client: always masked.
+/// A WebSocket frame from a client, which is always masked.
 pub type ClientFrame = WebSocket<1>;
 
 // -------------------------------------------------------------------------------------------------
@@ -395,9 +425,9 @@ pub type ClientFrame = WebSocket<1>;
 
 /// An SSH binary packet (RFC 4253), before encryption or with the "none" cipher.
 ///
-/// A length, 4 to 255 bytes of padding, a payload, and a MAC of `MAC` bytes, which the
-/// negotiation tells, not the bytes. The packet, without its MAC, is a multiple of the block
-/// size, at least 8.
+/// It holds a packet length, a padding length, a payload, 4 to 255 bytes of padding and a MAC of
+/// `MAC` bytes. The size of the MAC comes from the negotiation, not from the bytes. Without its
+/// MAC, the packet is a multiple of the block size `BLOCK`, or of 8 if `BLOCK` is smaller.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = packet_length + 4 + MAC)]
@@ -411,7 +441,9 @@ pub struct SshPacket<const BLOCK: usize, const MAC: usize> {
   pub data: [u8],
 }
 
-/// A name-list (a length, then comma-separated US-ASCII names), then what follows it.
+/// An SSH name-list, followed by an `R`.
+///
+/// A name-list is a length, then US-ASCII names separated by commas.
 #[derive(Pun)]
 #[repr(C)]
 pub struct NameList<R: ?Sized> {
@@ -421,7 +453,7 @@ pub struct NameList<R: ?Sized> {
   pub data: [u8],
 }
 
-/// What ends KEXINIT.
+/// The end of a KEXINIT message.
 #[derive(Pun)]
 #[repr(C)]
 pub struct KexEnd {
@@ -429,8 +461,11 @@ pub struct KexEnd {
   pub reserved: u32bec<0>,
 }
 
-/// KEXINIT: a cookie, ten name-lists (key exchange, host key, ciphers, MACs and compressions of
-/// both directions, languages), then the end: a chain of ten types.
+/// An SSH KEXINIT message.
+///
+/// It holds a cookie, ten name-lists and an end. The name-lists are the key exchange, the host
+/// key, then the ciphers, the MACs, the compressions and the languages of both directions. Each
+/// name-list is a type whose `R` is the next one, so they make a chain of ten types.
 #[derive(Pun)]
 #[repr(C)]
 pub struct KexInit {
@@ -439,16 +474,17 @@ pub struct KexInit {
   pub lists: NameList<NameList<NameList<NameList<NameList<Lists5>>>>>,
 }
 
-/// The five last name-lists of KEXINIT, and its end.
+/// The last five name-lists of KEXINIT, followed by its end.
 pub type Lists5 = NameList<NameList<NameList<NameList<NameList<KexEnd>>>>>;
 
 // -------------------------------------------------------------------------------------------------
 // MQTT
 
-/// The first byte of an MQTT 3.1.1 control packet: a packet type and flags.
+/// The first byte of an MQTT 3.1.1 control packet, a packet type and flags.
 ///
-/// The type is 4 bits, 1 to 14. The flags are 4 bits, which depend on the type: `QoS` and retain
-/// of PUBLISH, 2 for PUBREL, SUBSCRIBE and UNSUBSCRIBE, 0 otherwise.
+/// The type is 4 bits, from 1 to 14. The flags are 4 bits, and their values depend on the type.
+/// PUBLISH has the DUP flag, the `QoS` (3 is not one) and the retain flag. The flags are 2 for
+/// PUBREL, SUBSCRIBE and UNSUBSCRIBE, and 0 for the other types.
 #[derive(Pun, Debug, Copy, Clone)]
 #[repr(transparent)]
 #[pun(assert(self.0 >> 4 >= 1 && self.0 >> 4 <= 14))]
@@ -462,8 +498,11 @@ pub type Lists5 = NameList<NameList<NameList<NameList<NameList<KexEnd>>>>>;
 #[pun(get(kind: u8 = self.0 >> 4, flags: u8 = self.0 & 15))]
 pub struct Fixed(pub u8);
 
-/// An MQTT packet: its first byte, then the remaining length, LEB128 of 1 to 4 bytes (the
-/// shortest form: its last byte is not 0, but for a length of 0), then a body of that size.
+/// An MQTT control packet.
+///
+/// It holds its first byte, the remaining length, then a body of that size. The remaining length
+/// is a LEB128 of 1 to 4 bytes, in its shortest form. Its last byte is not 0, except for a length
+/// of 0.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = 1 + leb128_len(1) + leb128(1))]
@@ -475,8 +514,9 @@ pub struct Packet<P: ?Sized = [u8]> {
   pub rest: [u8],
 }
 
-/// A UTF-8 string of MQTT, without `U+0000` (a 16 bits length, then the text), then what follows
-/// it.
+/// An MQTT UTF-8 string, followed by an `R`.
+///
+/// The string is a 16-bit length, then the text, which holds no `U+0000`.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(matches(Dfa::UTF8_NO_NUL, 2, 2 + length)))]
@@ -487,8 +527,10 @@ pub struct Utf8<R: ?Sized = [u8; 0]> {
   pub data: [u8],
 }
 
-/// The body of CONNECT: the protocol name "MQTT", level 4, flags, a keep alive, then the payload:
-/// a client identifier, then what the flags tell (will, user name, password).
+/// The body of an MQTT CONNECT packet.
+///
+/// It holds the protocol name "MQTT", the level 4, flags and a keep alive. Then comes the payload,
+/// a client identifier followed by what the flags announce (will, user name, password).
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(flags & 1 == 0))]
@@ -509,8 +551,9 @@ pub struct Connect {
 // -------------------------------------------------------------------------------------------------
 // CoAP
 
-/// A CoAP message (RFC 7252): a header of 4 bytes, a token of 0 to 8 bytes, then options and a
-/// payload.
+/// A CoAP message (RFC 7252).
+///
+/// It holds a header of 4 bytes, a token of 0 to 8 bytes, then options and a payload.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(version_type_tkl >> 6 == 1))]
@@ -523,8 +566,8 @@ pub struct Connect {
 }))]
 #[pun(assert(code != 0 || size_of_val(self) == 4))]
 // The options are well formed, up to the end or to a payload marker, which a payload follows.
-// Each nibble of the head of an option is a value (0 to 12), or tells 1 (13) or 2 (14) more
-// bytes; 15 is not one.
+// Each nibble of the head of an option is a value from 0 to 12, or 13 or 14 for 1 or 2 more
+// bytes. A nibble of 15 is not allowed.
 #[pun(assert({
   let end = walk(
     4 + (version_type_tkl & 15),
@@ -550,7 +593,7 @@ pub struct Connect {
 }))]
 #[pun(get(kind: u8 = (version_type_tkl >> 4) & 3, class: u8 = code >> 5, detail: u8 = code & 31))]
 pub struct Coap {
-  /// Version (2 bits, 1), type (2 bits), token length (4 bits).
+  /// The version (2 bits, always 1), the type (2 bits) and the token length (4 bits).
   pub version_type_tkl: u8,
   pub code: u8,
   pub message_id: u16be,
@@ -558,8 +601,11 @@ pub struct Coap {
   pub data: [u8],
 }
 
-/// An option: a head of two nibbles, a delta and a length, each a value (0 to 12) or telling 1
-/// (13) or 2 (14) more bytes (15 is not one), then those bytes, then the value.
+/// A CoAP option.
+///
+/// It starts with a head of two nibbles, a delta and a length. Each nibble is a value from 0 to
+/// 12, or 13 or 14 for 1 or 2 more bytes. A nibble of 15 is not allowed. The extra bytes follow
+/// the head, then the value.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = {
@@ -590,8 +636,9 @@ pub struct CoapOption {
 // -------------------------------------------------------------------------------------------------
 // SCTP
 
-/// An SCTP packet: a common header, then chunks. Its checksum is the CRC-32C of the packet, its
-/// own field taken as zeros.
+/// An SCTP packet, a common header followed by chunks.
+///
+/// Its checksum is the CRC-32C of the packet, computed with the checksum field as zeros.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(
@@ -606,7 +653,9 @@ pub struct Sctp {
   pub chunks: [u8],
 }
 
-/// An SCTP chunk: its length does not count the padding to 4 bytes that follows it.
+/// An SCTP chunk.
+///
+/// Its length does not count the pad bytes that follow it up to a multiple of 4 bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = (length + 3) / 4 * 4)]
@@ -621,7 +670,7 @@ pub struct Chunk {
 // -------------------------------------------------------------------------------------------------
 // Use
 
-/// A TLS record, as bytes: a ClientHello of three cipher suites and a server name.
+/// The bytes of a TLS record that holds a ClientHello with three cipher suites and a server name.
 const CLIENT_HELLO: [u8; 108] = [
   0x16, 0x03, 0x01, 0x00, 0x67, 0x01, 0x00, 0x00, 0x63, 0x03, 0x03, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a,
   0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a,
@@ -632,7 +681,9 @@ const CLIENT_HELLO: [u8; 108] = [
   0x0b, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c', b'o', b'm',
 ];
 
-/// The same, of 3 bytes of cipher suites: still a chain that fills the message.
+/// The bytes of the same record with 3 bytes of cipher suites.
+///
+/// The chain of vectors still fills the message.
 const ODD_HELLO: [u8; 105] = [
   0x16, 0x03, 0x01, 0x00, 0x64, 0x01, 0x00, 0x00, 0x60, 0x03, 0x03, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a,
   0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a, 0x5a,
@@ -643,9 +694,10 @@ const ODD_HELLO: [u8; 105] = [
   b'a', b'm', b'p', b'l', b'e', b'.', b'c', b'o', b'm',
 ];
 
-/// A QUIC Initial packet, as bytes: a destination connection ID of 8 bytes, no source connection
-/// ID, no token, a length of 2 bytes (`0x4020`: 32), 32 protected bytes, then 3 bytes of another
-/// packet.
+/// The bytes of a QUIC Initial packet, followed by 3 bytes of another packet.
+///
+/// The packet has a destination connection ID of 8 bytes, no source connection ID and no token.
+/// Its length takes 2 bytes (`0x4020`, which is 32), and 32 protected bytes follow.
 const INITIAL: [u8; 53] = [
   0xc3, 0, 0, 0, 1, 8, 0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08, 0, 0, 0x40, 0x20, 0xaa,
   0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
@@ -653,25 +705,30 @@ const INITIAL: [u8; 53] = [
   3,
 ];
 
-/// HTTP/2 SETTINGS, as bytes: at most 100 concurrent streams, an initial window of 65535; then a
-/// SETTINGS ACK.
+/// The bytes of an HTTP/2 SETTINGS frame, then of a SETTINGS ACK.
+///
+/// The settings are at most 100 concurrent streams and an initial window of 65535.
 const SETTINGS: [u8; 30] = [
   0, 0, 12, 4, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 100, 0, 4, 0, 0, 0xff, 0xff, 0, 0, 0, 4, 1, 0, 0, 0, 0,
 ];
 
-/// A padded HTTP/2 DATA frame on stream 1, as bytes: a pad length of 3, "hello", 3 bytes of
-/// padding, `END_STREAM`.
+/// The bytes of a padded HTTP/2 DATA frame on stream 1, with `END_STREAM`.
+///
+/// The frame holds a pad length of 3, "hello", then 3 pad bytes.
 const DATA: [u8; 18] = [0, 0, 9, 0, 9, 0, 0, 0, 1, 3, b'h', b'e', b'l', b'l', b'o', 0, 0, 0];
 
-/// An HTTP/2 HEADERS frame on stream 3, as bytes: PRIORITY and PADDED, two bytes of header block.
+/// The bytes of an HTTP/2 HEADERS frame on stream 3, with PRIORITY, PADDED and two bytes of
+/// header block.
 const HEADERS: [u8; 18] = [0, 0, 9, 1, 0x2c, 0, 0, 0, 3, 1, 0, 0, 0, 0, 15, 0x82, 0x86, 0];
 
-/// The examples of RFC 6455, 5.7: "Hello" from a server, the same from a client (masked), a ping.
+/// The bytes of "Hello" from a server, an example of RFC 6455, section 5.7.
 const HELLO: [u8; 7] = [0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f];
+/// The bytes of "Hello" from a client, masked, an example of RFC 6455, section 5.7.
 const MASKED_HELLO: [u8; 11] = [0x81, 0x85, 0x37, 0xfa, 0x21, 0x3d, 0x7f, 0x9f, 0x4d, 0x51, 0x58];
+/// The bytes of a ping, an example of RFC 6455, section 5.7.
 const PING: [u8; 7] = [0x89, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f];
 
-/// An SSH binary packet, as bytes: a KEXINIT, padding, a MAC of 32 bytes.
+/// The bytes of an SSH binary packet that holds a KEXINIT, with padding and a MAC of 32 bytes.
 const KEXINIT: [u8; 192] = [
   0x00, 0x00, 0x00, 0x9c, 0x0b, 0x14, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
   0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x00, 0x00, 0x00, 0x11, b'c', b'u', b'r', b'v', b'e', b'2',
@@ -687,28 +744,32 @@ const KEXINIT: [u8; 192] = [
   0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa,
 ];
 
-/// MQTT CONNECT, as bytes: client identifier "abc", a clean session, a keep alive of 60 seconds.
+/// The bytes of an MQTT CONNECT packet with the client identifier "abc", a clean session and a
+/// keep alive of 60 seconds.
 const CONNECT: [u8; 17] =
   [0x10, 15, 0, 4, b'M', b'Q', b'T', b'T', 4, 2, 0, 60, 0, 3, b'a', b'b', b'c'];
 
-/// A confirmable CoAP GET, as bytes: message ID `0x7d34`, token `0x71`, Uri-Path "temperature"
-/// (option 11).
+/// The bytes of a confirmable CoAP GET with the message ID `0x7d34`, the token `0x71` and the
+/// Uri-Path "temperature" (option 11).
 const GET: [u8; 17] = [
   0x41, 0x01, 0x7d, 0x34, 0x71, 0xbb, b't', b'e', b'm', b'p', b'e', b'r', b'a', b't', b'u', b'r',
   b'e',
 ];
 
-/// Its response, 2.05 Content, as bytes: Max-Age (option 14, delta 14 in a byte of extension:
-/// "13 + 1"), the payload marker, a payload.
+/// The bytes of the response to [`GET`], 2.05 Content.
+///
+/// It holds Max-Age (option 14, a delta of 14 in an extended byte, "13 + 1"), the payload marker
+/// and a payload.
 const CONTENT: [u8; 16] =
   [0x61, 0x45, 0x7d, 0x34, 0x71, 0xd1, 0x01, 0x3c, 0xff, b'2', b'2', b'.', b'3', b' ', b'C', 0];
 
-/// An SCTP packet, as bytes: an INIT chunk, and the CRC-32C of the packet.
+/// The bytes of an SCTP packet with an INIT chunk and the CRC-32C of the packet.
 const SCTP: [u8; 32] = [
   0x13, 0x88, 0x13, 0x88, 0x00, 0x00, 0x00, 0x00, 0x94, 0x09, 0x49, 0x12, 0x01, 0x00, 0x00, 0x14,
   0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x01,
 ];
 
+/// Reads the samples of this file through its types, and asserts the results.
 pub fn main() {
   // ---- TLS: a record, a handshake message, a ClientHello: a chain of vectors.
   let record: &Record<Handshake<ClientHello>> = try_pun_ref(&CLIENT_HELLO[..]).unwrap();
@@ -845,7 +906,7 @@ pub fn main() {
     (true, 1, &b"Hello"[..], 0)
   );
   assert!(matches!(from_bytes::<ServerFrame>(&PING), Ok(ping) if ping.head.opcode() == 9));
-  // Unmasking is a transformation: use code.
+  // Unmasking makes new bytes, so the code that uses the types does it.
   let unmask = |frame: &ClientFrame| {
     let (key, payload) = (frame.key(), frame.payload());
     payload.iter().enumerate().map(|(i, byte)| byte ^ key[i % 4]).collect::<Vec<u8>>()
@@ -884,7 +945,7 @@ pub fn main() {
   long[2] = 0x80;
   assert!(from_bytes::<ServerFrame>(&long).is_err());
 
-  // ---- SSH: a packet of a block size and a MAC size that the bytes do not tell.
+  // ---- SSH: a packet of a block size and a MAC size that the bytes do not give.
   let (packet, rest) = from_head::<SshPacket<8, 32>>(&KEXINIT).unwrap();
   assert_eq!(
     (packet.payload().len(), packet.padding().len(), packet.mac(), rest.len()),
@@ -1006,7 +1067,7 @@ pub fn main() {
     bytes[at] = value;
     assert_eq!(try_pun_ref::<_, Coap>(&bytes[..]).err(), Some(Error::Validity));
   }
-  // An option that runs past the message.
+  // An option that extends beyond the message.
   let mut bytes = GET;
   bytes[5] = 0xbc;
   assert_eq!(try_pun_ref::<_, Coap>(&bytes[..]).err(), Some(Error::Validity));

@@ -1,42 +1,46 @@
-//! Routing, tunnels and group management, in safe Rust, with nothing but `#[derive(Pun)]` and
-//! its options: BGP-4, OSPFv2, GRE, VXLAN, Geneve, IGMP v2 and v3, and the neighbor discovery of
-//! ICMPv6.
+//! Routing, tunnel and group management messages, declared with `#[derive(Pun)]` and read in
+//! place from bytes: BGP-4, OSPFv2, GRE, VXLAN, Geneve, IGMP v2 and v3, and the neighbor
+//! discovery of ICMPv6.
 //!
-//! As in `ethernet.rs`, the first half of this file is type declarations only: no `unsafe`, no
-//! `impl`, no parsing code. The second half reads messages in place, from bytes, and checks that
-//! corrupted ones are rejected.
+//! As in `ethernet.rs`, the first half of this file holds only type declarations, with no `unsafe`,
+//! no `impl` and no parsing code, and the second half reads messages in place, from bytes.
 //!
-//! What is specific to these protocols, and what tells it:
+//! The following table lists what is specific to these protocols, and what in the declarations
+//! expresses it:
 //!
-//! | Specificity                                     | Told by                                     |
-//! |-------------------------------------------------|---------------------------------------------|
-//! | the BGP marker: 16 bytes of ones                | `[u8c<0xff>; 16]`                           |
-//! | a BGP message tells its type                    | `tag(MessageType = u8c<1>)`                 |
-//! | BGP UPDATE: three parts, each sized before it   | `regions(withdrawn = .., attributes = ..)`  |
-//! | BGP attributes: a length of 1 or 2 bytes        | `size = if .. { 3 + be(2, 1) } else { .. }` |
-//! | BGP prefixes: a length in bits                  | `size = (bits + 7) / 8 + 1`                 |
-//! | the OSPF checksum skips the authentication      | `assert((sum16(0, 16) + sum16(..)) ..)`     |
-//! | the Fletcher checksum of OSPF LSAs              | `assert(fletcher16(2, ..) == 0)`            |
-//! | GRE: optional fields told by flags              | `regions(key = if .. { 4 } else { 0 }, ..)` |
-//! | the GRE checksum, when there is one             | `assert(.. \|\| sum16(..) == 0xffff)`       |
-//! | GRE and Geneve tell what they carry             | `tag(EtherType = u16bec<0x0800>)`           |
-//! | VXLAN: flags and reserved bytes of fixed values | `u8c<0x08>`, `[u8c<0>; 3]`                  |
-//! | Geneve options, in 4 bytes words, that fill     | `assert(walk(8, ..) == ..)`                 |
-//! | IGMP checksums over the whole message           | `assert(sum16(0, size_of_val(self)) ..)`    |
-//! | IGMPv3: sources counted by the query            | `len = source_count`                        |
-//! | IGMPv3 reports: records of their own sizes      | a `walk` of an offset and a count           |
-//! | ICMPv6 options, in units of 8 bytes, that fill  | `assert(walk(16, ..) == ..)`                |
+//! | Specific to these protocols                    | Declared with                               |
+//! |------------------------------------------------|---------------------------------------------|
+//! | the BGP marker, 16 bytes of ones               | `[u8c<0xff>; 16]`                           |
+//! | a BGP message gives its type                   | `tag(MessageType = u8c<1>)`                 |
+//! | BGP UPDATE parts, each sized before it         | `regions(withdrawn = .., attributes = ..)`  |
+//! | a BGP attribute has a length of 1 or 2 bytes   | `size = if .. { 3 + be(2, 1) } else { .. }` |
+//! | a BGP prefix has a length in bits              | `size = (bits + 7) / 8 + 1`                 |
+//! | the OSPF checksum skips the authentication     | `assert((sum16(0, 16) + sum16(..)) ..)`     |
+//! | the Fletcher checksum of OSPF LSAs             | `assert(fletcher16(2, ..) == 0)`            |
+//! | GRE optional fields, announced by its flags    | `regions(key = if .. { 4 } else { 0 }, ..)` |
+//! | the GRE checksum, when there is one            | `assert(.. \|\| sum16(..) == 0xffff)`       |
+//! | GRE and Geneve say what they carry             | `tag(EtherType = u16bec<0x0800>)`           |
+//! | VXLAN flags and reserved bytes are fixed       | `u8c<0x08>`, `[u8c<0>; 3]`                  |
+//! | Geneve options, in 4-byte words, fill a region | `assert(walk(8, ..) == ..)`                 |
+//! | IGMP checksums cover the whole message         | `assert(sum16(0, size_of_val(self)) ..)`    |
+//! | an IGMPv3 query counts its sources             | `len = source_count`                        |
+//! | IGMPv3 report records have sizes of their own  | a `walk` of an offset and a count           |
+//! | ICMPv6 options, in 8-byte units, fill the rest | `assert(walk(16, ..) == ..)`                |
 //!
-//! What is not covered, and why:
+//! The following are not covered:
 //!
-//! - BGP path attributes are read one by one by use code: a sequence of things of their own
-//!   sizes is bytes. Their meanings (AS paths, communities, MP-BGP) are more declarations of the same
-//!   kind, left out here.
-//! - The ICMPv6 checksum covers the addresses of the IPv6 packet: it is checked by the packet,
-//!   as in `ethernet.rs`. A message is checked here on its own.
-//! - OSPF cryptographic authentication (a keyed hash), BGP and OSPF state machines: not
-//!   something the bytes say.
-#![deny(unsafe_code)]
+//! - The code that uses the types reads BGP path attributes one by one, since a sequence of
+//!   items of their own sizes is declared as bytes. Their meanings (AS paths, communities,
+//!   MP-BGP) would be more declarations of the same kind, and are left out.
+//! - The ICMPv6 checksum covers the addresses of the IPv6 packet, so the packet checks it, as in
+//!   `ethernet.rs`. This file reads a message on its own, without that checksum.
+//! - OSPF cryptographic authentication (a keyed hash) and the state machines of BGP and OSPF are
+//!   not properties of the bytes.
+//!
+//! `main` reads messages of each protocol from bytes and asserts their fields, regions and
+//! getters. It changes bytes so that a rule fails, asserts that each read then returns an error,
+//! and prints `ok`.
+#![forbid(unsafe_code)]
 
 use core::marker::PhantomData;
 
@@ -54,7 +58,7 @@ use puns::{
 #[repr(transparent)]
 pub struct MessageType(#[pun(valid(1..=5))] pub u8);
 
-/// A BGP-4 message (RFC 4271): a marker, a length, a type, a body.
+/// A BGP-4 message (RFC 4271): a marker, a length, a type and a body.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length)]
@@ -66,7 +70,8 @@ pub struct Message<P: ?Sized + Tag<MessageType> = [u8]> {
   pub body: P,
 }
 
-/// OPEN: a version, an AS number, a hold time, an identifier, optional parameters.
+/// The body of a BGP OPEN message: a version, an AS number, a hold time, an identifier and
+/// optional parameters.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(MessageType = u8c<1>))]
@@ -74,7 +79,7 @@ pub struct Message<P: ?Sized + Tag<MessageType> = [u8]> {
 pub struct Open {
   pub version: u8c<4>,
   pub my_as: u16be,
-  /// 0, or at least 3 seconds.
+  /// The hold time in seconds, 0 or at least 3.
   #[pun(valid(0, 3..))]
   pub hold_time: u16be,
   pub identifier: [u8; 4],
@@ -82,14 +87,16 @@ pub struct Open {
   pub parameters: [u8],
 }
 
-/// KEEPALIVE: nothing.
+/// The body of a BGP KEEPALIVE message, which is empty.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(MessageType = u8c<4>))]
 pub struct Keepalive;
 
-/// UPDATE: withdrawn routes, path attributes, then reachability information. Each part is
-/// sized by what precedes it, and the last one takes what remains.
+/// The body of a BGP UPDATE message: withdrawn routes, path attributes, then reachability
+/// information.
+///
+/// The bytes before each of the first two parts give its size. The last part takes what remains.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(MessageType = u8c<2>))]
@@ -106,8 +113,10 @@ pub struct Update {
   pub data: [u8],
 }
 
-/// A path attribute: flags, a type, a length of one byte, or two if the "extended length" flag
-/// (`0x10`) is set, then the value.
+/// A BGP path attribute: flags, a type, a length and a value.
+///
+/// The length takes one byte, or two if the "extended length" flag (`0x10`) is set. The low 4
+/// bits of the flags are 0.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = if flags & 0x10 == 0 { 3 + be(2, 1) } else { 4 + be(2, 2) })]
@@ -119,7 +128,9 @@ pub struct Attribute {
   pub rest: [u8],
 }
 
-/// ORIGIN: well-known and transitive, a byte of 0 (IGP) to 2 (incomplete).
+/// A BGP ORIGIN attribute, which is well-known and transitive.
+///
+/// Its value is a byte from 0 (IGP) to 2 (incomplete).
 #[derive(Pun)]
 #[repr(C)]
 pub struct Origin {
@@ -130,7 +141,7 @@ pub struct Origin {
   pub value: u8,
 }
 
-/// An IPv4 prefix: a length in bits, then as many bytes as hold them.
+/// An IPv4 prefix in BGP: a length in bits, at most 32, then the fewest bytes that hold them.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = (bits + 7) / 8 + 1)]
@@ -148,12 +159,13 @@ pub struct Prefix {
 #[repr(C)]
 #[pun(size = length)]
 #[pun(assert(length >= 24))]
-// The checksum of IP over the packet, but for the 8 bytes of authentication; there is none when
+// The checksum of IP over the packet, except for the 8 bytes of authentication; there is none when
 // the authentication is cryptographic (type 2).
 #[pun(assert(auth_type == 2 || (sum16(0, 16) + sum16(24, length)) % 0xffff == 0))]
 pub struct Ospf {
   pub version: u8c<2>,
-  /// Hello, database description, link state request, update, acknowledgment.
+  /// The packet type: hello, database description, link state request, link state update or
+  /// link state acknowledgment.
   #[pun(valid(1..=5))]
   pub kind: u8,
   pub length: u16be,
@@ -166,10 +178,10 @@ pub struct Ospf {
   pub body: [u8],
 }
 
-/// A link state advertisement: a header of 20 bytes, then what it advertises.
+/// An OSPF link state advertisement: a header of 20 bytes, then what it advertises.
 ///
-/// Its checksum is the Fletcher checksum of ISO 8473, over all of it but its age (2 bytes):
-/// over data that holds it, both of its sums are 0.
+/// Its checksum is the Fletcher checksum of ISO 8473, over every byte but the age (2 bytes).
+/// Over data that holds a correct checksum, both sums of the Fletcher checksum are 0.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length)]
@@ -191,12 +203,12 @@ pub struct Lsa {
 // -------------------------------------------------------------------------------------------------
 // Tunnels
 
-/// An EtherType, as GRE and Geneve tell what they carry, when it is not known.
+/// The EtherType by which GRE and Geneve say what they carry, when it is not known.
 #[derive(Pun, Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct EtherType(pub u16be);
 
-/// An IPv4 packet, here only as what a tunnel carries: see `ethernet.rs` for all of it.
+/// An IPv4 packet, declared only as far as a tunnel needs. `ethernet.rs` declares all of it.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(EtherType = u16bec<0x0800>))]
@@ -220,8 +232,10 @@ pub struct Ethernet {
   pub payload: [u8],
 }
 
-/// GRE (RFC 2784, 2890): a checksum (flag C), a key (K) and a sequence number (S), each there
-/// or not, as the flags tell; version 0. Each optional field is a region of 0 or 4 bytes.
+/// A GRE packet (RFC 2784, 2890) of version 0.
+///
+/// The flags say whether a checksum (flag C), a key (flag K) and a sequence number (flag S) are
+/// present. Each of these optional fields is a region of 0 or 4 bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(flags_version & 0x4ff8 == 0 && flags_version & 7 == 0))]
@@ -244,7 +258,7 @@ pub struct Gre<P: ?Sized + Tag<EtherType> = [u8]> {
   pub data: [u8],
 }
 
-/// VXLAN (RFC 7348): the I flag, a 24 bits network identifier, an Ethernet frame.
+/// A VXLAN packet (RFC 7348): the I flag, a 24-bit network identifier, then an Ethernet frame.
 #[derive(Pun)]
 #[repr(C)]
 pub struct Vxlan {
@@ -255,18 +269,19 @@ pub struct Vxlan {
   pub frame: Ethernet,
 }
 
-/// Geneve (RFC 8926): options of a size in 4 bytes words, then what the protocol tells.
+/// A Geneve packet (RFC 8926): options whose size is in 4-byte words, then a payload whose type
+/// the protocol field gives.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(get(options_length: usize = (version_options & 0x3f) * 4, oam: bool = flags & 0x80 != 0))]
-// The options are made of whole options.
+// The region of options holds whole options.
 #[pun(assert(walk(
   8,
   |at| at < 8 + (version_options & 0x3f) * 4,
   |at| at + 4 + (be(at + 3, 1) & 0x1f) * 4,
 ) == 8 + (version_options & 0x3f) * 4))]
 pub struct Geneve<P: ?Sized + Tag<EtherType> = [u8]> {
-  /// Version (2 bits, 0), the length of the options in 4 bytes words (6 bits).
+  /// The version (2 bits, 0), then the length of the options in 4-byte words (6 bits).
   #[pun(valid(..=0x3f))]
   pub version_options: u8,
   pub flags: u8,
@@ -285,7 +300,7 @@ pub struct Geneve<P: ?Sized + Tag<EtherType> = [u8]> {
 pub struct GeneveOption {
   pub class: u16be,
   pub kind: u8,
-  /// Reserved (3 bits), the length of the data in 4 bytes words (5 bits).
+  /// Reserved bits (3 bits), then the length of the data in 4-byte words (5 bits).
   pub length: u8,
   pub data: [u8],
 }
@@ -293,12 +308,12 @@ pub struct GeneveOption {
 // -------------------------------------------------------------------------------------------------
 // IGMP
 
-/// IGMPv2 (and the messages of v1 and v2): 8 bytes, a checksum over them.
+/// An IGMP message of version 1 or 2: 8 bytes, with a checksum over them.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(sum16(0, 8) == 0xffff))]
 pub struct Igmp2 {
-  /// Query, v1 report, v2 report, leave.
+  /// The message type: query, v1 report, v2 report or leave.
   #[pun(valid(0x11, 0x12, 0x16, 0x17))]
   pub kind: u8,
   pub max_response: u8,
@@ -306,7 +321,7 @@ pub struct Igmp2 {
   pub group: [u8; 4],
 }
 
-/// An IGMPv3 membership query: a list of sources, counted.
+/// An IGMPv3 membership query, which ends with the number of sources, then the sources.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(sum16(0, size_of_val(self)) == 0xffff))]
@@ -323,7 +338,9 @@ pub struct Query3 {
   pub sources: [[u8; 4]],
 }
 
-/// An IGMPv3 membership report: group records, each of a size of its own, counted.
+/// An IGMPv3 membership report, which ends with the number of group records, then the records.
+///
+/// Each record has a size of its own, and the records fill the report.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(sum16(0, size_of_val(self)) == 0xffff))]
@@ -349,7 +366,8 @@ pub struct Report3 {
   pub records: [u8],
 }
 
-/// A group record: its sources, then auxiliary data, of a size in 4 bytes words.
+/// An IGMPv3 group record: a header, its sources, then auxiliary data whose size is in 4-byte
+/// words.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = 8 + source_count * 4 + aux_length * 4)]
@@ -366,8 +384,10 @@ pub struct GroupRecord {
 // -------------------------------------------------------------------------------------------------
 // Neighbor discovery
 
-/// An ICMPv6 router advertisement (RFC 4861): its options fill it, each of a size in units of 8
-/// bytes, which is not 0.
+/// An ICMPv6 router advertisement (RFC 4861).
+///
+/// Its options fill the rest of the message. The size of each option is in units of 8 bytes,
+/// and is not 0.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(walk(
@@ -389,6 +409,8 @@ pub struct RouterAdvertisement {
 }
 
 /// An ICMPv6 neighbor solicitation: a target that is not a multicast address, then options.
+///
+/// As in [`RouterAdvertisement`], the options fill the rest of the message.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(walk(
@@ -406,8 +428,10 @@ pub struct NeighborSolicitation {
   pub options: [u8],
 }
 
-/// A neighbor discovery option: its size is in units of 8 bytes, and is not 0 (an option of
-/// size 0 would be read forever).
+/// A neighbor discovery option.
+///
+/// Its size is in units of 8 bytes, and is not 0. A reader that steps from option to option would
+/// never advance over an option of size 0.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length * 8)]
@@ -418,7 +442,7 @@ pub struct NdOption {
   pub data: [u8],
 }
 
-/// The prefix information option.
+/// The prefix information option of neighbor discovery.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(prefix_length <= 128))]
@@ -437,74 +461,83 @@ pub struct PrefixInformation {
 // -------------------------------------------------------------------------------------------------
 // Use
 
-/// A BGP header, as bytes: the marker; the length and the type follow.
+/// The bytes of the marker of a BGP header. The length and the type follow it.
 const MARKER: [u8; 16] = [0xff; 16];
 
-/// A BGP OPEN, as bytes: AS 65000, a hold time of 180 seconds, no optional parameters.
+/// The bytes of a BGP OPEN message from AS 65000, with a hold time of 180 seconds and no
+/// optional parameters.
 const OPEN: [u8; 29] = [
   0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
   0, 29, 1, 4, 0xfd, 0xe8, 0, 180, 192, 0, 2, 1, 0,
 ];
 
-/// A BGP UPDATE, as bytes: no withdrawn routes; `ORIGIN` IGP, `AS_PATH` (of an extended length) of
-/// AS 65000, `NEXT_HOP` 192.0.2.1; the prefix 10.0.0.0/8.
+/// The bytes of a BGP UPDATE message with no withdrawn routes, three attributes and the prefix
+/// 10.0.0.0/8.
+///
+/// The attributes are `ORIGIN` IGP, `AS_PATH` of AS 65000 with an extended length, and
+/// `NEXT_HOP` 192.0.2.1.
 const UPDATE: [u8; 46] = [
   0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
   0, 46, 2, 0, 0, 0, 21, 0x40, 1, 1, 0, 0x50, 2, 0, 6, 2, 1, 0, 0, 0xfd, 0xe8, 0x40, 3, 4, 192, 0,
   2, 1, 8, 10,
 ];
 
-/// An OSPF hello packet, as bytes, without authentication.
+/// The bytes of an OSPF hello packet without authentication.
 const HELLO: [u8; 44] = [
   0x02, 0x01, 0x00, 0x2c, 0xc0, 0x00, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x3a, 0x9d, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x00, 0x00, 0x0a, 0x02, 0x01,
   0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
-/// An OSPF router LSA, as bytes: one link to a stub network, a Fletcher checksum.
+/// The bytes of an OSPF router LSA with one link to a stub network and a Fletcher checksum.
 const LSA: [u8; 36] = [
   0x00, 0x01, 0x22, 0x01, 0xc0, 0x00, 0x02, 0x01, 0xc0, 0x00, 0x02, 0x01, 0x80, 0x00, 0x00, 0x01,
   0x1f, 0x78, 0x00, 0x24, 0x00, 0x00, 0x00, 0x01, 0x0a, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x00,
   0x03, 0x00, 0x00, 0x0a,
 ];
 
-/// A GRE packet, as bytes: a checksum, a key (42), a sequence number (7), then IPv4.
+/// The bytes of a GRE packet with a checksum, a key (42) and a sequence number (7), then an
+/// IPv4 packet.
 const GRE: [u8; 36] = [
   0xb0, 0x00, 0x08, 0x00, 0xae, 0xa5, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x07,
   0x45, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x40, 0x11, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x01,
   0x0a, 0x00, 0x00, 0x02,
 ];
 
-/// A VXLAN header of network 0x1234, as bytes; an Ethernet frame follows.
+/// The bytes of a VXLAN header of network 0x1234. An Ethernet frame follows it.
 const VXLAN: [u8; 8] = [0x08, 0, 0, 0, 0x00, 0x12, 0x34, 0];
 
-/// A Geneve header, as bytes: network 5, IPv4, an option of 4 bytes of data; IPv4 follows.
+/// The bytes of a Geneve header of network 5 that carries IPv4, with one option of 4 bytes of
+/// data. An IPv4 packet follows it.
 const GENEVE: [u8; 16] = [0x02, 0x00, 0x08, 0x00, 0, 0, 5, 0, 0x01, 0x02, 0x80, 0x01, 1, 2, 3, 4];
 
-/// An IGMPv2 membership report, as bytes.
+/// The bytes of an IGMPv2 membership report.
 const IGMP2: [u8; 8] = [0x16, 0x00, 0x09, 0x04, 0xe0, 0x00, 0x00, 0xfb];
 
-/// An IGMPv3 general query, as bytes: two sources.
+/// The bytes of an IGMPv3 general query with two sources.
 const QUERY3: [u8; 20] = [
   0x11, 0x64, 0xd8, 0x19, 0x00, 0x00, 0x00, 0x00, 0x02, 0x7d, 0x00, 0x02, 0x0a, 0x00, 0x00, 0x01,
   0x0a, 0x00, 0x00, 0x02,
 ];
 
-/// An IGMPv3 membership report, as bytes: a record of one source, a record of a word of
-/// auxiliary data.
+/// The bytes of an IGMPv3 membership report with two records: one of one source, then one of a
+/// word of auxiliary data.
 const REPORT3: [u8; 32] = [
   0x22, 0x00, 0xdb, 0xe0, 0x00, 0x00, 0x00, 0x02, 0x01, 0x00, 0x00, 0x01, 0xef, 0x01, 0x01, 0x01,
   0x0a, 0x00, 0x00, 0x01, 0x04, 0x01, 0x00, 0x00, 0xef, 0x02, 0x02, 0x02, 0x09, 0x09, 0x09, 0x09,
 ];
 
-/// An ICMPv6 router advertisement, as bytes: managed, a lifetime of 1800 seconds; a source
-/// link-layer address, a prefix of 64 bits.
+/// The bytes of an ICMPv6 router advertisement with the managed flag and a lifetime of 1800
+/// seconds.
+///
+/// Its options are a source link-layer address and a prefix of 64 bits.
 const ADVERTISEMENT: [u8; 56] = [
   134, 0, 0, 0, 64, 0x80, 0x07, 0x08, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0x02, 0, 0, 0, 0, 0x0a, 3, 4,
   64, 0xc0, 0, 0, 0x0e, 0x10, 0, 0, 0x07, 0x08, 0, 0, 0, 0, 0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0,
 ];
 
+/// Reads the samples of this file through its types, and asserts the results.
 pub fn main() {
   // ---- BGP: messages of typed bodies.
   let (open, rest) = from_head::<Message<Open>>(&OPEN).unwrap();
@@ -589,7 +622,8 @@ pub fn main() {
   let mut bytes = GRE;
   bytes[30] ^= 1;
   assert_eq!(try_pun_ref::<_, Gre>(&bytes[..]).err(), Some(Error::Validity));
-  // Without a checksum, IPv6 inside: any GRE packet, not one of IPv4.
+  // Without a checksum, and with the EtherType of IPv6 over the same IPv4 bytes: a `Gre`, not a
+  // `Gre<Ipv4>`.
   let plain = [&[0x30, 0x00, 0x86, 0xdd][..], &GRE[8..]].concat();
   let gre: &Gre = try_pun_ref(&plain[..]).unwrap();
   assert_eq!(
@@ -632,7 +666,7 @@ pub fn main() {
     (0x0102, 0x80, &[1, 2, 3, 4][..], 0)
   );
   assert!(header.payload().is_ok());
-  // An option that runs past the options; version 1.
+  // An option that extends beyond the options; version 1.
   for (at, value) in [(11, 2), (0, 0x42)] {
     let mut bytes = geneve.clone();
     bytes[at] = value;

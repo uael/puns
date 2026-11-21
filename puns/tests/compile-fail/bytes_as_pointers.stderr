@@ -25,17 +25,17 @@ note: inside `puns::Message::panic`
 note: erroneous constant encountered
  --> src/lib.rs
   |
-  |   const { Plan::<S, D>::TRY_REF };
-  |           ^^^^^^^^^^^^^^^^^^^^^
+  |   const { Plan::<[u8], D>::TRY_REF };
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/lib.rs
   |
-  |   const { Plan::<S, D>::TRY_REF };
-  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   const { Plan::<[u8], D>::TRY_REF };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-note: the above error was encountered while instantiating `fn try_pun_ref::<[u8], Node>`
- --> src/lib.rs
-  |
-  |   try_pun_ref::<[u8], D>(bytes)
-  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: the above error was encountered while instantiating `fn puns::from_bytes::<Node>`
+  --> tests/compile-fail/bytes_as_pointers.rs:16:11
+   |
+16 |   let _ = puns::from_bytes::<Node>(&[0; 8]);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

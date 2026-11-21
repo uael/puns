@@ -1,28 +1,34 @@
-//! Model check of self-relative pointers: what `puns::view_ref` and `puns::try_view_ref` accept,
-//! against an oracle that does not use the analysis.
+//! A model check of self-relative pointers, against an oracle that does not use the analysis.
 //!
-//! The pointers are the ones of the tests of `puns` ([`relative`](crate::relative): an offset of
-//! a given byte order to one value, to a sequence whose length is before it, or to text whose
-//! length is before it; one that may be null), declared through the public API only.
+//! The model checks what `puns::view_ref` and `puns::try_view_ref` accept, with the pointers of the
+//! tests of `puns` ([`relative`](crate::relative)), declared through the public API only. A pointer
+//! is an offset in a given byte order, which aims at one value, at a sequence whose length is right
+//! before it, or at text whose length is right before it, and some pointers may be null.
 //!
-//! A type of the model is described by hand ([`Desc`]): its plain bytes and what they may be, its
-//! fields and variants at their offsets, its pointers and what they aim at. The oracle is a
-//! reference validator ([`valid`]) that walks concrete bytes with such a description, as a
-//! debugger would: every byte it reads must be in bounds and initialized, every value valid,
-//! every pointer must lead to a place that is aligned for its target and holds one, and so on
-//! behind it. It knows nothing of layouts, of pairs of types or of instances of functions.
+//! Each type of the model is described by hand ([`Desc`]). A description gives the plain bytes of
+//! the type and what they may be, its fields and variants at their offsets, and its pointers and
+//! what they aim at. The oracle is a reference validator ([`valid`]) that walks concrete bytes
+//! with such a description, as a debugger would. Every byte that it reads must be in bounds and
+//! initialized, and every value must be [valid]. Every pointer must lead to a place that is
+//! aligned for its target and holds a valid target, and so on behind it. The oracle knows nothing
+//! of layouts, of pairs of types or of instances of functions.
 //!
-//! [`check_pair`]: every value of a corpus of `S` ([`Model::corpus`]: every shape up to a small
-//! depth, every value of a small alphabet), with the bytes that its type writes marked as
-//! initialized ([`mark`]), is read as a `D` by the oracle. If `view_ref::<S, D>` compiles
-//! (`hook::views`, which asks the code of the library that decides it), every one must be a valid
-//! `D`: else the verdict is **unsound**. Then the view is made and read through
-//! ([`Model::show`]), for Miri. `try_view_ref` must accept the values that are a `D`, and only
-//! them. A pair that is refused while every value of the corpus is a `D` is **imprecise**, and
-//! counted.
+//! [`check_pair`] reinterprets every value of a corpus of `S` as a `D` with the oracle. The corpus
+//! ([`Model::corpus`]) holds every shape up to a small depth, with every value of a small
+//! alphabet. The bytes that the type writes are marked as written ([`mark`]). If
+//! `view_ref::<S, D>` compiles, every value must be a valid `D`, or the verdict is unsound.
+//! `hook::views` tells whether it compiles, by asking the code of the library that decides it. The
+//! view is then made and read through ([`Model::show`]), for Miri. `try_view_ref` must accept the
+//! values that are a `D`, and only them. A pair that is refused while every value of the corpus is
+//! a `D` is imprecise, and is counted.
 //!
-//! [`sound`] tells what the oracle alone says of a pair, for the pairs whose answer is known: an
-//! oracle that would accept everything would check nothing.
+//! [`sound`] returns what the oracle alone says of a pair. The tests check it on pairs whose answer
+//! is known, because an oracle that accepted everything would check nothing.
+//!
+//! The same oracle checks `puns::validate_in` ([`check_validate`]), `puns::pointers_in`
+//! ([`check_pointers_in`]) and `puns::copy_in` ([`check_copy_in`]).
+//!
+//! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
 
 use std::{collections::BTreeMap, mem::MaybeUninit, sync::Mutex};
 
@@ -30,8 +36,9 @@ use puns::{Pun, hook};
 
 use crate::relative::{Fix, Region};
 
-/// How many pointers `hook::views` follows: more than the pairs of types that a pair of the
-/// model can meet.
+/// The number of pointers that `hook::views` follows.
+///
+/// It is more than the number of pairs of types that a pair of the model can meet.
 pub const FUEL: usize = 6;
 
 /// What a pointer aims at.
@@ -39,29 +46,32 @@ pub const FUEL: usize = 6;
 pub enum Aim {
   /// One value.
   One,
-  /// Values one after the other, the first at a multiple of the larger of their alignment and
-  /// 4, their number right before it.
+  /// Values one after the other. The first is at a multiple of the larger of their alignment
+  /// and 4, and their number is in the 4 bytes right before it.
   Seq,
-  /// Bytes of UTF-8, their number right before the first.
+  /// Bytes of UTF-8, with their number in the 4 bytes right before the first.
   Text,
 }
 
-/// What a type is, written by hand.
+/// A description of a type, written by hand.
 #[derive(Clone)]
 pub enum Desc {
-  /// Bytes that are a value if `valid` says so.
+  /// Bytes that are a value if `valid` accepts them.
   Plain { size: usize, align: usize, valid: fn(&[u8]) -> bool },
-  /// Fields at their offsets: the bytes that none covers are padding.
+  /// Fields at their offsets. The bytes that no field covers are padding.
   Struct { size: usize, align: usize, fields: Vec<(usize, Desc)> },
-  /// A tag, a byte at 0, and for each tag the fields of its variant at their offsets.
+  /// A tag of one byte at offset 0, and for each tag the fields of its variant at their offsets.
   Enum { size: usize, align: usize, variants: Vec<(u8, Vec<(usize, Desc)>)> },
-  /// An offset of 4 bytes, of no alignment, in a byte order: the distance from itself to what
-  /// `target` describes (the first element of a sequence, the first byte of text). Zero is no
-  /// pointer.
+  /// A signed offset of 4 bytes, aligned to 1, big-endian if `big`.
+  ///
+  /// The offset is the distance from the pointer to what `target` describes, which is the first
+  /// element of a sequence or the first byte of text. An offset of zero is a null pointer, which
+  /// is valid only if `nullable`.
   Pointer { big: bool, nullable: bool, aim: Aim, target: fn() -> Desc },
 }
 
 impl Desc {
+  /// Returns the size of the type.
   #[must_use]
   pub const fn size(&self) -> usize {
     match self {
@@ -70,6 +80,7 @@ impl Desc {
     }
   }
 
+  /// Returns the alignment of the type.
   #[must_use]
   pub const fn align(&self) -> usize {
     match self {
@@ -79,41 +90,69 @@ impl Desc {
   }
 }
 
-/// The bytes of a buffer, and which of them a value was written to: the others are padding, or
-/// gaps between values, and are never read.
+/// The bytes of a buffer, and which of them a value was written to.
+///
+/// The other bytes are padding or gaps between values, and are never read.
+///
+/// # Invariant
+///
+/// A byte that is marked as written is initialized.
 pub struct Image {
+  /// The bytes of the buffer.
   bytes: Vec<MaybeUninit<u8>>,
+  /// Whether a value was written to each byte.
   init: Vec<bool>,
 }
 
 impl Image {
-  /// The `size` bytes at `at`, which must be in bounds and written to.
+  /// Returns the `size` bytes at `at`.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if a byte is out of bounds or was not written to.
   fn read(&self, at: usize, size: usize) -> Result<Vec<u8>, String> {
     let end = at.checked_add(size).filter(|end| *end <= self.bytes.len());
     let end = end.ok_or_else(|| format!("{size} bytes at {at} are out of bounds"))?;
     if !self.init[at..end].iter().all(|init| *init) {
       return Err(format!("a byte at {at}..{end} is not initialized"));
     }
-    // SAFETY: bytes that a value was written to, as the description of the type that wrote them
-    // says (`mark`): a description that says so of a byte of padding is wrong, which Miri reports
-    // here.
+    // SAFETY: The bytes from `at` to `end` are marked as written, which is checked above, so they
+    // are initialized (`Image`, section Invariant), as `assume_init` requires.
     Ok(self.bytes[at..end].iter().map(|byte| unsafe { byte.assume_init() }).collect())
   }
 
   /// Marks the `size` bytes at `at` as written to, and returns them.
-  fn write(&mut self, at: usize, size: usize) -> Vec<u8> {
+  ///
+  /// # Panics
+  ///
+  /// Panics if a byte is out of bounds.
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure that:
+  ///
+  /// - The `size` bytes at `at` are initialized, so that the `Image` keeps its invariant.
+  unsafe fn write(&mut self, at: usize, size: usize) -> Vec<u8> {
     self.init[at..at + size].fill(true);
     self.read(at, size).expect("written bytes")
   }
 
-  /// The integer of 4 bytes at `at`, in a byte order.
+  /// Returns the signed integer of 4 bytes at `at`, big-endian if `big`.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if a byte is out of bounds or was not written to.
   fn int(&self, at: usize, big: bool) -> Result<i64, String> {
     let bytes: [u8; 4] = self.read(at, 4)?.try_into().map_err(|_| "4 bytes".to_owned())?;
     Ok(i64::from(if big { i32::from_be_bytes(bytes) } else { i32::from_le_bytes(bytes) }))
   }
 }
 
-/// Where the pointer at `at` aims, `None` if it is zero.
+/// Returns the position that the pointer at `at` aims at, or `None` if its offset is zero.
+///
+/// # Errors
+///
+/// Returns an error if the pointer cannot be read, or if it aims out of the buffer.
 fn aim(image: &Image, at: usize, big: bool) -> Result<Option<usize>, String> {
   let offset = image.int(at, big)?;
   if offset == 0 {
@@ -124,29 +163,43 @@ fn aim(image: &Image, at: usize, big: bool) -> Result<Option<usize>, String> {
   to.map(Some).ok_or_else(|| format!("the pointer at {at} aims out of the buffer"))
 }
 
-/// The length right before `to`, which is not negative.
+/// Returns the length in the 4 bytes right before `to`.
+///
+/// # Errors
+///
+/// Returns an error if there are no 4 bytes before `to`, if they cannot be read, or if the length
+/// is negative.
 fn length(image: &Image, to: usize, big: bool) -> Result<usize, String> {
   let at = to.checked_sub(4).ok_or_else(|| format!("no length before {to}"))?;
   usize::try_from(image.int(at, big)?).map_err(|_| format!("a negative length at {at}"))
 }
 
-/// Whatever a value that `desc` describes can be read at `at`: the reference validator.
+/// Checks that a value that `desc` describes can be read at `at` of `image`.
+///
+/// This is the reference validator. It follows any number of pointers.
 ///
 /// # Errors
-/// What is wrong, if something is.
+///
+/// Returns a description of what is wrong, if something is.
 pub fn valid(desc: &Desc, image: &Image, at: usize) -> Result<(), String> {
   let mut fuel = usize::MAX;
   valid_with(desc, image, at, &mut fuel)
 }
 
-/// What the oracle says when it follows a pointer and has no fuel left: bytes whose pointers go
-/// round in a circle, which a corruption can make, and of which it says nothing.
+/// The error of [`valid_with`] when it has no fuel left to follow a pointer.
+///
+/// Pointers that go round in a circle exhaust the fuel. A corrupted image can hold such pointers,
+/// and the oracle then decides nothing of it.
 pub const NO_FUEL: &str = "no fuel";
 
-/// [`valid`], following at most `fuel` pointers (each pointer followed takes one).
+/// Checks what [`valid`] checks, following at most `fuel` pointers.
+///
+/// Each pointer followed takes one unit of `fuel`.
 ///
 /// # Errors
-/// What is wrong, if something is; [`NO_FUEL`] if it ran out of fuel first.
+///
+/// Returns a description of what is wrong, if something is. Returns [`NO_FUEL`] if the fuel runs
+/// out before an error is found.
 pub fn valid_with(desc: &Desc, image: &Image, at: usize, fuel: &mut usize) -> Result<(), String> {
   if !at.is_multiple_of(desc.align()) {
     return Err(format!("{at} is not aligned to {}", desc.align()));
@@ -196,104 +249,168 @@ pub fn valid_with(desc: &Desc, image: &Image, at: usize, fuel: &mut usize) -> Re
   }
 }
 
-/// Marks as initialized the bytes that the value at `at`, which `desc` describes, was written
-/// to, and the ones of everything it points to: what is left is padding.
+/// Marks as written the bytes of the value at `at` that `desc` describes, and those of everything
+/// it points to.
+///
+/// The lengths before sequences and text count as written. The bytes left unmarked are padding or
+/// gaps.
 ///
 /// # Panics
-/// If the value is not one: the description, or the corpus, is wrong.
-pub fn mark(desc: &Desc, image: &mut Image, at: usize) {
+///
+/// Panics if the bytes are not a value of `desc`, which means that the description or the corpus
+/// is wrong.
+///
+/// # Safety
+///
+/// The caller must ensure that:
+///
+/// - The bytes of `image` hold a value at `at`, and `desc` describes its type: each byte that
+///   `desc` says the value holds is initialized, and so is each byte that it says what a pointer
+///   aims at holds. The `# Safety` of [`Model`] requires this of `Model::desc`.
+pub unsafe fn mark(desc: &Desc, image: &mut Image, at: usize) {
   match desc {
-    Desc::Plain { size, .. } => {
+    // SAFETY: In each arm, `desc` describes the value at `at`, by contract on the caller. So the
+    // bytes that it says a scalar, a tag, a pointer or a length holds are initialized, as `write`
+    // requires. A field is a value of the type that its description describes, at its offset, and
+    // what a pointer aims at is a value of its target, as `mark` requires.
+    Desc::Plain { size, .. } => unsafe {
       image.write(at, *size);
-    }
+    },
     Desc::Struct { fields, .. } => {
       for (offset, field) in fields {
-        mark(field, image, at + offset);
+        // SAFETY: As above, for a field.
+        unsafe { mark(field, image, at + offset) };
       }
     }
     Desc::Enum { variants, .. } => {
-      let tag = image.write(at, 1)[0];
+      // SAFETY: As above, for the tag.
+      let tag = unsafe { image.write(at, 1) }[0];
       let (_, fields) = variants.iter().find(|(of, _)| *of == tag).expect("a tag");
       for (offset, field) in fields {
-        mark(field, image, at + offset);
+        // SAFETY: As above, for a field of the variant of the tag.
+        unsafe { mark(field, image, at + offset) };
       }
     }
     Desc::Pointer { big, aim: what, target, .. } => {
-      image.write(at, 4);
+      // SAFETY: As above, for the offset of a pointer.
+      unsafe { image.write(at, 4) };
       let Some(to) = aim(image, at, *big).expect("a pointer") else { return };
       let target = target();
       match what {
-        Aim::One => mark(&target, image, to),
+        // SAFETY: As above, for what a pointer aims at.
+        Aim::One => unsafe { mark(&target, image, to) },
         Aim::Seq => {
-          image.write(to - 4, 4);
+          // SAFETY: As above, for the length before a sequence.
+          unsafe { image.write(to - 4, 4) };
           let len = length(image, to, *big).expect("a length");
           for i in 0..len {
-            mark(&target, image, to + i * target.size());
+            // SAFETY: As above, for each value of the sequence.
+            unsafe { mark(&target, image, to + i * target.size()) };
           }
         }
         Aim::Text => {
-          image.write(to - 4, 4);
-          let len = length(image, to, *big).expect("a length");
-          image.write(to, len);
+          // SAFETY: As above, for the length before text and for its bytes.
+          unsafe {
+            image.write(to - 4, 4);
+            let len = length(image, to, *big).expect("a length");
+            image.write(to, len);
+          }
         }
       }
     }
   }
 }
 
-/// A type of the model: its description, values of it, and a way to read all of one.
-pub trait Model: Pun + Fix + 'static {
+/// A type of the model, with its description, a corpus of its values, and a way to read all of a
+/// value.
+///
+/// # Safety
+///
+/// An implementation must guarantee that `desc` describes `Self`: each byte that it says a value
+/// of `Self` holds is initialized in every value, and so is each byte that it says what a pointer
+/// aims at holds. A wrong description makes [`image`] read an uninitialized byte, which Miri
+/// reports.
+pub unsafe trait Model: Pun + Fix + 'static {
+  /// Returns the description of the type.
   fn desc() -> Desc;
 
-  /// Values of the type, each in a region: every shape up to a small depth, with every value of
-  /// a small alphabet.
+  /// Returns values of the type, each in a region of its own.
+  ///
+  /// The corpus holds every shape up to a small depth, with every value of a small alphabet.
+  ///
+  /// # Panics
+  ///
+  /// Panics for a type that is only a target, such as `bool`.
   fn corpus() -> Vec<Region<Self>>;
 
-  /// All of the value, its pointers followed through `region`, which holds it: what Miri sees
-  /// read.
+  /// Formats all of the value, following its pointers through `region`, which holds it.
+  ///
+  /// This reads every byte of the value and of what it points to, so that Miri checks each read.
   fn show<R>(&self, region: &Region<R>) -> String;
 }
 
+/// Returns the name of `T` without its path.
 fn name<T>() -> &'static str {
   core::any::type_name::<T>().rsplit("::").next().unwrap_or_default()
 }
 
-/// The image of `region`, with what a `T` writes marked as initialized.
+/// Returns the image of `region`, with the bytes that its `T` was written to marked as written.
 ///
 /// # Panics
-/// If the oracle does not find the value valid: the description, or the corpus, is wrong.
+///
+/// Panics if the oracle does not accept the value, which means that the description or the corpus
+/// is wrong.
 #[must_use]
 pub fn image<T: Model>(region: &Region<T>) -> Image {
   let bytes = region.bytes().to_vec();
   let mut image = Image { init: vec![false; bytes.len()], bytes };
-  mark(&T::desc(), &mut image, region.root());
+  // SAFETY: The bytes of `region` hold a `T` at `region.root()`, and `T::desc()` describes `T`, by
+  // the `# Safety` of `Model`. These are the requirements of `mark`.
+  unsafe { mark(&T::desc(), &mut image, region.root()) };
   if let Err(why) = valid(&T::desc(), &image, region.root()) {
     panic!("the oracle refuses a {} of the corpus: {why}", name::<T>());
   }
   image
 }
 
-/// What the oracle alone says of reading an `S` as a `D`: whatever every value of the corpus of
-/// `S` is a valid `D`.
+/// Returns whether the oracle accepts every value of the corpus of `S` as a `D`.
+///
+/// The library takes no part in the answer.
+///
+/// # Panics
+///
+/// Panics if the oracle does not accept a value of the corpus of `S` as an `S`.
 #[must_use]
 pub fn sound<S: Model, D: Model>() -> bool {
   let target = D::desc();
   S::corpus().iter().all(|region| valid(&target, &image(region), region.root()).is_ok())
 }
 
-/// The verdicts that are imprecise, by cause.
+/// The imprecise verdicts that [`check_pair`] found, by cause.
 pub static IMPRECISE: Mutex<BTreeMap<&'static str, Vec<String>>> = Mutex::new(BTreeMap::new());
 
+/// Records `pair` in [`IMPRECISE`], under `cause`.
+///
+/// # Panics
+///
+/// Panics if [`IMPRECISE`] is poisoned.
 fn imprecise(cause: &'static str, pair: &str) {
   IMPRECISE.lock().unwrap().entry(cause).or_default().push(pair.to_owned());
 }
 
-/// Checks what the library does of reading an `S` as a `D` against the oracle, on every value of
-/// the corpus of `S`.
+/// Checks the verdicts of the library on reinterpreting an `S` as a `D` against the oracle, on
+/// every value of the corpus of `S`.
+///
+/// A view that `view_ref` makes, or that `try_view_ref` accepts, is read through. The pair is
+/// recorded in [`IMPRECISE`] if `view_ref` is refused while every value of the corpus is a `D`. It
+/// is also recorded if `try_view_ref` is refused while some value of the corpus is a `D`.
 ///
 /// # Panics
-/// If a verdict is unsound (a value that is not a `D` is read as one) or incorrect (a value that
-/// is a `D` is refused at run time).
+///
+/// Panics if a verdict is unsound, because a value that is not a `D` is reinterpreted as one.
+/// Panics if a verdict is incorrect, because `try_view_ref` rejects a value that is a `D`. Panics
+/// if `view_ref` compiles for the pair while `try_view_ref` does not. Panics if [`IMPRECISE`] is
+/// poisoned.
 pub fn check_pair<S: Model, D: Model>() {
   let pair = format!("{} -> {}", name::<S>(), name::<D>());
   let (views, tries) = const { (hook::views::<S, D>(FUEL), hook::tries_view::<S, D>(FUEL)) };
@@ -303,14 +420,17 @@ pub fn check_pair<S: Model, D: Model>() {
     let verdict = valid(&target, &image(&region), region.root());
     (all, some) = (all && verdict.is_ok(), some || verdict.is_ok());
     let value = || region.show(&region);
-    if let Some(view) = hook::view_ref::<S, D, FUEL>(&*region) {
+    // SAFETY: `FUEL` is more than the number of pairs of types that a pair of the model can meet,
+    // as `hook::view_ref` requires.
+    if let Some(view) = unsafe { hook::view_ref::<S, D, FUEL>(&*region) } {
       if let Err(why) = &verdict {
         panic!("UNSOUND: {pair}: `view_ref` reads {} as a target, but {why}", value());
       }
       // All of it, pointers followed: what Miri is there to see.
       let _ = view.show(&region);
     }
-    match (hook::try_view_ref::<S, D, FUEL>(&*region), &verdict) {
+    // SAFETY: As above, for `hook::try_view_ref`.
+    match (unsafe { hook::try_view_ref::<S, D, FUEL>(&*region) }, &verdict) {
       (Some(Ok(_)), Err(why)) => {
         panic!("UNSOUND: {pair}: `try_view_ref` accepts {}, but {why}", value())
       }
@@ -332,10 +452,11 @@ pub fn check_pair<S: Model, D: Model>() {
   }
 }
 
-/// Prints the verdicts that were found imprecise.
+/// Prints the imprecise verdicts recorded in [`IMPRECISE`].
 ///
 /// # Panics
-/// If a test panicked while it held the report.
+///
+/// Panics if [`IMPRECISE`] is poisoned, because a test panicked while it held it.
 pub fn report() {
   for (cause, pairs) in IMPRECISE.lock().unwrap().iter() {
     println!("   imprecise, {cause}: {}", pairs.len());
@@ -345,7 +466,7 @@ pub fn report() {
   }
 }
 
-/// `$check` for every pair of the types, in both orders and with themselves.
+/// Checks every ordered pair of the types with `pointers::$check`, a type with itself included.
 #[macro_export]
 macro_rules! pointer_pairs {
   ($check:ident; $($ty:ty),+) => {
@@ -362,14 +483,14 @@ macro_rules! pointer_pairs {
 // -------------------------------------------------------------------------------------------------
 // `puns::validate_in`, against the oracle
 
-/// Why [`Follow`] stops.
+/// The error of [`Follow`], which tells why it stops.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Stop {
-  /// Bytes that are not a value, at a position.
+  /// Bytes that are not a valid value, at this position.
   Invalid(usize),
-  /// A pointer of the bytes that does not lead to a value: where it is.
+  /// A pointer that does not lead to a value, at this position.
   Pointer(usize),
-  /// More pointers followed than the fuel allows.
+  /// More pointers to follow than the fuel allows.
   NoFuel,
 }
 
@@ -381,15 +502,22 @@ impl From<puns::Invalid> for Stop {
 
 /// A visitor that follows the pointers of the tests (`relative`) through `bytes`.
 ///
-/// It validates what they aim at with `puns` in turn: what a crate that has pointers does with
-/// `validate_in`, written from the layouts of the pointers only (`as_pointer`, `Pointee`).
+/// It validates what each pointer aims at with `puns`, in turn, as a crate that has pointers does
+/// with `validate_in`, and is written from the layouts of the pointers only (`as_pointer`,
+/// `Pointee`).
 pub struct Follow<'b> {
+  /// The buffer that holds the values and what their pointers aim at.
   pub bytes: &'b [u8],
+  /// The number of pointers that may still be followed.
   pub fuel: usize,
 }
 
 impl Follow<'_> {
-  /// The integer of `width` bytes at `at`, signed, in a byte order.
+  /// Returns the signed integer of `width` bytes at `at`, in the byte order `endian`.
+  ///
+  /// # Errors
+  ///
+  /// Returns [`Stop::Pointer`] at `at` if the bytes are not all in `bytes`.
   fn int(&self, at: usize, width: usize, endian: puns::layout::Endian) -> Result<i64, Stop> {
     let bytes = self.bytes.get(at..).and_then(|rest| rest.get(..width)).ok_or(Stop::Pointer(at))?;
     let mut wide = [0u8; 8];
@@ -400,7 +528,12 @@ impl Follow<'_> {
     Ok(i64::from_le_bytes(wide) << shift >> shift)
   }
 
-  /// The length of `width` bytes before `to`, not negative.
+  /// Returns the length in the `width` bytes right before `to`.
+  ///
+  /// # Errors
+  ///
+  /// Returns [`Stop::Pointer`] if those bytes are not all in `bytes`, or if the length is
+  /// negative.
   fn length(&self, to: usize, width: usize, endian: puns::layout::Endian) -> Result<usize, Stop> {
     let at = to.checked_sub(width).ok_or(Stop::Pointer(to))?;
     usize::try_from(self.int(at, width, endian)?).map_err(|_| Stop::Pointer(at))
@@ -409,17 +542,29 @@ impl Follow<'_> {
 
 /// What a pointer of the tests aims at, found by [`Follow::target`].
 enum Target {
-  /// One value at a position.
+  /// One value, at this position.
   One(usize),
-  /// A sequence: its first element, its length.
+  /// A sequence, by the position of its first element and its length.
   Sequence(usize, usize),
-  /// Text, valid UTF-8.
+  /// Text, which is valid UTF-8.
   Text,
 }
 
 impl Follow<'_> {
-  /// What the pointer `P` at `at` aims at, from its layout only (`as_pointer`), and checked as its
-  /// scheme says: in the bytes, aligned, a length that is one; a text of UTF-8.
+  /// Returns what the pointer `P` at `at` aims at, from the layout of `P` only (`as_pointer`).
+  ///
+  /// It checks what the scheme of the pointer requires: the target must be in `bytes` and aligned,
+  /// a length must not be negative, and text must be valid UTF-8. Following the pointer takes one
+  /// unit of fuel.
+  ///
+  /// # Errors
+  ///
+  /// Returns [`Stop::Pointer`] if the offset is zero or if a check fails. Returns
+  /// [`Stop::NoFuel`] if there is no fuel left.
+  ///
+  /// # Panics
+  ///
+  /// Panics if `P` is not a pointer, or not a pointer of the tests.
   fn target<P: ?Sized + Pun>(&mut self, at: usize) -> Result<Target, Stop> {
     let pointer = const { P::LAYOUT.as_pointer() }.expect("a pointer is handed over");
     assert_eq!(pointer.scheme(), crate::relative::SCHEME, "a pointer of the tests");
@@ -472,11 +617,17 @@ impl puns::Visit for Follow<'_> {
 }
 
 /// A visitor that follows the pointers of the tests as [`Follow`] does, and records each pointer
-/// handed over (its position, its type), with `validate_in` (`trusted` false) or with
-/// `pointers_in` (`trusted` true, for bytes that `validate_in` accepted, every pointer followed).
+/// handed to it.
+///
+/// It follows the pointers with `validate_in` if `trusted` is false. It follows them with
+/// `pointers_in` if `trusted` is true, which is only for bytes that `validate_in` accepted, every
+/// pointer followed.
 struct Trace<'b> {
+  /// What follows the pointers.
   follow: Follow<'b>,
+  /// Whether the bytes were validated, every pointer followed.
   trusted: bool,
+  /// The position and the type of each pointer handed over, in order.
   seen: Vec<(usize, &'static str)>,
 }
 
@@ -492,12 +643,16 @@ impl puns::Visit for Trace<'_> {
       (Target::Sequence(to, len), false) => {
         puns::validate_elems_in::<puns::Pointee<P>, Self>(bytes, to, len, self)
       }
-      // SAFETY: the bytes that `validate_in` accepted, every pointer followed (`trace`): what
-      // the pointer aims at is a valid value, in the bytes.
+      // SAFETY: `trusted` is true only in the `Trace` that `trace` makes after `validate_in`
+      // accepted the same bytes with a `Trace` that followed every pointer. That walk accepted
+      // what this pointer aims at, `to` in `bytes`, as a `Pointee<P>`. So those bytes are valid
+      // for reads, and meet the requirements of `pointers_in`.
       (Target::One(to), true) => unsafe {
         puns::pointers_in::<puns::Pointee<P>, Self>(bytes.as_ptr(), to, self)
       },
-      // SAFETY: as above, `len` valid values.
+      // SAFETY: As for one target, the walk of `validate_in` accepted the `len` values from `to`
+      // in `bytes`. So each meets the requirements of `pointers_in`, as `pointers_elems_in`
+      // requires.
       (Target::Sequence(to, len), true) => unsafe {
         puns::pointers_elems_in::<puns::Pointee<P>, Self>(bytes.as_ptr(), to, len, self)
       },
@@ -506,14 +661,19 @@ impl puns::Visit for Trace<'_> {
   }
 }
 
-/// How many pointers the oracle and [`Follow`] follow in a corrupted image: more than any value
-/// of a corpus holds; past it, the pointers of the image go round in a circle.
+/// The number of pointers that the oracle and [`Follow`] follow in a corrupted image.
+///
+/// It is more than any value of a corpus holds. An image that needs more has pointers that go
+/// round in a circle.
 const VALIDATE_FUEL: usize = 64;
 
-/// The bytes of `image`, those that no value was written to (padding, gaps) as `fill`, and 16
-/// more of it: a reference to a value covers all of its bytes, which `validate_in` wants in
-/// bounds, where the oracle reads only those of the variant that it is (a value of a corrupted
-/// image may start near the end).
+/// Returns the bytes of `image`, with `fill` for each byte that no value was written to, then 16
+/// more bytes of `fill`.
+///
+/// The bytes that no value was written to are padding and gaps. The 16 bytes at the end are there
+/// because `validate_in` requires every byte of a value to be in bounds, as a reference to the
+/// value covers them. The oracle reads only the bytes of the variant that the value is. A value of
+/// a corrupted image may start near the end of the buffer.
 fn initialized(image: &Image, fill: u8) -> Vec<u8> {
   (0..image.bytes.len() + 16)
     .map(|at| {
@@ -522,7 +682,7 @@ fn initialized(image: &Image, fill: u8) -> Vec<u8> {
     .collect()
 }
 
-/// The image of `bytes`, every one of them initialized.
+/// Returns an image of `bytes`, every byte of it written.
 fn whole(bytes: &[u8]) -> Image {
   Image {
     bytes: bytes.iter().map(|byte| MaybeUninit::new(*byte)).collect(),
@@ -530,11 +690,14 @@ fn whole(bytes: &[u8]) -> Image {
   }
 }
 
-/// Whatever `puns::validate_in` with [`Follow`], and the oracle, agree on `bytes` (`image`, the
-/// same bytes) as a `T` at `at`: `false` if one of them ran out of fuel (no answer).
+/// Returns whether `puns::validate_in` with [`Follow`] and the oracle both answer on a `T` at `at`.
+///
+/// `bytes` and `image` hold the same bytes. A function that runs out of fuel gives no answer.
+/// `what` names the image in the message of a panic.
 ///
 /// # Panics
-/// If they do not agree.
+///
+/// Panics if both answer and the answers differ.
 fn agree<T: Model>(bytes: &[u8], image: &Image, at: usize, what: &str) -> bool {
   let oracle = valid_with(&T::desc(), image, at, &mut { VALIDATE_FUEL });
   let mut follow = Follow { bytes, fuel: VALIDATE_FUEL };
@@ -547,14 +710,18 @@ fn agree<T: Model>(bytes: &[u8], image: &Image, at: usize, what: &str) -> bool {
   }
 }
 
-/// `puns::validate_in`, with a visitor that follows the pointers, accepts what the oracle accepts.
+/// Checks that `puns::validate_in`, with a visitor that follows the pointers, accepts what the
+/// oracle accepts, and returns how many images were compared.
 ///
-/// On every value of the corpus of `T`, and on every copy of one with one byte changed by one of
-/// `masks` (`xor`), padding and gaps included, and with the bytes cut short. Returns how many
-/// images were compared.
+/// The images are the values of the corpus of `T`, with their padding and gaps filled with `0x00`,
+/// then with `0xa5`. Each copy of one with one byte changed by one of `masks` (`xor`) is an image
+/// too, padding and gaps included. So are the bytes cut right after the value. When the bytes are
+/// cut before the end of the value, `validate_in` must reject them.
 ///
 /// # Panics
-/// If they do not agree on one of them.
+///
+/// Panics if `validate_in` and the oracle disagree on an image, if a value of the corpus needs more
+/// fuel than `VALIDATE_FUEL`, or if `validate_in` accepts bytes cut before the end of the value.
 #[must_use]
 pub fn check_validate<T: Model>(masks: &[u8]) -> usize {
   let mut compared = 0;
@@ -591,33 +758,40 @@ pub fn check_validate<T: Model>(masks: &[u8]) -> usize {
   compared
 }
 
-/// The pointers of the `T` at `at` of `bytes` and of everything they aim at, in the order handed
-/// over, by `validate_in` and, if it accepts the bytes, by `pointers_in`: `None` if it does not
-/// (or runs out of fuel).
+/// Compares the pointers that `validate_in` and `pointers_in` hand over for the `T` at `at` of
+/// `bytes`, and for everything they aim at.
+///
+/// Returns `None` if `validate_in` rejects the bytes or runs out of fuel. Otherwise `pointers_in`
+/// runs on the same bytes, and the function returns `Some(())`.
 ///
 /// # Panics
-/// If `pointers_in` does not hand over the same pointers, in the same order, or fails.
+///
+/// Panics if `pointers_in` fails, or if it does not hand over the same pointers in the same order.
 fn trace<T: Model>(bytes: &[u8], at: usize, what: &str) -> Option<()> {
   let follow = |bytes| Follow { bytes, fuel: VALIDATE_FUEL };
   let mut checked = Trace { follow: follow(bytes), trusted: false, seen: vec![] };
   puns::validate_in::<T, Trace<'_>>(bytes, at, &mut checked).ok()?;
   let mut trusted = Trace { follow: follow(bytes), trusted: true, seen: vec![] };
-  // SAFETY: `validate_in` accepted the bytes as a `T` at `at`, and every pointer that it handed
-  // over was followed, and what it aims at accepted, in turn.
+  // SAFETY: `validate_in` accepted the bytes as a `T` at `at`, so they are in `bytes`, valid for
+  // reads, and meet the requirements of `pointers_in`. `trusted` follows what each pointer aims
+  // at with `pointers_in` too, which the same walk accepted (see `Trace::pointer`).
   let walked = unsafe { puns::pointers_in::<T, Trace<'_>>(bytes.as_ptr(), at, &mut trusted) };
   assert_eq!(walked, Ok(()), "{}: {what}: `pointers_in` fails", name::<T>());
   assert_eq!(trusted.seen, checked.seen, "{}: {what}: other pointers", name::<T>());
   Some(())
 }
 
-/// `puns::pointers_in` hands over the pointers that `validate_in` hands over, in the same order.
+/// Checks that `puns::pointers_in` hands over the pointers that `validate_in` hands over, in the
+/// same order, and returns how many images were compared.
 ///
-/// On every image that `validate_in` accepts, following them through the buffer: the values of
-/// the corpus of `T`, and every copy of one with one byte changed by one of `masks` that is still
-/// valid (padding and gaps included). Returns how many images were compared.
+/// The images are those that `validate_in` accepts, following the pointers through the buffer.
+/// They are the values of the corpus of `T`, and each copy of one with one byte changed by one of
+/// `masks` that is still valid, padding and gaps included.
 ///
 /// # Panics
-/// If they do not agree on one of them.
+///
+/// Panics if the two functions disagree on an image, or if `validate_in` rejects a value of the
+/// corpus.
 #[must_use]
 pub fn check_pointers_in<T: Model>(masks: &[u8]) -> usize {
   let mut compared = 0;
@@ -640,13 +814,16 @@ pub fn check_pointers_in<T: Model>(masks: &[u8]) -> usize {
   compared
 }
 
-/// Marks in `data` the bytes of the value at `at`, which `desc` describes, that `copy_in` copies:
-/// those that it holds initialized (its scalars, the tag of an enum and the fields of its
-/// variant), but the bytes of its pointers, except a null one; not what the pointers aim at. The
-/// oracle of [`check_copy_in`].
+/// Marks in `out` the bytes of the value at `at` of `bytes` that `copy_in` copies, as `desc`
+/// describes them.
+///
+/// These are the bytes that the value holds initialized: its scalars, the tag of an enum and the
+/// fields of its variant. The bytes of a pointer are not marked unless the pointer is null, and
+/// what the pointers aim at is not marked. This is the oracle of [`check_copy_in`].
 ///
 /// # Panics
-/// If the bytes are not a value of `desc` (the caller validated them).
+///
+/// Panics if the bytes are not a value of `desc`. The caller validates them first.
 fn data(desc: &Desc, bytes: &[u8], at: usize, out: &mut [bool]) {
   let fields = match desc {
     Desc::Plain { size, .. } => {
@@ -671,16 +848,20 @@ fn data(desc: &Desc, bytes: &[u8], at: usize, out: &mut [bool]) {
   }
 }
 
-/// `puns::copy_in` copies the bytes that the oracle says a value holds initialized but its
-/// pointers, and no other.
+/// Checks that `puns::copy_in` copies the bytes that the oracle says a value holds initialized,
+/// except those of its pointers that are not null, and no other byte. Returns how many images were
+/// compared.
 ///
-/// On every image that `validate_in` accepts (following the pointers through the buffer): the
-/// values of the corpus of `T`, and every copy of one with one byte changed by one of `masks`
-/// that is still valid. The root is copied into bytes all `0x00`, then all `0xee`: a byte of the
-/// value is the source's, every other one what it was. Returns how many images were compared.
+/// The images are those that `validate_in` accepts, following the pointers through the buffer.
+/// They are the values of the corpus of `T`, and each copy of one with one byte changed by one of
+/// `masks` that is still valid. The root is copied into bytes that are all `0x00`, then all
+/// `0xee`. Each byte that the oracle marks must then be the byte of the source. Every other byte
+/// must keep its value.
 ///
 /// # Panics
-/// If a byte is not so.
+///
+/// Panics if a byte differs from what the oracle says, or if `validate_in` rejects a value of the
+/// corpus.
 #[must_use]
 pub fn check_copy_in<T: Model>(masks: &[u8]) -> usize {
   let one = |bytes: &[u8], at: usize, what: &str| -> bool {
@@ -692,7 +873,9 @@ pub fn check_copy_in<T: Model>(masks: &[u8]) -> usize {
     data(&T::desc(), &bytes[at..], 0, &mut held);
     for fill in [0x00, 0xee] {
       let mut dst = vec![fill; size_of::<T>()];
-      // SAFETY: `validate_in` accepted a `T` at `at`, every pointer followed; `dst` is its size.
+      // SAFETY: `validate_in` accepted a `T` at `at`, so the bytes from `at` are valid for reads
+      // and meet the requirements of `copy_in`. `dst` is `size_of::<T>()` bytes, valid for
+      // writes, in another allocation.
       unsafe { puns::copy_in::<T>(bytes[at..].as_ptr(), dst.as_mut_ptr()) };
       for (i, &byte) in dst.iter().enumerate() {
         let expected = if held[i] { bytes[at + i] } else { fill };
@@ -720,7 +903,7 @@ pub fn check_copy_in<T: Model>(masks: &[u8]) -> usize {
   compared
 }
 
-/// The types of the model.
+/// The types of the model of self-relative pointers, with their descriptions and corpora.
 pub mod types {
   use core::mem::offset_of;
 
@@ -732,68 +915,89 @@ pub mod types {
   use super::{Aim, Desc, Model};
   use crate::relative::{Builder, Fix, One, Opt, Region, Seq, Text, addr, field};
 
+  /// Accepts any bytes.
   const fn any(_: &[u8]) -> bool {
     true
   }
 
+  /// Accepts bytes whose first byte is 0 or 1.
+  ///
+  /// # Panics
+  ///
+  /// Panics if `bytes` is empty.
   const fn zero_or_one(bytes: &[u8]) -> bool {
     bytes[0] <= 1
   }
 
+  /// Returns the description of `size` bytes that are any value.
   const fn bytes(size: usize) -> Desc {
     Desc::Plain { size, align: 1, valid: any }
   }
 
+  /// Returns the description of a `bool`.
   const fn flag() -> Desc {
     Desc::Plain { size: 1, align: 1, valid: zero_or_one }
   }
 
+  /// Returns the description of a little-endian pointer.
   const fn pointer(nullable: bool, aim: Aim, target: fn() -> Desc) -> Desc {
     Desc::Pointer { big: false, nullable, aim, target }
   }
 
+  /// Returns the description of a struct of the size and the alignment of `T`.
   const fn structure<T>(fields: Vec<(usize, Desc)>) -> Desc {
     Desc::Struct { size: size_of::<T>(), align: align_of::<T>(), fields }
   }
 
-  /// The region of `root`, whose pointers `build` made with `b`.
-  fn region<T: Fix>(build: impl FnOnce(&mut Builder) -> T) -> Region<T> {
+  /// Returns the region of the root that `build` returns, with what `build` put in the builder.
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure that:
+  ///
+  /// - `build` makes every pointer of the root, and of what it aims at, with the builder that it
+  ///   receives, with what the pointer aims at, and puts each pointer in one value only.
+  unsafe fn region<T: Fix>(build: impl FnOnce(&mut Builder) -> T) -> Region<T> {
     let mut b = Builder::new();
     let root = build(&mut b);
-    // SAFETY: every pointer of `root`, and of what it points to, made by `b` (each type of the
-    // model fixes all of its pointers).
+    // SAFETY: Every pointer of `root`, and of what `b` holds, was made by `b` with what it aims
+    // at, and is in one value only, by contract on the caller. `T` and the types that `b` holds
+    // implement `Fix` as its `# Safety` requires. These are the requirements of `Region::new`.
     unsafe { Region::new(b, root) }
   }
 
-  /// What a pointer to one value aims at, shown.
+  /// Formats what a pointer to one value aims at.
   fn one<R, T: Model>(r: &Region<R>, pointer: &One<T>) -> String {
     r.get(pointer).show(r)
   }
 
-  /// What a pointer that may be null aims at, shown.
+  /// Formats what a pointer that may be null aims at, or `-` if it is null.
   fn opt<R, T: Model>(r: &Region<R>, pointer: &Opt<T>) -> String {
     r.opt(pointer).map_or_else(|| "-".to_owned(), |value| value.show(r))
   }
 
-  /// The sequence that a pointer aims at, shown.
+  /// Formats the sequence that a pointer aims at.
   fn seq<R, T: Model>(r: &Region<R>, pointer: &Seq<T>) -> String {
     let values: Vec<String> = r.seq(pointer).iter().map(|value| value.show(r)).collect();
     format!("[{}]", values.join(", "))
   }
 
-  /// What a pointer of the other byte order aims at, shown.
+  /// Formats what a big-endian pointer to a `u8` aims at.
   fn big_endian<R>(r: &Region<R>, pointer: &One<u8, i32be>) -> String {
     r.get(pointer).to_string()
   }
 
-  /// The text that a pointer aims at.
+  /// Returns the text that a pointer aims at.
   fn text<R>(r: &Region<R>, pointer: &Text) -> String {
     r.text(pointer).to_owned()
   }
 
+  /// Implements [`Model`] for types that are only targets, each with its description.
   macro_rules! plain {
     ($($ty:ty: $desc:expr;)+) => {$(
-      impl Model for $ty {
+      // SAFETY: `$desc` describes the bytes of `$ty`, a scalar or an array of scalars whose bytes
+      // are all initialized, as the `# Safety` of `Model` requires.
+      unsafe impl Model for $ty {
         fn desc() -> Desc {
           $desc
         }
@@ -816,32 +1020,62 @@ pub mod types {
     [u8; 2]: bytes(2);
   }
 
-  /// A chain of values, each holding the next: the first of `values` at the root.
-  fn chain<T: Fix, V: Copy>(values: &[V], make: impl Fn(V, Opt<T>) -> T) -> Region<T> {
-    region(|b| {
-      let mut next = Opt::none();
-      for value in values[1..].iter().rev() {
-        next = b.opt(Some(make(*value, next)));
-      }
-      make(values[0], next)
-    })
+  /// Returns the region of a chain of `values`, each holding a pointer to the next, with the
+  /// first at the root.
+  ///
+  /// # Panics
+  ///
+  /// Panics if `values` is empty.
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure that:
+  ///
+  /// - `make` makes a value whose only pointer is the one that it receives.
+  unsafe fn chain<T: Fix, V: Copy>(values: &[V], make: impl Fn(V, Opt<T>) -> T) -> Region<T> {
+    // SAFETY: The first pointer is null, and each other one is made by `b.opt` with the value
+    // that it aims at. Each is put in the one value that `make` makes of it, which holds no other
+    // pointer, by contract on the caller. These are the requirements of `region`.
+    unsafe {
+      region(|b| {
+        let mut next = Opt::none();
+        for value in values[1..].iter().rev() {
+          next = b.opt(Some(make(*value, next)));
+        }
+        make(values[0], next)
+      })
+    }
   }
 
-  /// Chains of one value, of two, and a longer one.
-  fn chains<T: Fix, V: Copy>(alphabet: &[V], make: impl Fn(V, Opt<T>) -> T) -> Vec<Region<T>> {
+  /// Returns every chain of one and of two values of `alphabet`, and one chain of three values.
+  ///
+  /// # Panics
+  ///
+  /// Panics if `alphabet` is empty.
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure the requirement of [`chain`].
+  unsafe fn chains<T: Fix, V: Copy>(
+    alphabet: &[V],
+    make: impl Fn(V, Opt<T>) -> T,
+  ) -> Vec<Region<T>> {
     let mut corpus = vec![];
-    for first in alphabet {
-      corpus.push(chain(&[*first], &make));
-      for second in alphabet {
-        corpus.push(chain(&[*first, *second], &make));
+    // SAFETY: `make` is the one of the caller, which meets the requirement of `chain`.
+    unsafe {
+      for first in alphabet {
+        corpus.push(chain(&[*first], &make));
+        for second in alphabet {
+          corpus.push(chain(&[*first, *second], &make));
+        }
       }
+      let last = alphabet[alphabet.len() - 1];
+      corpus.push(chain(&[alphabet[0], last, last], &make));
     }
-    let last = alphabet[alphabet.len() - 1];
-    corpus.push(chain(&[alphabet[0], last, last], &make));
     corpus
   }
 
-  /// A recursive type: a `bool`, and maybe one more of the same.
+  /// A recursive struct of a `bool` and of a pointer to another `Flags`, which may be null.
   #[derive(Pun)]
   #[repr(C)]
   pub struct Flags {
@@ -849,7 +1083,7 @@ pub mod types {
     pub next: Opt<Flags>,
   }
 
-  /// The same with a `u8`.
+  /// A recursive struct like `Flags`, with a `u8` in place of the `bool`.
   #[derive(Pun)]
   #[repr(C)]
   pub struct Bytes {
@@ -857,9 +1091,12 @@ pub mod types {
     pub next: Opt<Bytes>,
   }
 
+  /// Implements `Fix` and [`Model`] for structs of a value and of a pointer to the next value,
+  /// which may be null.
   macro_rules! chained {
     ($($ty:ident: $flag:expr, $alphabet:expr;)+) => {$(
-      // SAFETY: its pointer, at its position.
+      // SAFETY: `fix` calls `field` on the one field that holds a pointer, which fixes it at its
+      // position, and changes nothing else, as the `# Safety` of `Fix` requires.
       unsafe impl Fix for $ty {
         fn fix(&mut self, at: usize) {
           let whole = addr(self);
@@ -867,7 +1104,9 @@ pub mod types {
         }
       }
 
-      impl Model for $ty {
+      // SAFETY: `desc` gives each field of the struct at its offset, with the description of its
+      // type, and the pointer aims at another `$ty`, as the `# Safety` of `Model` requires.
+      unsafe impl Model for $ty {
         fn desc() -> Desc {
           structure::<Self>(vec![
             (offset_of!(Self, flag), $flag),
@@ -876,7 +1115,8 @@ pub mod types {
         }
 
         fn corpus() -> Vec<Region<Self>> {
-          chains(&$alphabet, |flag, next| $ty { flag, next })
+          // SAFETY: The closure makes a value whose only pointer is `next`, as `chains` requires.
+          unsafe { chains(&$alphabet, |flag, next| $ty { flag, next }) }
         }
 
         fn show<R>(&self, r: &Region<R>) -> String {
@@ -891,18 +1131,28 @@ pub mod types {
     Bytes: bytes(1), [0, 1, 2, 255];
   }
 
-  /// A tree of values: a value and its children.
+  /// A tree of values, as a value and its children.
   struct Node<V>(V, Vec<Node<V>>);
 
-  /// Puts the children of `node`, then returns it.
+  /// Puts the subtrees of `node` in `b`, then returns the value that `make` makes of `node` and
+  /// the sequence of its children.
   fn tree<T: Fix, V: Copy>(b: &mut Builder, node: &Node<V>, make: &impl Fn(V, Seq<T>) -> T) -> T {
     let children: Vec<T> = node.1.iter().map(|child| tree(b, child, make)).collect();
     let rest = b.seq(children);
     make(node.0, rest)
   }
 
-  /// Lists of values of the same type, one level or two.
-  fn lists<T: Fix, V: Copy>(alphabet: &[V], make: impl Fn(V, Seq<T>) -> T) -> Vec<Region<T>> {
+  /// Returns regions of trees over `alphabet`, of one to four levels.
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure that:
+  ///
+  /// - `make` makes a value whose only pointer is the one that it receives.
+  unsafe fn lists<T: Fix, V: Copy>(
+    alphabet: &[V],
+    make: impl Fn(V, Seq<T>) -> T,
+  ) -> Vec<Region<T>> {
     let leaf = |value| Node(value, vec![]);
     let mut corpus = vec![];
     for &first in alphabet {
@@ -913,12 +1163,15 @@ pub mod types {
         let deep = Node(second, vec![leaf(first), Node(first, vec![leaf(second)])]);
         shapes.push(Node(first, vec![leaf(second), deep]));
       }
-      corpus.extend(shapes.iter().map(|shape| region(|b| tree(b, shape, &make))));
+      // SAFETY: `tree` makes each sequence with `b.seq`, of the values that it holds, and puts it
+      // in the one value that `make` makes of it, which holds no other pointer, by contract on the
+      // caller. These are the requirements of `region`.
+      corpus.extend(shapes.iter().map(|shape| unsafe { region(|b| tree(b, shape, &make)) }));
     }
     corpus
   }
 
-  /// A recursive type through a sequence: a `bool`, and more of the same.
+  /// A recursive struct of a `bool` and of a sequence of other `FlagList`s.
   #[derive(Pun)]
   #[repr(C)]
   pub struct FlagList {
@@ -926,7 +1179,7 @@ pub mod types {
     pub rest: Seq<FlagList>,
   }
 
-  /// The same with a `u8`.
+  /// A recursive struct like `FlagList`, with a `u8` in place of the `bool`.
   #[derive(Pun)]
   #[repr(C)]
   pub struct ByteList {
@@ -934,9 +1187,12 @@ pub mod types {
     pub rest: Seq<ByteList>,
   }
 
+  /// Implements `Fix` and [`Model`] for structs of a value and of a sequence of values of the same
+  /// type.
   macro_rules! listed {
     ($($ty:ident: $flag:expr, $alphabet:expr;)+) => {$(
-      // SAFETY: its pointer, at its position.
+      // SAFETY: `fix` calls `field` on the one field that holds a pointer, which fixes it at its
+      // position, and changes nothing else, as the `# Safety` of `Fix` requires.
       unsafe impl Fix for $ty {
         fn fix(&mut self, at: usize) {
           let whole = addr(self);
@@ -944,7 +1200,9 @@ pub mod types {
         }
       }
 
-      impl Model for $ty {
+      // SAFETY: `desc` gives each field of the struct at its offset, with the description of its
+      // type, and the pointer aims at a sequence of `$ty`s, as the `# Safety` of `Model` requires.
+      unsafe impl Model for $ty {
         fn desc() -> Desc {
           structure::<Self>(vec![
             (offset_of!(Self, flag), $flag),
@@ -953,7 +1211,8 @@ pub mod types {
         }
 
         fn corpus() -> Vec<Region<Self>> {
-          lists(&$alphabet, |flag, rest| $ty { flag, rest })
+          // SAFETY: The closure makes a value whose only pointer is `rest`, as `lists` requires.
+          unsafe { lists(&$alphabet, |flag, rest| $ty { flag, rest }) }
         }
 
         fn show<R>(&self, r: &Region<R>) -> String {
@@ -968,8 +1227,10 @@ pub mod types {
     ByteList: bytes(1), [0, 1, 2, 255];
   }
 
-  /// Structs that are one pointer: the type of the pointer, its description, how a value is
-  /// made with what it aims at, how it is shown, and the values that it aims at.
+  /// Declares structs that are one pointer, and implements `Fix` and [`Model`] for them.
+  ///
+  /// For each struct, the macro takes the type of the pointer, its description, how a value is
+  /// made from what it aims at, how it is shown, and the values that it aims at.
   macro_rules! holders {
     ($($(#[$doc:meta])* $ty:ident($pointer:ty): $desc:expr; $build:expr; $show:expr; $values:expr;)+) => {$(
       $(#[$doc])*
@@ -979,7 +1240,8 @@ pub mod types {
         pub to: $pointer,
       }
 
-      // SAFETY: its pointer, at its position.
+      // SAFETY: `fix` calls `field` on the one field that holds a pointer, which fixes it at its
+      // position, and changes nothing else, as the `# Safety` of `Fix` requires.
       unsafe impl Fix for $ty {
         fn fix(&mut self, at: usize) {
           let whole = addr(self);
@@ -987,13 +1249,17 @@ pub mod types {
         }
       }
 
-      impl Model for $ty {
+      // SAFETY: `desc` gives the one field of the struct at its offset, with `$desc`, the
+      // description of its pointer and of what it aims at, as the `# Safety` of `Model` requires.
+      unsafe impl Model for $ty {
         fn desc() -> Desc {
           structure::<Self>(vec![(offset_of!(Self, to), $desc)])
         }
 
         fn corpus() -> Vec<Region<Self>> {
-          $values.into_iter().map(|value| region(|b| $ty { to: $build(b, value) })).collect()
+          // SAFETY: `$build` makes the one pointer of the value with `b`, with what it aims at,
+          // as `region` requires.
+          $values.into_iter().map(|value| unsafe { region(|b| $ty { to: $build(b, value) }) }).collect()
         }
 
         fn show<R>(&self, r: &Region<R>) -> String {
@@ -1016,7 +1282,7 @@ pub mod types {
     /// A pointer to a `u8`, whose offset is big-endian.
     ToByteBe(One<u8, i32be>): Desc::Pointer { big: true, nullable: false, aim: Aim::One, target: || bytes(1) };
       |b: &mut Builder, value| b.one(value); big_endian; [0u8, 1, 2, 255];
-    /// A pointer to two bytes that are a number.
+    /// A pointer to a little-endian `u16`.
     ToWord(One<u16le>): pointer(false, Aim::One, || bytes(2));
       |b: &mut Builder, value| b.one(u16le::new(value)); one;
       [0u16, 1, 0x0100, 0x0201, 0xffff];
@@ -1036,19 +1302,22 @@ pub mod types {
       |b: &mut Builder, value| b.text(value); text; ["", "a", "\u{e9}", "ab"];
   }
 
-  /// Four bytes: what a pointer is made of, and is not.
+  /// Four bytes, as many as a pointer, that are not a pointer.
   #[derive(Pun)]
   #[repr(C)]
   pub struct Raw {
     pub raw: [u8; 4],
   }
 
-  // SAFETY: no pointer.
+  // SAFETY: The type holds no pointer, and `fix` changes nothing, as the `# Safety` of `Fix`
+  // requires.
   unsafe impl Fix for Raw {
     fn fix(&mut self, _: usize) {}
   }
 
-  impl Model for Raw {
+  // SAFETY: `desc` gives the one field of the struct at its offset, 4 initialized bytes, as the
+  // `# Safety` of `Model` requires.
+  unsafe impl Model for Raw {
     fn desc() -> Desc {
       structure::<Self>(vec![(offset_of!(Self, raw), bytes(4))])
     }
@@ -1056,7 +1325,8 @@ pub mod types {
     fn corpus() -> Vec<Region<Self>> {
       [[0; 4], [1, 0, 0, 0], [4, 0, 0, 0], [0, 0, 0, 4], [0xff; 4], [8, 0, 0, 0]]
         .into_iter()
-        .map(|raw| region(|_| Raw { raw }))
+        // SAFETY: A `Raw` holds no pointer, as `region` requires.
+        .map(|raw| unsafe { region(|_| Raw { raw }) })
         .collect()
     }
 
@@ -1065,7 +1335,7 @@ pub mod types {
     }
   }
 
-  /// An enum with fields: a `bool`, or a pointer to one more of the same.
+  /// An enum whose variants hold a `bool`, or a pointer to another `Tree`.
   #[derive(Pun)]
   #[repr(u8)]
   pub enum Tree {
@@ -1073,7 +1343,8 @@ pub mod types {
     Node(One<Tree>),
   }
 
-  // SAFETY: the pointer of the variant, at its position.
+  // SAFETY: `fix` calls `field` on the pointer of the variant that holds one, which fixes it
+  // at its position, and changes nothing else, as the `# Safety` of `Fix` requires.
   unsafe impl Fix for Tree {
     fn fix(&mut self, at: usize) {
       let whole = addr(self);
@@ -1083,7 +1354,10 @@ pub mod types {
     }
   }
 
-  impl Model for Tree {
+  // SAFETY: `desc` gives the tag of each variant, a `u8` at offset 0 since the enum is `repr(u8)`,
+  // and its field at offset 1, after the tag: a `bool`, or a pointer to another `Tree`, as the
+  // `# Safety` of `Model` requires.
+  unsafe impl Model for Tree {
     fn desc() -> Desc {
       Desc::Enum {
         size: size_of::<Self>(),
@@ -1098,12 +1372,16 @@ pub mod types {
     fn corpus() -> Vec<Region<Self>> {
       let mut corpus = vec![];
       for value in [false, true] {
-        corpus.push(region(|_| Tree::Leaf(value)));
-        corpus.push(region(|b| Tree::Node(b.one(Tree::Leaf(value)))));
-        corpus.push(region(|b| {
-          let leaf = b.one(Tree::Leaf(value));
-          Tree::Node(b.one(Tree::Node(leaf)))
-        }));
+        // SAFETY: Each closure makes every pointer with `b.one`, of the value that it aims at, and
+        // puts it in one value, as `region` requires.
+        unsafe {
+          corpus.push(region(|_| Tree::Leaf(value)));
+          corpus.push(region(|b| Tree::Node(b.one(Tree::Leaf(value)))));
+          corpus.push(region(|b| {
+            let leaf = b.one(Tree::Leaf(value));
+            Tree::Node(b.one(Tree::Node(leaf)))
+          }));
+        }
       }
       corpus
     }
@@ -1116,7 +1394,8 @@ pub mod types {
     }
   }
 
-  /// The same with a `u8`, and one more variant: a sequence.
+  /// An enum like `Tree`, with a `u8` in place of the `bool`, and a third variant that holds a
+  /// sequence of `Wood`s.
   #[derive(Pun)]
   #[repr(u8)]
   pub enum Wood {
@@ -1125,7 +1404,8 @@ pub mod types {
     Pair(Seq<Wood>),
   }
 
-  // SAFETY: the pointer of the variant, at its position.
+  // SAFETY: `fix` calls `field` on the pointer of the variant that holds one, which fixes it
+  // at its position, and changes nothing else, as the `# Safety` of `Fix` requires.
   unsafe impl Fix for Wood {
     fn fix(&mut self, at: usize) {
       let whole = addr(self);
@@ -1137,7 +1417,10 @@ pub mod types {
     }
   }
 
-  impl Model for Wood {
+  // SAFETY: `desc` gives the tag of each variant, a `u8` at offset 0 since the enum is `repr(u8)`,
+  // and its field at offset 1, after the tag: a `u8`, a pointer to another `Wood`, or a pointer
+  // to a sequence of them, as the `# Safety` of `Model` requires.
+  unsafe impl Model for Wood {
     fn desc() -> Desc {
       Desc::Enum {
         size: size_of::<Self>(),
@@ -1153,17 +1436,21 @@ pub mod types {
     fn corpus() -> Vec<Region<Self>> {
       let mut corpus = vec![];
       for value in [0, 1, 2, 255] {
-        corpus.push(region(|_| Wood::Leaf(value)));
-        corpus.push(region(|b| Wood::Node(b.one(Wood::Leaf(value)))));
-        corpus.push(region(|b| {
-          let leaf = b.one(Wood::Leaf(value));
-          Wood::Node(b.one(Wood::Node(leaf)))
-        }));
-        corpus.push(region(|b| Wood::Pair(b.seq([Wood::Leaf(value), Wood::Leaf(1)]))));
-        corpus.push(region(|b| {
-          let (leaf, empty) = (b.one(Wood::Leaf(value)), b.seq([]));
-          Wood::Pair(b.seq([Wood::Node(leaf), Wood::Pair(empty)]))
-        }));
+        // SAFETY: Each closure makes every pointer with `b.one` or `b.seq`, of the values that it
+        // aims at, and puts it in one value, as `region` requires.
+        unsafe {
+          corpus.push(region(|_| Wood::Leaf(value)));
+          corpus.push(region(|b| Wood::Node(b.one(Wood::Leaf(value)))));
+          corpus.push(region(|b| {
+            let leaf = b.one(Wood::Leaf(value));
+            Wood::Node(b.one(Wood::Node(leaf)))
+          }));
+          corpus.push(region(|b| Wood::Pair(b.seq([Wood::Leaf(value), Wood::Leaf(1)]))));
+          corpus.push(region(|b| {
+            let (leaf, empty) = (b.one(Wood::Leaf(value)), b.seq([]));
+            Wood::Pair(b.seq([Wood::Node(leaf), Wood::Pair(empty)]))
+          }));
+        }
       }
       corpus
     }

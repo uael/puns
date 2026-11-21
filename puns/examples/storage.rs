@@ -1,42 +1,52 @@
-//! Storage, in safe Rust, with nothing but `#[derive(Pun)]` and its options: the SQLite database
-//! header, FAT boot sectors, GPT partition tables, and USB descriptors.
+//! Storage formats (the SQLite database header, FAT boot sectors, GPT partition tables, and USB
+//! descriptors), declared with `#[derive(Pun)]` and read in place from bytes.
 //!
-//! As in `ethernet.rs`, the first half of this file is type declarations only: no `unsafe`, no
-//! `impl`, no parsing code. The second half reads them in place, from bytes, and checks that
-//! corrupted ones are rejected.
+//! As in `ethernet.rs`, the first half of this file holds only type declarations, with no `unsafe`,
+//! no `impl` and no parsing code, and the second half reads these formats in place, from bytes.
 //!
-//! What is specific to these formats, and what tells it:
+//! The following table lists what is specific to these formats, and what in the declarations
+//! expresses it:
 //!
-//! | Specificity                                    | Told by                                      |
-//! |------------------------------------------------|----------------------------------------------|
-//! | a magic of 16 bytes                            | `u128bec<0x5351_4c69_..>`                    |
-//! | SQLite: a page size, a power of two (1: 65536) | `valid(1, 512, ..)`, `get(page_bytes: ..)`   |
-//! | SQLite: the file is the pages the header tells | `assert(be(28, 4) * .. == ..)`               |
-//! | FAT: the kind, by a count of clusters          | `assert({ let total = ..; .. < 65525 })`     |
-//! | a jump that is one of two instructions         | `assert((be(0, 1) == 0xeb && ..) \|\| ..)`   |
-//! | GPT: a sector size that the bytes do not tell  | a const parameter: `GptDisk<512>`            |
-//! | GPT: the entries are where the header says     | `le(S + 72, 8) * S`                          |
-//! | GPT: the CRC-32 of the partition entries       | `assert(crc32(start, ..) == le(S + 88, 4))`  |
-//! | GPT: the CRC-32 of the header, over itself      | `assert(crc32(S, .., S + 16, S + 20) == ..)` |
-//! | USB: descriptors of fixed lengths and types    | `u8c<18>`, `u8c<1>`                          |
-//! | USB: descriptors that fill a configuration     | `size = total_length`, `assert(walk(9, ..))` |
-//! | USB: the bit fields of an endpoint             | `get(input: bool = address & 0x80 != 0, ..)` |
+//! | Specific to these formats                    | Declared with                                |
+//! |----------------------------------------------|----------------------------------------------|
+//! | a magic of 16 bytes                          | `u128bec<0x5351_4c69_..>`                    |
+//! | an SQLite page size is 2^n, or 1 for 65536   | `valid(1, 512, ..)`, `get(page_bytes: ..)`   |
+//! | an SQLite file is the pages its header gives | `assert(be(28, 4) * .. == ..)`               |
+//! | the kind of FAT, by a count of clusters      | `assert({ let total = ..; .. < 65525 })`     |
+//! | a FAT jump that is one of two instructions   | `assert((be(0, 1) == 0xeb && ..) \|\| ..)`   |
+//! | a GPT sector size that the bytes do not give | a const parameter, `GptDisk<512>`            |
+//! | GPT entries are where the header places them | `le(S + 72, 8) * S`                          |
+//! | the CRC-32 of the GPT partition entries      | `assert(crc32(start, ..) == le(S + 88, 4))`  |
+//! | the CRC-32 of the GPT header, over itself    | `assert(crc32(S, .., S + 16, S + 20) == ..)` |
+//! | USB descriptors of fixed lengths and types   | `u8c<18>`, `u8c<1>`                          |
+//! | USB descriptors that fill a configuration    | `size = total_length`, `assert(walk(9, ..))` |
+//! | the bit fields of a USB endpoint             | `get(input: bool = address & 0x80 != 0, ..)` |
 //!
-//! What is not covered, and why:
+//! Some properties of these formats are declared in a particular way:
 //!
-//! - SQLite: the pages themselves (B-tree pages, of cells at offsets that a page tells, of
-//!   varints) are more declarations, of the forms of `executables.rs` and `encodings.rs`.
-//! - GPT: the name of a partition is UTF-16, for which the crate has no automaton: it is
-//!   `[u16le; 36]`. The sector size is not in the bytes: it is a const parameter, `GptDisk<512>`.
-//! - FAT: which of FAT12, FAT16 and FAT32 a volume is depends on its count of clusters, computed
-//!   from the fields of its BIOS parameter block: both kinds of boot sector are declared, and an
-//!   enum of references tells them apart. The FAT32 one reads that block with `le(..)`, since it
-//!   is not repeated as fields there. The tables and the directories are more declarations of the
-//!   same kind.
-//! - USB: a configuration is followed by interface, endpoint and class descriptors, of their own
-//!   sizes: they are read one by one by use code; the configuration checks that they fill its
-//!   total length and counts its interfaces.
-#![deny(unsafe_code)]
+//! - The sector size of a GPT disk is not in its bytes, so it is a const parameter, as in
+//!   `GptDisk<512>`. The name of a GPT partition is UTF-16, for which the crate has no automaton,
+//!   so it is a `[u16le; 36]`.
+//! - Whether a FAT volume is FAT12, FAT16 or FAT32 depends on its count of clusters, computed from
+//!   the fields of its BIOS parameter block. Both kinds of boot sector are declared, and an enum of
+//!   references tells them apart. [`Fat32Boot`] reads the BIOS parameter block with `le(..)`,
+//!   since it does not declare the block as fields.
+//! - A USB configuration descriptor is followed by interface, endpoint and class descriptors of
+//!   their own sizes. The code that uses the types reads them one by one. [`Configuration`]
+//!   checks that they fill its total length, and counts its interfaces.
+//!
+//! The following are not covered:
+//!
+//! - The pages of an SQLite database (B-tree pages, made of cells at offsets that a page gives,
+//!   and of varints) would be more declarations, of the forms of `executables.rs` and
+//!   `encodings.rs`.
+//! - The tables and the directories of a FAT volume would be more declarations of the same kind.
+//!
+//! `main` reads an SQLite header and database, a FAT16 and a FAT32 boot sector, a GPT disk and one
+//! of its entries, and USB descriptors, and asserts their fields and getters. It changes or
+//! truncates bytes so that a rule fails, asserts that each read then returns an error, and prints
+//! `ok`.
+#![forbid(unsafe_code)]
 
 use puns::{
   Error, Pun, from_head,
@@ -47,19 +57,19 @@ use puns::{
 // -------------------------------------------------------------------------------------------------
 // SQLite
 
-/// The header of an SQLite database: its first 100 bytes.
+/// The header of an SQLite database, its first 100 bytes.
 #[derive(Pun)]
 #[repr(C)]
 // What a page leaves to the B-tree, once its reserved bytes are taken out, is at least 480 bytes.
 #[pun(assert(reserved_space <= 32 || page_size + (page_size == 1) as u128 * 65535 - reserved_space >= 480))]
 #[pun(get(page_bytes: u32 = page_size + (page_size == 1) as u128 * 65535))]
 pub struct SqliteHeader {
-  /// `SQLite format 3\0`.
+  /// The magic string `SQLite format 3\0`.
   pub magic: u128bec<0x5351_4c69_7465_2066_6f72_6d61_7420_3300>,
-  /// A power of two from 512 to 32768, or 1 for 65536.
+  /// The page size in bytes, a power of two from 512 to 32768, or 1 for 65536.
   #[pun(valid(1, 512, 1024, 2048, 4096, 8192, 16384, 32768))]
   pub page_size: u16be,
-  /// Legacy (1) or WAL (2).
+  /// The file format write version, 1 for legacy and 2 for WAL.
   #[pun(valid(1..=2))]
   pub write_version: u8,
   #[pun(valid(1..=2))]
@@ -77,7 +87,7 @@ pub struct SqliteHeader {
   pub schema_format: u32be,
   pub default_cache_size: u32be,
   pub largest_root_page: u32be,
-  /// UTF-8, UTF-16LE, UTF-16BE.
+  /// The text encoding, 1 for UTF-8, 2 for UTF-16LE and 3 for UTF-16BE.
   #[pun(valid(1..=3))]
   pub text_encoding: u32be,
   pub user_version: u32be,
@@ -89,8 +99,11 @@ pub struct SqliteHeader {
   pub sqlite_version: u32be,
 }
 
-/// A database file: pages of the size its header tells (1 means 65536), as many as it tells
-/// when that count is valid, which it is when "version valid for" is the change counter.
+/// An SQLite database file.
+///
+/// Its size is a multiple of the page size that its header gives, where 1 means 65536. The count
+/// of pages in the header is valid when the "version valid for" field equals the change counter.
+/// The file then holds exactly that many pages.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(size_of_val(self) % (page_size + (page_size == 1) as u128 * 65535) == 0))]
@@ -106,7 +119,7 @@ pub struct Sqlite {
 // -------------------------------------------------------------------------------------------------
 // FAT
 
-/// A FAT12 or FAT16 boot sector: fewer than 65525 clusters.
+/// A FAT12 or FAT16 boot sector, of a volume of fewer than 65525 clusters.
 #[derive(Pun)]
 #[repr(C)]
 // A jump: a short one and a NOP, or a near one. (An element of an array field cannot be named
@@ -149,8 +162,10 @@ pub struct Fat16Boot {
   pub signature: u16lec<0xaa55>,
 }
 
-/// A FAT32 boot sector: 65525 clusters or more. The BIOS parameter block is the same as the one
-/// of [`Fat16Boot`], but for its 16 bits sizes, which are 0: it is read at its offsets.
+/// A FAT32 boot sector, of a volume of 65525 clusters or more.
+///
+/// Its BIOS parameter block is the one of [`Fat16Boot`], except that its 16-bit sizes are 0. The
+/// rules read the block at its offsets.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert((be(0, 1) == 0xeb && be(2, 1) == 0x90) || be(0, 1) == 0xe9))]
@@ -183,7 +198,7 @@ pub struct Fat32Boot {
   pub signature: u16lec<0xaa55>,
 }
 
-/// A FAT boot sector, by its count of clusters.
+/// A FAT boot sector, of the kind that its count of clusters gives.
 #[derive(Pun)]
 pub enum FatBoot<'a> {
   Fat32(&'a Fat32Boot),
@@ -193,8 +208,11 @@ pub enum FatBoot<'a> {
 // -------------------------------------------------------------------------------------------------
 // GPT
 
-/// A disk of GPT partitions, of sectors of `S` bytes: a protective MBR, the header at LBA 1, the
-/// partition entries where the header says, of the CRC the header tells.
+/// A disk of GPT partitions, with sectors of `S` bytes.
+///
+/// A disk holds a protective MBR, the GPT header at LBA 1, and the partition entries where the
+/// header places them. A `GptDisk` requires that the CRC-32 of the entries and the CRC-32 of the
+/// header are the ones that the header gives.
 #[derive(Pun)]
 #[repr(transparent)]
 // The protective MBR: its first partition is of type 0xee.
@@ -217,7 +235,7 @@ pub enum FatBoot<'a> {
 #[pun(assert(crc32(S, S + le(S + 12, 4), S + 16, S + 20) == le(S + 16, 4)))]
 pub struct GptDisk<const S: usize>(pub [u8]);
 
-/// A partition entry: unused if its type is 0.
+/// A GPT partition entry, unused when its type is 0.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(first_lba <= last_lba || (first_lba == 0 && last_lba == 0)))]
@@ -227,7 +245,7 @@ pub struct GptEntry {
   pub first_lba: u64le,
   pub last_lba: u64le,
   pub attributes: u64le,
-  /// UTF-16LE.
+  /// The name of the partition, in UTF-16LE.
   pub name: [u16le; 36],
 }
 
@@ -240,13 +258,14 @@ pub struct GptEntry {
 pub struct DeviceDescriptor {
   pub length: u8c<18>,
   pub kind: u8c<1>,
-  /// USB 1.0 to 3.2, as binary-coded decimal.
+  /// The USB version, from 1.0 to 3.2, in binary-coded decimal.
   #[pun(valid(0x0100, 0x0110, 0x0200, 0x0201, 0x0210, 0x0300, 0x0310, 0x0320))]
   pub usb: u16le,
   pub class: u8,
   pub subclass: u8,
   pub protocol: u8,
-  /// 8, 16, 32 or 64 bytes; 9 is 512 bytes (2^9), for USB 3.
+  /// The maximum packet size of endpoint 0, 8, 16, 32 or 64 bytes. For USB 3, it is 9, which
+  /// means 512 bytes (2^9).
   #[pun(valid(8, 16, 32, 64, 9))]
   pub max_packet_size: u8,
   pub vendor: u16le,
@@ -259,8 +278,8 @@ pub struct DeviceDescriptor {
   pub configurations: u8,
 }
 
-/// A configuration descriptor, and the descriptors that follow it (interfaces, endpoints, class
-/// descriptors), which fill its total length.
+/// A USB configuration descriptor, followed by interface, endpoint and class descriptors that
+/// fill its total length.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = total_length)]
@@ -292,12 +311,12 @@ pub struct Configuration {
   pub value: u8,
   pub string: u8,
   pub attributes: u8,
-  /// In units of 2 mA.
+  /// The maximum power drawn from the bus, in units of 2 mA.
   pub max_power: u8,
   pub descriptors: [u8],
 }
 
-/// An interface descriptor.
+/// A USB interface descriptor.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 pub struct InterfaceDescriptor {
@@ -312,7 +331,8 @@ pub struct InterfaceDescriptor {
   pub string: u8,
 }
 
-/// An endpoint descriptor: a direction and a number of 1 to 15, a transfer type.
+/// A USB endpoint descriptor, with a direction, an endpoint number from 1 to 15 and a transfer
+/// type.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(address & 0x70 == 0 && address & 0x0f != 0))]
@@ -329,7 +349,7 @@ pub struct EndpointDescriptor {
 // -------------------------------------------------------------------------------------------------
 // Use
 
-/// The header of an SQLite database of two pages of 4096 bytes, as bytes.
+/// The bytes of the header of an SQLite database of two pages of 4096 bytes.
 const SQLITE: [u8; 100] = [
   b'S', b'Q', b'L', b'i', b't', b'e', 0x20, b'f', b'o', b'r', b'm', b'a', b't', 0x20, 0x33, 0x00,
   0x10, 0x00, 0x01, 0x01, 0x00, 0x40, 0x20, 0x20, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02,
@@ -340,7 +360,7 @@ const SQLITE: [u8; 100] = [
   0x00, 0x2e, 0x76, 0x89,
 ];
 
-/// The start of the boot sector of a FAT16 volume of 32 MiB, as bytes: its BIOS parameter
+/// The first bytes of the boot sector of a FAT16 volume of 32 MiB. They hold its BIOS parameter
 /// block, up to the type of the file system.
 const FAT16: [u8; 62] = [
   0xeb, 0x3c, 0x90, b'M', b'S', b'W', b'I', b'N', b'4', b'.', b'1', 0x00, 0x02, 0x04, 0x01, 0x00,
@@ -349,7 +369,7 @@ const FAT16: [u8; 62] = [
   b'M', b'E', 0x20, 0x20, 0x20, 0x20, b'F', b'A', b'T', b'1', b'6', 0x20, 0x20, 0x20,
 ];
 
-/// The start of the boot sector of a FAT32 volume of 512 MiB, as bytes.
+/// The first bytes of the boot sector of a FAT32 volume of 512 MiB.
 const FAT32: [u8; 90] = [
   0xeb, 0x58, 0x90, b'M', b'S', b'W', b'I', b'N', b'4', b'.', b'1', 0x00, 0x02, 0x08, 0x20, 0x00,
   0x02, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -359,8 +379,8 @@ const FAT32: [u8; 90] = [
   0x20, 0x20, b'F', b'A', b'T', b'3', b'2', 0x20, 0x20, 0x20,
 ];
 
-/// The GPT header of a disk of 40 sectors of 512 bytes, as bytes: four partition entries from
-/// LBA 2, their CRC, its own CRC.
+/// The bytes of the GPT header of a disk of 40 sectors of 512 bytes. It gives four partition
+/// entries from LBA 2, their CRC-32, and its own CRC-32.
 const GPT_HEADER: [u8; 92] = [
   b'E', b'F', b'I', 0x20, b'P', b'A', b'R', b'T', 0x00, 0x00, 0x01, 0x00, 0x5c, 0x00, 0x00, 0x00,
   0xc4, b'C', b'u', b'y', 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -370,8 +390,8 @@ const GPT_HEADER: [u8; 92] = [
   0x04, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0xa9, 0x5f, 0x19, 0x2b,
 ];
 
-/// The first partition entry of the disk, as bytes: a Linux file system from LBA 34 to 38,
-/// "data".
+/// The bytes of the first partition entry of that disk, a Linux file system named `data` from
+/// LBA 34 to 38.
 const GPT_ENTRY: [u8; 128] = [
   0xaf, 0x3d, 0xc6, 0x0f, 0x83, 0x84, 0x72, 0x47, 0x8e, 0x79, 0x3d, 0x69, 0xd8, 0x47, 0x7d, 0xe4,
   0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
@@ -383,18 +403,21 @@ const GPT_ENTRY: [u8; 128] = [
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
-/// A USB device descriptor, as bytes: USB 2.0, a packet size of 64 bytes, vendor `0x1d6b`.
+/// The bytes of a USB device descriptor of USB 2.0, with a packet size of 64 bytes and the vendor
+/// `0x1d6b`.
 const DEVICE: [u8; 18] =
   [18, 1, 0x00, 0x02, 0, 0, 0, 64, 0x6b, 0x1d, 0x04, 0x01, 0x00, 0x01, 1, 2, 3, 1];
 
-/// A USB configuration, as bytes: one interface of two alternate settings, an endpoint each.
+/// The bytes of a USB configuration with one interface of two alternate settings, each with one
+/// endpoint.
 const CONFIGURATION: [u8; 41] = [
   9, 2, 41, 0, 1, 1, 0, 0x80, 50, 9, 4, 0, 0, 1, 0xff, 0, 0, 0, 7, 5, 0x81, 2, 0, 2, 0, 9, 4, 0, 1,
   1, 0xff, 0, 0, 0, 7, 5, 0x81, 3, 8, 0, 1,
 ];
 
+/// Reads the samples of this file through its types, and asserts the results.
 pub fn main() {
-  // ---- SQLite: a header of fixed values, and a file of the pages it tells.
+  // ---- SQLite: a header of fixed values, and a file of the pages that it counts.
   let mut database = SQLITE.to_vec();
   database.resize(2 * 4096, 0);
   let header: &SqliteHeader = try_pun_ref(&database[..100]).unwrap();
@@ -411,7 +434,7 @@ pub fn main() {
     bytes[at] = value;
     assert_eq!(try_pun_ref::<_, SqliteHeader>(&bytes[..]).err(), Some(Error::Validity));
   }
-  // Two pages are told, one is there; half a page.
+  // The header counts two pages, one is there; half a page.
   assert_eq!(try_pun_ref::<_, Sqlite>(&database[..4096]).err(), Some(Error::Validity));
   assert_eq!(try_pun_ref::<_, Sqlite>(&database[..6000]).err(), Some(Error::Validity));
   // A page size of 1 means 65536.
@@ -507,8 +530,8 @@ pub fn main() {
     descriptors = rest;
   }
   assert_eq!(endpoints, [(0, true, 2, 512), (1, true, 3, 8)]);
-  // Two interfaces are told, one is there; not bus powered; a descriptor of a length of 1; a
-  // total length that is not the one of the descriptors.
+  // The descriptor counts two interfaces, one is there; not bus powered; a descriptor of a length
+  // of 1; a total length that is not the one of the descriptors.
   for (at, value) in [(4, 2), (7, 0x40), (9, 1), (2, 40)] {
     let mut bytes = CONFIGURATION;
     bytes[at] = value;

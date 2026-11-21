@@ -1,5 +1,5 @@
-//! A sequence is read as a sequence of elements of the same size: its length is a number of
-//! elements.
+//! A sequence is reinterpreted as a sequence of elements of the same size: its length is a number
+//! of elements.
 #[path = "../support/relative.rs"]
 #[allow(dead_code)]
 mod relative;

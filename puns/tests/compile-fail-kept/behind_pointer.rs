@@ -1,4 +1,4 @@
-//! What a pointer aims at is proven, never checked: bytes read as a `(bool, u8)` behind a
+//! What a pointer aims at is proven, never checked: bytes reinterpreted as a `(bool, u8)` behind a
 //! pointer are not a `bool` wherever `rustc` puts it.
 use core::marker::PhantomData;
 
@@ -15,7 +15,7 @@ impl<T> Opt<T> {
   pub const NONE: Self = Self(0, PhantomData);
 }
 
-// SAFETY: the type is its `i32`; the only values of this program are null.
+// SAFETY: The type is its `i32`, and the only values of this program are null: none is followed.
 unsafe impl<T: Pun> SelfRelative for Opt<T> {
   type Target = T;
   const POINTER: Pointer = Pointer::one::<T>("refused", 4, Endian::NATIVE).or_null();

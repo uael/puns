@@ -1,6 +1,11 @@
-//! Every ordered pair of the types of 1 and of 2 bytes of the model as a view enum (`Two`), against
-//! trying each variant in turn, for every pattern of bytes up to one more than their size (see
-//! `puns_model::views`).
+//! Checks every ordered pair of the types of 1 and of 2 bytes of the model as a view enum (`Two`),
+//! against trying each variant in turn (see `puns_model::views`).
+//!
+//! The bytes are every pattern of every length up to one more than the size of the types.
+//!
+//! This file needs the `full` feature, which `cargo test` does not turn on. It runs with
+//! `cargo test --profile model -p puns-model --features full`, every night and on demand
+//! (`.github/workflows/model.yml`).
 
 use core::num::NonZero;
 

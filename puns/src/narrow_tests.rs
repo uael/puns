@@ -1,6 +1,9 @@
-//! The narrowed evaluation of expressions against the one on `u128`, which is what they mean
-//! (`narrow`): each operation over values at the bounds of what the analysis says its operands
-//! may be, and random expressions, with variables, parts and walks, over random and boundary bytes.
+//! Tests that the narrowed evaluation of expressions (`narrow`) is the evaluation on `u128`,
+//! which is what they mean.
+//!
+//! The tests run each operation over values at the bounds of the ranges that the analysis finds
+//! of its operands. They also run random expressions, with variables, parts and walks, over
+//! random and boundary bytes.
 
 use std::{cell::RefCell, collections::HashMap};
 
@@ -29,7 +32,7 @@ impl Random {
     u128::from(self.next()) << 64 | u128::from(self.next())
   }
 
-  /// A value of `lo..=hi`: one of its bounds, next to one, or any.
+  /// Returns a value of `lo..=hi`: one of its bounds, one next to a bound, or any.
   fn within(&mut self, lo: u64, hi: u64) -> u64 {
     match self.below(6) {
       0 => lo,
@@ -45,8 +48,8 @@ const P32: u128 = 1 << 32;
 const P64: u128 = 1 << 64;
 const SIZE: u128 = isize::MAX as u128;
 
-/// What operands may be: exact values, ranges at the bounds of the widths, and halves (a number in
-/// each, as in the state of a walk).
+/// Returns ranges of operands: exact values, ranges at the bounds of the widths, and halves, with
+/// a number in each, as in the state of a walk.
 fn ranges() -> Vec<Range> {
   let mut ranges = vec![];
   for value in [0, 1, 2, 7, 63, 64, 65, 127, 128, 255, P32 - 1, P32, P64 - 1, P64, 1 << 127] {
@@ -88,7 +91,7 @@ fn ranges() -> Vec<Range> {
   ranges
 }
 
-/// Values of `range`, at its bounds and anywhere in it.
+/// Returns `count` values of `range`, at its bounds and anywhere in it.
 fn values(range: Range, random: &mut Random, count: usize) -> Vec<u128> {
   let (hi, lo) = ((range.min() >> 64) as u64, (range.max() >> 64) as u64);
   let (low, high) = (range.min() as u64, range.max() as u64);
@@ -192,7 +195,7 @@ impl Scope {
   }
 }
 
-/// Constants at the bounds of the widths, and small ones.
+/// Returns a constant at the bounds of the widths, or a small one.
 fn constant(random: &mut Random) -> u128 {
   const BOUNDS: [u128; 20] = [
     0,
@@ -223,7 +226,7 @@ fn constant(random: &mut Random) -> u128 {
   }
 }
 
-/// A random expression, compiled to operations as `#[derive(Pun)]` compiles one.
+/// Appends to `ops` a random expression, compiled to operations as `#[derive(Pun)]` compiles one.
 fn expression(random: &mut Random, scope: Scope, ops: &mut Vec<Op>) {
   let leaf = scope.depth == 0 || random.below(5) == 0;
   if leaf {
@@ -311,24 +314,30 @@ thread_local! {
   static KEPT: RefCell<Vec<*mut [Op]>> = const { RefCell::new(Vec::new()) };
 }
 
-/// `ops`, for as long as the expression it is a part of is tested (until [`release`]).
+/// Returns `ops` as a `&'static` slice, valid for as long as the expression it is a part of is
+/// tested, until [`release`].
 fn keep(ops: Vec<Op>) -> &'static [Op] {
   let ops = Box::leak(ops.into_boxed_slice());
   KEPT.with_borrow_mut(|kept| kept.push(core::ptr::from_mut(ops)));
   ops
 }
 
-/// The end of the test of an expression: what it kept is freed, and its plans forgotten.
+/// Ends the test of an expression: frees what it kept, and forgets its plans.
 fn release() {
   PLANS.with_borrow_mut(HashMap::clear);
   for ops in KEPT.take() {
-    // SAFETY: leaked by `keep`, and the expression that held it is no longer used.
+    // SAFETY: `ops` is a pointer that `Box::leak` returned in `keep`, of a `Box<[Op]>` of the
+    // global allocator, as `Box::from_raw` requires. `KEPT.take()` empties the list, so it is
+    // freed once. Each test calls `release` only after its last use of the expressions that
+    // `keep` made, so no reference to it is used after this.
     drop(unsafe { Box::from_raw(ops) });
   }
 }
 
-/// A walk: a random one, or one of the shapes that walks have (an offset that moves by what it
-/// reads, or two numbers packed in the halves of the state, as the walk of IPv6).
+/// Appends to `ops` a walk: a random one, or one of the shapes that walks have.
+///
+/// Such a shape is an offset that moves by what it reads, or two numbers packed in the halves of
+/// the state, as in the walk of IPv6.
 fn walk(random: &mut Random, scope: Scope, ops: &mut Vec<Op>) {
   const MASK: u128 = u64::MAX as u128;
   let var = scope.free().unwrap_or(0);
@@ -376,9 +385,12 @@ thread_local! {
   static PLANS: RefCell<HashMap<(*const Op, usize), Planned>> = RefCell::new(HashMap::new());
 }
 
-/// Apply the operations `ops` of an expression that starts as `entry` says, narrowed or every one
-/// on `u128` with every test ([`How::WIDE`], as before narrowing): what `validate::steps` and
-/// `validate::walk` do, with the operations at run time.
+/// Applies the operations `ops` of an expression whose variables start as `entry` says.
+///
+/// With `narrowed`, each operation is computed as the analysis says. Otherwise every operation is
+/// computed on `u128` with every test ([`How::WIDE`]). This is what `validate::steps` and
+/// `validate::walk` do, with the operations known at run time. Returns `false` if the expression
+/// fails.
 fn run(ops: &[Op], entry: &Entry, narrowed: bool, machine: &mut Machine, bytes: &[u8]) -> bool {
   let (hows, entries) = PLANS.with_borrow_mut(|plans| {
     plans
@@ -422,7 +434,11 @@ fn run(ops: &[Op], entry: &Entry, narrowed: bool, machine: &mut Machine, bytes: 
       if !machine.replace(result) {
         return false;
       }
-    // SAFETY: the operations read the first `HEAD` bytes, and `size` of them, all initialized.
+    // SAFETY: Every expression that is run passed `check_ops` with `HEAD`, and so did the
+    // expressions of its walks, so a load reads 1 to 16 bytes within the first `HEAD` bytes.
+    // `bytes` has `HEAD` or `BYTES` bytes, at least `HEAD`, and `size` is their number. They are
+    // valid for reads and initialized, since they are the `u8`s of a slice. These are the
+    // requirements of `Machine::apply`.
     } else if !unsafe { machine.apply(op, at, how, base, size) } {
       return false;
     }
@@ -435,8 +451,8 @@ fn evaluate(ops: &[Op], narrowed: bool, bytes: &[u8]) -> Option<u128> {
   run(ops, &Entry::RULE, narrowed, &mut machine, bytes).then(|| machine.result())
 }
 
-/// The bytes of a struct: random, small (offsets that are in the value, walks that end), zeros,
-/// ones, and as long as its fields or longer.
+/// Returns the bytes of a struct: random, small (offsets that are in the value, walks that end),
+/// zeros, ones, and as long as its fields or longer.
 fn bytes(random: &mut Random) -> Vec<u8> {
   let len = if random.below(2) == 0 { HEAD } else { BYTES };
   let kind = random.below(5);
@@ -496,8 +512,7 @@ fn expressions_are_the_ones_on_u128() {
 }
 
 /// The walk of IPv6 (`examples/codegen.rs`): its state is two numbers, one in each half, and the
-/// step adds to the low one what does not carry: each half is computed alone. The checksum after
-/// it is computed on 32 bits.
+/// step adds to the low one what does not carry: each half is computed alone.
 #[test]
 fn the_walk_of_ipv6_is_two_halves() {
   const MASK: u128 = u64::MAX as u128;

@@ -13,8 +13,7 @@ note: erroneous constant encountered
   |
   | /   const {
   | |     assert!(T::LAYOUT.zeroable(), "zero is not a valid value of this type");
-  | |     // No `Copy` type holds one; were there one, it would not be made from nothing.
-  | |     assert!(!T::LAYOUT.has_pointers(), "this type holds a self-relative pointer");
+... |
   | |   };
   | |___^
 

@@ -1,4 +1,4 @@
-//! What a pointer aims at is read as something that is not larger.
+//! What a pointer aims at is reinterpreted as something that is not larger.
 #[path = "../support/relative.rs"]
 #[allow(dead_code)]
 mod relative;

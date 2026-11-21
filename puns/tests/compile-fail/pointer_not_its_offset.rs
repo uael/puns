@@ -13,7 +13,7 @@ use puns::{
 #[repr(C)]
 struct Wide<T>(i32, u32, PhantomData<T>);
 
-// SAFETY: not kept: the type is not its offset.
+// SAFETY: Not met, on purpose: the type is not its offset, which must be refused.
 unsafe impl<T: Pun> SelfRelative for Wide<T> {
   type Target = T;
   const POINTER: Pointer = Pointer::one::<T>("wide", 4, Endian::NATIVE);

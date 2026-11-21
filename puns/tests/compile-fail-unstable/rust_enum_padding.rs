@@ -1,4 +1,5 @@
-// An enum without `repr`: its tag is one byte, and the byte after it is padding in `B`.
+// An enum of the `Rust` representation: its tag is one byte, and the byte after it is padding in
+// `B`.
 #[derive(puns::Pun, Clone, Copy)]
 enum Direct {
   A(u8),

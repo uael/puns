@@ -1,4 +1,4 @@
-error: expected a `bool`, found an integer (Rust has no truthiness: write `EXPR != 0`)
+error: expected a `bool`, found an integer (Rust does not convert an integer to a `bool`: write `EXPR != 0`)
  --> tests/compile-fail/rule_error_alone.rs:6:14
   |
 6 | #[pun(assert(flags & 1))]

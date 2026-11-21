@@ -1,8 +1,9 @@
-//! `#[derive(Pun)]` in a crate where `::core` is not `core` (`extern crate .. as core;`, which is
-//! safe code; here this very crate): what it generates must not depend on what `::core` says.
+//! Tests that what `#[derive(Pun)]` generates does not depend on what `::core` names.
 //!
-//! This `core` is the real one but for two items:
-//! - `mem::offset_of!` swaps the fields named `a` and `b`;
+//! Safe code can make `::core` name another crate, with `extern crate .. as core;`. Here `::core`
+//! names this crate. This `core` is the real one, except for two items:
+//!
+//! - `mem::offset_of!` swaps the fields named `a` and `b`.
 //! - `marker::PhantomData` is aligned to 16 bytes.
 
 extern crate self as core;
@@ -42,7 +43,8 @@ pub mod marker {
   pub struct PhantomData<T: ?Sized>(std::marker::PhantomData<T>);
 }
 
-/// The default representation: the offsets of the fields were `offset_of!`.
+/// A struct of the `Rust` representation. The derive must not read the offsets of its fields with
+/// `::core::mem::offset_of!`, which swaps them here.
 #[cfg(feature = "unstable")]
 #[derive(Pun, Debug)]
 struct Pair {
@@ -50,15 +52,15 @@ struct Pair {
   b: bool,
 }
 
-/// The layout of a variant was measured on a struct that held a `PhantomData` (not found
-/// exploitable: the size of the enum is checked, but nothing relies on it any more).
+/// An enum with one variant. The derive must not measure the layout of the variant on a struct
+/// that holds a `::core::marker::PhantomData`, which is aligned to 16 bytes here.
 #[derive(Pun, Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C, align(16))]
 enum Aligned {
   A(bool),
 }
 
-// `Pair` has no `repr`: which byte is its `bool` is the `unstable` feature.
+// `Pair` is of the `Rust` representation: which byte is its `bool` is the `unstable` feature.
 #[cfg(feature = "unstable")]
 #[test]
 fn offsets_are_not_read_from_core() {

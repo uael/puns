@@ -1,4 +1,4 @@
-//! `str` is `Pun`: bytes that the UTF-8 automaton accepts.
+//! Tests `str` as a `Pun` type, whose values are the bytes that the UTF-8 automaton accepts.
 
 use puns::{
   Error, Pun, from_head,
@@ -6,14 +6,14 @@ use puns::{
   pun_mut, pun_ref, try_pun_mut, try_pun_ref,
 };
 
-/// An ASCII character: a type that only holds what it says.
+/// An ASCII character, as a type whose every value is ASCII.
 type Ascii = puns::num::u8in<0, 0x7f>;
 
 const fn ascii(byte: u8) -> Ascii {
   Ascii::new(byte).unwrap()
 }
 
-/// A byte that should be ASCII: nothing prevents safe code from writing anything to the field.
+/// A byte that the struct requires to be ASCII. Safe code can still write any byte to the field.
 #[derive(Pun, Debug, Copy, Clone, PartialEq)]
 #[repr(transparent)]
 struct Unchecked(#[pun(valid(..=0x7f))] u8);
@@ -27,12 +27,12 @@ enum Digit {
   Three = b'3',
 }
 
-/// "é", byte by byte.
+/// The UTF-8 encoding of "é", one byte per field.
 #[derive(Pun, Default)]
 #[repr(C)]
 struct EAcute(u8c<0xc3>, u8c<0xa9>);
 
-/// `GET `, then a path.
+/// The bytes `GET ` followed by a path.
 #[derive(Pun)]
 #[repr(C)]
 struct Get<T: ?Sized> {

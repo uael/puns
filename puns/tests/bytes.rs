@@ -1,5 +1,5 @@
-//! Values from bytes: the whole of them (`from_bytes`), their front (`from_head`), their back
-//! (`from_tail`), by reference and by mutable reference.
+//! Tests reading values from bytes: from all of them (`from_bytes`), from their front
+//! (`from_head`) and from their back (`from_tail`), by shared and by mutable reference.
 
 use puns::{
   Error, Pun, from_bytes, from_bytes_mut, from_head, from_head_mut, from_tail, from_tail_mut,
@@ -14,7 +14,7 @@ struct Position {
   visible: bool,
 }
 
-/// A size in the data.
+/// A struct whose size is in one of its fields (`size = length`).
 #[derive(Pun, Debug, PartialEq)]
 #[repr(C)]
 #[pun(size = length)]
@@ -24,14 +24,14 @@ struct Chunk {
   data: [u8],
 }
 
-/// Something with a greater alignment.
+/// A struct with the alignment of `u32`.
 #[derive(Pun, Debug, PartialEq)]
 #[repr(C)]
 struct Word {
   value: u32,
 }
 
-/// A magic number: not every value is one.
+/// A struct that starts with a magic number. Most values of its first two bytes are not valid.
 #[derive(Pun, Debug, PartialEq)]
 #[repr(C)]
 struct Magic {
@@ -163,7 +163,7 @@ fn mut_in_const() {
   assert_eq!(BYTES, [0, 0, 0, 0]);
 }
 
-/// Values of a few: two ranges.
+/// An enum whose valid values form two ranges, 1 to 3 and 7.
 #[derive(Pun, Clone, Copy, Debug, PartialEq)]
 #[repr(u8)]
 enum Few {
@@ -173,7 +173,7 @@ enum Few {
   D = 7,
 }
 
-/// A rule over its fields.
+/// A struct with a rule over both of its fields.
 #[derive(Pun, Debug, PartialEq)]
 #[repr(C)]
 #[pun(assert(low <= high && low + high != 9))]
@@ -182,8 +182,8 @@ struct Ordered {
   high: u8,
 }
 
-/// Slices of elements that are checked a block at a time: an invalid one anywhere is found, in
-/// the blocks and after them.
+/// Checks that an invalid element is found at any position of a slice whose elements are checked
+/// a block at a time, inside the blocks and after them.
 #[test]
 fn an_invalid_element_anywhere() {
   // Under Miri, lengths around the blocks (of about 64 bytes) and places around their ends;

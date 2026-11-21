@@ -1,0 +1,39 @@
+error[E0080]: reading memory at alloc27[0x0..0x10], but memory is uninitialized at [0x1..0x4], and this operation requires initialized memory
+ --> tests/compile-fail/enum_without_fields_padded.rs:5:10
+  |
+5 | #[derive(Pun, Clone, Copy)]
+  |          ^^^ evaluation of `<Padded as puns::Scalar>::SPEC::{constant#1}` failed inside this call
+  |
+  = note: the raw bytes of the constant (size: 16, align: 16) {
+                 00 __ __ __ 00 00 00 00 00 00 00 00 00 00 00 00 │ .░░░............
+             }
+note: inside `Spec::bits_of::<Padded>`
+ --> src/layout.rs
+  |
+  |     unsafe { bits_of(value) }
+  |              ^^^^^^^^^^^^^^
+note: inside `puns::layout::bits_of::<Padded>`
+ --> src/layout.rs
+  |
+  |   unsafe { load((&raw const value).cast(), size_of::<T>(), Endian::NATIVE) }
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::load`
+ --> src/layout.rs
+  |
+  |         u128::from_le_bytes(buf)
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::core::num::<impl u128>::from_le_bytes`
+ --> $RUST/core/src/num/uint_macros.rs
+ --> $RUST/core/src/num/mod.rs
+ ::: $RUST/core/src/num/mod.rs
+  |
+  = note: in this macro invocation
+  = note: this error originates in the derive macro `Pun` which comes from the expansion of the macro `uint_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+note: erroneous constant encountered
+ --> tests/compile-fail/enum_without_fields_padded.rs:5:10
+  |
+5 | #[derive(Pun, Clone, Copy)]
+  |          ^^^
+  |
+  = note: this note originates in the derive macro `Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

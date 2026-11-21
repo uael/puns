@@ -1,11 +1,19 @@
-//! `validate_in` and `validate_elems_in`: a value in a buffer, everything but what its pointers
-//! aim at, each pointer handed to a visitor. What each kind of layout answers (scalars, structs
-//! and their rules, enums and niches, unions, `MaybeUninit`, `Option` and `Result`, pointers),
-//! where an error is, and that no input makes them read out of the bytes or panic (under Miri on
-//! every target of CI). And `pointers_in` and `pointers_elems_in`: on what `validate_in` accepts,
-//! the same pointers, in the same order. And `copy_in`: the bytes that a value holds initialized,
-//! and no other, from a source whose other bytes are uninitialized. Neither needs the rules of the
-//! value to hold, which safe code can break: they read no rule.
+//! Tests `validate_in`, `validate_elems_in`, `pointers_in`, `pointers_elems_in` and `copy_in`.
+//!
+//! `validate_in` and `validate_elems_in` check a value in a buffer, except what its pointers aim
+//! at, and hand each pointer to a visitor. The tests check what each kind of layout answers
+//! (scalars, structs and their rules, enums and niches, unions, `MaybeUninit`, `Option` and
+//! `Result`, pointers) and where an error is. They also check that no input makes these functions
+//! panic or read out of the bytes. CI runs these tests under Miri on each of its targets.
+//!
+//! On what `validate_in` accepts, `pointers_in` and `pointers_elems_in` must hand over the same
+//! pointers, in the same order. `copy_in` must copy the bytes that a value holds initialized, and
+//! no other, from a source whose other bytes are uninitialized. Neither `pointers_in` nor
+//! `copy_in` needs the rules of the value to hold, which safe code can break, because they read
+//! no rule.
+//!
+//! This file needs the `unstable` feature (`required-features` in `puns/Cargo.toml`), because it
+//! reads `Option` and `Result` values whose layout Rust leaves to the compiler.
 
 #[path = "support/relative.rs"]
 #[expect(dead_code, reason = "what the model check uses, and these tests do not")]
@@ -16,11 +24,11 @@ use core::{mem::MaybeUninit, num::NonZero};
 use puns::{Invalid, Pun, Visit, num::u8in};
 use relative::{Builder, Fix, One, Opt, Region, Seq, Text, addr, field};
 
-/// Records every pointer handed over: its position, and what it is.
+/// A visitor that records every pointer handed to it, with its position and what it is.
 #[derive(Default)]
 struct Record {
   pointers: Vec<Handed>,
-  /// Refuse the pointer at this position.
+  /// The position of a pointer that the visitor rejects, if any.
   refuse: Option<usize>,
 }
 
@@ -49,10 +57,10 @@ impl Visit for Record {
   }
 }
 
-/// `validate_in::<T>` of `bytes` at `at`, and the pointers handed over.
-/// A pointer handed over: its position, what it aims at, whatever it may be null.
+/// A pointer handed over, as its position, what it aims at, and whether it may be null.
 type Handed = (usize, puns::layout::Aim, bool);
 
+/// Returns the result of `validate_in::<T>` on `bytes` at `at`, and the pointers handed over.
 fn check<T: Pun>(bytes: &[u8], at: usize) -> (Result<(), Stop>, Vec<Handed>) {
   let mut record = Record::default();
   let result = puns::validate_in::<T, Record>(bytes, at, &mut record);
@@ -63,13 +71,18 @@ fn ok<T: Pun>(bytes: &[u8], at: usize) -> Result<(), Stop> {
   check::<T>(bytes, at).0
 }
 
-/// `check::<T>`, and if `validate_in` accepts the bytes, the pointers that `pointers_in` hands over
-/// on them, which must be the same.
+/// Returns what `check::<T>` returns. If `validate_in` accepts the bytes, also checks that
+/// `pointers_in` hands over the same pointers.
+///
+/// # Panics
+///
+/// Panics if `pointers_in` returns an error or hands over other pointers.
 fn walk<T: Pun>(bytes: &[u8], at: usize) -> (Result<(), Stop>, Vec<Handed>) {
   let (result, handed) = check::<T>(bytes, at);
   if result.is_ok() {
     let mut record = Record::default();
-    // SAFETY: `validate_in` accepted the bytes as a `T` at `at`, in bounds.
+    // SAFETY: `validate_in` accepted the bytes as a `T` at `at`. So they are in `bytes`, valid for
+    // reads, and meet the requirements of `pointers_in`, as its `# Safety` says of such bytes.
     let walked = unsafe { puns::pointers_in::<T, Record>(bytes.as_ptr(), at, &mut record) };
     assert_eq!(walked, Ok(()), "{}: at {at}", core::any::type_name::<T>());
     assert_eq!(record.pointers, handed, "{}: at {at}", core::any::type_name::<T>());
@@ -118,7 +131,8 @@ enum Shape {
   Box(u8, NonZero<u8>),
 }
 
-/// An enum without `repr`, with a niche: `None` is 2 in the `bool`.
+/// Checks enums and niches. `Option<bool>` is an enum of the `Rust` representation with a niche, in
+/// which `None` is 2.
 #[test]
 fn enums_and_niches() {
   assert_eq!(ok::<Shape>(&[2, 7, 1], 0), Ok(()));
@@ -145,7 +159,8 @@ union Choice {
   small: u8in<0, 3>,
 }
 
-/// A union is one of its fields; `MaybeUninit` is anything.
+/// Checks that a union is valid if one of its fields is, and that a `MaybeUninit` accepts any
+/// bytes.
 #[test]
 fn unions_and_maybe_uninit() {
   assert_eq!(ok::<Choice>(&[3], 0), Ok(()));
@@ -176,15 +191,16 @@ enum Tree {
   Node(One<Tree>, One<Tree>),
 }
 
-/// A pointer whose offset cannot be zero.
+/// A struct with a pointer whose offset cannot be zero.
 #[derive(Pun)]
 #[repr(C)]
 struct Strict {
   to: One<u8, relative::Nz32le>,
 }
 
-/// Each pointer handed over once, in order, with what it is; a null pointer that may be is not;
-/// the error of the visitor ends the walk.
+/// Checks that each pointer is handed over once, in order, with what it is.
+///
+/// A null pointer that may be null is not handed over. An error of the visitor ends the walk.
 #[test]
 fn pointers_are_handed_over() {
   use puns::layout::Aim;
@@ -215,24 +231,27 @@ fn pointers_are_handed_over() {
   assert_eq!(walk::<Tree>(&leaf, 0), (Ok(()), vec![]));
 }
 
-/// `pointers_in` checks nothing, and hands over what `validate_in` does: the pointers of the
-/// variant that the tag tells, not a null one that may be, in order, and an error of the visitor
-/// ends the walk. It reads only what `validate_in` reads: the bytes that the variant does not
-/// hold are uninitialized here.
+/// Checks that `pointers_in` checks nothing and hands over what `validate_in` does.
+///
+/// It hands over the pointers of the variant that the tag tells, in order, except a null pointer
+/// that may be null. An error of the visitor ends the walk. It reads only what `validate_in`
+/// reads, so the bytes that the variant does not hold are uninitialized here.
 #[test]
 fn pointers_in_hands_over_the_same() {
   use puns::layout::Aim;
   let mut node = MaybeUninit::<[u8; 9]>::uninit();
   let mut leaf = MaybeUninit::<[u8; 9]>::uninit();
-  // SAFETY: the bytes of a `Tree::Node` that are written, then those of a `Tree::Leaf`: the tag
-  // and the `bool`; the rest stays uninitialized.
+  // SAFETY: `node` and `leaf` are 9 bytes each, valid for writes, of alignment 1. The writes are
+  // of 9 and 2 bytes from their start, as `write` requires.
   unsafe {
     node.as_mut_ptr().cast::<[u8; 9]>().write([1, 4, 0, 0, 0, 8, 0, 0, 0]);
     leaf.as_mut_ptr().cast::<[u8; 2]>().write([0, 1]);
   }
   let mut record = Record::default();
-  // SAFETY: the bytes of a `Tree` that `validate_in` accepts (above, `node` and `leaf`); the
-  // uninitialized ones are those it does not read.
+  // SAFETY: `node` holds a `Tree::Node`, whose tag and pointers are initialized, and `leaf` a
+  // `Tree::Leaf`, whose tag and `bool` are. Their other bytes are not held by their variant,
+  // which `pointers_in` allows to be uninitialized. Both are valid for reads of a `Tree`. These
+  // are the requirements of `pointers_in`.
   unsafe {
     puns::pointers_in::<Tree, _>(node.as_ptr().cast(), 0, &mut record).expect("no refusal");
     assert_eq!(record.pointers, vec![(1, Aim::One, false), (5, Aim::One, false)]);
@@ -242,7 +261,8 @@ fn pointers_in_hands_over_the_same() {
   // The error of the visitor ends the walk: the second pointer is not handed over.
   let bytes = [5, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 1];
   let mut record = Record { refuse: Some(5), ..Record::default() };
-  // SAFETY: a `Node` that `validate_in` accepts (`pointers_are_handed_over`).
+  // SAFETY: `bytes` is valid for reads, and holds a `Node` that `validate_in` accepts
+  // (`pointers_are_handed_over`), which meets the requirements of `pointers_in`.
   let walked = unsafe { puns::pointers_in::<Node, _>(bytes.as_ptr(), 0, &mut record) };
   assert_eq!((walked, record.pointers), (Err(Stop::Refused(5)), vec![(1, Aim::Text, false)]));
   // At any alignment: the same `Node` one byte further.
@@ -256,21 +276,24 @@ fn pointers_in_hands_over_the_same() {
   let (_, handed) = walk::<[Tree; 2]>(&pair, 0);
   assert_eq!(handed.iter().map(|p| p.0).collect::<Vec<_>>(), [1, 5]);
   let mut record = Record::default();
-  // SAFETY: two `Tree`s, which `validate_elems_in` accepts.
+  // SAFETY: `pair` is valid for reads, and holds two `Tree`s, which `validate_elems_in` accepts,
+  // so each meets the requirements of `pointers_in`, as `pointers_elems_in` requires.
   unsafe {
     assert_eq!(puns::validate_elems_in::<Tree, _>(&pair, 0, 2, &mut Record::default()), Ok(()));
     puns::pointers_elems_in::<Tree, _>(pair.as_ptr(), 0, 2, &mut record).expect("no refusal");
   }
   assert_eq!(record.pointers.iter().map(|p| p.0).collect::<Vec<_>>(), [1, 5]);
   // Elements without pointers are not looked at, whatever their count.
-  // SAFETY: no byte is read of them.
+  // SAFETY: A `bool` holds no self-relative pointer, so `pointers_elems_in` reads nothing and
+  // requires nothing of its arguments, as its `# Safety` says.
   unsafe {
     puns::pointers_elems_in::<bool, _>(core::ptr::null(), 0, usize::MAX, &mut record)
       .expect("nothing");
   }
 }
 
-/// The elements one after the other: by blocks without pointers, one by one with.
+/// Checks that the elements are checked one after the other, by blocks when they hold no pointers
+/// and one by one when they do.
 #[test]
 fn elements() {
   let mut record = Record::default();
@@ -308,7 +331,7 @@ fn elements() {
 // -------------------------------------------------------------------------------------------------
 // Any input
 
-/// A small deterministic generator.
+/// A small deterministic generator of random numbers.
 struct Rng(u64);
 
 impl Rng {
@@ -320,9 +343,11 @@ impl Rng {
   }
 }
 
-/// Random bytes, random positions (past the end too), random counts (some that overflow): no
-/// panic and no read out of the bytes (which Miri would report), and what is accepted is what
-/// the same check of each element accepts.
+/// Checks random bytes at random positions, past the end too, with random counts, some of which
+/// overflow.
+///
+/// Nothing panics or reads out of the bytes, which Miri would report. What `validate_elems_in`
+/// accepts is what the same check of each element accepts.
 #[test]
 fn any_input() {
   fn all<T: Pun>(rng: &mut Rng, bytes: &[u8]) {
@@ -342,7 +367,9 @@ fn any_input() {
       assert_eq!(one, Ok(()), "{}: at {at}, {count}", core::any::type_name::<T>());
       // The same pointers, from `pointers_elems_in`.
       let mut walked = Record::default();
-      // SAFETY: `validate_elems_in` accepted the `count` values, in bounds.
+      // SAFETY: `validate_elems_in` accepted the `count` values from `at`, which are in `bytes`,
+      // valid for reads. So each meets the requirements of `pointers_in`, as
+      // `pointers_elems_in` requires.
       unsafe { puns::pointers_elems_in::<T, _>(bytes.as_ptr(), at, count, &mut walked) }
         .expect("no refusal");
       assert_eq!(walked.pointers, record.pointers, "{}: at {at}", core::any::type_name::<T>());
@@ -375,9 +402,15 @@ fn any_input() {
   }
 }
 
-/// If `validate_in` accepts a `T` at `at`: `copy_in` of it into bytes all `0xee` makes a `T` that
-/// `validate_in` accepts too, with the same pointers (at the same places in the value), every byte
-/// either the source's or `0xee`.
+/// Checks `copy_in` on the `T` at `at` in `bytes`, if `validate_in` accepts it.
+///
+/// `copy_in` into bytes that are all `0xee` must make a `T` that `validate_in` accepts too, with
+/// the same pointers at the same places in the value. Every byte must be either the byte of the
+/// source or `0xee`.
+///
+/// # Panics
+///
+/// Panics if one of these does not hold.
 fn copied<T: Pun>(bytes: &[u8], at: usize) {
   let (result, handed) = check::<T>(bytes, at);
   if result.is_err() {
@@ -385,7 +418,9 @@ fn copied<T: Pun>(bytes: &[u8], at: usize) {
   }
   let size = size_of::<T>();
   let mut dst = vec![0xee; size];
-  // SAFETY: `validate_in` accepted a `T` at `at`, in bounds; `dst` holds `size` bytes.
+  // SAFETY: `validate_in` accepted a `T` at `at`, so the bytes from `at` are valid for reads and
+  // meet the requirements of `pointers_in`. `dst` is `size` bytes, valid for writes, in another
+  // allocation. These are the requirements of `copy_in`.
   unsafe { puns::copy_in::<T>(bytes[at..].as_ptr(), dst.as_mut_ptr()) };
   let name = core::any::type_name::<T>();
   for (i, byte) in dst.iter().enumerate() {
@@ -401,12 +436,12 @@ fn copied<T: Pun>(bytes: &[u8], at: usize) {
   assert_eq!(moved, shifted, "{name}: at {at}");
 }
 
-/// No value.
+/// An enum without variants, which has no values.
 #[derive(Pun)]
 #[expect(clippy::empty_enums, reason = "a type without values is what is tested")]
 enum Never {}
 
-/// A struct that holds a type without values: none either.
+/// A struct that holds a type without values, and so has no values either.
 #[derive(Pun)]
 #[repr(C)]
 struct Holds {
@@ -414,8 +449,9 @@ struct Holds {
   never: Never,
 }
 
-/// A type that has no value is never valid, whatever the bytes: it has something to check (its
-/// layout is not free of constraints, `is_free` is `leaves == 0`), so `validate_in` does not
+/// Checks that a type without values is never valid, whatever the bytes.
+///
+/// Its layout is not free of constraints (`is_free` is `leaves == 0`), so `validate_in` does not
 /// return early, and what it checks fails.
 #[test]
 fn types_without_values() {
@@ -447,16 +483,18 @@ fn types_without_values() {
   assert_eq!(ok::<Result<u8, Infallible>>(&[7], 0), Ok(()));
 }
 
-/// Bytes at an address aligned for anything here.
+/// Bytes at an address aligned for every type of this file.
 #[repr(C, align(16))]
 struct Aligned([u8; 32]);
 
-/// For types without pointers, `validate_in` says what `try_pun_ref` says, on a value and on
-/// every copy of it with one byte changed (by every mask of one bit and all bits); and
-/// `validate_elems_in` of two what `try_pun_ref` to a slice of two says.
+/// Checks that, for types without pointers, `validate_in` agrees with `try_pun_ref`.
+///
+/// They agree on a value and on every copy of it with one byte changed by each mask of one bit
+/// and by the mask of all bits. `validate_elems_in` of two values agrees with `try_pun_ref` to a
+/// slice of two.
 #[test]
 fn the_verdict_is_the_one_of_try_pun_ref() {
-  /// From the bytes of a value of `T`.
+  /// Checks the agreement on `value`, the bytes of a value of `T`, and on its changed copies.
   fn agree<T: Pun>(value: &[u8]) {
     let size = size_of::<T>();
     assert_eq!(value.len(), size);
@@ -520,18 +558,23 @@ struct Mixed {
   any: MaybeUninit<u16>,
 }
 
-/// The bytes of `value` that `copy_in` copies into memory of `fill` bytes: read whole, as a
-/// `&[u8]`, which Miri refuses if one of them is uninitialized.
+/// Returns the bytes that `copy_in` makes of `value` in memory filled with `fill`.
+///
+/// The caller reads them whole, as a `&[u8]`, which Miri reports if one of them is
+/// uninitialized.
 fn copy_of<T: Pun>(value: &T, fill: u8) -> Vec<u8> {
   let mut dst = vec![fill; size_of::<T>()];
-  // SAFETY: a valid `T` (padding and the other variants uninitialized); `dst` is its size.
+  // SAFETY: `value` is a valid `T`, valid for reads, which meets the requirements of `copy_in`
+  // whatever its padding holds. `dst` is `size_of::<T>()` bytes, valid for writes, in another
+  // allocation.
   unsafe { puns::copy_in::<T>(core::ptr::from_ref(value).cast(), dst.as_mut_ptr()) };
   dst
 }
 
-/// A value on the stack, whose padding and other variants are uninitialized: `copy_in` copies
-/// its scalars, tags and the fields of its variants, and leaves every other byte of the
-/// destination as it was (here, read whole).
+/// Checks `copy_in` on values on the stack, whose padding and other variants are uninitialized.
+///
+/// `copy_in` copies their scalars, tags and the fields of their variants. It leaves every other
+/// byte of the destination as it was. The test reads the destination whole.
 #[test]
 fn copy_in_copies_the_value_and_nothing_else() {
   let b = 0x0102_0304_u32.to_ne_bytes();
@@ -566,13 +609,15 @@ fn copy_in_copies_the_value_and_nothing_else() {
   for (next, copied) in [(3, [a, a, a, a]), (0, [0, 0, 0, 0])] {
     node[9] = next;
     let mut dst = [a; 14];
-    // SAFETY: a `Node` that `validate_in` accepts (`pointers_are_handed_over`), `dst` its size.
+    // SAFETY: `node` holds a `Node` that `validate_in` accepts (`pointers_are_handed_over`), valid
+    // for reads. `dst` is the size of a `Node`, valid for writes, in another allocation. These are
+    // the requirements of `copy_in`.
     unsafe { puns::copy_in::<Node>(node.as_ptr(), dst.as_mut_ptr()) };
     assert_eq!(dst, [&[5, a, a, a, a, a, a, a, a][..], &copied, &[1]].concat()[..]);
   }
 }
 
-/// A struct with pointers and rules: `lo <= hi`, and `level` up to 9.
+/// A struct with pointers, the rule `lo <= hi`, and the requirement that `level` is at most 9.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(lo <= hi))]
@@ -585,7 +630,8 @@ struct Ruled {
   next: Opt<u8>,
 }
 
-// SAFETY: every pointer, at its position.
+// SAFETY: `fix` calls `field` on each field that holds a pointer, which fixes it at its position,
+// and changes nothing else, as the `# Safety` of `Fix` requires.
 unsafe impl Fix for Ruled {
   fn fix(&mut self, at: usize) {
     let whole = addr(self);
@@ -594,10 +640,13 @@ unsafe impl Fix for Ruled {
   }
 }
 
-/// `pointers_in` and `copy_in` need a value whose scalars, tags and pointers are what its type
-/// says, not its rules: a `Ruled` that breaks both of its rules, as safe code can make one, in a
-/// buffer, with a `next` and without. The pointers handed over are those of the value, the bytes
-/// copied its scalars (the restricted one too) and its null pointer; `validate_in` refuses it.
+/// Checks that `pointers_in` and `copy_in` need a value whose scalars, tags and pointers are what
+/// its type says, but not its rules.
+///
+/// The test makes a `Ruled` that breaks its rule and its requirement, as safe code can, in a
+/// buffer, with a `next` and without. The pointers handed over are those of the value. The bytes
+/// copied are its scalars, the restricted one too, and its null pointer. `validate_in` does not
+/// accept the value.
 #[test]
 fn rules_need_not_hold_for_pointers_in_and_copy_in() {
   use puns::layout::Aim;
@@ -606,15 +655,17 @@ fn rules_need_not_hold_for_pointers_in_and_copy_in() {
     let mut b = Builder::new();
     let (one, opt) = (b.one(7u8), b.opt(some.then_some(9u8)));
     let broken = Ruled { lo: 2, hi: 1, level: 12, first: one, next: opt };
-    // SAFETY: every pointer made by `b`, with what it aims at, in one value.
+    // SAFETY: Every pointer of the root and of what `b` holds was made by `b` with what it aims
+    // at, and is in one value only. `Ruled` implements `Fix` as its `# Safety` requires. These
+    // are the requirements of `Region::new`.
     let region = unsafe { Region::new(b, broken) };
     assert_eq!(*region.get(&region.first), 7);
     assert_eq!(region.opt(&region.next).copied(), some.then_some(9));
     let (base, root) = (region.bytes().as_ptr().cast::<u8>(), region.root());
 
     let mut record = Record::default();
-    // SAFETY: a `Ruled` at `root` whose scalars and pointers are valid for their types, which is
-    // all that `pointers_in` requires: its rules need not hold.
+    // SAFETY: The buffer holds a `Ruled` at `root`, valid for reads, whose scalars and pointers
+    // are valid for their types, which is what `pointers_in` requires. Its rules need not hold.
     unsafe { puns::pointers_in::<Ruled, _>(base, root, &mut record) }.expect("no refusal");
     let mut handed = vec![(root + first, Aim::One, false)];
     if some {
@@ -624,7 +675,9 @@ fn rules_need_not_hold_for_pointers_in_and_copy_in() {
 
     let a = 0xaa;
     let mut dst = [a; size_of::<Ruled>()];
-    // SAFETY: as above, all that `copy_in` requires; `dst` is the size of a `Ruled`.
+    // SAFETY: The `Ruled` at `root` meets the requirements of `copy_in`, for the reasons it meets
+    // those of `pointers_in`, and `add(root)` stays in the buffer. `dst` is the size of a `Ruled`,
+    // valid for writes, in another allocation.
     unsafe { puns::copy_in::<Ruled>(base.add(root), dst.as_mut_ptr()) };
     assert_eq!(dst[..3], [2, 1, 12]);
     // A pointer is left to the caller; a null one is copied.

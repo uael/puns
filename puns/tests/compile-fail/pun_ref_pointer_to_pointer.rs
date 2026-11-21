@@ -1,5 +1,5 @@
-//! A pointer is not read as a pointer by `pun_ref`, even one of the same type: only `view_ref`
-//! proves what a pointer aims at.
+//! A pointer is not reinterpreted as a pointer by `pun_ref`, even one of the same type: only
+//! `view_ref` proves what a pointer aims at.
 #[path = "../support/relative.rs"]
 #[allow(dead_code)]
 mod relative;

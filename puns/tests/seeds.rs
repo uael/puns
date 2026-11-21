@@ -1,18 +1,23 @@
-//! Every verdict of `puns` without the `unstable` feature, on pairs of types of which Rust keeps
-//! some layouts and not others, and which bytes each type accepts: the same whatever layout
-//! `rustc` chooses where Rust lets it choose. Not the message of a refusal, which may name what
-//! `rustc` chose (the cases of `compile-fail-kept` hold messages, of the layout of this build).
+//! Tests that, without the `unstable` feature, the verdicts of `puns` do not depend on the layout
+//! that `rustc` chooses where Rust leaves the layout to the compiler.
 //!
-//! The record is compared with `seeds.txt`, which CI requires under `-Zrandomize-layout` with
-//! several seeds, and without (`PUNS_BLESS=1` writes it). It is the record of `x86_64`: the
-//! alignment of `u16` and the width of `usize` are the ones of the target.
+//! The record holds the verdict of every function on each pair of a set of types, and which byte
+//! patterns each type accepts. Rust specifies some layouts of these types and leaves others to
+//! the compiler. The record holds no message of a refusal, because a message may name what
+//! `rustc` chose. The cases of `compile-fail-kept` hold such messages, for the layout of this
+//! build.
 //!
-//! Without the `unstable` feature only (`cargo test -p puns --features verdict --test seeds`):
-//! with it, `puns` takes the layout that `rustc` chose, which is what the seeds change. It needs
-//! the `verdict` feature (`hook`), as the model check does.
+//! The record must equal `seeds.txt`. CI checks this without `-Zrandomize-layout` and with it,
+//! under several seeds. `PUNS_BLESS=1` writes the record to `seeds.txt`. The record is the one of
+//! `x86_64`, because the alignment of `u16` and the width of `usize` depend on the target.
 //!
-//! Not for Miri: it runs no unsafe code of its own, and what it reaches of the library is what
-//! the other tests of `puns` reach.
+//! The test runs only without the `unstable` feature, with
+//! `cargo test -p puns --features verdict --test seeds`. With the `unstable` feature, `puns` uses
+//! the layout that `rustc` chose, which is what the seeds change. The test needs the `verdict`
+//! feature for `puns::hook`, as the model check does.
+//!
+//! This file is not built under Miri. It runs no unsafe code of its own, and the other tests of
+//! `puns` reach the same code of the library.
 
 #![cfg(not(miri))]
 #![cfg(not(feature = "unstable"))]
@@ -24,11 +29,14 @@ use puns::{
   layout::{Endian, Pointer},
 };
 
-/// A pointer to a `T`, or none: the distance from its own address, an `i32`, or zero.
+/// A self-relative pointer to a `T` that may be null. It holds the distance from its own address
+/// as an `i32`, and zero for null.
 #[repr(transparent)]
 struct Opt<T>(i32, PhantomData<T>);
 
-// SAFETY: the type is its `i32`; no value of it is made here.
+// SAFETY: `Opt<T>` is `repr(transparent)` over an `i32`, its offset, every byte of which is
+// initialized, and none in an `UnsafeCell`. Its scheme is its own. No value of it is made here, so
+// no pointer of it is followed, and nothing relies on more.
 unsafe impl<T: Pun> SelfRelative for Opt<T> {
   type Target = T;
   const POINTER: Pointer = Pointer::one::<T>("seeds", 4, Endian::NATIVE).or_null();
@@ -36,23 +44,24 @@ unsafe impl<T: Pun> SelfRelative for Opt<T> {
 
 puns::self_relative!(impl[T: Pun] Opt<T>);
 
-/// A struct of the `Rust` representation of which Rust keeps the size and that its bytes are
-/// initialized, not where its `bool` is.
+/// A struct of the `Rust` representation. Rust specifies its size and that its bytes are
+/// initialized, but leaves to the compiler which byte is its `bool`.
 #[derive(Pun, Clone, Copy)]
 struct Mixed {
   a: u8,
   b: bool,
 }
 
-/// A struct of the `Rust` representation of which Rust keeps every byte: two of the same.
+/// A struct of the `Rust` representation with two fields of the same type. Every byte is a `bool`,
+/// whichever order the compiler chooses.
 #[derive(Pun, Clone, Copy)]
 struct Twins {
   a: bool,
   b: bool,
 }
 
-/// A struct of the `Rust` representation with a rule: bytes of any value, but the rule tells
-/// which is which.
+/// A struct of the `Rust` representation with a rule. Its bytes can hold any value, but the rule
+/// depends on which field each byte is.
 #[derive(Pun, Clone, Copy)]
 #[pun(assert(a < b))]
 struct Ordered {
@@ -60,7 +69,7 @@ struct Ordered {
   b: u8,
 }
 
-/// A `repr(C)` struct with a rule: its fields are where `repr(C)` puts them.
+/// A `repr(C)` struct with a rule, whose fields are where `repr(C)` puts them.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(a < b))]
@@ -69,14 +78,14 @@ struct Ruled {
   b: u8,
 }
 
-/// A struct of the `Rust` representation that holds one with a rule, at 0 or at 1.
+/// A struct of the `Rust` representation that holds a struct with a rule, at offset 0 or 1.
 #[derive(Pun, Clone, Copy)]
 struct Carries {
   ruled: Ruled,
   flag: bool,
 }
 
-/// The same fields, where `repr(C)` puts them: the rule of `Ruled` is at 0.
+/// A `repr(C)` struct with the fields of `Carries`. The rule of `Ruled` is at offset 0.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 struct InOrder {
@@ -84,7 +93,8 @@ struct InOrder {
   flag: bool,
 }
 
-/// An enum of a representation that Rust specifies, which holds a struct that it does not keep.
+/// An enum whose representation Rust specifies, which holds a struct whose layout Rust leaves to
+/// the compiler.
 #[derive(Pun, Clone, Copy)]
 #[repr(u8)]
 #[expect(dead_code, reason = "a type of which only the layout matters")]
@@ -93,7 +103,7 @@ enum Wraps {
   B(u8),
 }
 
-/// A union that holds a struct that Rust does not keep.
+/// A union that holds a struct whose layout Rust leaves to the compiler.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 union Either {
@@ -101,7 +111,7 @@ union Either {
   bytes: [u8; 2],
 }
 
-/// A `repr(C)` struct that holds a struct whose bytes Rust does not keep.
+/// A `repr(C)` struct that holds a struct whose layout Rust leaves to the compiler.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 struct Holds {
@@ -109,21 +119,22 @@ struct Holds {
   word: u16,
 }
 
-/// An enum with fields and without `repr`: nothing is kept of its tag.
+/// An enum with fields, of the `Rust` representation. Rust leaves its tag to the compiler.
 #[derive(Pun, Clone, Copy)]
 enum Tagged {
   A(u8),
   B(bool),
 }
 
-/// An enum without fields and without `repr`: nothing is kept of its values.
+/// An enum without fields, of the `Rust` representation. Rust leaves the bit patterns of its
+/// variants to the compiler.
 #[derive(Pun, Clone, Copy)]
 enum Plain {
   X,
   Y,
 }
 
-/// The same enum, `repr(u8)`: it is kept.
+/// The enum `Plain` with `repr(u8)`, whose layout Rust specifies.
 #[derive(Pun, Clone, Copy)]
 #[repr(u8)]
 enum Kept {
@@ -131,14 +142,15 @@ enum Kept {
   Y,
 }
 
-/// The values a byte takes in the patterns: the edges of `bool`, of `NonZero` and of the tags.
+/// The values that a byte takes in the patterns. They are the bounds of `bool`, of `NonZero` and
+/// of the tags.
 const BYTES: [u8; 5] = [0, 1, 2, 0x7f, 0xff];
 
-/// Bytes aligned for every type here.
+/// Bytes aligned for every type of the record.
 #[repr(align(16))]
 struct Aligned([u8; 16]);
 
-/// The verdicts of every function on a pun from `S` to `D`.
+/// Returns the line of the record with the verdict of every function on a pun from `S` to `D`.
 fn line<S: Pun, D: Pun>() -> String {
   let v = hook::verdict::<S, D>();
   let p = hook::parts::<S, D>();
@@ -164,8 +176,11 @@ fn line<S: Pun, D: Pun>() -> String {
   format!("{} -> {}: {flags}\n", type_name::<S>(), type_name::<D>())
 }
 
-/// Which byte patterns of the size of `D` it accepts from bytes (`try_pun_ref`): how many of
-/// them, and a hash of which.
+/// Returns the line of the record that tells which byte patterns of the size of `D` it accepts
+/// from bytes (`try_pun_ref`).
+///
+/// The line holds how many patterns `D` accepts and a hash of which. If `puns` refuses to read a
+/// `D` from bytes, the line says so.
 fn accepts<D: Pun>() -> String {
   let name = type_name::<D>();
   if !hook::tries_view::<[u8], D>(0) {
@@ -181,7 +196,10 @@ fn accepts<D: Pun>() -> String {
       *byte = BYTES[rest % BYTES.len()];
       rest /= BYTES.len();
     }
-    let accepted = matches!(hook::try_view_ref::<[u8], D, 0>(&buffer.0[..size]), Some(Ok(_)));
+    // SAFETY: `[u8]` holds no pointer, so no pointer of `D` is paired with one, and no pair of
+    // types is met behind a pointer. A fuel of 0 is enough, as `hook::try_view_ref` requires.
+    let tried = unsafe { hook::try_view_ref::<[u8], D, 0>(&buffer.0[..size]) };
+    let accepted = matches!(tried, Some(Ok(_)));
     if accepted {
       count += 1;
       hash = (hash ^ index as u64).wrapping_mul(0x0000_0100_0000_01b3);
@@ -190,7 +208,8 @@ fn accepts<D: Pun>() -> String {
   format!("[u8] -> {name}: {count} of {total} ({hash:016x})\n")
 }
 
-/// The record of every pair of the types, then of what each accepts.
+/// Returns the record: a line for every ordered pair of the types, then a line for what each type
+/// accepts.
 macro_rules! record {
   ($($t:ty),* $(,)?) => {{
     let mut out = String::new();

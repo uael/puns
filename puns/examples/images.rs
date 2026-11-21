@@ -1,38 +1,43 @@
-//! Images and fonts, in safe Rust, with nothing but `#[derive(Pun)]` and its options: PNG, BMP,
-//! and the table directory of TrueType and OpenType fonts.
+//! Images and fonts (PNG files, BMP files, and the table directory of TrueType and OpenType
+//! fonts), declared with `#[derive(Pun)]` and read in place from bytes.
 //!
-//! As in `ethernet.rs`, the first half of this file is type declarations only: no `unsafe`, no
-//! `impl`, no parsing code. The second half reads files in place, from bytes, and checks that
-//! corrupted ones are rejected.
+//! As in `ethernet.rs`, the first half of this file holds only type declarations, with no `unsafe`,
+//! no `impl` and no parsing code, and the second half reads files in place, from bytes.
 //!
-//! What is specific to these formats, and what tells it:
+//! The following table lists what is specific to these formats, and what in the declarations
+//! expresses it:
 //!
-//! | Specificity                                       | Told by                                   |
-//! |---------------------------------------------------|-------------------------------------------|
-//! | a signature                                       | `u64bec<0x8950_4e47_0d0a_1a0a>`           |
-//! | PNG chunks: a CRC-32 of the type and the data     | `assert(crc32(4, 8 + length) == ..)`      |
-//! | a chunk type: ASCII letters, whose case is a flag | `assert(..)`, `get(critical: bool = ..)`  |
-//! | the type of a chunk tells what its data is        | `tag(ChunkType = u32bec<0x4948_4452>)`    |
-//! | the bit depths that each color type allows        | `assert((color_type == 0 && ..) \|\| ..)` |
-//! | a PNG file: IHDR first, IEND last, right CRCs     | `assert(walk(8, ..) == ..)`               |
-//! | BMP: a signed height (negative: top-down)         | `i32le`, `valid(1..=0x7fff_ffff, ..)`     |
-//! | BMP: rows padded to 4 bytes, in the file          | `assert(.. (bits_per_pixel * ..) ..)`     |
-//! | BMP: the header, the palette and the pixels       | `regions(dib_rest = .., palette = ..)`    |
-//! | font search fields, derived from the count        | `assert(search_range == 16 * walk(..))`   |
-//! | font records sorted by tag; tables in the file    | `assert(walk(12, ..) == ..)`              |
+//! | Specific to these formats                       | Declared with                             |
+//! |-------------------------------------------------|-------------------------------------------|
+//! | a signature                                     | `u64bec<0x8950_4e47_0d0a_1a0a>`           |
+//! | a PNG chunk has a CRC-32 of its type and data   | `assert(crc32(4, 8 + length) == ..)`      |
+//! | a chunk type is letters, whose case is a flag   | `assert(..)`, `get(critical: bool = ..)`  |
+//! | the type of a chunk says what its data is       | `tag(ChunkType = u32bec<0x4948_4452>)`    |
+//! | the bit depths that each color type allows      | `assert((color_type == 0 && ..) \|\| ..)` |
+//! | a PNG file has IHDR first, IEND last, good CRCs | `assert(walk(8, ..) == ..)`               |
+//! | a BMP height is signed, negative for top-down   | `i32le`, `valid(1..=0x7fff_ffff, ..)`     |
+//! | BMP rows, padded to 4 bytes, fit in the file    | `assert(.. (bits_per_pixel * ..) ..)`     |
+//! | the BMP header, palette and pixels              | `regions(dib_rest = .., palette = ..)`    |
+//! | font search fields derive from the count        | `assert(search_range == 16 * walk(..))`   |
+//! | font records are sorted, tables in the file     | `assert(walk(12, ..) == ..)`              |
 //!
-//! What is not covered, and why:
+//! The following are not covered:
 //!
-//! - The image data of PNG is compressed (zlib), and so may be the one of BMP: decompression is
-//!   not a view of the bytes. The CRCs of PNG are checked; the Adler-32 at the end of the zlib
-//!   stream is in the compressed data, and is not.
-//! - The checksum of each font table is a sum of 32 bits words over the table that a record
-//!   points to (the one of `head` with a field taken as 0): a walk over the records, inside of
-//!   which is a walk over each table, which is not written here; neither are the tables
-//!   themselves (more declarations of the same kind).
-//! - BMP: the height is an `i32le`, but a rule computes on unsigned integers: the rule that
-//!   needs its magnitude reads its bits.
-#![deny(unsafe_code)]
+//! - The image data of PNG is compressed with zlib, and the image data of BMP may be compressed.
+//!   Decompression makes a copy, not a view of the bytes. The CRCs of PNG chunks are checked. The
+//!   Adler-32 at the end of the zlib stream is part of the compressed data, and is not checked.
+//! - The checksum of each font table is a sum of 32-bit words over the table that a record points
+//!   to, with one field of `head` taken as 0. It needs a walk over the records with a walk over
+//!   each table inside it, which is not written here. The tables themselves are not declared
+//!   either. They would be more declarations of the same kind.
+//!
+//! The height of a BMP image is an `i32le`, but a rule computes on unsigned integers. The rule
+//! that needs the magnitude of the height reads its bits instead.
+//!
+//! `main` reads a PNG file and its chunks, a BMP image stored bottom-up and top-down, and two font
+//! directories, and asserts their fields, regions and getters. It changes or truncates bytes so
+//! that a rule fails, asserts that each read then returns an error, and prints `ok`.
+#![forbid(unsafe_code)]
 
 use core::marker::PhantomData;
 
@@ -45,8 +50,10 @@ use puns::{
 // -------------------------------------------------------------------------------------------------
 // PNG
 
-/// The type of a PNG chunk, when it is not known: four ASCII letters. The case of each letter is
-/// a flag: lower case first is "ancillary", upper case is "critical".
+/// The type of a PNG chunk, when it is not known.
+///
+/// A chunk type is four ASCII letters, and the case of each letter is a flag. An upper-case first
+/// letter marks a critical chunk, and a lower-case one an ancillary chunk.
 #[derive(Pun, Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
 #[pun(assert({
@@ -60,8 +67,10 @@ use puns::{
 #[pun(get(critical: bool = self.0 & 0x2000_0000 == 0))]
 pub struct ChunkType(pub u32be);
 
-/// A chunk: a length, a type, data, and the CRC-32 of the type and the data. Its data is a `P`
-/// (bytes, unless told).
+/// A PNG chunk whose data is a `P`.
+///
+/// A chunk holds a length, a type, the data, and the CRC-32 of the type and the data. `P` is
+/// `[u8]` unless another type is given.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 12)]
@@ -75,7 +84,7 @@ pub struct Chunk<P: ?Sized + Tag<ChunkType> = [u8]> {
   pub rest: [u8],
 }
 
-/// The data of the IHDR chunk: the dimensions and the kind of the pixels.
+/// The data of the IHDR chunk, which gives the dimensions and the kind of the pixels.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 #[pun(tag(ChunkType = u32bec<0x4948_4452>))]
@@ -102,8 +111,10 @@ pub struct Ihdr {
   pub interlace: u8,
 }
 
-/// A PNG file: the signature, IHDR, then chunks down to IEND; the CRC of every chunk is checked
-/// by one walk.
+/// A PNG file.
+///
+/// A file holds the signature, the IHDR chunk, then chunks up to the IEND chunk. One walk checks
+/// the CRC of every chunk.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(be(12, 4) == 0x4948_4452 && be(8, 4) == 13))]
@@ -145,8 +156,8 @@ pub struct Bmp {
   pub dib_size: u32le,
   #[pun(valid(1..=0x7fff_ffff))]
   pub width: u32le,
-  /// Negative: the rows are from the top. Not 0, nor -2^31 (its bits are the ones that are
-  /// valid).
+  /// The height of the image, negative when the rows are stored from the top. It is neither 0
+  /// nor -2^31. `valid(..)` gives the valid values by their bits, read as unsigned.
   #[pun(valid(1..=0x7fff_ffff, 0x8000_0001..))]
   pub height: i32le,
   pub planes: u16lec<1>,
@@ -171,8 +182,8 @@ pub struct Bmp {
 #[repr(C)]
 #[pun(assert(num_tables >= 1))]
 // `search_range` is 16 times the greatest power of 2 not above the number of tables,
-// `entry_selector` is its log2, `range_shift` what remains: a walk for each (an expression has
-// at most one).
+// `entry_selector` is its log2, and `range_shift` is what remains. Each of the first two is found
+// by a walk.
 #[pun(assert(search_range == 16 * walk(1, |p| p * 2 <= num_tables, |p| p * 2)))]
 #[pun(assert(entry_selector == walk(0, |e| 2 << e <= num_tables, |e| e + 1)))]
 #[pun(assert(range_shift == num_tables * 16 - search_range))]
@@ -191,7 +202,8 @@ pub struct Bmp {
   |at| at + 16,
 ) == 12 + num_tables * 16))]
 pub struct Font {
-  /// TrueType (`0x00010000`, or "true"), or OpenType of CFF outlines ("OTTO").
+  /// The version of the font, `0x00010000` or `true` for TrueType, and `OTTO` for OpenType with
+  /// CFF outlines.
   #[pun(valid(0x0001_0000, 0x7472_7565, 0x4f54_544f))]
   pub sfnt_version: u32be,
   pub num_tables: u16be,
@@ -202,8 +214,10 @@ pub struct Font {
   pub data: [u8],
 }
 
-/// A table record: a tag, the checksum of the table (not checked, see the top of this file),
-/// where it is and how long.
+/// A record of the table directory of a font.
+///
+/// A record holds the tag of a table, its checksum, its offset and its length. The checksum is
+/// not checked (see the documentation of this module).
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 pub struct TableRecord {
@@ -216,7 +230,8 @@ pub struct TableRecord {
 // -------------------------------------------------------------------------------------------------
 // Use
 
-/// A PNG of one pixel, as bytes: IHDR, a comment, IDAT, IEND.
+/// The bytes of a PNG image of one pixel, with an IHDR chunk, a comment, an IDAT chunk and an
+/// IEND chunk.
 const PNG: [u8; 92] = [
   0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, b'I', b'H', b'D', b'R',
   0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
@@ -226,14 +241,14 @@ const PNG: [u8; 92] = [
   0x00, 0x00, 0x00, 0x00, b'I', b'E', b'N', b'D', 0xae, 0x42, 0x60, 0x82,
 ];
 
-/// An IHDR chunk of 4 bits per sample of RGB, which is not a depth that RGB allows; its CRC is
-/// right.
+/// The bytes of an IHDR chunk of RGB with 4 bits per sample, a depth that RGB does not allow.
+/// Its CRC is correct.
 const IHDR_4_BITS: [u8; 25] = [
   0x00, 0x00, 0x00, 0x0d, b'I', b'H', b'D', b'R', 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
   0x04, 0x02, 0x00, 0x00, 0x00, 0x55, 0x87, 0xbe, 0xdf,
 ];
 
-/// A BMP of 3 x 2 pixels of 24 bits, as bytes: rows of 9 bytes, padded to 12.
+/// The bytes of a BMP image of 3 by 2 pixels of 24 bits. Its rows of 9 bytes are padded to 12.
 const BMP: [u8; 78] = [
   0x42, 0x4d, 0x4e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x36, 0x00, 0x00, 0x00, 0x28, 0x00,
   0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00, 0x18, 0x00, 0x00, 0x00,
@@ -242,8 +257,8 @@ const BMP: [u8; 78] = [
   0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 ];
 
-/// The table directory of a TrueType font and its tables, as bytes: five tables of 8 bytes,
-/// sorted by tag.
+/// The bytes of the table directory of a TrueType font, followed by its tables. It has five
+/// tables of 8 bytes, sorted by tag.
 const FONT: [u8; 132] = [
   0x00, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x40, 0x00, 0x02, 0x00, 0x10, b'O', b'S', b'/', b'2',
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x5c, 0x00, 0x00, 0x00, 0x08, b'c', b'm', b'a', b'p',
@@ -256,6 +271,7 @@ const FONT: [u8; 132] = [
   0x00, 0x00, 0x00, 0x00,
 ];
 
+/// Reads the samples of this file through its types, and asserts the results.
 pub fn main() {
   // ---- PNG: a file, its typed header, then chunks of any type.
   let png: &Png = try_pun_ref(&PNG[..]).unwrap();
@@ -280,8 +296,8 @@ pub fn main() {
   }
   // No IEND at the end.
   assert_eq!(try_pun_ref::<_, Png>(&PNG[..80]).err(), Some(Error::Validity));
-  // An IHDR of a bit depth that its color type does not allow (and its CRC right): the file is
-  // made of right chunks, but its header is not one when read.
+  // An IHDR chunk with a correct CRC and a bit depth that its color type does not allow. The file
+  // is a valid `Png`, but reading its header returns an error.
   let bad = [&PNG[..8], &IHDR_4_BITS[..], &PNG[33..]].concat();
   let png: &Png = try_pun_ref(&bad[..]).unwrap();
   assert_eq!(png.header().unwrap().data().err(), Some(Error::Validity));

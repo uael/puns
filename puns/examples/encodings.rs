@@ -1,49 +1,58 @@
-//! Encodings of data, in safe Rust, with nothing but `#[derive(Pun)]` and its options: ASN.1 DER
-//! (SNMP, Kerberos), the wire format of Protocol Buffers, MessagePack, CBOR, and text: UTF-8
-//! fields, C strings, padded names, an HTTP/1.1 request line and a `Content-Length` header.
+//! Data encodings, declared with `#[derive(Pun)]` and read in place from bytes: ASN.1 DER (SNMP,
+//! Kerberos), the wire format of Protocol Buffers, MessagePack, CBOR, and text.
 //!
-//! As in `ethernet.rs`, the first half of this file is type declarations only: no `unsafe`, no
-//! `impl`, no parsing code. The second half reads values in place, from bytes, and checks that
-//! corrupted ones are rejected.
+//! The text covers UTF-8 fields, C strings, padded names, an HTTP/1.1 request line and a
+//! `Content-Length` header.
 //!
-//! What is specific to these encodings, and what tells it:
+//! As in `ethernet.rs`, the first half of this file holds only type declarations, with no `unsafe`,
+//! no `impl` and no parsing code, and the second half reads values in place, from bytes.
 //!
-//! | Specificity                                  | Told by                                        |
-//! |----------------------------------------------|------------------------------------------------|
-//! | DER: a length of 1 byte, or of 1 to 4 more   | `regions(long_length = .., contents: C)`       |
-//! | DER: the shortest long form                  | `assert(length != 0x81 \|\| be(2, 1) >= 0x80)` |
-//! | DER: contents that fill the value            | `assert({ let n = ..; .. == .. })`             |
-//! | DER: values that follow each other, typed    | `regions(first: A = .., rest: B)`              |
-//! | INTEGERs and OIDs of the shortest forms      | `assert(..)`, `assert(walk(..) == ..)`         |
-//! | digits                                       | `[u8in<b'0', b'9'>; 14]`                       |
-//! | Protocol Buffers: a key, a wire type         | `assert(key & 7 == 2 && key >= 8)`             |
-//! | varints and lengths of 1 or 2 bytes          | a struct per form, an enum of references       |
-//! | ZigZag                                       | `get(zigzag: i64 = ((v0 >> 1) as i64) ^ ..)`   |
-//! | MessagePack and CBOR: heads of a few forms   | `u8in<0xa0, 0xbf>`, an enum of references      |
-//! | a string whose length is in its head         | `size = (head & 0x1f) + 1` on a `str`          |
-//! | big-endian floats                            | `get(value: f64 = f64::from_bits(..))`         |
-//! | UTF-8 of a counted length                    | `len = length` on a `str`                      |
-//! | a C string: a NUL at its end, and only there | `size = walk(0, ..) + 1`                       |
-//! | a name padded with NULs                      | a `walk` of an offset and a flag               |
-//! | an HTTP request line, a decimal number       | `assert(walk(..))`, `u128bec<..>` for a name   |
+//! The following table lists what is specific to these encodings, and what in the declarations
+//! expresses it:
 //!
-//! What is not covered, and why:
+//! | Specific to these encodings               | Declared with                                  |
+//! |-------------------------------------------|------------------------------------------------|
+//! | a DER length of 1 byte, or of 1 to 4 more | `regions(long_length = .., contents: C)`       |
+//! | the shortest DER long form                | `assert(length != 0x81 \|\| be(2, 1) >= 0x80)` |
+//! | DER contents fill the value               | `assert({ let n = ..; .. == .. })`             |
+//! | typed DER values that follow each other   | `regions(first: A = .., rest: B)`              |
+//! | INTEGERs and OIDs of the shortest forms   | `assert(..)`, `assert(walk(..) == ..)`         |
+//! | digits                                    | `[u8in<b'0', b'9'>; 14]`                       |
+//! | a Protocol Buffers key and wire type      | `assert(key & 7 == 2 && key >= 8)`             |
+//! | varints and lengths of 1 or 2 bytes       | a struct per form, an enum of references       |
+//! | ZigZag                                    | `get(zigzag: i64 = ((v0 >> 1) as i64) ^ ..)`   |
+//! | MessagePack and CBOR heads of a few forms | `u8in<0xa0, 0xbf>`, an enum of references      |
+//! | a string whose length is in its head      | `size = (head & 0x1f) + 1` on a `str`          |
+//! | big-endian floats                         | `get(value: f64 = f64::from_bits(..))`         |
+//! | UTF-8 of a counted length                 | `len = length` on a `str`                      |
+//! | a C string, with a NUL at its end only    | `size = walk(0, ..) + 1`                       |
+//! | a name padded with NULs                   | a `walk` of an offset and a flag               |
+//! | an HTTP request line, a decimal number    | `assert(walk(..))`, `u128bec<..>` for a name   |
 //!
-//! - DER: tags of more than one byte (numbers above 30) are left out: they are base-128 integers
-//!   (`vlq`), which would move every offset after them. `OPTIONAL` elements and `CHOICE`s are a type each: a chain of
-//!   [`Then`] is one sequence of types.
-//! - Protocol Buffers: a [`Message`] is checked whole, by a walk over fields of any form. To read
-//!   values, each form of a field is a struct (varints of 1 or 2 bytes, lengths of 1 or 2 bytes)
-//!   whose getters decode it, and an enum of references tells them apart: a getter reads fields,
-//!   not bytes. Nested messages are bytes.
-//! - MessagePack and CBOR: a single item is a head of one of a few forms: a struct each, and an
-//!   enum of references. Arrays and maps are counts of items of their own sizes, nested: that
-//!   would need recursion and a count, so only their heads are declared. An enum of references is
-//!   not `Pun`: it cannot be the type of a field.
-//! - Text: `str` is the only pattern there is. Text that is ASCII (`u8in<0x20, 0x7e>` bytes),
-//!   UTF-8 but for U+0000 (MQTT), "modified UTF-8" (Java) or UTF-16 cannot be told as a pattern
-//!   yet.
-#![deny(unsafe_code)]
+//! The following are not covered:
+//!
+//! - DER tags of more than one byte (numbers above 30) are left out. They are base-128 integers
+//!   (`vlq`), which would move every offset after them. Each `OPTIONAL` element and each
+//!   `CHOICE` needs a type of its own, since a chain of [`Then`] is one sequence of types.
+//! - The values of a Protocol Buffers message are read only where a varint or a length takes 1 or 2
+//!   bytes, and nested messages are left as bytes. A [`Message`] is checked whole, by a walk over
+//!   fields of any form. But a getter reads fields, not bytes, so each form of a field is a struct
+//!   whose getters decode it, and an enum of references ([`Field`]) tells the forms apart.
+//! - The items of the arrays and maps of MessagePack and CBOR are not declared, only the head of
+//!   each item. A head has one of a few forms. Each form is a struct, and an enum of references
+//!   tells them apart. Arrays and maps are counts of nested items of their own sizes, and declaring
+//!   them would need recursion and a count. An enum of references does not implement `Pun`, so it
+//!   cannot be the type of a field.
+//! - This file declares text only as `str`. A struct can require a pattern of other text with a
+//!   rule: `matches(Dfa::ASCII, ..)` for ASCII, or `matches(Dfa::UTF8_NO_NUL, ..)` for UTF-8
+//!   without U+0000 (MQTT). The crate has no automaton for printable ASCII (`0x20` to `0x7e`),
+//!   "modified UTF-8" (Java) or UTF-16, but one can be written for `matches`.
+//!
+//! `main` reads values of each encoding from bytes and asserts their fields, regions and getters.
+//! It reinterprets Protocol Buffers fields, MessagePack items and CBOR items as enums of
+//! references. It changes bytes so that a rule fails, asserts that each read then returns an error,
+//! and prints `ok`.
+#![forbid(unsafe_code)]
 
 use core::marker::PhantomData;
 
@@ -56,8 +65,9 @@ use puns::{
 // -------------------------------------------------------------------------------------------------
 // ASN.1 DER
 
-/// A DER value of tag `T` whose contents are a `C`: a tag, a length (the short form, or the
-/// shortest long form of 1 to 4 bytes), then the contents.
+/// A DER value of tag `T` whose contents are a `C`: a tag, a length, then the contents.
+///
+/// The length has the short form, or the shortest long form of 1 to 4 bytes.
 #[derive(Pun)]
 #[repr(C)]
 // The shortest long forms.
@@ -86,11 +96,14 @@ pub struct Der<T, C: ?Sized = [u8]> {
   pub data: [u8],
 }
 
-/// Two values that follow each other: the size of the first one is read from its length.
+/// Two DER values that follow each other.
+///
+/// The size of the first value is read from its DER length.
 #[derive(Pun)]
 #[repr(C)]
 pub struct Then<A: ?Sized, B: ?Sized> {
-  /// (`(A, B)` is not a type when `A` is unsized.)
+  /// A marker for `A` and `B`. It is not `PhantomData<(A, B)>`, because `(A, B)` is not a type
+  /// when `A` is unsized.
   pub types: PhantomData<(PhantomData<A>, PhantomData<B>)>,
   #[pun(regions(
     first: A = {
@@ -102,16 +115,18 @@ pub struct Then<A: ?Sized, B: ?Sized> {
   pub data: [u8],
 }
 
-/// The contents of an INTEGER: at least a byte, and the shortest (its first 9 bits are not all
-/// equal).
+/// The contents of a DER INTEGER, of at least 1 byte and of the shortest form.
+///
+/// In the shortest form, the first 9 bits of contents of 2 bytes or more are not all equal.
 #[derive(Pun)]
 #[repr(transparent)]
 #[pun(assert(size_of_val(self) >= 1))]
 #[pun(assert(size_of_val(self) == 1 || (be(0, 2) >> 7 != 0 && be(0, 2) >> 7 != 0x1ff)))]
 pub struct Integer(pub [u8]);
 
-/// The contents of an OBJECT IDENTIFIER: base-128 numbers, each of the shortest form (no
-/// leading `0x80`), each ending with a byte below `0x80`.
+/// The contents of a DER OBJECT IDENTIFIER: one or more base-128 numbers.
+///
+/// Each number has the shortest form (no leading `0x80`), and ends with a byte below `0x80`.
 #[derive(Pun)]
 #[repr(transparent)]
 #[pun(assert(size_of_val(self) >= 1 && be(size_of_val(self) - 1, 1) < 0x80))]
@@ -122,7 +137,7 @@ pub struct Integer(pub [u8]);
 ) == size_of_val(self)))]
 pub struct ObjectIdentifier(pub [u8]);
 
-/// A GeneralizedTime as Kerberos has it: `YYYYMMDDHHMMSSZ`.
+/// A GeneralizedTime in the form that Kerberos uses, `YYYYMMDDHHMMSSZ`.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 pub struct KerberosTime {
@@ -130,48 +145,54 @@ pub struct KerberosTime {
   pub zulu: u8c<b'Z'>,
 }
 
-/// The version of SNMP: 0 (v1) or 1 (v2c).
+/// The version of an SNMP message, 0 (v1) or 1 (v2c).
 #[derive(Pun)]
 #[repr(C)]
 pub struct SnmpVersion(#[pun(valid(0..=1))] pub u8);
 
-/// The error status of a PDU: 0 to 18.
+/// The error status of an SNMP PDU, from 0 to 18.
 #[derive(Pun)]
 #[repr(C)]
 pub struct ErrorStatus(#[pun(valid(0..=18))] pub u8);
 
-/// An SNMP PDU: a request ID, an error status, an error index, variable bindings.
+/// An SNMP PDU: a request ID, an error status, an error index and the variable bindings.
 pub type Pdu = Then<
   Der<u8c<0x02>, Integer>,
   Then<Der<u8c<0x02>, ErrorStatus>, Then<Der<u8c<0x02>, Integer>, Der<u8c<0x30>>>>,
 >;
 
-/// An SNMPv1 or v2c message: SEQUENCE { version, community, PDU (of a context tag of 0 to 8) }.
+/// An SNMPv1 or v2c message: SEQUENCE { version, community, PDU }.
+///
+/// The PDU has a context tag from 0 to 8.
 pub type SnmpMessage = Der<
   u8c<0x30>,
   Then<Der<u8c<0x02>, SnmpVersion>, Then<Der<u8c<0x04>>, Der<u8in<0xa0, 0xa8>, Pdu>>>,
 >;
 
-/// A variable binding: SEQUENCE { OID, value }.
+/// An SNMP variable binding: SEQUENCE { OID, value }.
 pub type VarBind = Der<u8c<0x30>, Then<Der<u8c<0x06>, ObjectIdentifier>, Der<u8>>>;
 
-/// The head of a Kerberos AS-REQ: [APPLICATION 10] SEQUENCE { [1] pvno 5, [2] msg-type 10, then
-/// what remains (padata, which is OPTIONAL, and the request body), as bytes }.
+/// The head of a Kerberos AS-REQ.
+///
+/// Its form is `[APPLICATION 10] SEQUENCE { [1] pvno 5, [2] msg-type 10, rest }`. The rest is bytes
+/// that hold the padata, which is OPTIONAL, and the request body.
 pub type AsReq = Der<u8c<0x6a>, Der<u8c<0x30>, Then<Pvno, Then<MessageType, [u8]>>>>;
 
-/// [1] pvno 5.
+/// The Kerberos field `[1] pvno`, of value 5.
 pub type Pvno = Der<u8c<0xa1>, Der<u8c<0x02>, u8c<5>>>;
 
-/// [2] msg-type 10.
+/// The Kerberos field `[2] msg-type`, of value 10 (AS-REQ).
 pub type MessageType = Der<u8c<0xa2>, Der<u8c<0x02>, u8c<10>>>;
 
 // -------------------------------------------------------------------------------------------------
 // Protocol Buffers
 
-/// A varint field (wire type 0) of a field number up to 15, whose value takes 1 byte.
+/// A Protocol Buffers varint field (wire type 0) of a field number from 1 to 15, whose value
+/// takes 1 byte.
 ///
-/// A varint is 1 to 10 bytes of 7 bits: each length is a struct, and an enum of references
-/// ([`Field`]) tells the forms apart. Two lengths are declared here; the others are the same.
+/// A varint is 1 to 10 bytes of 7 bits each. Each length is a struct, and an enum of references
+/// ([`Field`]) tells the forms apart. This file declares two lengths, and the others would be
+/// declared the same way.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(key & 7 == 0 && key >= 8))]
@@ -187,7 +208,9 @@ pub struct Varint1 {
   pub v0: u8,
 }
 
-/// The same, of a value of 2 bytes (the last one is not 0: the shortest form).
+/// A Protocol Buffers varint field like [`Varint1`], whose value takes 2 bytes.
+///
+/// The last byte is not 0, so the varint has the shortest form.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(key & 7 == 0 && key >= 8))]
@@ -201,8 +224,9 @@ pub struct Varint2 {
   pub v1: u8,
 }
 
-/// A length-delimited field (wire type 2) of a length of 1 byte: a string, bytes, or a nested
-/// message.
+/// A Protocol Buffers length-delimited field (wire type 2) whose length takes 1 byte.
+///
+/// Its data is a string, bytes or a nested message.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 2)]
@@ -216,7 +240,9 @@ pub struct Bytes1 {
   pub data: [u8],
 }
 
-/// The same, of a length of 2 bytes.
+/// A Protocol Buffers length-delimited field like [`Bytes1`], whose length takes 2 bytes.
+///
+/// The last byte of the length is not 0, so the length has the shortest form.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = (l0 & 0x7f) + (l1 << 7) + 3)]
@@ -232,7 +258,7 @@ pub struct Bytes2 {
   pub data: [u8],
 }
 
-/// A fixed field of 32 bits (wire type 5), little-endian.
+/// A Protocol Buffers fixed field of 32 bits (wire type 5), little-endian.
 #[derive(Pun)]
 #[repr(C, packed)]
 #[pun(assert(key & 7 == 5 && key >= 8))]
@@ -242,7 +268,7 @@ pub struct Fixed32 {
   pub value: u32le,
 }
 
-/// A fixed field of 64 bits (wire type 1), little-endian.
+/// A Protocol Buffers fixed field of 64 bits (wire type 1), little-endian.
 #[derive(Pun)]
 #[repr(C, packed)]
 #[pun(assert(key & 7 == 1 && key >= 8))]
@@ -252,8 +278,10 @@ pub struct Fixed64 {
   pub value: u64le,
 }
 
-/// A whole message: fields of any form that fill it, of wire type 0, 1, 2 or 5, of a field number
-/// from 1, of keys of at most 5 bytes and varints of at most 10. A walk, of a field per step.
+/// A whole Protocol Buffers message, which fields of any form fill.
+///
+/// Each field has wire type 0, 1, 2 or 5, a field number of at least 1 and a key of at most 5
+/// bytes. A varint takes at most 10 bytes. The rule is a walk with one field per step.
 #[derive(Pun)]
 #[repr(transparent)]
 #[pun(assert(walk(0, |at| at < size_of_val(self), |at| {
@@ -275,7 +303,7 @@ pub struct Fixed64 {
 }) == size_of_val(self)))]
 pub struct Message(pub [u8]);
 
-/// A field, of any of the forms above.
+/// A Protocol Buffers field, of any of the forms above.
 #[derive(Pun)]
 pub enum Field<'a> {
   Varint1(&'a Varint1),
@@ -289,7 +317,7 @@ pub enum Field<'a> {
 // -------------------------------------------------------------------------------------------------
 // MessagePack
 
-/// A string of up to 31 bytes.
+/// A MessagePack string of up to 31 bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = (head & 0x1f) + 1)]
@@ -298,7 +326,7 @@ pub struct FixStr {
   pub text: str,
 }
 
-/// A string of up to 255 bytes.
+/// A MessagePack string of up to 255 bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 2)]
@@ -308,7 +336,7 @@ pub struct Str8 {
   pub text: str,
 }
 
-/// A string of up to 65535 bytes.
+/// A MessagePack string of up to 65535 bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 3)]
@@ -318,7 +346,7 @@ pub struct Str16 {
   pub text: str,
 }
 
-/// Bytes, up to 255.
+/// A MessagePack byte array of up to 255 bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 2)]
@@ -328,7 +356,7 @@ pub struct Bin8 {
   pub data: [u8],
 }
 
-/// An unsigned integer of 16 bits.
+/// A MessagePack unsigned integer of 16 bits.
 #[derive(Pun)]
 #[repr(C, packed)]
 pub struct Uint16 {
@@ -336,7 +364,7 @@ pub struct Uint16 {
   pub value: u16be,
 }
 
-/// An unsigned integer of 32 bits.
+/// A MessagePack unsigned integer of 32 bits.
 #[derive(Pun)]
 #[repr(C, packed)]
 pub struct Uint32 {
@@ -344,8 +372,9 @@ pub struct Uint32 {
   pub value: u32be,
 }
 
-/// A float of 64 bits: IEEE 754, big-endian. There is no float of a given byte order in
-/// `puns::num`: it is its bits.
+/// A MessagePack float of 64 bits, IEEE 754, big-endian.
+///
+/// The getter `value` decodes the float from its bits.
 #[derive(Pun)]
 #[repr(C, packed)]
 #[pun(get(value: f64 = f64::from_bits(bits as u64)))]
@@ -354,13 +383,15 @@ pub struct Float64 {
   pub bits: u64be,
 }
 
-/// The head of an array of up to 15 items: the items, of their own sizes, follow it.
+/// The head of a MessagePack array of up to 15 items.
+///
+/// The items, of their own sizes, follow it.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(get(count: u8 = self.0 & 15))]
 pub struct FixArray(pub u8in<0x90, 0x9f>);
 
-/// The head of a map of up to 15 pairs.
+/// The head of a MessagePack map of up to 15 pairs.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(get(count: u8 = self.0 & 15))]
@@ -381,7 +412,7 @@ pub enum MsgPack<'a> {
   Uint16(&'a Uint16),
   Uint32(&'a Uint32),
   Float64(&'a Float64),
-  /// Only the head: the items are not declared (see the top of this file).
+  /// The head of an array. The items are not declared (see the documentation of this module).
   FixArray(&'a FixArray),
   FixMap(&'a FixMap),
 }
@@ -389,27 +420,33 @@ pub enum MsgPack<'a> {
 // -------------------------------------------------------------------------------------------------
 // CBOR
 
-/// An unsigned integer (major type 0) of 0 to 23, in the initial byte.
+/// A CBOR unsigned integer (major type 0) from 0 to 23, held in the initial byte.
 #[derive(Pun)]
 #[repr(C)]
 pub struct CborSmall(pub u8in<0x00, 0x17>);
 
-/// An unsigned integer of 1 byte after the initial byte: 24 or more (the shortest form).
+/// A CBOR unsigned integer in 1 byte after the initial byte.
+///
+/// It is at least 24, so it has the shortest form.
 #[derive(Pun)]
 #[repr(C, packed)]
 pub struct CborU8(pub u8c<0x18>, #[pun(valid(24..))] pub u8);
 
-/// An unsigned integer of 2 bytes after the initial byte.
+/// A CBOR unsigned integer in 2 bytes after the initial byte.
+///
+/// It is at least `0x100`, so it has the shortest form.
 #[derive(Pun)]
 #[repr(C, packed)]
 pub struct CborU16(pub u8c<0x19>, #[pun(valid(0x100..))] pub u16be);
 
-/// An unsigned integer of 4 bytes after the initial byte.
+/// A CBOR unsigned integer in 4 bytes after the initial byte.
+///
+/// It is at least `0x1_0000`, so it has the shortest form.
 #[derive(Pun)]
 #[repr(C, packed)]
 pub struct CborU32(pub u8c<0x1a>, #[pun(valid(0x1_0000..))] pub u32be);
 
-/// A text string (major type 3) of 0 to 23 bytes.
+/// A CBOR text string (major type 3) of 0 to 23 bytes.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = (head & 0x1f) + 1)]
@@ -418,7 +455,7 @@ pub struct CborText {
   pub text: str,
 }
 
-/// A text string of 24 to 255 bytes.
+/// A CBOR text string of 24 to 255 bytes, whose length takes 1 byte.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 2)]
@@ -446,7 +483,7 @@ pub enum Cbor<'a> {
 // -------------------------------------------------------------------------------------------------
 // Text
 
-/// UTF-8 text, of a length of 16 bits before it.
+/// UTF-8 text after its length in bytes, a big-endian integer of 16 bits.
 #[derive(Pun)]
 #[repr(C)]
 pub struct Utf8Field {
@@ -455,13 +492,16 @@ pub struct Utf8Field {
   pub text: str,
 }
 
-/// A C string: bytes, up to the first NUL, which is its last byte.
+/// A C string: bytes up to the first NUL, which is its last byte.
 #[derive(Pun)]
 #[repr(transparent)]
 #[pun(size = walk(0, |at| be(at, 1) != 0, |at| at + 1) + 1)]
 pub struct CStr(pub [u8]);
 
-/// A C string that is UTF-8 as well: its text is a region, a `str`.
+/// A C string whose text is read as UTF-8.
+///
+/// Its text is a region of type `str`, checked when it is read: bytes that are not UTF-8 are a
+/// valid `CText`, whose `text` returns an error.
 #[derive(Pun)]
 #[repr(transparent)]
 #[pun(size = walk(0, |at| be(at, 1) != 0, |at| at + 1) + 1)]
@@ -470,7 +510,7 @@ pub struct CText {
   pub bytes: [u8],
 }
 
-/// A name in a field of 32 bytes: a string, then NULs to the end (at least one).
+/// A name in a field of 32 bytes: a string, then at least one NUL, and only NULs to the end.
 #[derive(Pun)]
 #[repr(transparent)]
 // One walk: bit 16 of its state is "a NUL was seen", after which only NULs may follow.
@@ -482,7 +522,7 @@ pub struct CText {
 pub struct Padded32(pub [u8; 32]);
 
 /// An HTTP/1.1 request line: a method (capital letters), a space, a target (visible ASCII), a
-/// space, `HTTP/1.1`, CRLF.
+/// space, `HTTP/1.1` and CRLF.
 #[derive(Pun)]
 #[repr(transparent)]
 #[pun(assert(size_of_val(self) >= 14 && be(size_of_val(self) - 11, 1) == 0x20))]
@@ -493,8 +533,7 @@ pub struct Padded32(pub [u8; 32]);
   let end = walk(0, |at| be(at, 1) >= 0x41 && be(at, 1) <= 0x5a, |at| at + 1);
   end > 0 && be(end, 1) == 0x20
 }))]
-// Up to the version: visible ASCII and one space (counted from bit 16). One walk that checks the
-// letters of the method as well would be of 61 operations: there are two walks, in two rules.
+// Up to the version: visible ASCII and one space (counted from bit 16).
 #[pun(assert({
   let s = walk(
     0,
@@ -508,8 +547,10 @@ pub struct Padded32(pub [u8; 32]);
 }))]
 pub struct RequestLine(pub [u8]);
 
-/// `Content-Length: `, then decimal digits (no sign, no leading zero but for `0`), CRLF. The
-/// value is decoded by a walk, and is at most 2^40.
+/// An HTTP header: `Content-Length: `, then decimal digits and CRLF.
+///
+/// The digits have no sign, and no leading zero unless the value is `0`. A walk decodes the
+/// value, which is at most 2^40.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(size_of_val(self) >= 19 && be(size_of_val(self) - 2, 2) == 0x0d0a))]
@@ -530,7 +571,7 @@ pub struct RequestLine(pub [u8]);
   s >> 16 <= 1 << 40
 }))]
 pub struct ContentLength {
-  /// `Content-Length: `, as written.
+  /// The name of the header, its colon and a space, `Content-Length: `, in this exact case.
   pub name: u128bec<0x436f_6e74_656e_742d_4c65_6e67_7468_3a20>,
   pub value: [u8],
 }
@@ -538,39 +579,40 @@ pub struct ContentLength {
 // -------------------------------------------------------------------------------------------------
 // Use
 
-/// An SNMP `GetRequest` (v2c), as bytes: community "public", `sysDescr.0`.
+/// The bytes of an SNMP `GetRequest` (v2c) of community "public" for `sysDescr.0`.
 const GET_REQUEST: [u8; 41] = [
   0x30, 0x27, 0x02, 0x01, 0x01, 0x04, 0x06, b'p', b'u', b'b', b'l', b'i', b'c', 0xa0, 0x1a, 0x02,
   0x02, 0x12, 0x34, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00, 0x30, 0x0e, 0x30, 0x0c, 0x06, 0x08, 0x2b,
   0x06, 0x01, 0x02, 0x01, 0x01, 0x01, 0x00, 0x05, 0x00,
 ];
 
-/// The head of a Kerberos AS-REQ, as bytes: pvno 5, msg-type 10, an empty request body.
+/// The bytes of the head of a Kerberos AS-REQ: pvno 5, msg-type 10 and an empty request body.
 const AS_REQ: [u8; 18] = [
   0x6a, 0x10, 0x30, 0x0e, 0xa1, 0x03, 0x02, 0x01, 0x05, 0xa2, 0x03, 0x02, 0x01, 0x0a, 0xa4, 0x02,
   0x30, 0x00,
 ];
 
-/// A message of Protocol Buffers, as bytes: field 1 = 150 (a varint of 2 bytes), field 2 =
-/// "testing", field 3 = -2 as `sint32`, field 4 = 1 as `fixed32`.
+/// The bytes of a Protocol Buffers message of four fields: field 1 = 150 (a varint of 2 bytes),
+/// field 2 = "testing", field 3 = -2 as `sint32`, and field 4 = 1 as `fixed32`.
 const PROTOBUF: [u8; 19] = [
   0x08, 0x96, 0x01, 0x12, 0x07, b't', b'e', b's', b't', b'i', b'n', b'g', 0x18, 0x03, 0x25, 1, 0,
   0, 0,
 ];
 
-/// `{"compact": true, "schema": 0}` in MessagePack, as bytes.
+/// The bytes of `{"compact": true, "schema": 0}` in MessagePack.
 const MSGPACK: [u8; 18] = [
   0x82, 0xa7, b'c', b'o', b'm', b'p', b'a', b'c', b't', 0xc3, 0xa6, b's', b'c', b'h', b'e', b'm',
   b'a', 0x00,
 ];
 
-/// `"IETF"`, 100, 1000000, `true` in CBOR (RFC 8949, appendix A), as bytes.
+/// The bytes of `"IETF"`, 100, 1000000 and `true` in CBOR (RFC 8949, appendix A).
 const CBOR: [u8; 13] =
   [0x64, 0x49, 0x45, 0x54, 0x46, 0x18, 0x64, 0x1a, 0x00, 0x0f, 0x42, 0x40, 0xf5];
 
+/// Reads the samples of this file through its types, and asserts the results.
 pub fn main() {
   // ---- DER: an SNMP GetRequest, a chain of values of their own sizes.
-  // A value from a stream: its length, of the short or the long form, tells where it ends.
+  // A value from a stream: its length, of the short or the long form, says where it ends.
   let mut stream = vec![0x04, 0x81, 0x80];
   stream.resize(3 + 128 + 2, 7);
   let (value, rest) = from_head::<Der<u8c<0x04>>>(&stream).unwrap();
@@ -642,7 +684,7 @@ pub fn main() {
 
   // ---- Protocol Buffers: a message, then its fields, of their own forms.
   assert!(try_pun_ref::<_, Message>(&PROTOBUF[..]).is_ok());
-  // A varint that runs into the next field; wire type 3; a length past the end.
+  // A varint that extends into the next field; wire type 3; a length past the end.
   for (at, value) in [(13, 0x83), (12, 0x1b), (4, 0x30)] {
     let mut bytes = PROTOBUF;
     bytes[at] = value;

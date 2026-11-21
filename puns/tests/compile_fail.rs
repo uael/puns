@@ -1,6 +1,11 @@
-//! What must not compile, and the message that tells why.
+//! Tests that each refused use of `puns` fails to compile with the expected message.
 //!
-//! Not built under Miri: trybuild runs the compiler, which Miri cannot.
+//! Each case in `tests/compile-fail/` must fail to compile with the error of its `.stderr` file.
+//! Each case in `tests/compile-pass/` must compile. Without the `unstable` feature, the cases in
+//! `tests/compile-fail-kept/` must fail and the cases in `tests/compile-pass-kept/` must compile.
+//! With the `unstable` feature, the cases in `tests/compile-fail-unstable/` must fail.
+//!
+//! This file is not built under Miri. trybuild runs the compiler, which Miri cannot run.
 
 #![cfg(not(miri))]
 

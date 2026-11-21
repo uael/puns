@@ -1,11 +1,17 @@
-//! The exhaustive model check of self-relative pointers: every pair of every type of the model.
-//! Behind the feature `full`: `cargo test --profile model -p puns-model --features full`.
+//! Checks every pair of every type of the model of self-relative pointers.
+//!
+//! This file needs the `full` feature, which `cargo test` does not turn on. It runs with
+//! `cargo test --profile model -p puns-model --features full`, every night and on demand
+//! (`.github/workflows/model.yml`).
+//!
+//! This file is not built under Miri, which runs the sample of `pointers.rs` instead.
 
 #![cfg(feature = "full")]
 #![cfg(not(miri))]
 
 use puns_model::pointers::{report, types::*};
 
+/// Checks every ordered pair of the types against the oracle.
 #[test]
 fn every_pair() {
   puns_model::pointer_pairs!(check_pair;
@@ -15,8 +21,10 @@ fn every_pair() {
   report();
 }
 
-/// `puns::validate_in` against the oracle, on every type of the model, every single-byte change
-/// by every mask of one bit and of all bits.
+/// Checks `puns::validate_in` against the oracle on every type of the model.
+///
+/// The images include every change of one byte by every mask of one bit, and by the mask of all
+/// bits.
 #[test]
 fn validate_in_is_the_oracle() {
   use puns_model::pointers::check_validate;
@@ -40,8 +48,10 @@ fn validate_in_is_the_oracle() {
   println!("{compared} images compared");
 }
 
-/// `puns::pointers_in` against `validate_in`, on every type of the model, every single-byte change
-/// by every mask of one bit and of all bits that leaves the image valid.
+/// Checks `puns::pointers_in` against `validate_in` on every type of the model.
+///
+/// The images include every change of one byte by every mask of one bit, and by the mask of all
+/// bits, that leaves the image valid.
 #[test]
 fn pointers_in_is_validate_in() {
   use puns_model::pointers::check_pointers_in;
@@ -65,8 +75,11 @@ fn pointers_in_is_validate_in() {
   println!("{compared} images compared");
 }
 
-/// `puns::copy_in` against the oracle's bytes of a value, on every type of the model, every
-/// single-byte change by every mask of one bit and of all bits that leaves the image valid.
+/// Checks `puns::copy_in` against the bytes that the oracle says a value holds, on every type of
+/// the model.
+///
+/// The images include every change of one byte by every mask of one bit, and by the mask of all
+/// bits, that leaves the image valid.
 #[test]
 fn copy_in_is_the_oracle() {
   use puns_model::pointers::check_copy_in;

@@ -13,7 +13,7 @@ use puns::{
 #[repr(transparent)]
 struct Mislabeled(i32, PhantomData<u32>);
 
-// SAFETY: not kept: `POINTER` is not made for `Target`.
+// SAFETY: Not met, on purpose: `POINTER` is not made for `Target`, which must be refused.
 unsafe impl SelfRelative for Mislabeled {
   type Target = u32;
   const POINTER: Pointer = Pointer::one::<u8>("mislabeled", 4, Endian::NATIVE);

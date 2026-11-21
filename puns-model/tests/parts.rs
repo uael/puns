@@ -1,6 +1,10 @@
-//! Parts of values (`head`, `tail`, `head_mut`, `tail_mut`...): natively a sample of each size of
-//! source, with targets of every size below it; under Miri a selection of the unsafe paths. Every
-//! pair of the model is run natively by `parts2`, `parts3`, `parts4` and `parts8`.
+//! Checks the parts of values (`head`, `tail`, `head_mut`, `tail_mut` and the others) against the
+//! oracles.
+//!
+//! Natively, this file checks a sample of each size of source, with targets of every smaller size.
+//! Under Miri, it checks a selection that reaches the unsafe paths. The full check, behind the
+//! `full` feature, runs every pair of the model natively, in `parts2.rs`, `parts3.rs`, `parts4.rs`
+//! and `parts8.rs`.
 
 #[cfg(not(miri))]
 use core::num::NonZero;
@@ -8,6 +12,7 @@ use core::num::NonZero;
 use puns::num::*;
 use puns_model::types::*;
 
+/// Checks the parts of a selection of pairs, then natively of a sample of each size of source.
 #[test]
 fn parts_sample() {
   // What Miri is there for: each unsafe path of the parts once, at its offset (see

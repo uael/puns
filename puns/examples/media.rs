@@ -1,34 +1,39 @@
-//! Sound and video containers, in safe Rust, with nothing but `#[derive(Pun)]` and its options:
-//! RIFF and WAVE, and the boxes of ISO-BMFF (MP4).
+//! Sound and video containers (RIFF and WAVE files, and the boxes of ISO-BMFF, or MP4), declared
+//! with `#[derive(Pun)]` and read in place from bytes.
 //!
-//! As in `ethernet.rs`, the first half of this file is type declarations only: no `unsafe`, no
-//! `impl`, no parsing code. The second half reads files in place, from bytes, and checks that
-//! corrupted ones are rejected.
+//! As in `ethernet.rs`, the first half of this file holds only type declarations, with no `unsafe`,
+//! no `impl` and no parsing code, and the second half reads files in place, from bytes.
 //!
-//! What is specific to these formats, and what tells it:
+//! The following table lists what is specific to these formats, and what in the declarations
+//! expresses it:
 //!
-//! | Specificity                                    | Told by                                  |
+//! | Specific to these formats                      | Declared with                            |
 //! |------------------------------------------------|------------------------------------------|
-//! | four character codes tell what is held         | `tag(FourCc = u32bec<0x666d_7420>)`      |
-//! | RIFF chunks padded to 2 bytes, not counted     | `size = 8 + length + (length & 1)`       |
+//! | four-character codes say what is held          | `tag(FourCc = u32bec<0x666d_7420>)`      |
+//! | a RIFF pad byte, not counted in the length     | `size = 8 + length + (length & 1)`       |
 //! | the fields of a WAVE format agree              | `assert(byte_rate == .. * block_align)`  |
-//! | WAVE: chunks fill the file, "fmt " first       | `assert(walk(12, ..) == ..)`             |
-//! | WAVE: the data is whole frames                 | `assert({ let data = walk(..); .. })`    |
-//! | MP4: a size of 32 bits, 64 bits, or to the end | a struct per form, an enum of references |
-//! | a full box: a version and flags                | `u8c<0>`, `u24be`                        |
-//! | brands, to the end of a box                    | `[FourCc]`                               |
+//! | WAVE chunks fill the file, `fmt ` first        | `assert(walk(12, ..) == ..)`             |
+//! | WAVE data is whole frames                      | `assert({ let data = walk(..); .. })`    |
+//! | an MP4 size of 32 bits, 64 bits, or to the end | a struct per form, an enum of references |
+//! | the version and flags of a full box            | `u8c<0>`, `u24be`                        |
+//! | brands, up to the end of a box                 | `[FourCc]`                               |
 //!
-//! What is not covered, and why:
+//! The size of an MP4 box takes 4 or 8 bytes, as its first 4 bytes say. When these bytes are 0,
+//! the box extends to the end of what holds it. That end is not in the box, so a `size` rule
+//! cannot give it. Each form of box is a struct with a payload of its type, and an enum of
+//! references tells the forms apart.
 //!
-//! - MP4: the size of a box is of 4 or 8 bytes, as its first 4 bytes tell, or 0 for "to the end
-//!   of what holds it", which a `size` rule cannot tell (it is not in the box): each form is a
-//!   struct, of a payload of its type, and an enum of references tells them apart. Boxes inside
-//!   boxes (`moov`,
-//!   `trak`...) are read by use code, one level at a time: a box does not say what kind of box
-//!   its children are.
-//! - The samples themselves are compressed, or interleaved by tables that point anywhere in the
-//!   file (`stco`, `stsz`): decoding them is not a view of the bytes.
-#![deny(unsafe_code)]
+//! The following are not covered:
+//!
+//! - The code that uses the types reads boxes inside boxes (`moov`, `trak`, ...) one level at a
+//!   time, since a box does not say what kind of box its children are.
+//! - The samples are compressed, or interleaved by tables that point anywhere in the file (`stco`,
+//!   `stsz`). Decoding them makes a copy, not a view of the bytes.
+//!
+//! `main` reads a WAVE file chunk by chunk and an MP4 file box by box, and asserts their fields,
+//! regions and getters. It changes bytes so that a rule fails or the size is wrong, asserts that
+//! each read then returns an error, and prints `ok`.
+#![forbid(unsafe_code)]
 
 use core::marker::PhantomData;
 
@@ -37,7 +42,7 @@ use puns::{
   num::{u8c, u16le, u24be, u32be, u32bec, u32le, u64be},
 };
 
-/// A four character code, when what it tells is not known.
+/// A four-character code whose meaning is not known.
 #[derive(Pun, Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct FourCc(pub u32be);
@@ -45,8 +50,10 @@ pub struct FourCc(pub u32be);
 // -------------------------------------------------------------------------------------------------
 // RIFF
 
-/// A RIFF chunk: its data, then a pad byte if its size is odd. Its data is a `P` (bytes, unless
-/// told).
+/// A RIFF chunk whose data is a `P`.
+///
+/// The data is followed by a pad byte if its size is odd. `P` is `[u8]` unless another type is
+/// given.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = 8 + length + (length & 1))]
@@ -58,7 +65,7 @@ pub struct Chunk<P: ?Sized + Tag<FourCc> = [u8]> {
   pub rest: [u8],
 }
 
-/// The data of the "fmt " chunk of PCM (1), IEEE float (3) or extensible (`0xfffe`) audio.
+/// The data of the `fmt ` chunk of PCM (1), IEEE float (3) or extensible (`0xfffe`) audio.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(FourCc = u32bec<0x666d_7420>))]
@@ -78,8 +85,10 @@ pub struct Format {
   pub extension: [u8],
 }
 
-/// A WAVE file: chunks that fill the size that RIFF tells, "fmt " first; the "data" chunk,
-/// wherever it is, holds whole frames of the block alignment of the format.
+/// A WAVE file.
+///
+/// Its chunks fill the size that the RIFF header gives, and the `fmt ` chunk is first. The `data`
+/// chunk, wherever it is, holds whole frames of the block alignment of the format.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 8)]
@@ -101,7 +110,7 @@ pub struct Format {
 pub struct Wave {
   pub riff: u32bec<0x5249_4646>,
   pub length: u32le,
-  /// The form of the RIFF file: "WAVE".
+  /// The form of the RIFF file, `WAVE`.
   pub form: u32bec<0x5741_5645>,
   pub chunks: [u8],
 }
@@ -109,11 +118,11 @@ pub struct Wave {
 // -------------------------------------------------------------------------------------------------
 // MP4
 
-/// A box of a 32 bits size, at least 8, and of a payload `P`.
+/// An MP4 box with a 32-bit size of at least 8, and a payload `P`.
 ///
-/// The size of a box is in 4 bytes, or, when they are 1, in 8 bytes after its type; when they are
-/// 0, the box extends to the end of the file. A struct for each ([`Box32`], [`Box64`],
-/// [`BoxToEnd`]) and an enum of references ([`AnyBox`]) tell them apart.
+/// The size of a box is in its first 4 bytes. When they hold 1, the size is in 8 bytes after the
+/// type. When they hold 0, the box extends to the end of the file. [`Box32`], [`Box64`] and
+/// [`BoxToEnd`] are these three forms, and [`AnyBox`] tells them apart.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = size)]
@@ -124,7 +133,7 @@ pub struct Box32<P: ?Sized + Tag<FourCc> = [u8]> {
   pub payload: P,
 }
 
-/// A box of a 64 bits size.
+/// An MP4 box with a 64-bit size.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = large_size)]
@@ -136,7 +145,7 @@ pub struct Box64<P: ?Sized + Tag<FourCc> = [u8]> {
   pub payload: P,
 }
 
-/// A box that extends to the end of the file.
+/// An MP4 box that extends to the end of the file.
 #[derive(Pun)]
 #[repr(C)]
 pub struct BoxToEnd<P: ?Sized + Tag<FourCc> = [u8]> {
@@ -145,7 +154,7 @@ pub struct BoxToEnd<P: ?Sized + Tag<FourCc> = [u8]> {
   pub payload: P,
 }
 
-/// A box, of any of the three forms.
+/// An MP4 box of any of the three forms.
 #[derive(Pun)]
 pub enum AnyBox<'a> {
   Box32(&'a Box32),
@@ -153,7 +162,7 @@ pub enum AnyBox<'a> {
   ToEnd(&'a BoxToEnd),
 }
 
-/// The payload of "ftyp": a brand, a version, compatible brands.
+/// The payload of `ftyp`, which holds the major brand, a minor version and compatible brands.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(FourCc = u32bec<0x6674_7970>))]
@@ -163,7 +172,9 @@ pub struct FileType {
   pub compatible: [FourCc],
 }
 
-/// The payload of "mvhd", version 0: a full box (a version and flags), then times of 32 bits.
+/// The payload of `mvhd`, version 0.
+///
+/// It is a full box, with a version and flags, followed by times of 32 bits.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(tag(FourCc = u32bec<0x6d76_6864>))]
@@ -176,14 +187,15 @@ pub struct MovieHeader {
   pub modification: u32be,
   pub timescale: u32be,
   pub duration: u32be,
-  /// The rate, the volume, the matrix and the next track ID.
+  /// The rate, the volume, reserved bytes, the matrix, predefined bytes and the next track ID.
   pub rest: [u8; 80],
 }
 
 // -------------------------------------------------------------------------------------------------
 // Use
 
-/// A WAVE file, as bytes: 16 bits stereo PCM at 8000 Hz, a LIST chunk, two frames of data.
+/// The bytes of a WAVE file of 16-bit stereo PCM at 8000 Hz, with a `LIST` chunk and two frames
+/// of data.
 const WAVE: [u8; 64] = [
   b'R', b'I', b'F', b'F', 0x38, 0x00, 0x00, 0x00, b'W', b'A', b'V', b'E', b'f', b'm', b't', b' ',
   0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x40, 0x1f, 0x00, 0x00, 0x00, 0x7d, 0x00, 0x00,
@@ -191,7 +203,8 @@ const WAVE: [u8; 64] = [
   b'd', b'a', b't', b'a', 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00,
 ];
 
-/// An MP4 file, as bytes: "ftyp", "mdat" of a 64 bits size, "free" up to the end.
+/// The bytes of an MP4 file, with an `ftyp` box, an `mdat` box of a 64-bit size, and a `free` box
+/// up to the end.
 const MP4: [u8; 57] = [
   0x00, 0x00, 0x00, 0x18, b'f', b't', b'y', b'p', b'i', b's', b'o', b'm', 0x00, 0x00, 0x02, 0x00,
   b'i', b's', b'o', b'm', b'i', b's', b'o', b'2', 0x00, 0x00, 0x00, 0x01, b'm', b'd', b'a', b't',
@@ -199,6 +212,7 @@ const MP4: [u8; 57] = [
   b'f', b'r', b'e', b'e', 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
+/// Reads the samples of this file through its types, and asserts the results.
 pub fn main() {
   // ---- WAVE: chunks, a typed format, data of whole frames.
   let (file, rest) = from_head::<Wave>(&WAVE).unwrap();
@@ -236,7 +250,7 @@ pub fn main() {
   let mut bytes = WAVE.to_vec();
   bytes[52] = 7;
   assert_eq!(from_head::<Wave>(&bytes).err(), Some(Error::Validity));
-  // A chunk that runs past the file; "fmt " not first; not RIFF; a RIFF size beyond the bytes.
+  // A chunk that extends beyond the file; "fmt " not first; not RIFF; a RIFF size beyond the bytes.
   for (at, value, error) in [
     (40, 9, Error::Validity),
     (12, b'g', Error::Validity),

@@ -1,8 +1,8 @@
-//! Runs `examples/archives.rs`.
+//! Runs the example `examples/archives.rs` as a test.
 //!
-//! Not built under Miri: an example is a declaration, and the unsafe code it reaches (walks,
-//! regions, checksums, getters, splits) is that of the library, which its own tests and `ethernet`
-//! run there.
+//! This file is not built under Miri. The example has no unsafe code of its own. The unsafe code
+//! that it reaches in the library (walks, regions, checksums, getters, splits) is also reached by
+//! the tests of the library and by the example `ethernet`, which Miri runs.
 
 #![cfg(not(miri))]
 

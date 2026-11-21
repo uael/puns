@@ -1,10 +1,14 @@
-//! Regression tests of the soundness audit: each was a way for safe code to make an invalid
-//! value, or to read what it must not. The ones that must not compile are in `compile-fail/`.
+//! Regression tests for soundness.
+//!
+//! Each test checks that safe code cannot use `puns` in one way to make an invalid value, or to
+//! read memory that it must not read. The cases that must not compile are in `compile-fail/`.
 
 use puns::{Error, Pun};
 
-/// A `valid(..)` restriction is a requirement, not a guarantee: an enum whose variant has a
-/// restricted `u8` is not an enum whose variant has a `bool`, even if their layouts look alike.
+/// Checks that a `valid(..)` requirement does not prove a guarantee.
+///
+/// An enum whose variant holds a `u8` restricted to 0 and 1 is not an enum whose variant holds a
+/// `bool`, even though their layouts look alike.
 #[test]
 fn a_requirement_does_not_prove_a_guarantee_in_an_enum() {
   #[derive(Pun, Clone, Copy)]
@@ -26,8 +30,10 @@ fn a_requirement_does_not_prove_a_guarantee_in_an_enum() {
   assert_eq!(puns::try_pun::<Soft, Hard>(Soft::V(1)), Ok(Hard::V(true)));
 }
 
-/// A rule that reads the bytes of the value (`le`, `be`, `crc32`, `sum16`) reads its padding too:
-/// it can only be checked if the source has initialized bytes there.
+/// A struct whose rule reads a byte of padding.
+///
+/// A rule that reads the bytes of the value (`le`, `be`, `crc32`, `sum16`) reads its padding too.
+/// It can be checked only if the source has initialized bytes there.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(le(1, 1) == 0))]
@@ -76,8 +82,8 @@ fn a_rule_reads_padding_only_if_it_is_initialized() {
   assert_eq!(inner.a, 3);
 }
 
-/// An unsized struct whose slice has elements of no size is as large as its alignment says,
-/// which may be more than the bytes it is made from.
+/// Checks that an unsized struct whose slice has elements of size zero is as large as its
+/// alignment requires. That size may be more than the bytes that it is read from.
 #[test]
 fn an_unsized_target_fits_in_the_source_with_its_trailing_padding() {
   #[derive(Pun)]
@@ -97,8 +103,10 @@ fn an_unsized_target_fits_in_the_source_with_its_trailing_padding() {
   assert_eq!(puns::try_pun_ref::<[u8], Aligned>(four).err(), Some(Error::Size));
 }
 
-/// `#[pun(crate = ..)]` names the crate, and nothing else: the functions that the generated
-/// code calls are the ones of the types that the traits name, whatever else the path leads to.
+/// A path for `#[pun(crate = ..)]` whose functions differ from those of `puns`.
+///
+/// The path names the crate and nothing else. The generated code calls the functions of the
+/// types that the traits name, whatever else the path leads to.
 #[expect(
   dead_code,
   unused_imports,
@@ -108,14 +116,16 @@ mod fake {
   pub use puns::Scalar;
   pub mod layout {
     pub use puns::layout::{Endian, Enum, Field, Id, Layout, Op, Rule, Spec, Variant};
-    /// Every value of the enum would be "one of its variants".
+    /// Returns ranges that would make every byte a variant of the enum, if the generated code
+    /// called it.
     pub const fn sorted_ranges<const N: usize>(_: [u128; N]) -> ([(u128, u128); N], usize) {
       ([(0, 0xff); N], 1)
     }
     pub const fn bits_of<T>(_: &T) -> u128 {
       0
     }
-    /// The last field of a `repr(C)` struct would be one byte later than it is.
+    /// Returns an offset that would place the last field of a `repr(C)` struct one byte too late,
+    /// if the generated code called it.
     pub const fn tail_offset(end: usize, _: usize, _: usize) -> usize {
       end + 1
     }
@@ -149,8 +159,8 @@ fn the_crate_path_does_not_choose_the_functions() {
   assert!(puns::try_pun_ref::<[u16; 2], Late>(&bytes).unwrap().on);
 }
 
-/// `Self` in the type of a field is the type that derives `Pun`, wherever the generated code
-/// writes the type of the field.
+/// Checks that `Self` in the type of a field is the type that derives `Pun`, wherever the
+/// generated code writes the type of the field.
 #[test]
 fn self_in_a_field_is_the_type() {
   use core::marker::PhantomData;

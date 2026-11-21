@@ -1,44 +1,53 @@
-//! Executables and bytecode, in safe Rust, with nothing but `#[derive(Pun)]` and its options:
-//! ELF (32 and 64 bits, of either byte order), PE/COFF, Mach-O, Java class files and WebAssembly
+//! Executables and bytecode, declared with `#[derive(Pun)]` and read in place from bytes: ELF
+//! (32 and 64 bits, of either byte order), PE/COFF, Mach-O, Java class files and WebAssembly
 //! modules.
 //!
-//! As in `ethernet.rs`, the first half of this file is type declarations only: no `unsafe`, no
-//! `impl`, no parsing code. The second half reads files in place, from bytes, and checks that
-//! corrupted ones are rejected.
+//! As in `ethernet.rs`, the first half of this file holds only declarations of types and of two
+//! constants, with no `unsafe`, no `impl` and no parsing code, and the second half reads files in
+//! place, from bytes.
 //!
-//! What is specific to these formats, and what tells it:
+//! The following table lists what is specific to these formats, and what in the declarations
+//! expresses it:
 //!
-//! | Specificity                                     | Told by                                    |
-//! |-------------------------------------------------|--------------------------------------------|
-//! | ELF: the class and byte order change all fields | type parameters, an enum of references     |
-//! | ELF: headers where and as long as it says       | `regions(program_headers: [P] = .., ..)`   |
-//! | ELF: entry sizes are the sizes of the types     | `assert(e_phentsize == size_of::<P>())`    |
-//! | an alignment that is a power of two             | `assert(p_align & (p_align - 1) == 0)`     |
-//! | PE: headers where the DOS header says           | `regions(stub = e_lfanew - 64, ..)`        |
-//! | PE: a magic at a distance tells the kind        | `assert(le(e_lfanew + 24, 2) == MAGIC)`    |
-//! | PE: data directories and sections               | `regions(sections: [..] = .., ..)`         |
-//! | Mach-O: commands that fill their room, counted  | a `walk` of an offset and a count          |
-//! | Mach-O: sections counted by their segment       | `len = nsects`                             |
-//! | Java: entries of a size their tag tells         | a `walk`, a table of sizes in a constant   |
-//! | Java: what follows the pool, from its end       | `be(at + 2, 2) < constant_pool_count`      |
-//! | WebAssembly: sections of a size in LEB128       | `size = 1 + leb128_len(1) + leb128(1)`     |
-//! | WebAssembly: sections in order                  | a walk, ranks in a constant                |
-//! | WebAssembly: value types                        | an enum without fields                     |
+//! | Specific to these formats                      | Declared with                            |
+//! |------------------------------------------------|------------------------------------------|
+//! | the ELF class and byte order change all fields | type parameters, an enum of references   |
+//! | ELF headers, at the offset and size it gives   | `regions(program_headers: [P] = .., ..)` |
+//! | ELF entry sizes are the sizes of the types     | `assert(e_phentsize == size_of::<P>())`  |
+//! | an alignment that is a power of two            | `assert(p_align & (p_align - 1) == 0)`   |
+//! | PE headers, where the DOS header says          | `regions(stub = e_lfanew - 64, ..)`      |
+//! | a PE magic at a distance gives the kind        | `assert(le(e_lfanew + 24, 2) == MAGIC)`  |
+//! | PE data directories and sections               | `regions(sections: [..] = .., ..)`       |
+//! | counted Mach-O commands fill `sizeofcmds`      | a `walk` of an offset and a count        |
+//! | Mach-O sections, counted by their segment      | `len = nsects`                           |
+//! | Java pool entries, of a size their tag gives   | a `walk`, a table of sizes in a constant |
+//! | what follows the Java pool, from its end       | `be(at + 2, 2) < constant_pool_count`    |
+//! | WebAssembly sections, of a size in LEB128      | `size = 1 + leb128_len(1) + leb128(1)`   |
+//! | WebAssembly sections, in order                 | a walk, ranks in a constant              |
+//! | WebAssembly value types                        | an enum without fields                   |
 //!
-//! What is not covered, and why:
+//! The following are not covered:
 //!
-//! - ELF: the fields of the header are those of the file (rather than of a header struct in it),
-//!   since an expression reads the integer fields of its own struct only: `header.e_phoff`
-//!   cannot be named. Program and section headers are expected in that order after the header,
-//!   as consecutive regions; other layouts are valid ELF, and are refused. Segments and sections
-//!   themselves are found by offsets that use code follows.
-//! - PE: the checksum of the image, the import and export tables (addresses that are relative
-//!   to where sections are loaded, not to the file) are not views of the bytes as they are.
-//! - Java: the constant pool is walked. Fields and methods are counts of things that have
-//!   attributes of their own sizes, counted as well: a walk inside a walk, which is not written
-//!   here, so they are not checked. The text of a `CONSTANT_Utf8` is "modified UTF-8", which is
-//!   not `str`, and for which the crate has no automaton (one can be written, for `matches`).
-#![deny(unsafe_code)]
+//! - The fields of the ELF header are fields of the file, not of a header struct inside it. An
+//!   expression reads only the integer fields of its own struct, so it cannot name
+//!   `header.e_phoff`. The program headers, then the section headers, must follow the header as
+//!   consecutive regions. Other layouts are valid ELF, but these types reject them. Code that
+//!   uses the types must follow the offsets to the segments and the sections. `main` reads only
+//!   the regions.
+//! - The checksum of a PE image and its import and export tables cannot be read from the bytes as
+//!   they are. The tables hold addresses relative to where the sections are loaded, not to the
+//!   file.
+//! - The constant pool of a Java class file is walked, but its fields and methods are not
+//!   checked. They are counted items whose attributes have sizes of their own and are counted
+//!   too. Checking them takes a walk inside a walk, which this file does not write.
+//! - The text of a `CONSTANT_Utf8` is "modified UTF-8". It is not a `str`, and the crate has no
+//!   automaton for it, although one can be written for `matches`.
+//!
+//! `main` reads a file of each format from bytes and asserts its fields, regions and getters. It
+//! reinterprets ELF files of the four classes and byte orders as an [`AnyElf`], and a PE file as an
+//! [`AnyPe`]. It changes bytes so that a rule fails, asserts that each read then returns an
+//! error, and prints `ok`.
+#![forbid(unsafe_code)]
 
 use core::marker::PhantomData;
 
@@ -51,15 +60,19 @@ use puns::{
 // -------------------------------------------------------------------------------------------------
 // ELF
 
-/// An ELF file, of the integers and the headers that its type parameters tell.
+/// An ELF file, with the integer and header types that its type parameters give.
 ///
-/// `C` and `D` are the class and the data (byte order) of the identification (`u8c<1>` or
-/// `u8c<2>`), `H`, `W` and `A` the integers of a half, a word and an address, `P` and `S` the
-/// program and the section headers.
+/// The type parameters are the following:
 ///
-/// The class and the byte order change the size and the order of every field after them. A field
-/// cannot choose its type from another field: each of the four combinations is an instance of
-/// this struct ([`Elf64Le`]...), and an enum of references ([`AnyElf`]) chooses.
+/// - `C` and `D` are the class and the data (byte order) of the identification, each `u8c<1>`
+///   or `u8c<2>`.
+/// - `H`, `W` and `A` are the integers of a half, a word and an address.
+/// - `P` and `S` are the program header and the section header.
+///
+/// The class and the byte order change the size and the byte order of every field after them.
+/// The class also changes the order of the fields of a program header. A field cannot choose its
+/// type from another field. So each of the four combinations is an instance of this struct
+/// ([`Elf64Le`] and the others), and an enum of references ([`AnyElf`]) chooses among them.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(e_version == 1))]
@@ -79,7 +92,8 @@ pub struct Elf<C, D, H: Copy, W, A, P, S> {
   pub os_abi: u8,
   pub abi_version: u8,
   pub padding: [u8; 7],
-  /// None, relocatable, executable, shared, core; or specific to an OS or a processor.
+  /// The file type: none, relocatable, executable, shared or core, or a type specific to an OS
+  /// or a processor.
   #[pun(valid(0..=4, 0xfe00..))]
   pub e_type: H,
   pub e_machine: H,
@@ -94,7 +108,7 @@ pub struct Elf<C, D, H: Copy, W, A, P, S> {
   pub e_shentsize: H,
   pub e_shnum: H,
   pub e_shstrndx: H,
-  /// The types that only regions name.
+  /// A marker for `P` and `S`, which only the regions name.
   pub header_types: PhantomData<(P, S)>,
   #[pun(regions(
     before_program_headers = if e_phnum == 0 { 0 } else { e_phoff - e_ehsize },
@@ -113,7 +127,10 @@ pub struct Elf<C, D, H: Copy, W, A, P, S> {
   pub tail: [u8],
 }
 
-/// A program header of 64 bits.
+/// An ELF program header of 64 bits.
+///
+/// A loadable segment (`p_type` 1) takes no more bytes in the file than in memory. The alignment
+/// is 0 or a power of two.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(p_filesz <= p_memsz || p_type != 1))]
@@ -129,7 +146,9 @@ pub struct Phdr64<W, X> {
   pub p_align: X,
 }
 
-/// A program header of 32 bits: its fields are in another order.
+/// An ELF program header of 32 bits.
+///
+/// Its fields are in another order than those of [`Phdr64`]. Its rules are the same.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(p_filesz <= p_memsz || p_type != 1))]
@@ -145,7 +164,7 @@ pub struct Phdr32<W> {
   pub p_align: W,
 }
 
-/// A section header.
+/// An ELF section header.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 pub struct Shdr<W, X> {
@@ -161,15 +180,15 @@ pub struct Shdr<W, X> {
   pub sh_entsize: X,
 }
 
-/// ELF of 64 bits, little-endian.
+/// An ELF file of 64 bits, little-endian.
 pub type Elf64Le =
   Elf<u8c<2>, u8c<1>, u16le, u32le, u64le, Phdr64<u32le, u64le>, Shdr<u32le, u64le>>;
-/// ELF of 64 bits, big-endian.
+/// An ELF file of 64 bits, big-endian.
 pub type Elf64Be =
   Elf<u8c<2>, u8c<2>, u16be, u32be, u64be, Phdr64<u32be, u64be>, Shdr<u32be, u64be>>;
-/// ELF of 32 bits, little-endian.
+/// An ELF file of 32 bits, little-endian.
 pub type Elf32Le = Elf<u8c<1>, u8c<1>, u16le, u32le, u32le, Phdr32<u32le>, Shdr<u32le, u32le>>;
-/// ELF of 32 bits, big-endian.
+/// An ELF file of 32 bits, big-endian.
 pub type Elf32Be = Elf<u8c<1>, u8c<2>, u16be, u32be, u32be, Phdr32<u32be>, Shdr<u32be, u32be>>;
 
 /// An ELF file, of any class and byte order.
@@ -184,12 +203,14 @@ pub enum AnyElf<'a> {
 // -------------------------------------------------------------------------------------------------
 // PE/COFF
 
-/// A PE file: a DOS header whose `e_lfanew` tells where the PE headers are, the DOS stub, then
-/// the headers `O`, whose optional header is the one that `MAGIC` tells.
+/// A PE file: a DOS header, the DOS stub, then the headers `O`.
+///
+/// The field `e_lfanew` of the DOS header, at least 64 and a multiple of 8, says where the headers
+/// are. The magic of the optional header is `MAGIC`, which says which optional header `O` holds.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(e_lfanew >= 64 && e_lfanew % 8 == 0))]
-// The magic of the optional header, at a distance, tells which `O` this is.
+// The magic of the optional header, at a distance, says which `O` this is.
 #[pun(assert(le(e_lfanew + 24, 2) == MAGIC))]
 pub struct Pe<O: ?Sized, const MAGIC: u16> {
   pub e_magic: u16lec<0x5a4d>,
@@ -200,15 +221,15 @@ pub struct Pe<O: ?Sized, const MAGIC: u16> {
   pub rest: [u8],
 }
 
-/// The PE signature, the COFF header, an optional header `H`, its data directories, the section
-/// table, and the rest of the file.
+/// The PE headers: the PE signature, the COFF header, an optional header `H`, its data
+/// directories, the section table, then the rest of the file.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(size_of_optional_header >= size_of::<H>()))]
 #[pun(get(dll: bool = characteristics & 0x2000 != 0, executable: bool = characteristics & 2 != 0))]
 pub struct Headers<H> {
   pub signature: u32lec<0x4550>,
-  /// x86, x86-64, ARM64, ARM, ARM Thumb-2.
+  /// The machine: x86, x86-64, ARM64, ARM or ARM Thumb-2.
   #[pun(valid(0x14c, 0x8664, 0xaa64, 0x1c0, 0x1c4))]
   pub machine: u16le,
   #[pun(valid(1..=96))]
@@ -263,7 +284,10 @@ pub struct Optional64 {
   pub number_of_rva_and_sizes: u32le,
 }
 
-/// The same for PE32: another magic, a `base_of_data`, sizes of 32 bits.
+/// The standard and Windows fields of the optional header of PE32, without its data
+/// directories.
+///
+/// It differs from [`Optional64`] by its magic, a `base_of_data` field and sizes of 32 bits.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 pub struct Optional32 {
@@ -289,7 +313,7 @@ pub struct Optional32 {
   pub number_of_rva_and_sizes: u32le,
 }
 
-/// A data directory: where a table is, once loaded, and its size.
+/// A PE data directory: the address of a table once loaded, and its size.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 pub struct DataDirectory {
@@ -297,7 +321,9 @@ pub struct DataDirectory {
   pub size: u32le,
 }
 
-/// A section header: its raw data, if any, is at a multiple of 512 in the file.
+/// A PE section header.
+///
+/// Its raw data, if any, is at an offset in the file that is a multiple of 512.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 #[pun(assert(size_of_raw_data == 0 || pointer_to_raw_data % 512 == 0))]
@@ -314,12 +340,12 @@ pub struct SectionHeader {
   pub characteristics: u32le,
 }
 
-/// PE32+ (64 bits).
+/// A PE32+ file (64 bits).
 pub type Pe64 = Pe<Headers<Optional64>, 0x20b>;
-/// PE32.
+/// A PE32 file (32 bits).
 pub type Pe32 = Pe<Headers<Optional32>, 0x10b>;
 
-/// A PE file, of either kind.
+/// A PE file of either kind, PE32+ or PE32.
 #[derive(Pun)]
 pub enum AnyPe<'a> {
   Pe64(&'a Pe64),
@@ -329,8 +355,10 @@ pub enum AnyPe<'a> {
 // -------------------------------------------------------------------------------------------------
 // Mach-O
 
-/// A Mach-O file of 64 bits, little-endian: load commands that fill `sizeofcmds`, as many as
-/// `ncmds` counts, each of a size that is a multiple of 8.
+/// A Mach-O file of 64 bits, little-endian.
+///
+/// Its load commands fill `sizeofcmds` bytes, and their number is `ncmds`. The size
+/// of each command is a multiple of 8, and at least 8.
 #[derive(Pun)]
 #[repr(C)]
 // A walk whose state is the offset of a command (the low 32 bits) and the number of commands
@@ -361,7 +389,7 @@ pub struct MachO64 {
   pub tail: [u8],
 }
 
-/// A load command, of any kind.
+/// A Mach-O load command of any kind.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = cmdsize)]
@@ -372,7 +400,9 @@ pub struct LoadCommand {
   pub data: [u8],
 }
 
-/// `LC_SEGMENT_64`, and its sections.
+/// A Mach-O `LC_SEGMENT_64` command and its sections.
+///
+/// Its size counts its sections, and it takes no more bytes in the file than in memory.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(cmdsize == 72 + nsects * 80))]
@@ -393,7 +423,7 @@ pub struct Segment64 {
   pub sections: [Section64],
 }
 
-/// A section of a segment.
+/// A Mach-O section of a segment.
 #[derive(Pun, Debug, Clone, Copy)]
 #[repr(C)]
 pub struct Section64 {
@@ -402,7 +432,7 @@ pub struct Section64 {
   pub addr: u64le,
   pub size: u64le,
   pub offset: u32le,
-  /// A power of two, as its log2.
+  /// The alignment, as the log2 of a power of two, at most 15.
   #[pun(valid(0..=15))]
   pub align: u32le,
   pub reloff: u32le,
@@ -414,13 +444,14 @@ pub struct Section64 {
 // -------------------------------------------------------------------------------------------------
 // Java class files
 
-/// The size of a constant pool entry by its tag, 4 bits per tag.
+/// The size of a constant pool entry for each tag, 4 bits per tag.
 ///
-/// 0 is not a tag, 1 is `CONSTANT_Utf8`, whose size is in it. A table in a constant, since an
-/// `if` chain of the 17 tags would be deeper than the stack of an expression.
+/// A size of 0 marks a value that is not a tag. A size of 1 marks `CONSTANT_Utf8`, whose size is
+/// in the entry. The sizes are a table in a constant because an `if` chain over the 17 tags
+/// would be deeper than the stack of an expression.
 pub const ENTRY_SIZES: u128 = 0x3_3553_4005_5553_3995_5010;
 
-/// A class file: the constant pool, then the class.
+/// A Java class file: the constant pool, then the class.
 #[derive(Pun)]
 #[repr(C)]
 // The constant pool: a walk whose state is the offset of an entry (the low 32 bits) and its
@@ -435,7 +466,6 @@ pub const ENTRY_SIZES: u128 = 0x3_3553_4005_5553_3995_5010;
       let at = s & 0xffff_ffff;
       let tag = be(at, 1);
       let size = (ENTRY_SIZES >> (tag * 4)) & 15;
-      // (`2 << 32` is 3 operations, a literal is 1: with shifts, this step is 50.)
       if size == 0 {
         1 / 0
       } else {
@@ -455,7 +485,7 @@ pub const ENTRY_SIZES: u128 = 0x3_3553_4005_5553_3995_5010;
 pub struct Class {
   pub magic: u32bec<0xcafe_babe>,
   pub minor: u16be,
-  /// Java 1.1 to 26.
+  /// The major version, from Java 1.1 (45) to Java 26 (70).
   #[pun(valid(45..=70))]
   pub major: u16be,
   #[pun(valid(1..))]
@@ -463,7 +493,9 @@ pub struct Class {
   pub rest: [u8],
 }
 
-/// A `CONSTANT_Utf8` entry: its text is "modified UTF-8" (see the top of this file).
+/// A `CONSTANT_Utf8` entry of a Java constant pool.
+///
+/// Its text is "modified UTF-8", which is not a `str` (see the documentation of this module).
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = length + 3)]
@@ -476,15 +508,17 @@ pub struct Utf8Entry {
 // -------------------------------------------------------------------------------------------------
 // WebAssembly
 
-/// The rank of each id of section in the order of a module, 4 bits each, from id 0.
+/// The rank of each section id in the order of a WebAssembly module, 4 bits per id, from id 0.
 ///
 /// The order is type, import, function, table, memory, tag (13), global, export, start, element,
-/// data count (12), code, data. Custom sections (0) are anywhere.
+/// data count (12), code, data. Custom sections (0) may be anywhere.
 pub const RANKS: u128 = 0x6b_dca9_8754_3210;
 
-/// A WebAssembly module: a magic, a version, then sections that fill it, each of a known id, in
-/// order. The state of the walk is the offset of a section, and the rank of the last one (from
-/// bit 40).
+/// A WebAssembly module: a magic, a version, then sections.
+///
+/// The sections fill the module. Each has a known id, and they are in the order of [`RANKS`].
+/// The state of the walk is the offset of a section, and the rank of the last section from bit
+/// 40.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(walk(
@@ -512,7 +546,9 @@ pub struct Module {
   pub sections: [u8],
 }
 
-/// A section: an id, a size in LEB128 (at most 5 bytes: a `u32`), then that many bytes.
+/// A WebAssembly section: an id, a size in LEB128, then that many bytes.
+///
+/// The size takes at most 5 bytes, the most that a `u32` takes in LEB128.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(size = 1 + leb128_len(1) + leb128(1))]
@@ -524,7 +560,8 @@ pub struct Section {
   pub rest: [u8],
 }
 
-/// A function type of the type section (with a count of parameters of 1 byte of LEB128).
+/// A function type of the WebAssembly type section, whose count of parameters takes 1 byte of
+/// LEB128.
 #[derive(Pun)]
 #[repr(C)]
 pub struct FuncType {
@@ -535,7 +572,7 @@ pub struct FuncType {
   pub types: [ValueType],
 }
 
-/// A value type.
+/// A WebAssembly value type.
 #[derive(Pun, Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum ValueType {
@@ -551,8 +588,9 @@ pub enum ValueType {
 // -------------------------------------------------------------------------------------------------
 // Use
 
-/// An ELF executable, x86-64, little-endian, as bytes: a header, a program header (`PT_LOAD`), 8
-/// bytes of code, two section headers.
+/// The bytes of an ELF executable for x86-64, of 64 bits, little-endian.
+///
+/// It holds a header, a program header (`PT_LOAD`), 8 bytes of code and two section headers.
 const ELF64_LE: [u8; 256] = [
   0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x02, 0x00, 0x3e, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x10, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -572,8 +610,9 @@ const ELF64_LE: [u8; 256] = [
   0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
-/// An ELF executable, 64 bits, big-endian, as bytes: a header, a program header (`PT_LOAD`), 8
-/// bytes of code, two section headers.
+/// The bytes of an ELF executable of 64 bits, big-endian.
+///
+/// It holds a header, a program header (`PT_LOAD`), 8 bytes of code and two section headers.
 const ELF64_BE: [u8; 256] = [
   0x7f, 0x45, 0x4c, 0x46, 0x02, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x02, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x10, 0x00,
@@ -593,8 +632,9 @@ const ELF64_BE: [u8; 256] = [
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
-/// An ELF executable, 32 bits, little-endian, as bytes: a header, a program header (`PT_LOAD`), 8
-/// bytes of code, two section headers.
+/// The bytes of an ELF executable of 32 bits, little-endian.
+///
+/// It holds a header, a program header (`PT_LOAD`), 8 bytes of code and two section headers.
 const ELF32_LE: [u8; 172] = [
   0x7f, 0x45, 0x4c, 0x46, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x02, 0x00, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x10, 0x40, 0x00, 0x34, 0x00, 0x00, 0x00,
@@ -609,8 +649,9 @@ const ELF32_LE: [u8; 172] = [
   0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
-/// An ELF executable, 32 bits, big-endian, as bytes: a header, a program header (`PT_LOAD`), 8
-/// bytes of code, two section headers.
+/// The bytes of an ELF executable of 32 bits, big-endian.
+///
+/// It holds a header, a program header (`PT_LOAD`), 8 bytes of code and two section headers.
 const ELF32_BE: [u8; 172] = [
   0x7f, 0x45, 0x4c, 0x46, 0x01, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x02, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x40, 0x10, 0x00, 0x00, 0x00, 0x00, 0x34,
@@ -625,8 +666,8 @@ const ELF32_BE: [u8; 172] = [
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
 ];
 
-/// A PE32+ executable, as bytes: a DOS header, the PE headers, two data directories, a section
-/// header.
+/// The bytes of a PE32+ executable: a DOS header, the PE headers, two data directories and a
+/// section header.
 const PE64: [u8; 320] = [
   0x4d, 0x5a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -650,7 +691,7 @@ const PE64: [u8; 320] = [
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
-/// A Mach-O executable, as bytes: a segment `__TEXT` of one section, then an `LC_UUID`-like
+/// The bytes of a Mach-O executable: a segment `__TEXT` of one section, then an `LC_UUID`-like
 /// command of 16 bytes.
 const MACHO: [u8; 200] = [
   0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
@@ -668,7 +709,8 @@ const MACHO: [u8; 200] = [
   0xab, 0xab, 0xab, 0xab, 0xab, 0xab, 0xab, 0xab,
 ];
 
-/// A Java class file, as bytes: a constant pool of 6 entries (one of two slots), then the class.
+/// The bytes of a Java class file: a constant pool of 5 entries in 6 slots, since a `long` takes
+/// two, then the class.
 const CLASS: [u8; 66] = [
   0xca, 0xfe, 0xba, 0xbe, 0x00, 0x00, 0x00, 0x34, 0x00, 0x07, 0x01, 0x00, 0x05, b'H', b'e', b'l',
   b'l', b'o', 0x07, 0x00, 0x01, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2a, 0x01, 0x00,
@@ -677,13 +719,16 @@ const CLASS: [u8; 66] = [
   0x00, 0x00,
 ];
 
-/// A WebAssembly module, as bytes: a type section, a custom section "name", a function
-/// section; a code section of 200 bytes follows.
+/// The bytes of the start of a WebAssembly module: a type section, a custom section "name" and a
+/// function section.
+///
+/// A code section of 200 bytes follows, of which only the id and the size are here.
 const WASM: [u8; 31] = [
   0x00, b'a', b's', b'm', 0x01, 0x00, 0x00, 0x00, 1, 7, 1, 0x60, 2, 0x7f, 0x7f, 1, 0x7f, 0, 5, 4,
   b'n', b'a', b'm', b'e', 3, 2, 1, 0, 10, 0xc8, 0x01,
 ];
 
+/// Reads the samples of this file through its types, and asserts the results.
 pub fn main() {
   // ---- ELF: four kinds of files, one declaration.
   for bytes in [&ELF64_LE[..], &ELF64_BE, &ELF32_LE, &ELF32_BE] {
@@ -750,7 +795,7 @@ pub fn main() {
   bytes[40] = 0xf0;
   assert_eq!(AnyElf::from_bytes(&bytes).err(), Some(Error::Validity));
 
-  // ---- PE: headers where the DOS header says, an optional header of the kind its magic tells.
+  // ---- PE: headers where the DOS header says, an optional header of the kind its magic gives.
   let Ok(AnyPe::Pe64(pe)) = AnyPe::from_bytes(&PE64) else { panic!() };
   assert_eq!((pe.e_lfanew.get(), pe.stub().len()), (0x80, 64));
   let headers = pe.headers().unwrap();
@@ -786,7 +831,7 @@ pub fn main() {
   let Ok(AnyPe::Pe64(pe)) = AnyPe::from_bytes(&bytes) else { panic!() };
   assert_eq!(pe.headers().err(), Some(Error::Validity));
 
-  // ---- Mach-O: load commands that fill their room.
+  // ---- Mach-O: load commands that fill `sizeofcmds` bytes.
   let file: &MachO64 = try_pun_ref(&MACHO[..]).unwrap();
   assert_eq!((file.ncmds.get(), file.commands().len(), file.rest().len()), (2, 168, 0));
   let (command, rest) = from_head::<LoadCommand>(file.commands()).unwrap();
@@ -816,7 +861,7 @@ pub fn main() {
   let (utf8, _) = from_head::<Utf8Entry>(&class.rest).unwrap();
   assert_eq!(&utf8.bytes, b"Hello");
   // A count that the entries do not reach; a tag that is not one; this class out of the pool; a
-  // `CONSTANT_Long` counted as one entry; a version from the future.
+  // `CONSTANT_Long` counted as one entry; a major version above 70.
   for (at, value) in [(9, 8), (10, 2), (CLASS.len() - 11, 9), (9, 6), (7, 71)] {
     let mut bytes = CLASS;
     bytes[at] = value;

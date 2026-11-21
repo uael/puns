@@ -13,6 +13,11 @@
 !README.md
 !CHANGELOG.md
 !LICENSE-*
+!docs/
+!docs/*.md
+!docs/*.txt
+!docs/charts/
+!docs/charts/*.svg
 !deny.toml
 !release-plz.toml
 !.github/
@@ -30,7 +35,6 @@
 !.cargo/config.toml
 !puns/
 !puns/Cargo.toml
-!puns/DESIGN.md
 !puns/benches/
 !puns/examples/
 !puns/src/

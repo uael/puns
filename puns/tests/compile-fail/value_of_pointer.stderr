@@ -20,7 +20,7 @@ help: the trait `Copy` is not implemented for `Opt<u32>`
    | |_____^
 ...
    | / pointer! {
-   | |   /// A pointer to one `T`, or none: zero.
+   | |   /// A pointer to one `T` that may be null. Its offset is zero when it is null.
    | |   Opt[T] T, Pointer::one::<T>(SCHEME, size_of::<O>(), O::ENDIAN).or_null()
    | | }
    | |_- in this macro invocation
@@ -50,7 +50,7 @@ help: the trait `Copy` is not implemented for `Opt<u32>`
    | |_____^
 ...
    | / pointer! {
-   | |   /// A pointer to one `T`, or none: zero.
+   | |   /// A pointer to one `T` that may be null. Its offset is zero when it is null.
    | |   Opt[T] T, Pointer::one::<T>(SCHEME, size_of::<O>(), O::ENDIAN).or_null()
    | | }
    | |_- in this macro invocation

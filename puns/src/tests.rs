@@ -6,7 +6,7 @@ use crate::{
   layout::{Endian, Spec},
 };
 
-/// What the analysis says of a pun from `S` to `D`.
+/// Returns what the analysis says of a pun from `S` to `D`, in words.
 fn verdict<S: ?Sized + Pun, D: ?Sized + Pun>() -> String {
   let a = const { analyze(&S::LAYOUT, &D::LAYOUT) };
   let fit = match a.fit.exact {
@@ -41,8 +41,10 @@ macro_rules! scalar {
     #[derive(Copy, Clone)]
     #[repr(transparent)]
     struct $name($repr);
-    // SAFETY: these types are only given to the analysis, never constructed: there is no value
-    // of them that `SPEC` could misdescribe.
+    // SAFETY: `$name` is `repr(transparent)` over `$repr`, so `SPEC` has its size. These types
+    // are only given to the analysis, and no value of them is made, so no value is outside what
+    // `SPEC` accepts. A value that `SPEC` accepts is a valid `$repr`, which any initialized bytes
+    // are, and `$name` has no other invariant. It holds no `UnsafeCell`.
     unsafe impl Scalar for $name {
       const SPEC: Spec = Spec::ranges::<$repr>(Endian::$endian, &$ranges);
     }
@@ -93,7 +95,7 @@ struct Ruled {
   b: u8,
 }
 
-/// The rule of a field holds of the bytes where the field is: in a tuple, which Rust may order
+/// The rule of a field holds for the bytes where the field is: in a tuple, which Rust may order
 /// otherwise, it is not of the same bytes in every layout.
 #[test]
 fn a_rule_of_a_field_is_where_the_field_is() {
@@ -187,7 +189,7 @@ fn unsized_types() {
   assert_eq!(<Pair<u32, [u8]> as Pun>::LAYOUT.size_of_val(5), Some(12));
 }
 
-/// What the analysis says of the last bytes of `S` as a `D`.
+/// Returns what the analysis says of the last bytes of `S` as a `D`, in words.
 fn tail<S: ?Sized + Pun, D: ?Sized + Pun>() -> String {
   let a = const { analyze_tail(&S::LAYOUT, &D::LAYOUT) };
   let shift = a.shift;
@@ -289,14 +291,15 @@ struct Distinct {
   b: u8,
 }
 
-/// Whatever a `&mut` to the first (or with `tail`, the last) bytes of `S` as a `D` compiles: `ok`,
-/// or why not, in a word.
+/// Returns `ok` if a `&mut` to the first bytes of `S` as a `D` compiles, or why not, in a word.
+///
+/// With `tail`, the bytes are the last ones.
 fn part_mut<S: ?Sized + Pun, D: ?Sized + Pun>(tail: bool) -> String {
   let message = if tail { Plan::<S, D>::check_tail_mut() } else { Plan::<S, D>::check_head_mut() };
   let Some(message) = message else { return "ok".into() };
   let text = core::str::from_utf8(&message.bytes[..message.len]).unwrap();
   let word = match () {
-    () if text.contains("a rule of the source") => "rule",
+    () if text.contains(crate::analysis::PART_RULE) => "rule",
     () if text.contains("an enum of the source") => "enum",
     () if text.contains("a string of the source") => "string",
     () if text.contains("could be written through") => "written",
@@ -306,7 +309,7 @@ fn part_mut<S: ?Sized + Pun, D: ?Sized + Pun>(tail: bool) -> String {
   word.into()
 }
 
-/// The rule of `Distinct` over other fields: a field that is restricted, and one that is a `bool`.
+/// The rule of `Distinct` over other fields: one restricted to ASCII, and one that is any `u8`.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(crate, assert(a != b))]
@@ -493,7 +496,8 @@ const TAIL_UNSIZED: &str = "\ncannot pun: the source is unsized: where its last 
                             depends on its length, which is only known at run time.\nUse \
                             `from_tail` to take a value from the end of bytes";
 
-/// Word by word, folded at each step: what `sum16` computes faster.
+/// Returns the sum of the 16-bit words of `bytes`, folded at each step: what `sum16` computes
+/// faster.
 fn sum16_reference(bytes: &[u8]) -> u16 {
   let (mut sum, mut i) = (0u64, 0);
   while i < bytes.len() {
@@ -505,7 +509,7 @@ fn sum16_reference(bytes: &[u8]) -> u16 {
   sum as u16
 }
 
-/// Pseudo-random bytes.
+/// Returns `len` pseudo-random bytes, from `seed`.
 fn noise(len: usize, seed: &mut u64) -> Vec<u8> {
   (0..len)
     .map(|_| {
@@ -544,8 +548,8 @@ fn sum16_is_the_sum_word_by_word() {
   assert_eq!(sum, 0xffff);
 }
 
-/// Bit by bit, as the catalogue of CRCs defines one by its parameters: what `crc32` and `Crc`
-/// compute faster.
+/// Returns the CRC of `bytes` of the given parameters, computed bit by bit as the catalogue of
+/// CRCs defines it: what `crc32` and `Crc` compute faster.
 fn crc_reference(
   width: u32,
   poly: u64,
@@ -664,7 +668,8 @@ fn patterns_are_the_same_by_their_states() {
     &Dfa { id: Dfa::UTF8.id, states: &[DfaState { accept: true, edges: &[(0, 0xff, 0)] }] };
   /// The states of UTF-8, with another `id`.
   const AGAIN: &Dfa = &Dfa { id: 7, states: Dfa::UTF8.states };
-  // SAFETY: the probe of a slice of bytes, a type of bytes.
+  // SAFETY: `[u8]` is a slice, the probe is `<[u8] as Pun>::PROBE`, and its 3 bytes fit in an
+  // `isize`. These are the requirements of `Layout::pattern`.
   let pattern = |dfa: &'static Dfa| unsafe { Layout::pattern::<[u8]>(<[u8] as Pun>::PROBE, dfa) };
   assert!(pattern(Dfa::UTF8).equals(&pattern(Dfa::UTF8)));
   assert!(!pattern(ANY).equals(&pattern(Dfa::UTF8)));
@@ -672,6 +677,16 @@ fn patterns_are_the_same_by_their_states() {
   assert!(!pattern(AGAIN).equals(&pattern(Dfa::UTF8)));
   assert!(Dfa::UTF8.is_utf8());
   assert!(!ANY.is_utf8() && !AGAIN.is_utf8());
+}
+
+/// An automaton that a rule names is checked by `Layout::structure`, whether or not it was made
+/// with `Op::matches`: one whose edge leads to no state would fail a validation.
+#[test]
+#[should_panic(expected = "a DFA edge is empty or leads to no state")]
+fn an_automaton_of_a_rule_is_checked() {
+  use crate::layout::{Dfa, DfaState, Op, check_ops};
+  const BROKEN: &Dfa = &Dfa { id: 7, states: &[DfaState { accept: true, edges: &[(0, 0xff, 1)] }] };
+  check_ops(&[Op::Lit(0), Op::Lit(1), Op::Matches(BROKEN)], 1, false, 0, 0);
 }
 
 /// A check reads the bytes of the source that every layout has there: not those of a struct
@@ -756,4 +771,88 @@ fn two_types_at_one_place_are_two() {
   if !crate::layout::UNSTABLE {
     assert!(!analyze(first(), second()).relation.infallible());
   }
+}
+
+/// Returns the labels of the links of a Markdown text, in lowercase: `label` in `[label]: url`, in
+/// `[text][label]` and in `[label]` alone. A link with its URL inline, `[text](url)`, has none.
+fn link_labels(text: &str) -> Vec<String> {
+  let mut labels = Vec::new();
+  let mut rest = text;
+  while let Some(open) = rest.find('[') {
+    let after = &rest[open + 1..];
+    let Some(close) = after.find(']') else { break };
+    let inner = &after[..close];
+    let next = &after[close + 1..];
+    if let Some(second) = next.strip_prefix('[') {
+      if let Some(end) = second.find(']') {
+        labels.push(second[..end].to_lowercase());
+        rest = &second[end + 1..];
+        continue;
+      }
+    } else if !next.starts_with('(') && !inner.contains('[') {
+      labels.push(inner.to_lowercase());
+    }
+    rest = &after[close + 1..];
+  }
+  labels
+}
+
+/// The README is the start of the documentation of the crate (`#![doc = include_str!(..)]` in
+/// `lib.rs`), so the links that it defines are defined in all of that documentation. A label that
+/// the README defines and the rest of it also defines or uses would make one of the two links point
+/// to the target of the other, as `[reference]` once sent the Rust Reference to docs.rs.
+#[test]
+fn the_readme_defines_no_label_of_the_crate_documentation() {
+  let readme = include_str!("../README.md");
+  let defined: Vec<String> = readme
+    .lines()
+    .filter_map(|line| line.strip_prefix('[')?.split_once("]: "))
+    .map(|(label, _)| label.to_lowercase())
+    .collect();
+  let crate_docs = include_str!("lib.rs")
+    .lines()
+    .filter_map(|line| line.strip_prefix("//!"))
+    .collect::<Vec<_>>()
+    .join("\n");
+  let shared: Vec<String> =
+    link_labels(&crate_docs).into_iter().filter(|label| defined.contains(label)).collect();
+  assert!(shared.is_empty(), "labels of both the README and `lib.rs`: {shared:?}");
+}
+
+/// Returns the ids that rustdoc gives the headings of a Markdown text: the text in lowercase, its
+/// spaces as `-`, and only its letters, digits, `-` and `_`.
+fn heading_ids(text: &str) -> Vec<String> {
+  text
+    .lines()
+    .filter_map(|line| {
+      line.trim_start_matches('#').strip_prefix(' ').filter(|_| line.starts_with('#'))
+    })
+    .map(|heading| {
+      heading
+        .trim()
+        .chars()
+        .filter_map(|c| match c {
+          ' ' => Some('-'),
+          c if c.is_alphanumeric() || c == '-' || c == '_' => Some(c.to_ascii_lowercase()),
+          _ => None,
+        })
+        .collect()
+    })
+    .collect()
+}
+
+/// A README heading with the same id as a heading elsewhere in the crate documentation takes that
+/// id, and the other becomes `id-1`: a link to `#soundness` once led to a short section of the
+/// README instead of the chapter of `lib.rs`.
+#[test]
+fn the_readme_takes_no_heading_id_of_the_crate_documentation() {
+  let crate_docs = include_str!("lib.rs")
+    .lines()
+    .filter_map(|line| line.strip_prefix("//! "))
+    .collect::<Vec<_>>()
+    .join("\n");
+  let ids = heading_ids(&crate_docs);
+  let shared: Vec<String> =
+    heading_ids(include_str!("../README.md")).into_iter().filter(|id| ids.contains(id)).collect();
+  assert!(shared.is_empty(), "headings of both the README and `lib.rs`: {shared:?}");
 }

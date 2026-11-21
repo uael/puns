@@ -1,9 +1,10 @@
-//! Checksums told by their parameters: any CRC of up to 64 bits, Fletcher-16, Adler-32, a sum.
+//! Tests the checksums that rules compute: a CRC of any width up to 64 bits given by its
+//! parameters, Fletcher-16, Adler-32 and a sum of bytes.
 
 use puns::{Pun, from_bytes, layout::Crc};
 
-/// A Modbus RTU frame: an address, a function, data, then the CRC-16/MODBUS of all that,
-/// least significant byte first.
+/// A Modbus RTU frame. It holds an address, a function and data, then the CRC-16/MODBUS of these
+/// bytes, least significant byte first.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(
@@ -45,8 +46,8 @@ fn a_crc_by_its_parameters() {
   assert_eq!(Crc::CRC32.check(b"123456789"), 0xcbf4_3926);
 }
 
-/// A header whose CRC-32 is over itself, its CRC taken as zeros (as the one of GPT), and a CRC-32C
-/// of its first 8 bytes, its CRC-32 taken as zeros.
+/// A header with two CRCs. Its CRC-32 is over the whole header with the CRC-32 taken as zeros, as
+/// in GPT. Its CRC-32C is over the first 8 bytes, with the CRC-32 taken as zeros too.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(crc32(0, 12, 4, 8) == le(4, 4)))]
@@ -70,7 +71,7 @@ fn a_crc_over_itself() {
   assert!(from_bytes::<Header>(&header).is_err());
 }
 
-/// Fletcher-16, Adler-32 and a sum, each after the bytes that it is of.
+/// Five bytes followed by their Fletcher-16, their Adler-32 and their sum modulo 256.
 #[derive(Pun)]
 #[repr(C)]
 #[pun(assert(fletcher16(0, 5) == be(5, 2)))]
