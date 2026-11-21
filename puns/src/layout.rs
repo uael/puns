@@ -48,7 +48,7 @@
 //!   0. A value of it must be one of its fields ([Unions](crate#unions)).
 //! - A type **without values** is an enum without variants ([`Layout::uninhabited`]), such as
 //!   `Infallible`. No value has its layout ([`Layout::is_inhabited`]), so as a source, a variant of
-//!   an enum without values needs no proof.
+//!   an enum without values needs no proof where the variants of two enums are related.
 //! - `MaybeUninit<T>` is padding with the size of `T`.
 //! - An **array** is the layout of an element and a count, and a **slice** is the layout of an
 //!   element alone, since its length is not part of its type.

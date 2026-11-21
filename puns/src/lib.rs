@@ -3413,7 +3413,7 @@ pub const fn tail_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - Neither `D` nor the part of `S` that it covers holds a scalar that a pun never makes
+/// - No part that the pun covers, of `D` or of `S`, holds a scalar that a pun never makes
 ///   ([`Spec::never`](layout::Spec::never)), except in a variant of an enum, which a check never
 ///   accepts.
 /// - Every value of `S` is at least as large as the smallest `D`. For sized types, this means
@@ -3487,7 +3487,7 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - Neither `D` nor the part of `S` that it covers holds a scalar that a pun never makes
+/// - No part that the pun covers, of `D` or of `S`, holds a scalar that a pun never makes
 ///   ([`Spec::never`](layout::Spec::never)), except in a variant of an enum, which a check never
 ///   accepts.
 /// - `S` is sized, because where the last bytes of an unsized value start is known only at run
