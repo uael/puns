@@ -5,7 +5,7 @@ mod never;
 
 use core::num::NonZero;
 
-use never::{Link, Node, Off};
+use never::{Link, Node, Nullable, Off, Packed};
 
 #[test]
 fn a_source_proves_initialized_bytes() {
@@ -36,6 +36,12 @@ fn validate_but_never_checks_the_rest() {
   // The offset is not checked, not even that it is not zero.
   assert_eq!(puns::validate_but_never::<Node>(puns::as_bytes(&[7u32, 0])), Ok(()));
   assert_eq!(puns::validate_but_never::<Node>(&puns::as_bytes(&node)[..7]), Err(puns::Error::Size));
+  // At any address: no reference is made.
+  let mut odd = [0u8; 9];
+  odd[1..].copy_from_slice(puns::as_bytes(&node));
+  assert_eq!(puns::validate_but_never::<Node>(&odd[1..]), Ok(()));
+  odd[1..5].copy_from_slice(puns::as_bytes(&30u32));
+  assert_eq!(puns::validate_but_never::<never::Ruled>(&odd[1..]), Err(puns::Error::Validity));
   // Every variant of the enum, the one with the offset included; not a tag of none.
   assert_eq!(puns::validate_but_never::<Link>(puns::as_bytes(&[1u32, 5])), Ok(()));
   assert_eq!(puns::validate_but_never::<Link>(puns::as_bytes(&[2u32, 5])), Ok(()));
@@ -48,6 +54,22 @@ fn validate_but_never_checks_the_rest() {
   assert_eq!(
     puns::validate_but_never::<never::Ruled>(puns::as_bytes(&[30u32, 5])),
     Err(puns::Error::Validity)
+  );
+}
+
+#[test]
+fn an_option_of_one_is_one() {
+  // `None` is zero, `Some` the bytes of the offset: both are initialized bytes, proven.
+  let some = Nullable { tag: 1, next: Some(Off(NonZero::new(8).unwrap())), packed: None };
+  let none = Nullable { tag: 2, next: None, packed: Some(Packed(NonZero::new(9).unwrap())) };
+  assert_eq!(puns::pun::<Nullable, [u32; 3]>(some), [1, 8, 0]);
+  assert_eq!(puns::pun::<Nullable, [u32; 3]>(none), [2, 0, 9]);
+  // Neither is checked: nothing in the bytes says whether an offset is valid.
+  assert_eq!(puns::validate_but_never::<Nullable>(puns::as_bytes(&[3u32, 0, 5])), Ok(()));
+  assert_eq!(puns::validate_but_never::<Nullable>(puns::as_bytes(&[3u32, 5, 0])), Ok(()));
+  assert_eq!(
+    puns::validate_but_never::<Nullable>(&puns::as_bytes(&[3u32, 5, 0])[..11]),
+    Err(puns::Error::Size)
   );
 }
 

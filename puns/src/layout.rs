@@ -217,7 +217,8 @@ impl Spec {
   /// initialized bytes prove. A pun whose target holds one does not compile, nor does a check of
   /// one: only the crate that declares the scalar makes a value of it, and proves it.
   /// [`validate_but_never`](crate::validate_but_never) checks the rest of a value that holds one.
-  /// Rules do not read it, since it is not a number.
+  /// Rules do not read it, since it is not a number. An `Option` of it is such a scalar too, if
+  /// the scalar has a niche at zero, as a `NonZero` field gives it.
   ///
   /// # Examples
   ///
@@ -2904,6 +2905,11 @@ impl Layout {
   #[must_use]
   pub const fn is_specified(&self) -> bool {
     self.stable.deep
+  }
+
+  /// Returns whether the layout is a scalar that a pun never makes ([`Spec::never`]).
+  pub(crate) const fn is_never(&self) -> bool {
+    matches!(self.kind, Kind::Scalar(spec) if spec.is_never())
   }
 
   /// Returns whether a part of the layout, at any depth, is a scalar that a pun never makes

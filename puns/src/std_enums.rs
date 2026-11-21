@@ -10,12 +10,16 @@
 //! `Option<bool>` is the niche 2. `Option<Option<bool>>` has two niches, and `rustc` puts `None`
 //! at 255 today, below the valid values rather than after them. This is found, not assumed.
 //! `Option<u16>` has a tag of two bytes. `Result<u32, Infallible>` is a struct of its `u32`.
+//!
+//! An `Option` of a scalar that a pun never makes ([`Spec::never`](crate::layout::Spec::never)) is
+//! not found so, since `puns` has no sample value of such a scalar. Its layout is a scalar of the
+//! same kind ([`never`]), which needs no sample.
 
 use core::{marker::PhantomData, mem::MaybeUninit};
 
 use crate::{
   At, Fields, Path, Pun, Variants,
-  layout::{Desc, Enum, Field, Id, Layout, Variant},
+  layout::{Desc, Enum, Field, Id, Kind, Layout, Spec, Variant},
 };
 
 /// Returns the offset of `field` in `whole`.
@@ -94,6 +98,48 @@ macro_rules! variant {
       },
     )
   };
+}
+
+/// Returns the layout of `Option<T>`, where `T` is a scalar that a pun never makes: a scalar of the
+/// same kind, of the size of `T`.
+///
+/// Such a scalar says only that its bytes are initialized. So does `Option<T>`, if it has the size
+/// of `T` and its `None` is initialized bytes. `Some(x)` then holds `x` in every byte. The bytes of
+/// `None` are those of a value without fields, which is the same at compile time and at run time.
+/// Both are checked here, in const evaluation: a layout of another shape fails the build, with the
+/// reason. `core` promises the first where `T` is a `NonZero` integer, or a `repr(transparent)`
+/// struct around one ("Representation" in `core::option`), and `rustc` gives it to any type with a
+/// niche at zero.
+///
+/// # Panics
+///
+/// Panics if `Option<T>` is larger than `T`, or if a byte of `None` is not initialized.
+const fn never<T: Pun>() -> Layout {
+  assert!(
+    size_of::<Option<T>>() == size_of::<T>(),
+    "an `Option` of a scalar that a pun never makes must have the size of the scalar: give the \
+     scalar a niche at zero, as a `NonZero` has"
+  );
+  let none = MaybeUninit::new(None::<T>);
+  let mut at = 0;
+  while at < size_of::<T>() {
+    // SAFETY: `at` is within an `Option<T>`, and the call is evaluated at compile time, in the
+    // `LAYOUT` of `Option<T>`, as `read` requires. A byte of `None` that is not initialized fails
+    // the build there.
+    unsafe { crate::discover::read(&none, at, 1) };
+    at += 1;
+  }
+  Layout::scalar::<Option<T>>(Spec::never::<Option<T>>())
+}
+
+/// Returns the layout of `Option<T>` that the experiments on its samples find.
+const fn discovered<T: Pun>() -> Layout {
+  let layout = Layout::enumeration::<Option<T>>(const { &<Option<T> as Found>::ENUM })
+    .identified(Id::new("Option", &[T::LAYOUT.id]));
+  // Where `core` documents it (a `NonZero`, a `repr(transparent)` struct around one), what is
+  // found is what it documents: a niche at zero, which is `None`. Else Rust specifies nothing of
+  // it (see "The `unstable` feature" in the crate documentation).
+  if T::NULL_OPTIMIZED { layout } else { layout.unspecified() }
 }
 
 impl<T: Pun> Found for Option<T> {
@@ -217,7 +263,9 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
 // `discover`. These fail to compile rather than find a wrong layout, under the facts of the
 // compiler that its module documentation lists. The variant `Some` holds the layout of `T` at the
 // offset observed on a sample, and the lists of variants and fields are those of this layout (see
-// `OptionNone`, `OptionSome` and `OptionSomeField`).
+// `OptionNone`, `OptionSome` and `OptionSomeField`). Where `T` is a scalar that a pun never makes,
+// the layout is that of `never`, whose shape is checked there, and `Option<T>` is no enum to a
+// pun: no function of this crate reads its lists of variants and fields.
 // `Option<T>` holds a `T` or nothing, and a tag, so no `UnsafeCell`, since `T: Pun`.
 unsafe impl<T: Pun> Pun for Option<T> {
   type Elem = ();
@@ -225,14 +273,7 @@ unsafe impl<T: Pun> Pun for Option<T> {
   type Variants = OptionNone<T>;
   type Rules = ();
   const PROBE: *const Self = core::ptr::null();
-  const LAYOUT: Layout = {
-    let layout = Layout::enumeration::<Self>(const { &<Self as Found>::ENUM })
-      .identified(Id::new("Option", &[T::LAYOUT.id]));
-    // Where `core` documents it (a `NonZero`, a `repr(transparent)` struct around one), what is
-    // found is what it documents: a niche at zero, which is `None`. Else Rust specifies nothing
-    // of it (see "The `unstable` feature" in the crate documentation).
-    if T::NULL_OPTIMIZED { layout } else { layout.unspecified() }
-  };
+  const LAYOUT: Layout = if T::LAYOUT.is_never() { never::<T>() } else { discovered::<T>() };
 }
 
 // SAFETY: The layout is the one that `rustc` gave `Result<T, E>`, found by the experiments of
@@ -288,19 +329,36 @@ pub struct ResultOkField<T, E>(PhantomData<(T, E)>);
 #[doc(hidden)]
 pub struct ResultErrField<T, E>(PhantomData<(T, E)>);
 
-/// Returns the tag of the `index`th variant of `E`.
+// The lists of variants and fields of an `Option` of a scalar that a pun never makes, whose
+// layout is no enum (`never`), are those of a variant without a tag or a field. Nothing reads them,
+// but a check of `Option<T>` names them, so their constants are evaluated, and must not run the
+// experiments, which have no sample of `T`.
+
+/// Returns whether the layout of `E` is an enum.
+const fn is_enum<E: Pun>() -> bool {
+  matches!(E::LAYOUT.kind, Kind::Enum(_))
+}
+
+/// Returns the tag of the `index`th variant of `E`, or 0 if `E` is no enum.
 const fn tag<E: Pun + Found>(index: usize) -> u128 {
-  E::LAYOUT.variant_tag(index)
+  if is_enum::<E>() { E::LAYOUT.variant_tag(index) } else { 0 }
 }
 
 /// Returns the values of the tag of the `index`th variant of `E`, or `None` if they are its tag
-/// alone.
+/// alone or `E` is no enum.
 const fn ranges<E: Pun + Found>(index: usize) -> Option<&'static [(u128, u128)]> {
-  E::LAYOUT.variant_ranges(index)
+  if is_enum::<E>() { E::LAYOUT.variant_ranges(index) } else { None }
 }
 
-/// Returns the field of the `index`th variant of `E`, or `None` if the variant has no value.
+/// Returns the field of the `index`th variant of `E`, or `None` if the variant has no value or
+/// `E` is no enum.
 const fn field<E: Pun + Found>(index: usize) -> Option<Field> {
+  if is_enum::<E>() { found_field::<E>(index) } else { None }
+}
+
+/// Returns the field of the `index`th variant of the enum `E`, or `None` if the variant has no
+/// value. It reads what the experiments find, so it is called only where they run.
+const fn found_field<E: Pun + Found>(index: usize) -> Option<Field> {
   if E::DESC.inhabited(index) { Some(*E::LAYOUT.variant_field(index, 0)) } else { None }
 }
 

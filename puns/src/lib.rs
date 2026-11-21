@@ -580,6 +580,10 @@
 //! [`validate_but_never`], which checks every other part of the value, rules included. It then
 //! proves its scalars as only it can, and makes the reference.
 //!
+//! An `Option` of such a scalar is one too, of the same size: `None` is zero, an offset that is
+//! null, and neither it nor `Some` is checked. Its layout needs a niche at zero in the scalar, as a
+//! `NonZero` field gives, so that `Option` adds no byte. Without one, it does not compile.
+//!
 //! # Cargo features
 //!
 //! ## The `unstable` feature
@@ -2801,11 +2805,23 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
   /// the marks of a source type that the bytes are a valid value of, with the extent of `source`.
   #[inline(always)]
   const unsafe fn try_cast_by<C: Checks>(source: *const S) -> Result<*const D, Error> {
-    let (layout, target) = const { (S::LAYOUT, D::LAYOUT) };
-    let addr = source.cast::<u8>();
-    if const { !Self::ANALYSIS.aligned } && !ptr::is_aligned(addr, target.align()) {
+    if const { !Self::ANALYSIS.aligned } && !ptr::is_aligned(source.cast(), D::LAYOUT.align()) {
       return Err(Error::Alignment);
     }
+    // SAFETY: By contract on the caller, as `check_by` requires.
+    unsafe { Self::check_by::<C>(source) }
+  }
+
+  /// [`Plan::try_cast_by`] without the check of the address: the result is at the address of
+  /// `source`, which need not be aligned for a `D`.
+  ///
+  /// # Safety
+  ///
+  /// As for [`Plan::try_cast_by`].
+  #[inline(always)]
+  const unsafe fn check_by<C: Checks>(source: *const S) -> Result<*const D, Error> {
+    let (layout, target) = const { (S::LAYOUT, D::LAYOUT) };
+    let addr = source.cast::<u8>();
     // The size of a value that exists: no overflow.
     let extent = layout.head() + ptr::metadata(source) * layout.stride();
     if extent < target.head() {
@@ -2826,8 +2842,9 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
       }
     }
     let target = ptr::from_raw_parts::<D>(addr, len);
-    // SAFETY: This satisfies the safety contract of `validate`. `target` is at the address of
-    // `source`, and its extent is the extent of `source`, which is checked above. Its size is at
+    // SAFETY: This satisfies the safety contract of `validate`, which does not require `target` to
+    // be aligned. `target` is at the address of `source`, and its extent is the extent of `source`,
+    // which is checked above. Its size is at
     // most the size of `source`. This is checked above if `D` is unsized and more aligned than
     // `S`. Otherwise `D` is sized, and its size is its extent, or it is unsized and its extent is
     // rounded up to an alignment that divides that of `S`. So `target` is valid for reads of a `D`,
@@ -3844,11 +3861,14 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
 /// refuses. It makes no `D`: the crate that declares the scalars proves them, and then makes the
 /// reference.
 ///
+/// The bytes need not be aligned for `D`, since no reference to them is made. The crate that makes
+/// the reference checks the address.
+///
 /// # Errors
 ///
-/// Returns [`Error::Alignment`] if `bytes` is not aligned for `D`, [`Error::Size`] if the length
-/// of `bytes` is not a size that `D` can have, and [`Error::Validity`] if a part of `D` other than
-/// those scalars is not valid, or a rule of `D` does not hold.
+/// Returns [`Error::Size`] if the length of `bytes` is not a size that `D` can have, and
+/// [`Error::Validity`] if a part of `D` other than those scalars is not valid, or a rule of `D`
+/// does not hold.
 ///
 /// # Compile-time errors
 ///
@@ -3916,9 +3936,9 @@ pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Err
     }
   };
   // SAFETY: `bytes` is a valid `[u8]`, valid for reads, and every one of its bytes is initialized,
-  // so every byte that a check reads is. These are the requirements of `try_cast_by`. Its result
-  // is not used as a `D`.
-  match unsafe { Plan::<[u8], D>::try_cast_by::<validate::AllButNever>(bytes) } {
+  // so every byte that a check reads is. These are the requirements of `check_by`. Its result,
+  // which may not be aligned, is not used as a `D`.
+  match unsafe { Plan::<[u8], D>::check_by::<validate::AllButNever>(bytes) } {
     Ok(_) => Ok(()),
     Err(error) => Err(error),
   }

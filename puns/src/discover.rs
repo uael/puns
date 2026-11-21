@@ -587,7 +587,7 @@ const unsafe fn decided_by<E>(
 /// uninitialized, and reading them is undefined behavior at run time. Const evaluation reports an
 /// error instead ([const evaluation fails on what is not a
 /// value](crate::discover#const-evaluation-fails-on-what-is-not-a-value)).
-const unsafe fn read<E>(sample: &MaybeUninit<E>, offset: usize, len: usize) -> u128 {
+pub const unsafe fn read<E>(sample: &MaybeUninit<E>, offset: usize, len: usize) -> u128 {
   assert!(offset + len <= size_of::<E>() && len <= 16);
   // SAFETY: `offset + len` is at most the size of an `E`, and `len` at most 16, which is asserted
   // above. So `add(offset)` stays within `sample`, and the `len` bytes from there are valid for

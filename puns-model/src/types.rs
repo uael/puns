@@ -622,6 +622,52 @@ impl Oracle for Opaque {
   }
 }
 
+/// A byte that a pun never makes, as `Opaque`, with a niche at zero, as an offset that is never zero.
+/// Its `Option` is one too, `None` as zero.
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct OpaqueNz(pub NonZero<u8>);
+
+// SAFETY: `OpaqueNz` is `repr(transparent)` over a `NonZero<u8>`, so `SPEC`, of a `u8`, has its
+// size. The items of the `# Safety` of `Scalar` hold:
+// - `SPEC` is made with `Spec::never`, and every byte of every value of `OpaqueNz` is initialized.
+// - `SPEC` accepts no value.
+// - `OpaqueNz` holds no `UnsafeCell`.
+unsafe impl puns::Scalar for OpaqueNz {
+  const SPEC: puns::layout::Spec = puns::layout::Spec::never::<u8>();
+}
+
+impl Oracle for OpaqueNz {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+    // As `Opaque`; as a source, a byte that is not zero.
+    if target {
+      return require(off, "OpaqueNz", Ok(false));
+    }
+    Ok(int(b, off, 1, true, reads)? != 0)
+  }
+}
+
+impl Oracle for Option<OpaqueNz> {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+    // As `Opaque`: `None` is zero and `Some` any other byte, so as a source, any initialized byte.
+    const { assert!(size_of::<Option<OpaqueNz>>() == 1, "`None` is the niche of `OpaqueNz`") };
+    if target {
+      return require(off, "Option<OpaqueNz>", Ok(false));
+    }
+    int(b, off, 1, true, reads)?;
+    Ok(true)
+  }
+}
+
+model_struct!(
+  /// A struct of a `bool`, then a byte that a pun never makes, or zero.
+  #[repr(C)]
+  struct HoldsOptOpaque {
+    b: bool,
+    o: Option<OpaqueNz>,
+  }
+);
+
 model_struct!(
   /// A struct of a `bool`, then a byte that a pun never makes.
   #[repr(C)]
