@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-beta.3](https://github.com/uael/puns/compare/v0.2.0-beta.2...v0.2.0-beta.3) - 2026-11-21
+
+### Added
+
+- an `Option` of a scalar that a pun never makes, and `validate_but_never` at any address ([#33](https://github.com/uael/puns/pull/33))
+- [**breaking**] replace self-relative pointers with scalars that a pun never makes ([#30](https://github.com/uael/puns/pull/30))
+
+### Other
+
+- the tests of the text of the documentation do not run under Miri ([#31](https://github.com/uael/puns/pull/31))
+
 ## [0.2.0-beta.2](https://github.com/uael/puns/compare/v0.2.0-beta.1...v0.2.0-beta.2) - 2026-11-21
 
 ### Other
