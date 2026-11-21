@@ -215,7 +215,7 @@ in a debug build, and up to 25 s in release for a view of 64 overlapping variant
 
 `puns` is built on `unsafe` code so that yours doesn't have to be: crates that use it, derive
 included, can keep `#![forbid(unsafe_code)]`. The [Soundness] section lists everything that code
-relies on, including four behaviors of `rustc` that no documentation guarantees, and how each
+relies on, including three behaviors of `rustc` that no documentation guarantees, and how each
 is checked.
 
 The analysis is compared with hand-written oracles on every pair of test types of the same size,
