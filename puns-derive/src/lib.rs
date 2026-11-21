@@ -2630,8 +2630,8 @@ fn derive_discovered(
       // `Discover::DESC`. These fail to compile rather than find a wrong layout, under the
       // facts of the compiler that the module documentation of `discover` lists. Each variant
       // holds its fields at the offsets observed on its sample, each with the layout of its type.
-      // `Variants` lists the variants in order, each with its fields. The other lists are `()`,
-      //. Each field is `Pun`, so no byte is in an `UnsafeCell`.
+      // `Variants` lists the variants in order, each with its fields. The other lists are `()`.
+      // Each field is `Pun`, so no byte is in an `UnsafeCell`.
       unsafe impl #impl_generics #root::Pun for #this #where_clause {
         type Elem = ();
         type Fields = ();

@@ -191,8 +191,9 @@
 //!   the multiples of the greatest common divisor of the sizes, of which every sum of sizes is one.
 //!   A few of these offsets are in no order, such as the second byte of a `(bool, [u8; 3])`, so
 //!   more is then required, never less. A struct that has a rule, which names fields, proves only
-//!   itself, as an enum does. A part that holds a scalar that a pun never makes proves nothing, not
-//!   even itself ([`Layout::holds_never`]), and is refused in every layout.
+//!   itself, as an enum does. As a target, a part that holds a scalar that a pun never makes is
+//!   proven by nothing, not even by itself ([`Layout::holds_never`]), and is refused in every
+//!   layout.
 //! - **Nothing in an opaque node is checked at run time,** since a check would read where the
 //!   compiler may not have put the field. What is not proven does not compile
 //!   ([`Relation::unspecified`]), and whatever reads a relation reads this, including what a
@@ -1294,7 +1295,8 @@ const fn relate_fields(a: &Cursor, b: &Cursor, target: &'static Layout, pos: usi
 /// Each variant of `a` is related with the variants of `b` that its tags are tags of, knowing
 /// that the tag is one of both. A variant of `a` is proven if all its tags are of one variant of
 /// `b`, which it proves. If a variant of `a` is not proven, the enum is marked, and checked as a
-/// whole at run time. Returns `true` at once if `a` and `b` are the same layout ([`equal`]).
+/// whole at run time. Returns `true` at once if `a` and `b` are the same layout ([`equal`]) that
+/// holds no scalar that a pun never makes, which nothing proves, not even the same layout.
 ///
 /// Returns `false`, having done nothing, if either is a union, if `a` is smaller than `b`, or if
 /// their tags differ in place, size or byte order.
@@ -1305,7 +1307,7 @@ const fn relate_enums(
   leaf: usize,
   out: &mut Relation,
 ) -> bool {
-  if equal(a, b) {
+  if equal(a, b) && !b.holds_never() {
     return true;
   }
   let (Kind::Enum(enum_a), Kind::Enum(enum_b)) = (a.kind, b.kind) else { panic!() };
@@ -1710,7 +1712,8 @@ const fn gather(a: &mut Cursor, start: usize, end: usize) -> ([Piece; 16], usize
 ///
 /// # Errors
 ///
-/// Returns `None` if one of the pieces may be uninitialized.
+/// Returns `None` if one of the pieces may be uninitialized, unless `spec` is a scalar that a pun
+/// never makes, which no source is, whatever its pieces hold.
 const fn atom_relation(pieces: &[Piece; 16], len: usize, spec: &Spec) -> Option<Rel> {
   let ranges = match spec.valid {
     Valid::In(ranges) => ranges,

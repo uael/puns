@@ -10,12 +10,16 @@
 //! `Option<bool>` is the niche 2. `Option<Option<bool>>` has two niches, and `rustc` puts `None`
 //! at 255 today, below the valid values rather than after them. This is found, not assumed.
 //! `Option<u16>` has a tag of two bytes. `Result<u32, Infallible>` is a struct of its `u32`.
+//!
+//! An `Option` of a scalar that a pun never makes ([`Spec::never`](crate::layout::Spec::never)) is
+//! not found so, since `puns` has no sample value of such a scalar. Its layout is a scalar of the
+//! same kind ([`never_option`]), which needs no sample.
 
 use core::{marker::PhantomData, mem::MaybeUninit};
 
 use crate::{
   At, Fields, Path, Pun, Variants,
-  layout::{Desc, Enum, Field, Id, Layout, Variant},
+  layout::{Desc, Enum, Field, Id, Kind, Layout, Spec, Variant},
 };
 
 /// Returns the offset of `field` in `whole`.
@@ -94,6 +98,55 @@ macro_rules! variant {
       },
     )
   };
+}
+
+/// Returns the layout of `Option<T>`, where `T` is a scalar that a pun never makes: a scalar of the
+/// same kind, of the size of `T`.
+///
+/// Such a scalar says only that its bytes are initialized. So does `Option<T>`, if it has the size
+/// of `T` and every byte of `None` is initialized. `Some(x)` then holds `x` in every byte, since
+/// there is no other byte for a tag. Both are checked here: the size by an assertion, and the bytes
+/// of `None` by reading each of them in const evaluation, which reports an error on an
+/// uninitialized byte. That error is a behavior of `rustc` that no documentation states, and the
+/// crate documentation discloses it (section Soundness). `None` has no field, so its bytes are
+/// what `rustc` writes for it, at compile time as at run time. `core` promises the size where `T`
+/// is a `NonZero` integer, or a `repr(transparent)` struct around one ("Representation" in
+/// `core::option`). For another `T`, the size depends on the niche that `rustc` gives it.
+///
+/// # Panics
+///
+/// Panics if `Option<T>` is larger than `T`, or if a byte of `None` is not initialized.
+///
+/// # Safety
+///
+/// The call must be evaluated at compile time, in a `const` item or block, as `discover::read`
+/// requires.
+const unsafe fn never_option<T: Pun>() -> Layout {
+  assert!(
+    size_of::<Option<T>>() == size_of::<T>(),
+    "an `Option` of a scalar that a pun never makes must have the size of the scalar: give the \
+     scalar a niche, as a `NonZero` has"
+  );
+  let none = MaybeUninit::new(None::<T>);
+  let mut at = 0;
+  while at < size_of::<T>() {
+    // SAFETY: `at` is within an `Option<T>`, and the call is evaluated at compile time, by contract
+    // on the caller, as `read` requires. A byte of `None` that is not initialized fails the build
+    // there.
+    unsafe { crate::discover::read(&none, at, 1) };
+    at += 1;
+  }
+  Layout::scalar::<Option<T>>(Spec::never::<Option<T>>())
+}
+
+/// Returns the layout of `Option<T>` that the experiments on its samples find.
+const fn discovered<T: Pun>() -> Layout {
+  let layout = Layout::enumeration::<Option<T>>(const { &<Option<T> as Found>::ENUM })
+    .identified(Id::new("Option", &[T::LAYOUT.id]));
+  // Where `core` documents it (a `NonZero`, a `repr(transparent)` struct around one), what is
+  // found is what it documents: a niche at zero, which is `None`. Else Rust specifies nothing of
+  // it (see "The `unstable` feature" in the crate documentation).
+  if T::NULL_OPTIMIZED { layout } else { layout.unspecified() }
 }
 
 impl<T: Pun> Found for Option<T> {
@@ -217,21 +270,22 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
 // `discover`. These fail to compile rather than find a wrong layout, under the facts of the
 // compiler that its module documentation lists. The variant `Some` holds the layout of `T` at the
 // offset observed on a sample, and the lists of variants and fields are those of this layout (see
-// `OptionNone`, `OptionSome` and `OptionSomeField`).
-// `Option<T>` holds a `T` or nothing, and a tag, so no `UnsafeCell`, since `T: Pun`.
+// `OptionNone`, `OptionSome` and `OptionSomeField`). Where `T` is a scalar that a pun never makes,
+// the layout is that of `never_option`, whose shape is checked there: a scalar, whose lists `puns`
+// does not read, so they may be anything (`Pun`, section Safety). `Option<T>` holds a `T` or
+// nothing, and a tag, so no `UnsafeCell`, since `T: Pun`.
 unsafe impl<T: Pun> Pun for Option<T> {
   type Elem = ();
   type Fields = ();
   type Variants = OptionNone<T>;
   type Rules = ();
   const PROBE: *const Self = core::ptr::null();
-  const LAYOUT: Layout = {
-    let layout = Layout::enumeration::<Self>(const { &<Self as Found>::ENUM })
-      .identified(Id::new("Option", &[T::LAYOUT.id]));
-    // Where `core` documents it (a `NonZero`, a `repr(transparent)` struct around one), what is
-    // found is what it documents: a niche at zero, which is `None`. Else Rust specifies nothing
-    // of it (see "The `unstable` feature" in the crate documentation).
-    if T::NULL_OPTIMIZED { layout } else { layout.unspecified() }
+  const LAYOUT: Layout = if T::LAYOUT.is_never() {
+    // SAFETY: This is the value of an associated constant, evaluated at compile time, as
+    // `never_option` requires.
+    unsafe { never_option::<T>() }
+  } else {
+    discovered::<T>()
   };
 }
 
@@ -288,25 +342,44 @@ pub struct ResultOkField<T, E>(PhantomData<(T, E)>);
 #[doc(hidden)]
 pub struct ResultErrField<T, E>(PhantomData<(T, E)>);
 
-/// Returns the tag of the `index`th variant of `E`.
+// The lists of variants and fields of an `Option` of a scalar that a pun never makes, whose layout
+// is no enum (`never_option`), are those of a variant without a tag or a field. Nothing reads them,
+// but a check of `Option<T>` names them, so their constants are evaluated, and must not run the
+// experiments, which have no sample of `T`.
+
+/// Returns whether the layout of `E` is an enum.
+const fn is_enum<E: Pun>() -> bool {
+  matches!(E::LAYOUT.kind, Kind::Enum(_))
+}
+
+/// Returns the tag of the `index`th variant of `E`, or 0 if `E` is no enum.
 const fn tag<E: Pun + Found>(index: usize) -> u128 {
-  E::LAYOUT.variant_tag(index)
+  if is_enum::<E>() { E::LAYOUT.variant_tag(index) } else { 0 }
 }
 
 /// Returns the values of the tag of the `index`th variant of `E`, or `None` if they are its tag
-/// alone.
+/// alone or `E` is no enum.
 const fn ranges<E: Pun + Found>(index: usize) -> Option<&'static [(u128, u128)]> {
-  E::LAYOUT.variant_ranges(index)
+  if is_enum::<E>() { E::LAYOUT.variant_ranges(index) } else { None }
 }
 
-/// Returns the field of the `index`th variant of `E`, or `None` if the variant has no value.
+/// Returns the field of the `index`th variant of `E`, or `None` if the variant has no value or
+/// `E` is no enum.
 const fn field<E: Pun + Found>(index: usize) -> Option<Field> {
+  if is_enum::<E>() { found_field::<E>(index) } else { None }
+}
+
+/// Returns the field of the `index`th variant of the enum `E`, or `None` if the variant has no
+/// value. It reads what the experiments find, so it is called only where they run.
+const fn found_field<E: Pun + Found>(index: usize) -> Option<Field> {
   if E::DESC.inhabited(index) { Some(*E::LAYOUT.variant_field(index, 0)) } else { None }
 }
 
 // SAFETY: `TAG` and `RANGES` are those of the variant 0 of the layout of `Option<T>`, `None`,
 // which has no field, and `Next` is the variant 1. So the list is the variants of the layout, in
-// order, as the `# Safety` of `Variants` requires.
+// order, as the `# Safety` of `Variants` requires. Where `Option<T>` is no enum (`never_option`),
+// `tag` and `ranges` give 0 and `None`, and `puns` reads no list of its variants, which may then be
+// anything (`Variants`, section Safety).
 unsafe impl<T: Pun> Variants for OptionNone<T> {
   type Fields = ();
   type Next = OptionSome<T>;
@@ -315,7 +388,7 @@ unsafe impl<T: Pun> Variants for OptionNone<T> {
 }
 
 // SAFETY: As for `OptionNone`: the variant 1, `Some`, whose field is `OptionSomeField<T>`, and
-// the last.
+// the last. Where `Option<T>` is no enum, nothing reads the list, as for `OptionNone`.
 unsafe impl<T: Pun> Variants for OptionSome<T> {
   type Fields = OptionSomeField<T>;
   type Next = ();
@@ -325,7 +398,8 @@ unsafe impl<T: Pun> Variants for OptionSome<T> {
 
 // SAFETY: `FIELD` is the field of the variant `Some` in the layout of `Option<T>`, a `T` at the
 // offset observed on its sample, and the only one. It is `None`, an empty list, if the variant
-// has no value, as the layout has no field there, or if the layout is given.
+// has no value, as the layout has no field there, or if `Option<T>` is no enum (`never_option`),
+// whose lists no function reads.
 unsafe impl<T: Pun> Fields for OptionSomeField<T> {
   type Type = T;
   type Next = ();

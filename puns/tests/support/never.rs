@@ -41,6 +41,28 @@ pub struct Ruled {
   pub next: Off,
 }
 
+/// An offset of alignment 1, as an offset of a fixed byte order is: `core` documents no niche of a
+/// packed struct, and `rustc` keeps the one of its field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(C, packed)]
+pub struct Packed(pub NonZero<u32>);
+
+// SAFETY: `Packed` is a packed struct of one `NonZero<u32>`, so it has its size, without padding,
+// and every value is 4 initialized bytes, as `Spec::never` says. It accepts no value, so no pun
+// makes one. It holds no `UnsafeCell`.
+unsafe impl Scalar for Packed {
+  const SPEC: Spec = Spec::never::<Packed>();
+}
+
+/// A node whose offsets may be null, `None` as zero.
+#[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct Nullable {
+  pub tag: u32,
+  pub next: Option<Off>,
+  pub packed: Option<Packed>,
+}
+
 /// An offset to a `T`, generic as the pointers of another crate are.
 #[repr(transparent)]
 pub struct Ref<T>(NonZero<u32>, PhantomData<T>);

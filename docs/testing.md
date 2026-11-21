@@ -39,7 +39,7 @@ version.
 
 ## Compile errors
 
-More than a hundred programs must fail to compile, each with its expected message. They are in
+More than seventy programs must fail to compile, each with its expected message. They are in
 [`puns/tests/compile-fail/`][compile-fail] and the folders next to it.
 
 ## The derive
