@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-beta.1](https://github.com/uael/puns/compare/v0.1.5...v0.2.0-beta.1) - 2026-11-21
+
+### Added
+
+- [**breaking**] without `unstable`, no pun depends on what Rust lets rustc lay out otherwise ([#23](https://github.com/uael/puns/pull/23))
+
+### Fixed
+
+- read the bytes of `None` in const evaluation only ([#24](https://github.com/uael/puns/pull/24))
+
+### Other
+
+- rewrite the documentation in the style of core and zerocopy ([#25](https://github.com/uael/puns/pull/25))
+
 ## [0.1.5](https://github.com/uael/puns/compare/v0.1.4...v0.1.5) - 2026-11-18
 
 ### Fixed
