@@ -277,3 +277,54 @@ fn a_part_that_is_proven_unread_is_not_read_by_a_check() {
   let holds = [Holds::A(Padded { a: 1, b: 2 }); 2];
   let _: &[Holds; 2] = puns::pun_ref(&holds);
 }
+
+/// Checks that a struct that ends with an unsized struct has values only if that struct does.
+///
+/// An unsized field used to count as having values, as a slice or a string does. Then a struct
+/// that ends with a struct that holds `Infallible` was made from bytes.
+#[test]
+fn a_struct_that_ends_with_a_struct_without_values_has_none() {
+  use core::convert::Infallible;
+
+  #[derive(Pun)]
+  #[repr(C)]
+  struct Inner {
+    v: Infallible,
+    tail: [u8],
+  }
+  #[derive(Pun)]
+  #[repr(C)]
+  struct Outer {
+    h: u8,
+    inner: Inner,
+  }
+  #[derive(Pun)]
+  #[repr(C)]
+  struct Bytes {
+    h: u8,
+    tail: [u8],
+  }
+  #[derive(Pun)]
+  #[repr(C)]
+  struct Text {
+    h: u8,
+    text: str,
+  }
+  #[derive(Pun)]
+  #[repr(C)]
+  struct Nested {
+    g: u8,
+    bytes: Bytes,
+  }
+
+  assert!(!<Inner as Pun>::LAYOUT.is_inhabited());
+  assert!(!<Outer as Pun>::LAYOUT.is_inhabited());
+  // A slice or a string at the end has a value, the empty one.
+  assert!(<Bytes as Pun>::LAYOUT.is_inhabited());
+  assert!(<Text as Pun>::LAYOUT.is_inhabited());
+  assert!(<Nested as Pun>::LAYOUT.is_inhabited());
+  let nested = puns::from_bytes::<Nested>(&[1, 2, 3]).unwrap();
+  assert_eq!((nested.g, nested.bytes.h, &nested.bytes.tail), (1, 2, &[3][..]));
+  let text = puns::from_bytes::<Text>(b"\x01hi").unwrap();
+  assert_eq!((text.h, &text.text), (1, "hi"));
+}
