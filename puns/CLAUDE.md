@@ -46,8 +46,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - A pun gives a value only from bytes that are valid for it, proven by `analysis` or checked by
   `validate`. A check reads only what the marks of the analysis name.
 - Without the `unstable` feature, nothing depends on a layout that Rust leaves to the compiler.
-  `analysis` does not look into such a node, and nothing in it is checked. `layout::Stable` records
-  what is the same in every layout that Rust allows.
+  `analysis` does not look into such a node, and no check replaces a proof in it. A check that
+  reads it all the same gives the same answer in every layout, and reads only initialized bytes.
+  `layout::Stable` records what is the same in every layout that Rust allows.
 - A requirement (`valid(..)`, a rule) never proves a guarantee of another type. Two layouts are
   equal only if they require and guarantee the same values.
 - No function makes a value that holds a scalar that a pun never makes (`Spec::never`), and no

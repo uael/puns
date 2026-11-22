@@ -76,6 +76,39 @@ fn an_option_of_one_is_one() {
   );
 }
 
+/// A variant that holds one in a tuple is never valid, but the enum is checked as a whole, and the
+/// check of the variant reads the fields of the tuple where `rustc` put them. From initialized
+/// bytes, it compiles, and only the other variant is ever made, whatever the order of the fields.
+/// From bytes that may be uninitialized, it must not compile: `try_tuple_never_in_variant` in
+/// `compile-fail/`.
+#[test]
+fn a_variant_that_holds_one_in_a_tuple_is_checked_from_initialized_bytes() {
+  #[derive(puns::Pun, Clone, Copy, Debug)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum Before {
+    A((bool, Off)),
+    B,
+  }
+  #[derive(puns::Pun, Clone, Copy, Debug)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum After {
+    A((Off, bool)),
+    B,
+  }
+
+  let mut bytes = [0u8; 12];
+  for flag in [0, 1, 2] {
+    bytes[4..].fill(flag);
+    assert_eq!(puns::try_pun::<[u8; 12], Before>(bytes).err(), Some(puns::Error::Validity));
+    assert_eq!(puns::try_pun::<[u8; 12], After>(bytes).err(), Some(puns::Error::Validity));
+  }
+  bytes[0] = 1;
+  assert!(matches!(puns::try_pun::<[u8; 12], Before>(bytes), Ok(Before::B)));
+  assert!(matches!(puns::try_pun::<[u8; 12], After>(bytes), Ok(After::B)));
+}
+
 #[test]
 fn a_generic_one_is_read_as_its_bytes() {
   let offset = never::Ref::<Node>::new(3);
