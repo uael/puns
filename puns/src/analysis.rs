@@ -125,11 +125,13 @@
 //!
 //! So each proof that reads nothing also tells whether a check of the part would read a byte that
 //! may be uninitialized in the source ([`Relation::unreadable`]). Such a byte is a byte of a union,
-//! padding that a rule reads ([`checkable`]), or what a field of a union reads before the field
-//! that proves it ([`relate_union_from`]). A rule that reads the bytes of its struct reads what the
-//! source has under every part of the struct, a part that is proven without being read included
-//! ([`unreadable_rules`]). A leaf that is both marked and unreadable is refused, as a byte read from
-//! padding is ([`Relation::settle`]).
+//! padding that a rule reads ([`checkable`]), what a field of a union reads before the field that
+//! proves it ([`relate_union_from`]), or any byte under a part whose layout Rust leaves to the
+//! compiler and that the source does not prove (see
+//! [Layouts that Rust leaves to the compiler](#layouts-that-rust-leaves-to-the-compiler)). A rule
+//! that reads the bytes of its struct reads what the source has under every part of the struct, a
+//! part that is proven without being read included ([`unreadable_rules`]). A leaf that is both
+//! marked and unreadable is refused, as a byte read from padding is ([`Relation::settle`]).
 //!
 //! # Shifted relations
 //!
@@ -226,13 +228,20 @@
 //!   itself, as an enum does. As a target, a part that holds a scalar that a pun never makes is
 //!   proven by nothing, not even by itself ([`Layout::holds_never`]), and is refused in every
 //!   layout.
-//! - **Nothing in an opaque node is checked at run time,** since a check would read where the
+//! - **A check does not replace a proof in an opaque node,** since a check would read where the
 //!   compiler may not have put the field. What is not proven does not compile
 //!   ([`Relation::unspecified`]), and whatever reads a relation reads this, including what a
 //!   variant of a view takes from another (`base` in `view.rs`), and an enum or a union that would
 //!   be checked as a whole, fields included, which the relations of its variants report. So the
 //!   marks of the analysis, which tell validation what to check, are at places that every layout
-//!   shares.
+//!   shares. Such a node is still read by a check in two cases, whose answer is the same in every
+//!   layout. A union that a later field proves is not refused for an earlier field that is not
+//!   proven, and where its leaf is marked for another reason, its check tries that field first,
+//!   where `rustc` put its fields: the later field accepts whatever that field does not. And a
+//!   part that holds a scalar that a pun never makes is never valid, so the enum of a variant that
+//!   holds it is checked as a whole, and the check reads the fields of the part. Since a field may
+//!   be anywhere in the node, such a node is refused there if any byte under it may be
+//!   uninitialized in the source ([`Relation::unreadable`]).
 //!
 //! A check must not read a byte of the source that, in another layout that Rust allows, holds
 //! another field ([`reads_moved`]). The analysis counts the bytes that a check reads as "What a
@@ -1286,6 +1295,14 @@ const fn relate_range(
       if same && !checkable(target) {
         out.unreadable(run_b.leaf, target.leaves, pos);
       } else if let (true, Some(at)) = fields {
+        out.unreadable(run_b.leaf, target.leaves, at);
+      } else if !proven
+        && target.leaves > 0
+        && let Some(at) = uninit_from(a, pos, stop, &b.known)
+      {
+        // Not proven, yet checked where a union that a later field proves tries it, or where the
+        // enum of a variant that holds it is checked as a whole. The check reads its fields where
+        // `rustc` put them, so any byte under it counts.
         out.unreadable(run_b.leaf, target.leaves, at);
       }
       if !proven && target.holds_never() {

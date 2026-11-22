@@ -699,9 +699,12 @@
 //! anywhere, it must be proven at every place where it may be. So two `bool`s prove a `(bool, u8)`,
 //! four initialized bytes prove a `(u8, u16)`, and two `NonZero<u16>` prove a `(NonZero<u16>,
 //! u16)`. A struct with a rule, which names fields, is proven only by itself, as an enum is. A part
-//! that holds a scalar that a pun never makes is not proven at all. Nothing in a part whose layout
-//! Rust leaves to the compiler is checked at run time, because the check would read where the
-//! compiler may not have put the field, so whatever is not proven there does not compile.
+//! that holds a scalar that a pun never makes is not proven at all. No check replaces a proof in a
+//! part whose layout Rust leaves to the compiler, because the check would read where the compiler
+//! may not have put the field, so whatever is not proven there does not compile. Such a part is
+//! still read by the check of a union that a later field proves, or of an enum whose variant holds
+//! a scalar that a pun never makes. The answer is then the same in every layout, and the pun
+//! compiles only if every byte under the part is initialized in the source.
 //!
 //! ### The same type
 //!
