@@ -930,6 +930,10 @@
 //!   or 16 bytes, since `rustc` makes no other size, or the enum is refused. If `rustc` places the
 //!   fields of a variant without values before the fields of the other variants, the build fails,
 //!   because `puns` cannot observe where those fields are and does not guess.
+//! - In an enum with fields and a primitive or `C` representation, a variant that holds a scalar
+//!   that a pun never makes has no sample from which `puns` reads its tag. Its discriminant must be
+//!   an integer literal, or none after a variant whose tag is known, or the enum is refused ([What
+//!   the derive trusts](macro@Pun#what-the-derive-trusts)).
 //!
 //! ## Not done yet
 //!
@@ -1459,6 +1463,15 @@ pub use layout::{crc32, sum16};
 ///   `byte_offset_from`, a pointer method that no path names. A fake `MaybeUninit`, or a fake
 ///   result type, named by a path does not have the type that these functions take or return, and
 ///   does not compile.
+/// - The tags of an enum with fields and a primitive or `C` representation are those of an enum
+///   without fields that the derive declares with the same representation and discriminants. It
+///   declares it next to its implementation, where `Self` names it and a name may name another
+///   item, even in what a macro writes, so a discriminant may have another value there. A function
+///   of [`layout::Variant`] compares each of its tags with the first bytes of a sample of the
+///   variant, made as for the `Rust` representation, and fails the build if they differ. A variant
+///   that has values but no sample, because it holds a scalar that a pun never makes, must have an
+///   integer literal as its discriminant, or none after a variant whose tag is known, since Rust
+///   then gives it the tag before it plus one.
 /// - The trait that says where a field is (`Path`) is sealed, and the leaf at which a list of
 ///   fields places a field is checked against the layout.
 /// - Names that start with `__Pun` are reserved. In the type of a field, the derive replaces `Self`

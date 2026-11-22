@@ -26,7 +26,6 @@ pub struct Node {
 
 #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C, u32)]
-#[expect(dead_code, reason = "no `Next` is made: a pun never makes one, and the tests make none")]
 pub enum Link {
   End = 0,
   Next(Off) = 1,

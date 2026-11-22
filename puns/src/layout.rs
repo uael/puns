@@ -1390,6 +1390,84 @@ impl Variant {
     Self { tag, ranges: None, holds_tag: false, layout }
   }
 
+  /// Returns the tags of the variants of the enum `E`, with fields and a primitive or `C`
+  /// representation, for `#[derive(Pun)]`, each read as an unsigned integer in the byte order of
+  /// the target.
+  ///
+  /// `tags` are the variants of `T`, the enum without fields that the derive declares with the
+  /// representation and the discriminant expressions of `E`. They are the tags of `E` only if each
+  /// expression evaluates to the same value in both enums. But `T` is declared elsewhere, where
+  /// `Self` is `T` and a name may mean another item, even through a macro. So each tag is compared
+  /// with the one in `E`:
+  ///
+  /// - If `samples[i]` is a value of the variant `i`, it starts with its tag ([RFC 2195]), which
+  ///   must have the bytes of `tags[i]`.
+  /// - Otherwise, `declared[i]` tells whether the tag is known from the declaration: `Some(true)`
+  ///   for an integer literal, which is the same value anywhere, `Some(false)` for another
+  ///   expression, and `None` for no discriminant, which is the tag before it plus one (0 for the
+  ///   first), so known if that one is.
+  ///
+  /// A variant without a sample that `values` says has values holds a scalar that a pun never
+  /// makes. Its tag must be known. That of a variant without values is not: no value has it, and
+  /// it is not the tag of another variant, since the tags of `T` are distinct, and those of the
+  /// variants with values are those of `E`.
+  ///
+  /// [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
+  ///
+  /// # Panics
+  ///
+  /// Panics if `T` is larger than 16 bytes, or larger than `E`, if a sample does not start with the
+  /// bytes of its variant of `T`, or if a variant with values has no sample and a tag that is not
+  /// known.
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure that:
+  ///
+  /// - Every byte of each of `tags` is initialized.
+  /// - The first `size_of::<T>()` bytes of each sample are initialized.
+  #[doc(hidden)]
+  #[must_use]
+  pub const unsafe fn declared_tags<E, T, const N: usize>(
+    tags: &[T; N],
+    samples: &[Option<mem::MaybeUninit<E>>; N],
+    declared: [Option<bool>; N],
+    values: [bool; N],
+  ) -> [u128; N] {
+    let size = size_of::<T>();
+    assert!(size <= 16, "an enum without fields cannot be larger than 16 bytes");
+    assert!(size <= size_of::<E>(), "the tag is larger than the enum");
+    let (mut bits, mut known, mut i) = ([0; N], true, 0);
+    while i < N {
+      // SAFETY: `size <= 16`, which is asserted above. `tags[i]` is a `T` in `tags`, a reference,
+      // so it is valid for reads of `size` bytes, which are initialized, by contract on the caller.
+      // These are the requirements of `load`.
+      bits[i] = unsafe { load((&raw const tags[i]).cast(), size, Endian::NATIVE) };
+      known = match &samples[i] {
+        Some(sample) => {
+          // SAFETY: `size <= 16`, and `size <= size_of::<E>()`, which are asserted above.
+          // `sample` is a `MaybeUninit<E>` in `samples`, a reference, so it is valid for reads of
+          // its first `size` bytes, which are initialized, by contract on the caller. These are
+          // the requirements of `load`.
+          let tag = unsafe { load(sample.as_ptr().cast(), size, Endian::NATIVE) };
+          assert!(tag == bits[i], "a discriminant has another value where the derive declares it");
+          true
+        }
+        None => match declared[i] {
+          Some(literal) => literal,
+          None => known,
+        },
+      };
+      assert!(
+        known || !values[i],
+        "the tag of a variant that holds a scalar that a pun never makes is not known: its \
+         discriminant must be an integer literal, or none after a variant whose tag is known"
+      );
+      i += 1;
+    }
+    bits
+  }
+
   /// Returns the `index`th variant of an enum of the `Rust` representation, as `discover.rs` found
   /// it, for `#[derive(Pun)]`.
   ///
@@ -1764,6 +1842,21 @@ impl Layout {
     let mut i = 0;
     while i < fields.len() {
       if !fields[i].is_inhabited() {
+        return false;
+      }
+      i += 1;
+    }
+    true
+  }
+
+  /// Returns whether [`Layout::sample`] makes a value of the type of each layout of `fields`, so
+  /// that a value made of these fields can be made in const evaluation.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn sampled_all(fields: &[&'static Layout]) -> bool {
+    let mut i = 0;
+    while i < fields.len() {
+      if !crate::discover::has_sample(fields[i]) {
         return false;
       }
       i += 1;

@@ -1,0 +1,27 @@
+error[E0080]: evaluation panicked: the tag of a variant that holds a scalar that a pun never makes is not known: its discriminant must be an integer literal, or none after a variant whose tag is known
+  --> tests/compile-fail/enum_discriminant_of_a_never_variant.rs:10:10
+   |
+10 | #[derive(puns::Pun, Clone, Copy)]
+   |          ^^^^^^^^^ evaluation of `<E as _::__PunShapes>::TAGS` failed inside this call
+   |
+note: inside `Variant::declared_tags::<E, _::__PunTag, 2>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   | /       assert!(
+   | |         known || !values[i],
+   | |         "the tag of a variant that holds a scalar that a pun never makes is not known: its \
+   | |          discriminant must be an integer literal, or none after a variant whose tag is known"
+   | |       );
+   | |_______- in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/enum_discriminant_of_a_never_variant.rs:10:10
+   |
+10 | #[derive(puns::Pun, Clone, Copy)]
+   |          ^^^^^^^^^
+   |
+   = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

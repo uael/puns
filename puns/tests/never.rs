@@ -109,6 +109,30 @@ fn a_variant_that_holds_one_in_a_tuple_is_checked_from_initialized_bytes() {
   assert!(matches!(puns::try_pun::<[u8; 12], After>(bytes), Ok(After::B)));
 }
 
+/// A variant that holds one has no sample, from which the derive would read its tag. Its tag is
+/// known from an integer literal, or from the variant before it. One that is not known does not
+/// compile: `enum_discriminant_of_a_never_variant` in `compile-fail/`.
+#[test]
+fn a_variant_that_holds_one_has_a_tag_from_its_declaration() {
+  #[derive(puns::Pun, Clone, Copy, Debug, PartialEq)]
+  #[repr(u8)]
+  enum Declared {
+    Literal(Off) = 2,
+    Next(u8),
+    After(Off),
+    Expression(u8) = 4 + 5,
+    Last(Off),
+  }
+
+  // 3 and 9 are the variants that a pun makes. 2, 4 and 10 hold an offset.
+  let pun = |tag| puns::try_pun::<[u8; 8], Declared>([tag, 0, 0, 0, 7, 0, 0, 0]);
+  assert_eq!(pun(3), Ok(Declared::Next(0)));
+  assert_eq!(pun(9), Ok(Declared::Expression(0)));
+  for tag in [0, 2, 4, 10] {
+    assert_eq!(pun(tag), Err(puns::Error::Validity));
+  }
+}
+
 #[test]
 fn a_generic_one_is_read_as_its_bytes() {
   let offset = never::Ref::<Node>::new(3);

@@ -79,6 +79,19 @@ enum Drawing {
   Line { to: (u8, u8) } = 9,
 }
 
+const FIVE: u8 = 5;
+
+/// Discriminants that are a literal, none, a constant and an expression. The derive evaluates them
+/// again where it declares the tag, and compares the tags with those of the enum.
+#[derive(Pun, Debug, PartialEq, Clone, Copy)]
+#[repr(u8)]
+enum Declared {
+  Literal(bool) = 2,
+  Next(u8),
+  Constant(u8) = FIVE,
+  Expression(u8) = FIVE * 2 + 1,
+}
+
 fn bytes<T: Copy, const N: usize>(value: T) -> [u8; N] {
   assert_eq!(size_of::<T>(), N);
   // SAFETY: `transmute_copy` reads `size_of::<[u8; N]>()` bytes of `value`, which is the size of
@@ -116,6 +129,19 @@ fn layouts_are_the_ones_of_the_compiler() {
   minus[..2].copy_from_slice(&(-1i16).to_ne_bytes());
   minus[2] = 9;
   assert_eq!(puns::try_pun::<[u8; 4], Signed>(minus), Ok(Signed::Minus(9)));
+}
+
+#[test]
+fn tags_are_the_discriminants() {
+  // 2, then 3 after it, then 5 and 11.
+  assert_eq!(puns::try_pun::<[u8; 2], Declared>([2, 1]), Ok(Declared::Literal(true)));
+  assert_eq!(puns::try_pun::<[u8; 2], Declared>([2, 7]), Err(Error::Validity));
+  assert_eq!(puns::try_pun::<[u8; 2], Declared>([3, 7]), Ok(Declared::Next(7)));
+  assert_eq!(puns::try_pun::<[u8; 2], Declared>([5, 7]), Ok(Declared::Constant(7)));
+  assert_eq!(puns::try_pun::<[u8; 2], Declared>([11, 7]), Ok(Declared::Expression(7)));
+  for tag in [0, 1, 4, 6, 10, 12] {
+    assert_eq!(puns::try_pun::<[u8; 2], Declared>([tag, 0]), Err(Error::Validity));
+  }
 }
 
 #[test]
