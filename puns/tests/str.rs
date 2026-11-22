@@ -1,5 +1,7 @@
 //! Tests `str` as a `Pun` type, whose values are the bytes that the UTF-8 automaton accepts.
 
+use core::num::NonZero;
+
 use puns::{
   Error, Pun, from_head,
   num::{u8c, u32be},
@@ -125,6 +127,83 @@ fn checked_at_run_time() {
   let mut bytes = *b"abc";
   try_pun_mut::<[u8], str>(&mut bytes[..]).unwrap().make_ascii_uppercase();
   assert_eq!(&bytes, b"ABC");
+}
+
+/// Two bytes of any value.
+#[derive(Pun, Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
+struct TwoBytes {
+  a: u8,
+  b: u8,
+}
+
+/// A wide integer, then a byte.
+#[derive(Pun, Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
+struct WideThenByte {
+  wide: u16,
+  narrow: u8,
+  last: u8,
+}
+
+/// A scalar that is not all UTF-8, then a byte.
+#[derive(Pun, Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
+struct ScalarThenByte {
+  first: NonZero<u8>,
+  second: u8,
+}
+
+#[derive(Pun, Debug, PartialEq)]
+#[repr(C)]
+struct Text {
+  kind: u8,
+  text: str,
+}
+
+#[derive(Pun, Debug, Copy, Clone, PartialEq)]
+#[repr(C)]
+struct KindThenText {
+  kind: u8,
+  text: TwoBytes,
+}
+
+/// Checks that a string that the source does not prove is checked, every byte of it, where every
+/// byte of the source is initialized. The automaton stops at the first byte that it cannot prove.
+#[test]
+fn checked_after_what_is_not_proven() {
+  let two = |a, b| try_pun_ref::<TwoBytes, str>(&TwoBytes { a, b }).map(str::to_owned);
+  assert_eq!(two(b'o', b'k'), Ok("ok".to_owned()));
+  assert_eq!(two(0xc3, 0xa9), Ok("é".to_owned()));
+  assert_eq!(two(b'o', 0xff), Err(Error::Validity));
+  assert_eq!(two(0xc3, 0x29), Err(Error::Validity));
+  let wide = |wide: u16, narrow, last| {
+    let source = WideThenByte { wide, narrow, last };
+    try_pun_ref::<WideThenByte, str>(&source).map(str::to_owned)
+  };
+  let ab = u16::from_ne_bytes(*b"ab");
+  assert_eq!(wide(ab, b'c', b'd'), Ok("abcd".to_owned()));
+  assert_eq!(wide(ab, b'c', 0x80), Err(Error::Validity));
+  // A scalar that is not all UTF-8, then a byte.
+  let scalar = |first, second| {
+    let source = ScalarThenByte { first: NonZero::new(first).unwrap(), second };
+    try_pun_ref::<ScalarThenByte, str>(&source).map(str::to_owned)
+  };
+  assert_eq!(scalar(b'o', b'k'), Ok("ok".to_owned()));
+  assert_eq!(scalar(0xff, b'k'), Err(Error::Validity));
+  // Behind a field, in a struct that ends with a `str`.
+  let text = |kind, a, b| {
+    let source = KindThenText { kind, text: TwoBytes { a, b } };
+    try_pun_ref::<KindThenText, Text>(&source).map(|text| (text.kind, text.text.to_owned()))
+  };
+  assert_eq!(text(1, b'o', b'k'), Ok((1, "ok".to_owned())));
+  assert_eq!(text(1, b'o', 0xff), Err(Error::Validity));
+  // A slice of elements whose bytes are all initialized.
+  let slice = |pairs: &[TwoBytes]| try_pun_ref::<[TwoBytes], str>(pairs).map(str::to_owned);
+  assert_eq!(slice(&[]), Ok(String::new()));
+  let pairs = [TwoBytes { a: b'h', b: b'i' }, TwoBytes { a: 0xc3, b: 0xa9 }];
+  assert_eq!(slice(&pairs), Ok("hié".to_owned()));
+  assert_eq!(slice(&[TwoBytes { a: b'h', b: 0xc3 }]), Err(Error::Validity));
 }
 
 #[test]
