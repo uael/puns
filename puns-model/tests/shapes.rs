@@ -111,7 +111,6 @@ fn layout_left_to_the_compiler() {
 /// A union whose first field has a rule that loads a field, proven by its second field, in an
 /// enum that is checked, over a byte that may be uninitialized.
 #[test]
-#[cfg_attr(miri, ignore = "finding 10, known: a rule in a union loads an uninitialized byte")]
 fn rule_in_a_union() {
   puns_model::pairs!(check_pair, LIMIT; (TagUnit, HoldsRule));
   // Natively only: verdicts, from sources whose bytes are all initialized.
@@ -123,10 +122,6 @@ fn rule_in_a_union() {
 /// A union whose first field is proven by a requirement of the source (`valid(..)`), which safe
 /// code can break, in an enum that is checked: a source that breaks it has its union checked.
 #[test]
-#[cfg_attr(
-  miri,
-  ignore = "finding 11, known: a check of a union proven by a requirement reads an uninitialized byte"
-)]
 fn union_proven_by_a_requirement() {
   puns_model::pairs!(check_pair, LIMIT; (TagSoft, HoldsSoft));
   // Natively only: verdicts, from sources whose bytes are all initialized.
