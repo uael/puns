@@ -1,9 +1,9 @@
 //! A model check of the analysis of `puns`, against oracles that do not use it.
 //!
 //! For each type of the model, [`Oracle::check`] decides whether some bytes are a [valid] value of
-//! that type. Each oracle is written by hand from what the language and the documentation of the
-//! type say. It takes the offsets of the fields from the compiler, through `offset_of!` or through
-//! the addresses of the fields of a value. An uninitialized byte is `None`.
+//! that type. Each oracle is written from what the language and the documentation of the type say.
+//! It takes the offsets of the fields from the compiler, through `offset_of!` or through the
+//! addresses of the fields of a value. An uninitialized byte is `None`.
 //!
 //! [`values`] enumerates the valid values of a type over an alphabet of bytes ([`alphabet`]).
 //! [`check_pair`] compares every verdict of the library on a pair of types with what these values
