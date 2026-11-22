@@ -1,0 +1,212 @@
+error[E0080]: evaluation panicked: an expression is too long
+  --> tests/compile-fail/layout_rules.rs:16:14
+   |
+16 |     unsafe { Layout::structure::<Byte>(core::ptr::null(), FIELDS, &[Rule::Assert($ops)]) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+28 | const _: Layout = asserting!(&[Op::Lit(1); 257]);
+   |                   ------------------------------ in this macro invocation
+   |
+note: inside `puns::layout::Layout::structure::<Byte>`
+  --> src/layout.rs
+   |
+   |         check_rules(rules, end);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_rules`
+  --> src/layout.rs
+   |
+   |       check_ops(ops, head, sizes, 0, 0);
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_ops`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |   assert!(ops.len() <= MAX_OPS, "an expression is too long");
+   |   ---------------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: expression is too deep
+  --> tests/compile-fail/layout_rules.rs:16:14
+   |
+16 |     unsafe { Layout::structure::<Byte>(core::ptr::null(), FIELDS, &[Rule::Assert($ops)]) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+29 | const _: Layout = asserting!(&[Op::Lit(1); 17]);
+   |                   ----------------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::structure::<Byte>`
+  --> src/layout.rs
+   |
+   |         check_rules(rules, end);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_rules`
+  --> src/layout.rs
+   |
+   |       check_ops(ops, head, sizes, 0, 0);
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_ops`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |     assert!(depth <= STACK, "expression is too deep");
+   |     ------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: malformed expression
+  --> tests/compile-fail/layout_rules.rs:16:14
+   |
+16 |     unsafe { Layout::structure::<Byte>(core::ptr::null(), FIELDS, &[Rule::Assert($ops)]) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+30 | const _: Layout = asserting!(&[Op::Lit(1), Op::Add]);
+   |                   ---------------------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::structure::<Byte>`
+  --> src/layout.rs
+   |
+   |         check_rules(rules, end);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_rules`
+  --> src/layout.rs
+   |
+   |       check_ops(ops, head, sizes, 0, 0);
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_ops`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |     assert!(depth >= pops, "malformed expression");
+   |     ---------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: field out of bounds
+  --> tests/compile-fail/layout_rules.rs:16:14
+   |
+16 |     unsafe { Layout::structure::<Byte>(core::ptr::null(), FIELDS, &[Rule::Assert($ops)]) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+31 | const _: Layout = asserting!(&[LOAD]);
+   |                   ------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::structure::<Byte>`
+  --> src/layout.rs
+   |
+   |         check_rules(rules, end);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_rules`
+  --> src/layout.rs
+   |
+   |       check_ops(ops, head, sizes, 0, 0);
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_ops`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |         assert!(size >= 1 && size <= 16 && offset + size as usize <= head, "field out of bounds");
+   |         ----------------------------------------------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: too many variables in an expression
+  --> tests/compile-fail/layout_rules.rs:16:14
+   |
+16 |     unsafe { Layout::structure::<Byte>(core::ptr::null(), FIELDS, &[Rule::Assert($ops)]) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+32 | const _: Layout = asserting!(&[Op::Lit(1), Op::Set(8), Op::Lit(1)]);
+   |                   ------------------------------------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::structure::<Byte>`
+  --> src/layout.rs
+   |
+   |         check_rules(rules, end);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_rules`
+  --> src/layout.rs
+   |
+   |       check_ops(ops, head, sizes, 0, 0);
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_ops`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |         assert!((index as usize) < VARIABLES, "too many variables in an expression");
+   |         ---------------------------------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: no such variable
+  --> tests/compile-fail/layout_rules.rs:16:14
+   |
+16 |     unsafe { Layout::structure::<Byte>(core::ptr::null(), FIELDS, &[Rule::Assert($ops)]) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+33 | const _: Layout = asserting!(&[Op::Get(0)]);
+   |                   ------------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::structure::<Byte>`
+  --> src/layout.rs
+   |
+   |         check_rules(rules, end);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_rules`
+  --> src/layout.rs
+   |
+   |       check_ops(ops, head, sizes, 0, 0);
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_ops`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |         assert!((index as usize) < VARIABLES && defined & (1 << index) != 0, "no such variable");
+   |         ---------------------------------------------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: walks are nested too deeply
+  --> tests/compile-fail/layout_rules.rs:16:14
+   |
+16 |     unsafe { Layout::structure::<Byte>(core::ptr::null(), FIELDS, &[Rule::Assert($ops)]) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+34 | const _: Layout = asserting!(WALK_5);
+   |                   ------------------ in this macro invocation
+   |
+note: inside `puns::layout::Layout::structure::<Byte>`
+  --> src/layout.rs
+   |
+   |         check_rules(rules, end);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_rules`
+  --> src/layout.rs
+   |
+   |       check_ops(ops, head, sizes, 0, 0);
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: [... 3 additional calls inside `layout::check_ops` ...]
+  --> src/layout.rs
+   |
+   |         check_ops(cond, head, sizes, defined | 1 << var, walks + 1);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_ops`
+  --> src/layout.rs
+   |
+   |         check_ops(cond, head, sizes, defined | 1 << var, walks + 1);
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::check_ops`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |         assert!(walks < MAX_WALKS, "walks are nested too deeply");
+   |         --------------------------------------------------------- in this macro invocation

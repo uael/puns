@@ -1,0 +1,7 @@
+error: the references of the variants must have the same lifetime
+ --> tests/compile-fail/view_lifetimes.rs:3:10
+  |
+3 | #[derive(puns::Pun)]
+  |          ^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

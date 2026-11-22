@@ -1,0 +1,251 @@
+error[E0080]: evaluation panicked: not where the fields of the variants are
+  --> tests/compile-fail/layout_enumeration.rs:38:17
+   |
+38 | const _: Enum = Enum::new(&TAG, true, SHADOWS, 0, &[]);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+   |
+note: inside `puns::layout::Enum::new`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |       assert!(fields == Self::fields(tag, shadows), "not where the fields of the variants are");
+   |       ----------------------------------------------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: not where the fields of the variants are
+  --> tests/compile-fail/layout_enumeration.rs:39:17
+   |
+39 | const _: Enum = Enum::new(&TAG, false, SHADOWS, 1, &[]);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+   |
+note: inside `puns::layout::Enum::new`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |       assert!(fields == 0, "not where the fields of the variants are");
+   |       ---------------------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: struct is too large
+  --> tests/compile-fail/layout_enumeration.rs:40:17
+   |
+40 | const _: Enum = Enum::new(&TAG, false, &[(usize::MAX, 2)], 0, &[]);
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+   |
+note: inside `puns::layout::Enum::new`
+  --> src/layout.rs
+   |
+   |       (tail_offset(size, align, usize::MAX), align)
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::layout::tail_offset`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |     None => panic!("struct is too large"),
+   |             ----------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: the enum is not laid out as its representation specifies
+  --> tests/compile-fail/layout_enumeration.rs:41:19
+   |
+41 | const _: Layout = Layout::enumeration::<Shape>(&Enum::new(&TAG, false, &[(1, 1)], 0, &[]));
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+   |
+note: inside `puns::layout::Layout::enumeration::<Shape>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   | /     assert!(
+   | |       align_of::<T>() >= layout.specified.1
+   | |         && size == tail_offset(layout.specified.0, align_of::<T>(), usize::MAX),
+   | |       "the enum is not laid out as its representation specifies"
+   | |     );
+   | |_____- in this macro invocation
+
+error[E0080]: evaluation panicked: the tag of an enum is a scalar
+  --> tests/compile-fail/layout_enumeration.rs:27:5
+   |
+27 |     Layout::enumeration::<Shape>(&Enum::new($tag, false, SHADOWS, 0, $variants))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+42 | const _: Layout = shape!(&Layout::array(&BYTE, 1), &[]);
+   |                   ------------------------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::enumeration::<Shape>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |     let Kind::Scalar(spec) = tag.layout.kind else { panic!("the tag of an enum is a scalar") };
+   |                                                     ---------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: tag out of bounds
+  --> tests/compile-fail/layout_enumeration.rs:27:5
+   |
+27 |     Layout::enumeration::<Shape>(&Enum::new($tag, false, SHADOWS, 0, $variants))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+43 | const _: Layout = shape!(&LONG, &[]);
+   |                   ------------------ in this macro invocation
+   |
+note: inside `puns::layout::Layout::enumeration::<Shape>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |     assert!(spec.is_integer() && tag.offset + spec.size <= size, "tag out of bounds");
+   |     --------------------------------------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: not a value of the tag
+  --> tests/compile-fail/layout_enumeration.rs:27:5
+   |
+27 |     Layout::enumeration::<Shape>(&Enum::new($tag, false, SHADOWS, 0, $variants))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+44 | const _: Layout = shape!(&TAG, &[Variant::new(0, &DOT), Variant::new(2, &LINE)]);
+   |                   -------------------------------------------------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::enumeration::<Shape>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |         assert!(lo <= hi && spec.contains(lo) && spec.contains(hi), "not a value of the tag");
+   |         ------------------------------------------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: two variants have the same tag
+  --> tests/compile-fail/layout_enumeration.rs:27:5
+   |
+27 |     Layout::enumeration::<Shape>(&Enum::new($tag, false, SHADOWS, 0, $variants))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+45 | const _: Layout = shape!(&TAG, &[Variant::new(0, &DOT), Variant::new(0, &LINE)]);
+   |                   -------------------------------------------------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::enumeration::<Shape>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |         assert!(!layout.variants[j].tags().meets(&tags), "two variants have the same tag");
+   |         ---------------------------------------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: not a variant
+  --> tests/compile-fail/layout_enumeration.rs:27:5
+   |
+27 |     Layout::enumeration::<Shape>(&Enum::new($tag, false, SHADOWS, 0, $variants))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+46 | const _: Layout = shape!(&TAG, &[Variant::new(0, &BYTE)]);
+   |                   --------------------------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::enumeration::<Shape>`
+  --> src/layout.rs
+   |
+   |       let (fields, mut j, mut end) = (variant.fields(), 0, 0);
+   |                                       ^^^^^^^^^^^^^^^^
+note: inside `Variant::fields`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |     let Kind::Struct(fields, _) = self.layout.kind else { panic!("not a variant") };
+   |                                                           ----------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: not a variant of this enum
+  --> tests/compile-fail/layout_enumeration.rs:27:5
+   |
+27 |     Layout::enumeration::<Shape>(&Enum::new($tag, false, SHADOWS, 0, $variants))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+47 | const _: Layout = shape!(&TAG, &[Variant::new(0, &Layout::variant::<u32>(&[]))]);
+   |                   -------------------------------------------------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::enumeration::<Shape>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |       assert!(variant.layout.size == size, "not a variant of this enum");
+   |       ------------------------------------------------------------------ in this macro invocation
+
+error[E0080]: evaluation panicked: the fields of an enum are sized
+  --> tests/compile-fail/layout_enumeration.rs:27:5
+   |
+27 |     Layout::enumeration::<Shape>(&Enum::new($tag, false, SHADOWS, 0, $variants))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+48 | const _: Layout = shape!(&TAG, &[line!(&[Field::new(1, &<[u8] as Pun>::LAYOUT)])]);
+   |                   ---------------------------------------------------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::enumeration::<Shape>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |         assert!(!field.layout.unsized_, "the fields of an enum are sized");
+   |         ------------------------------------------------------------------ in this macro invocation
+
+error[E0080]: evaluation panicked: fields overlap or are out of bounds
+  --> tests/compile-fail/layout_enumeration.rs:27:5
+   |
+27 |     Layout::enumeration::<Shape>(&Enum::new($tag, false, SHADOWS, 0, $variants))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+49 | const _: Layout = shape!(&TAG, &[line!(&[Field::new(1, &WORD)])]);
+   |                   ----------------------------------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::enumeration::<Shape>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |           assert!(field.offset >= end && field_end <= size, "fields overlap or are out of bounds");
+   |           ---------------------------------------------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: a field overlaps the tag
+  --> tests/compile-fail/layout_enumeration.rs:27:5
+   |
+27 |     Layout::enumeration::<Shape>(&Enum::new($tag, false, SHADOWS, 0, $variants))
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+...
+50 | const _: Layout = shape!(&TAG, &[line!(&[Field::new(0, &BYTE)])]);
+   |                   ----------------------------------------------- in this macro invocation
+   |
+note: inside `puns::layout::Layout::enumeration::<Shape>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   | /           assert!(
+   | |             variant.holds_tag || field_end <= tag.offset || field.offset >= tag.offset + spec.size,
+   | |             "a field overlaps the tag"
+   | |           );
+   | |___________- in this macro invocation

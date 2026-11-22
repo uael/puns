@@ -1,0 +1,41 @@
+error[E0080]: evaluation panicked:
+              cannot pun: the source is larger than the target.
+              Use `head` or `tail` (or their `_ref` and `_mut` forms) to take a part of the source.
+
+    --> src/lib.rs
+     |
+     |   const BY_VALUE: () = Self::require(Self::check(Need::VALUE));
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<u16, u8>::BY_VALUE` failed inside this call
+     |
+note: inside `puns::Plan::<u16, u8>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_VALUE };
+  |           ^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_VALUE };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn pun::<u16, u8>`
+ --> tests/compile-fail/value_larger.rs:3:15
+  |
+3 |   let _: u8 = puns::pun(1u16);
+  |               ^^^^^^^^^^^^^^^

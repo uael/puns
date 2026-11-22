@@ -1,0 +1,111 @@
+error[E0080]: evaluation panicked: type is nested too deeply
+ --> src/lib.rs
+  |
+  |   const ANALYSIS: Analysis = analyze(&S::LAYOUT, &D::LAYOUT);
+  |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8; 34], In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<bool>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>::ANALYSIS` failed inside this call
+  |
+note: inside `puns::analysis::analyze`
+ --> src/analysis.rs
+  |
+  |   let mut relation = if hopeless { Relation::NEW } else { relate(a, b, fit.end, Checked::Marked) };
+  |                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::analysis::relate`
+ --> src/analysis.rs
+  |
+  |   relate_at(a, 0, b, 0, 0, end, checked)
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::analysis::relate_at`
+ --> src/analysis.rs
+  |
+  |   relate_with(a, base_a, b, base_b, start, end, checked, &Known::NONE)
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::analysis::relate_with`
+ --> src/analysis.rs
+  |
+  |   relate_range(&mut a, &mut b, start, end, &mut relation);
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::analysis::relate_range`
+ --> src/analysis.rs
+  |
+  |     let (run_a, run_b) = (a.run_at(pos), b.run_at(pos));
+  |                                          ^^^^^^^^^^^^^
+note: inside `puns::analysis::Cursor::run_at`
+ --> src/analysis.rs
+  |
+  |           self.push(fields[i].layout, start, frame.leaf + fields[i].leaf);
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::analysis::Cursor::push`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/analysis.rs
+  |
+  |     assert!(self.depth < MAX_DEPTH, "type is nested too deeply");
+  |     ------------------------------------------------------------ in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |     check(&Self::ANALYSIS, need)
+  |            ^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY };
+  |           ^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn try_pun::<[u8; 34], In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<In<bool>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`
+  --> tests/compile-fail/nested_too_deeply.rs:15:11
+   |
+15 |   let _ = puns::try_pun::<[u8; 34], Deep>([0; 34]);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const MARKS: Marks = Self::ANALYSIS.relation.marks;
+  |                        ^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   if const { !C::MARKS.any(P::LEAF, T::LAYOUT.leaves) } {
+  |               ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   !T::LAYOUT.rules().is_empty() && C::MARKS.any(P::LEAF + T::LAYOUT.leaves - 1, 1)
+  |                                    ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   if const { !C::MARKS.any(P::LEAF, T::LAYOUT.leaves) } {
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |           && (const { !rules_marked::<C, P, T>() } || check_rules(ptr))
+  |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
+  |                   ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

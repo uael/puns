@@ -1,0 +1,41 @@
+error[E0080]: evaluation panicked:
+              cannot pun: the size of the source cannot be reached with elements of the tail slice of the target.
+              Use `head` or `tail` (or their `_ref` and `_mut` forms) to take a part of the source.
+
+    --> src/lib.rs
+     |
+     |   const BY_REF: () = Self::require(Self::check(Need::REF));
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8; 3], [[u8; 2]]>::BY_REF` failed inside this call
+     |
+note: inside `puns::Plan::<[u8; 3], [[u8; 2]]>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_REF };
+  |           ^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_REF };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn pun_ref::<[u8; 3], [[u8; 2]]>`
+ --> tests/compile-fail/ref_uneven_slice.rs:3:23
+  |
+3 |   let _: &[[u8; 2]] = puns::pun_ref(&[0u8; 3]);
+  |                       ^^^^^^^^^^^^^^^^^^^^^^^^

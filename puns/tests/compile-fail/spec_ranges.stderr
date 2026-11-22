@@ -1,0 +1,97 @@
+error[E0080]: evaluation panicked: a constrained scalar must be 1 to 16 bytes wide
+ --> tests/compile-fail/spec_ranges.rs:6:17
+  |
+6 | const _: Spec = Spec::any::<()>().with_ranges(&[(0, 0)]);
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+  |
+note: inside `Spec::with_ranges`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/layout.rs
+  |
+  |     assert!(size >= 1 && size <= 16, "a constrained scalar must be 1 to 16 bytes wide");
+  |     ----------------------------------------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: a scalar must have at least one valid value
+ --> tests/compile-fail/spec_ranges.rs:7:17
+  |
+7 | const _: Spec = Spec::ranges::<u8>(Endian::NATIVE, &[]);
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+  |
+note: inside `Spec::ranges::<u8>`
+ --> src/layout.rs
+  |
+  |     Self { size, endian, valid: Valid::Any, known: Valid::Any, number: true }.with_ranges(ranges)
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `Spec::with_ranges`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/layout.rs
+  |
+  |     assert!(!ranges.is_empty(), "a scalar must have at least one valid value");
+  |     -------------------------------------------------------------------------- in this macro invocation
+
+error[E0080]: evaluation panicked: scalar range is empty or out of bounds
+ --> tests/compile-fail/spec_ranges.rs:8:17
+  |
+8 | const _: Spec = Spec::ranges::<u8>(Endian::NATIVE, &[(0, 256)]);
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+  |
+note: inside `Spec::ranges::<u8>`
+ --> src/layout.rs
+  |
+  |     Self { size, endian, valid: Valid::Any, known: Valid::Any, number: true }.with_ranges(ranges)
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `Spec::with_ranges`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/layout.rs
+  |
+  |       assert!(lo <= hi && hi <= max, "scalar range is empty or out of bounds");
+  |       ------------------------------------------------------------------------ in this macro invocation
+
+error[E0080]: evaluation panicked: scalar ranges must be sorted and non-adjacent
+ --> tests/compile-fail/spec_ranges.rs:9:17
+  |
+9 | const _: Spec = Spec::ranges::<u8>(Endian::NATIVE, &[(5, 9), (0, 2)]);
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+  |
+note: inside `Spec::ranges::<u8>`
+ --> src/layout.rs
+  |
+  |     Self { size, endian, valid: Valid::Any, known: Valid::Any, number: true }.with_ranges(ranges)
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `Spec::with_ranges`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/layout.rs
+  |
+  |         assert!(prev < lo && lo - prev > 1, "scalar ranges must be sorted and non-adjacent");
+  |         ------------------------------------------------------------------------------------ in this macro invocation
+
+error[E0080]: evaluation panicked: only a scalar that restricts its values may also be uninitialized
+  --> tests/compile-fail/spec_ranges.rs:10:17
+   |
+10 | const _: Spec = Spec::any::<u8>().maybe_uninit();
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+   |
+note: inside `Spec::maybe_uninit`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   | /     assert!(
+   | |       matches!(self.valid, Valid::In(_)),
+   | |       "only a scalar that restricts its values may also be uninitialized"
+   | |     );
+   | |_____- in this macro invocation

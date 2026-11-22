@@ -1,0 +1,28 @@
+error[E0080]: evaluation panicked: an enum without fields cannot be larger than 16 bytes
+ --> tests/compile-fail/enum_too_large.rs:4:10
+  |
+4 | #[derive(puns::Pun, Clone, Copy)]
+  |          ^^^^^^^^^ evaluation of `<Aligned as puns::Scalar>::SPEC::{constant#1}` failed inside this call
+  |
+note: inside `Spec::bits_of::<Aligned>`
+ --> src/layout.rs
+  |
+  |     unsafe { bits_of(value) }
+  |              ^^^^^^^^^^^^^^
+note: inside `puns::layout::bits_of::<Aligned>`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/layout.rs
+  |
+  |   assert!(size_of::<T>() <= 16, "an enum without fields cannot be larger than 16 bytes");
+  |   -------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> tests/compile-fail/enum_too_large.rs:4:10
+  |
+4 | #[derive(puns::Pun, Clone, Copy)]
+  |          ^^^^^^^^^
+  |
+  = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
