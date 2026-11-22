@@ -96,6 +96,12 @@ section lists changes that could lift some of them, and what each would cost.
   of the source whose tag it may accept would make the pun checked rather than refused.
 - **Checking some fields of a union.** Checking only the fields that read no padding would be
   sound, but the marks of the analysis cannot tell the validation which fields to skip.
+- **Checking only what is not proven, among parts that are checked together.** The elements of an
+  array share their leaves, an enum is checked as a whole, a `str` of the source under something
+  else marks every leaf, and the leaves past the first 1,024 are marked all together. A part that
+  is proven there without being read is checked too, and the pun is refused if that check would
+  read a byte that may be uninitialized (`Relation::unreadable`). Marks that told the validation
+  which elements and which parts are proven would let it skip them.
 - **The identity of an enum whose bytes may be uninitialized.** A scalar made by
   `Spec::maybe_uninit` equals no scalar, so a struct or an enum that holds one does not prove itself
   by `Layout::equals`. The library makes no such enum today, since the tags that it discovers are

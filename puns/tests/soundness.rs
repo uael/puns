@@ -181,3 +181,99 @@ fn self_in_a_field_is_the_type() {
   assert_eq!(puns::try_pun::<[u8; 2], Choice>([0, 2]).err(), Some(Error::Validity));
   assert_eq!(puns::pun::<Choice, [u8; 2]>(Choice::A(true, PhantomData)), [0, 1]);
 }
+
+/// Checks that a part that is proven without being read is not read by the check of another part,
+/// and is checked where its bytes are initialized.
+///
+/// The same union, or the same enum, proves a part whatever its bytes are, and a union says
+/// nothing of its bytes. The puns that would check such a part all the same must not compile: the
+/// cases `try_union_proven_*`, `try_union_field_proven_in_array`, `try_enum_proven_*`,
+/// `try_tuple_proven_past_marks`, `try_rule_proven_before_str` and `try_rule_reads_enum_padding`
+/// in `compile-fail/`.
+#[test]
+fn a_part_that_is_proven_unread_is_not_read_by_a_check() {
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Flags {
+    both: [bool; 2],
+    first: bool,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Source {
+    flags: Flags,
+    byte: u8,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Target {
+    flags: Flags,
+    flag: bool,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "reinterpreted, not read")]
+  enum Strict {
+    A(Flags, bool),
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum Loose {
+    A(Flags, u8),
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "reinterpreted, not read")]
+  enum Shape {
+    A(u8),
+    B(u8),
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Plain {
+    shape: Shape,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  #[pun(assert(be(0, 2) != 0x0107))]
+  struct Ruled {
+    shape: Shape,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  #[pun(assert(be(0, 4) != 0))]
+  struct Padded {
+    a: u8,
+    b: u16,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "reinterpreted, not read")]
+  enum Holds {
+    A(Padded),
+  }
+
+  // The second byte of the union is not written. The `bool` is checked, and the union is not read.
+  let source = Source { flags: Flags { first: true }, byte: 1 };
+  assert!(puns::try_pun::<Source, Target>(source).unwrap().flag);
+  let source = Source { byte: 2, ..source };
+  assert_eq!(puns::try_pun::<Source, Target>(source).err(), Some(Error::Validity));
+  // The same union proves each element of an array, with nothing to check.
+  let pair = [Flags { first: true }, Flags { both: [true, false] }];
+  let _: &[Flags; 2] = puns::pun_ref(&pair);
+  // From initialized bytes, each element is checked, its first field first.
+  assert!(puns::try_pun::<[u8; 4], [Flags; 2]>([1, 0, 0, 1]).is_ok());
+  assert_eq!(puns::try_pun::<[u8; 4], [Flags; 2]>([1, 0, 2, 1]).err(), Some(Error::Validity));
+  // An enum that is proven variant by variant, and holds the union: nothing is checked.
+  let Loose::A(_, byte) = puns::pun(Strict::A(Flags { first: true }, true));
+  assert_eq!(byte, 1);
+  // A rule that reads the bytes of its struct, over an enum whose bytes are initialized in each
+  // variant, is checked.
+  assert!(puns::try_pun::<Plain, Ruled>(Plain { shape: Shape::A(7) }).is_ok());
+  let plain = Plain { shape: Shape::B(7) };
+  assert_eq!(puns::try_pun::<Plain, Ruled>(plain).err(), Some(Error::Validity));
+  // The same enum proves itself where a rule of what it holds reads padding: nothing is checked.
+  let holds = [Holds::A(Padded { a: 1, b: 2 }); 2];
+  let _: &[Holds; 2] = puns::pun_ref(&holds);
+}
