@@ -278,6 +278,80 @@ fn a_part_that_is_proven_unread_is_not_read_by_a_check() {
   let _: &[Holds; 2] = puns::pun_ref(&holds);
 }
 
+/// Checks that an enum or a union of the target over an array of the source is related as a
+/// whole, and checked where its bytes are initialized.
+///
+/// The elements of an array of one byte repeat with a period of one byte. The first bytes of an
+/// `Option<NonZero<u16>>` are its tag, which accepts every value. A period used to cut it, so that
+/// it was checked rather than proven, and the bytes that its check reads were not recorded. The
+/// puns that would read them must not compile: the cases `try_enum_under_a_period` and
+/// `try_union_under_a_period` in `compile-fail/`, and `try_enum_under_a_period_tag_last` in
+/// `compile-fail-unstable/`.
+#[test]
+fn a_period_does_not_cut_an_enum() {
+  use core::num::NonZero;
+
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Byte {
+    any: u8,
+    none: (),
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Pair {
+    x: Byte,
+    y: Byte,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Either {
+    opt: Option<NonZero<u16>>,
+    pair: Pair,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum Target {
+    V(Either),
+    X,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Strict {
+    wide: NonZero<u16>,
+    pair: Pair,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum Tagged {
+    V(Strict),
+    X,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Source {
+    tag: u8,
+    pad: u8,
+    bytes: [u8; 2],
+  }
+
+  // Every two `bool`s are an `Option<NonZero<u16>>`: proven, as from a struct of two `bool`s.
+  assert_eq!(puns::pun::<[bool; 2], Option<NonZero<u16>>>([false, false]), None);
+  assert_eq!(puns::pun::<[bool; 2], Option<NonZero<u16>>>([true, true]), NonZero::new(0x0101));
+  // From initialized bytes, the tag of the enum is checked, then its union, its first field first.
+  let source = Source { tag: 0, pad: 0, bytes: [0, 0] };
+  assert!(puns::try_pun::<Source, Target>(source).is_ok());
+  assert!(puns::try_pun::<Source, Target>(Source { tag: 1, ..source }).is_ok());
+  let tag = Source { tag: 2, ..source };
+  assert_eq!(puns::try_pun::<Source, Target>(tag).err(), Some(Error::Validity));
+  // A union that its second field proves. Its first field is checked first, and fails on zeros.
+  assert!(puns::try_pun::<Source, Tagged>(source).is_ok());
+  assert!(puns::try_pun::<Source, Tagged>(Source { bytes: [1, 0], ..source }).is_ok());
+  assert_eq!(puns::try_pun::<Source, Tagged>(tag).err(), Some(Error::Validity));
+}
+
 /// Checks that a struct that ends with an unsized struct has values only if that struct does.
 ///
 /// An unsized field used to count as having values, as a slice or a string does. Then a struct
