@@ -63,6 +63,9 @@
 !puns-model/fakecore/
 !puns-model/fakecore/Cargo.toml
 !puns-model/fakecore/src/
+!puns-model/rewrite/
+!puns-model/rewrite/Cargo.toml
+!puns-model/rewrite/src/
 !puns-model/**/*.rs
 
 # Rust (xtask)

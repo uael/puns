@@ -28,6 +28,9 @@ puns-derive = { version = "=0.2.2", path = "../puns-derive" }
 
 [dev-dependencies]
 trybuild = "1"
+# An attribute that rewrites an item after the derive has read it, for a compile-fail case. Not
+# published: a dev-dependency by path only, which `cargo publish` leaves out.
+rewrite = { path = "../puns-model/rewrite" }
 
 # What is checked at run time, next to the same checks by hand: `cargo bench -p puns --features
 # unstable`. Not a test. Two of its cases read slices of enums of the `Rust` representation, which

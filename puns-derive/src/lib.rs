@@ -25,7 +25,7 @@ use syn::{
 #[proc_macro_derive(Pun, attributes(pun))]
 pub fn derive_pun(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
   let tokens = TokenStream::from(input.clone());
-  let mut input = parse_macro_input!(input as DeriveInput);
+  let input = parse_macro_input!(input as DeriveInput);
   // The generated items are named `__Pun..`. A type of the input with such a name would be taken
   // for one of them where the generated code names it.
   if let Some(ident) = find_reserved(tokens) {
@@ -35,27 +35,6 @@ pub fn derive_pun(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     )
     .into_compile_error()
     .into();
-  }
-  // `Self` in the type of a field is the type, wherever the generated code names that type.
-  let this = {
-    let (ident, (_, ty_generics, _)) = (&input.ident, input.generics.split_for_impl());
-    quote!(#ident #ty_generics)
-  };
-  let types: Vec<&mut Type> = match &mut input.data {
-    Data::Struct(data) => data.fields.iter_mut().map(|field| &mut field.ty).collect(),
-    Data::Enum(data) => data
-      .variants
-      .iter_mut()
-      .flat_map(|variant| variant.fields.iter_mut())
-      .map(|field| &mut field.ty)
-      .collect(),
-    Data::Union(data) => data.fields.named.iter_mut().map(|field| &mut field.ty).collect(),
-  };
-  for ty in types {
-    match syn::parse2(replace_self(ty.to_token_stream(), &this)) {
-      Ok(replaced) => *ty = replaced,
-      Err(error) => return error.into_compile_error().into(),
-    }
   }
   let expanded = match &input.data {
     Data::Struct(data) => derive_struct(&input, data),
@@ -146,23 +125,6 @@ fn find_reserved(tokens: TokenStream) -> Option<Ident> {
     proc_macro2::TokenTree::Group(group) => find_reserved(group.stream()),
     _ => None,
   })
-}
-
-/// Returns `tokens`, with `Self` replaced by `this`.
-fn replace_self(tokens: TokenStream, this: &TokenStream) -> TokenStream {
-  tokens
-    .into_iter()
-    .flat_map(|token| match token {
-      proc_macro2::TokenTree::Ident(ident) if ident == "Self" => this.clone(),
-      proc_macro2::TokenTree::Group(group) => {
-        let mut replaced =
-          proc_macro2::Group::new(group.delimiter(), replace_self(group.stream(), this));
-        replaced.set_span(group.span());
-        proc_macro2::TokenTree::Group(replaced).into()
-      }
-      token => token.into(),
-    })
-    .collect()
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -407,7 +369,10 @@ const ALL_OPTIONS: [&str; 9] =
 /// A field of a struct, as the derive compiles it.
 struct FieldInfo<'a> {
   member: Member,
+  /// Its type, as written: what the bounds name, and what the derive reads of it.
   ty: &'a Type,
+  /// Its type, from its home (see [`homes`]): what the generated code names.
+  home: TokenStream,
   vis: &'a Visibility,
   options: Options,
   /// Its offset in the struct, as a constant expression.
@@ -686,7 +651,7 @@ fn compile(
   // A field, where it is named: if it is not an integer, the error is there.
   let load = |member: &Member, span: Span, ops: &mut Vec<TokenStream>| {
     let field = fields.iter().find(|field| &field.member == member)?;
-    let (ty, offset) = (field.ty, &field.offset);
+    let (ty, offset) = (&field.home, &field.offset);
     ops.push(located(quote!(#op::load::<#ty>(#offset)), span));
     Some(())
   };
@@ -1386,7 +1351,7 @@ fn steps(
 /// Returns an error if a bound is negative, or a literal that is not an unsigned integer.
 fn valid_ranges(
   ranges: &Punctuated<Expr, Token![,]>,
-  ty: &Type,
+  ty: &TokenStream,
   root: &TokenStream,
 ) -> Result<TokenStream> {
   // A bound: an unsigned integer, as the values of rules are.
@@ -1490,6 +1455,117 @@ fn pin(root: &TokenStream) -> TokenStream {
 }
 
 // -------------------------------------------------------------------------------------------------
+// The item as compiled
+
+/// Returns the type `ty` of a field, named `name` in its home ([`homes`]), in the code generated
+/// for `this`.
+///
+/// The tokens have the span of `ty`, so that an error about the type is reported at the field, as
+/// an error in the item rather than in the code of the derive. Names resolve with that span as they
+/// do in `ty`, in the same scope, where the generated items are visible (none of them is a local).
+fn home(this: &TokenStream, name: &Ident, ty: &Type) -> TokenStream {
+  fn respan(tokens: TokenStream, span: Span) -> TokenStream {
+    tokens
+      .into_iter()
+      .map(|mut token| {
+        if let proc_macro2::TokenTree::Group(group) = &token {
+          let mut respanned =
+            proc_macro2::Group::new(group.delimiter(), respan(group.stream(), span));
+          respanned.set_span(span);
+          token = proc_macro2::TokenTree::Group(respanned);
+        } else {
+          token.set_span(span);
+        }
+        token
+      })
+      .collect()
+  }
+  respan(quote!(<#this as __PunTypes>::#name), ty.span())
+}
+
+/// Returns the one home of the type of each field, and the function that ties it to the item as
+/// `rustc` compiled it.
+///
+/// The derive reads the tokens of the item, and an item can name another type than its tokens
+/// seem to: a macro in the type of a field expands in the code generated here, where `Self` and
+/// the names `__Pun..` are other items than in the declaration, and an attribute expanded after
+/// the derive can change the item. So the type of each field is written once, as the associated
+/// type `name` of `__PunTypes`, in an implementation for the type, where `Self` is the type as in
+/// its declaration. Every other place names it through [`home`], so they all name one type.
+///
+/// `check` is the body of `item`, which is never called. It compiles only if the item as compiled
+/// has the fields and the variants that the derive read, each of the type of its home, and no
+/// other: an exhaustive pattern, and a `&mut` to a pointer to each field, which no coercion
+/// changes and in which the type is invariant, so that neither an unsized coercion nor a subtype
+/// passes. The compiler type-checks it, `cargo check` included, for every type and every instance.
+fn homes(input: &DeriveInput, fields: &[(Ident, &Type)], check: &TokenStream) -> TokenStream {
+  let (ident, vis) = (&input.ident, &input.vis);
+  let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+  let (names, types): (Vec<_>, Vec<_>) = fields.iter().map(|(name, ty)| (name, *ty)).unzip();
+  quote! {
+    // As visible as the type, so that the implementations of the lists can name its types.
+    #vis trait __PunTypes {
+      #(type #names: ?Sized;)*
+      fn item(p: *mut Self);
+    }
+
+    impl #impl_generics __PunTypes for #ident #ty_generics #where_clause {
+      #(type #names = #types;)*
+      // Never called, and so, `#[inline]`, never compiled to machine code.
+      #[inline]
+      fn item(p: *mut Self) {
+        // SAFETY: Never called: only its type-checking matters.
+        unsafe { #check }
+      }
+    }
+  }
+}
+
+/// Returns what `item` of [`homes`] checks of a field, `place`, whose home is `home`: its type is
+/// `home`, exactly. An error is reported at `ty`, the type of the field as the derive read it.
+///
+/// A raw pointer made with `&raw mut` has the type of the place, and `*mut T` is invariant in `T`,
+/// so a subtype is not a value of it. A `&mut` to that pointer coerces to no other type, since a
+/// raw pointer has no unsized coercion to a pointer of another type, nor a `Deref`.
+fn same_type(place: &TokenStream, home: &TokenStream, ty: &Type) -> TokenStream {
+  located(quote!(let _: &mut *mut #home = &mut (&raw mut #place);), ty.span())
+}
+
+/// Returns [`homes`] for an enum, and the home of each field of each variant.
+///
+/// `item` matches on every variant, with no other arm, and binds each field with `ref mut`, whose
+/// type is invariant in the type of the field: an enum has no packed field, which a reference
+/// could not point to.
+fn variant_homes(input: &DeriveInput, data: &DataEnum) -> (TokenStream, Vec<Vec<TokenStream>>) {
+  let ident = &input.ident;
+  let (_, ty_generics, _) = input.generics.split_for_impl();
+  let this = quote!(#ident #ty_generics);
+  let (mut named, mut paths, mut arms) = (vec![], vec![], vec![]);
+  for (i, variant) in data.variants.iter().enumerate() {
+    let (mut members, mut bindings, mut checks, mut row) = (vec![], vec![], vec![], vec![]);
+    for (j, field) in variant.fields.iter().enumerate() {
+      let name = format_ident!("V{}F{}", i, j);
+      let path = home(&this, &name, &field.ty);
+      let binding = format_ident!("__pun_field{}", j);
+      members.push(
+        field
+          .ident
+          .as_ref()
+          .map_or_else(|| Member::Unnamed(Index::from(j)), |ident| Member::Named(ident.clone())),
+      );
+      checks.push(same_type(&quote!(*#binding), &path, &field.ty));
+      named.push((name, &field.ty));
+      bindings.push(binding);
+      row.push(path);
+    }
+    let name = &variant.ident;
+    arms.push(quote!(Self::#name { #(#members: ref mut #bindings),* } => { #(#checks)* }));
+    paths.push(row);
+  }
+  (homes(input, &named, &quote!(match *p { #(#arms)* })), paths)
+}
+
+// -------------------------------------------------------------------------------------------------
 // Structs
 
 /// Returns whether `ty` is unsized as written: a slice, `str` or a trait object, in parentheses or
@@ -1543,6 +1619,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
           .as_ref()
           .map_or_else(|| Member::Unnamed(Index::from(i)), |ident| Member::Named(ident.clone())),
         ty: &field.ty,
+        home: home(&this, &format_ident!("F{}", i), &field.ty),
         vis: &field.vis,
         options: parse_options(&field.attrs, "a field", &["valid", "len", "regions"])?,
         offset: TokenStream::new(),
@@ -1604,7 +1681,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     // `repr(C)`: each field at the first offset after the previous one that its alignment allows
     // (or `packed(N)` allows).
     let steps = fields.iter().enumerate().map(|(i, field)| {
-      let ty = field.ty;
+      let ty = &field.home;
       let align = quote!(<#ty as #root::Pun>::LAYOUT.align());
       let offset = repr.packed.as_ref().map_or_else(
         || quote!(#root::layout::Layout::tail_offset(end, #align)),
@@ -1632,7 +1709,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   });
   let mut layouts = vec![];
   for field in &fields {
-    let (offset, ty) = (&field.offset, field.ty);
+    let (offset, ty) = (&field.offset, &field.home);
     layouts.push(match &field.options.valid {
       None => quote!(#root::layout::Field::new(#offset, &<#ty as #root::Pun>::LAYOUT)),
       Some(ranges) => {
@@ -1766,7 +1843,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   // The probe: a null pointer with the slice length of the probe of the last field, if any.
   let probe = match fields.last() {
     Some(last) if !sized => {
-      let ty = last.ty;
+      let ty = &last.home;
       quote!(<#ty as #root::Pun>::PROBE as *const Self)
     }
     _ => quote!(::core::ptr::null()),
@@ -1778,7 +1855,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   let last = markers.last().map_or_else(|| quote!(()), |marker| quote!(#marker #ty_generics));
   let vis = &input.vis;
   let lists = fields.iter().enumerate().map(|(i, field)| {
-    let (marker, ty) = (&markers[i], field.ty);
+    let (marker, ty) = (&markers[i], &field.home);
     let next = markers.get(i + 1).map_or_else(|| quote!(()), |marker| quote!(#marker #ty_generics));
     quote! {
       // As visible as the struct, so that it can be named by its implementation of `Pun`.
@@ -1825,14 +1902,35 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   // that guarantee too ("Representation" of `core::option`). Its other fields have size 0 and
   // alignment 1, which no such type has.
   let null_optimized = repr.transparent.then(|| {
-    let types = fields.iter().map(|field| field.ty);
+    let types = fields.iter().map(|field| &field.home);
     quote!(const NULL_OPTIMIZED: bool = false #(|| <#types as #root::Pun>::NULL_OPTIMIZED)*;)
   });
 
+  // The home of the type of each field, and what ties the fields to the struct.
+  let named = fields
+    .iter()
+    .enumerate()
+    .map(|(i, field)| (format_ident!("F{}", i), field.ty))
+    .collect::<Vec<_>>();
+  let members = fields.iter().map(|field| &field.member).collect::<Vec<_>>();
+  let same = fields.iter().map(|field| {
+    let member = &field.member;
+    same_type(&quote!((*p).#member), &field.home, field.ty)
+  });
+  let homes = homes(
+    input,
+    &named,
+    &quote! {
+      let Self { #(#members: _),* } = *p;
+      #(#same)*
+    },
+  );
   let pin = pin(&root);
   Ok(quote! {
     const _: () = {
       #pin
+
+      #homes
 
       #(#lists)*
 
@@ -1847,10 +1945,14 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   representation specifies [1], from the sizes and alignments of the fields
       //   (`Layout::tail_offset`, `Layout::tail_offset_packed`); for `repr(transparent)`, 0 for
       //   the field with a size [2]; otherwise, the offset of a place projected from a pointer to
-      //   the `Sized` struct.
-      // - Each field has the layout of its type (`Pun`, section Safety), or a restriction of it
-      //   (`Layout::restricted`), which guarantees the same values and accepts fewer. A struct is
-      //   valid if each of its fields is valid [3], and a byte that no field covers is padding.
+      //   the `Sized` struct. The order of the fields and the `repr` are those that the derive
+      //   read, which it trusts to be those of the struct as compiled ("What the derive trusts").
+      // - The type of each field is its home in `__PunTypes`, which `item` requires to be the type
+      //   of the field of that name in the struct as compiled, and the struct to have no other
+      //   field. Each field has the layout of its type (`Pun`, section Safety), or a restriction
+      //   of it (`Layout::restricted`), which guarantees the same values and accepts fewer. A
+      //   struct is valid if each of its fields is valid [3], and a byte that no field covers is
+      //   padding.
       //   Rules are requirements of `puns`, never of the language.
       // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules that
       //   have an expression, which `validate::check_rules` asserts against the layout. The other
@@ -1948,12 +2050,17 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
   let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
   let id = identity(input, &root);
   if data.variants.is_empty() {
+    let (homes, _) = variant_homes(input, data);
     // No value: nothing is ever made of one, and nothing is valid for it.
     return Ok(quote! {
-      // SAFETY: An enum without variants has no valid value [1]. `Layout::uninhabited` has its
-      // size and alignment, and accepts no value. So every value that the layout accepts is
-      // valid, and every value holds what it says, since there are none. The lists are `()`,
-      // and it has no byte in an `UnsafeCell`.
+      const _: () = {
+        #homes
+      };
+
+      // SAFETY: An enum without variants has no valid value [1], and `item` requires the enum as
+      // compiled to have no variant. `Layout::uninhabited` has its size and alignment, and accepts
+      // no value. So every value that the layout accepts is valid, and every value holds what it
+      // says, since there are none. The lists are `()`, and it has no byte in an `UnsafeCell`.
       //
       // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.enum:
       //
@@ -2108,11 +2215,18 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
   let repr = parse_repr(&input.attrs)?;
   // With the `Rust` representation, Rust does not specify how a variant is stored, nor its size.
   let specified = repr.c || repr.transparent || repr.int.is_some();
+  // No variant but those of `SPEC`.
+  let (homes, _) = variant_homes(input, data);
   Ok(quote! {
+    const _: () = {
+      #homes
+    };
+
     // SAFETY: `SPEC` has the size of `Self`, and the items of the `# Safety` of `Scalar` hold:
     // - A valid value of an enum without fields is one of its variants [1]. `SPEC` accepts the
     //   bytes of each variant, read from a value of it, as an unsigned integer in the byte order
-    //   of the target. An enum of size 0 has one variant, and no byte.
+    //   of the target. `item` requires the enum as compiled to have no other variant. An enum of
+    //   size 0 has one variant, and no byte.
     // - Each value that `SPEC` accepts is the bytes of a variant, so a valid `Self`. The derive
     //   is told of no other invariant.
     // - An enum without fields holds no `UnsafeCell`.
@@ -2201,16 +2315,13 @@ fn derive_tagged(
   let shadows = (0..count).map(|i| format_ident!("__PunVariant{}", i)).collect::<Vec<_>>();
   let shapes = (0..count).map(|i| format_ident!("V{}", i)).collect::<Vec<_>>();
   let usize = quote!(::core::primitive::usize);
-  let (shape_decls, shape_defs): (Vec<_>, Vec<_>) = data
-    .variants
+  let (homes, home_types) = variant_homes(input, data);
+  let (shape_decls, shape_defs): (Vec<_>, Vec<_>) = home_types
     .iter()
     .zip(&shapes)
-    .map(|(variant, shape)| {
-      let n = variant.fields.len();
-      let fields = variant.fields.iter().map(|field| {
-        let ty = &field.ty;
-        quote!(#root::layout::Layout::size_align::<#ty>())
-      });
+    .map(|(types, shape)| {
+      let n = types.len();
+      let fields = types.iter().map(|ty| quote!(#root::layout::Layout::size_align::<#ty>()));
       let start = if repr.c {
         quote!((0, 1))
       } else {
@@ -2238,7 +2349,7 @@ fn derive_tagged(
     let mut layouts = vec![];
     for (j, field) in variant.fields.iter().enumerate() {
       let options = parse_options(&field.attrs, "a field of an enum", &["valid"])?;
-      let ty = &field.ty;
+      let ty = &home_types[i][j];
       let offset = quote!(#fields + <Self as __PunShapes>::#shape.0[#j]);
       layouts.push(match &options.valid {
         None => quote!(#root::layout::Field::new(#offset, &<#ty as #root::Pun>::LAYOUT)),
@@ -2312,6 +2423,8 @@ fn derive_tagged(
     const _: () = {
       #pin
 
+      #homes
+
       #[repr(#tag_repr)]
       #[derive(Clone, Copy)]
       #[allow(dead_code, non_camel_case_types, clippy::enum_variant_names)]
@@ -2351,9 +2464,14 @@ fn derive_tagged(
       //   it, and `Layout::repr_c` computes the offsets of its fields as `repr(C)` specifies.
       //   `Layout::enumeration` asserts the result against the size and the alignment of the
       //   enum, and asserts that the tag and the fields are within it.
-      // - Each field has the layout of its type, or a restriction of it. An enum is valid if its
-      //   tag is that of a variant and the fields of that variant are valid [3], which is what
-      //   the layout accepts.
+      //   The order of the variants and of their fields, and the representation, are those that
+      //   the derive read, which it trusts to be those of the enum as compiled ("What the derive
+      //   trusts").
+      // - The type of each field is its home in `__PunTypes`, which `item` requires to be the type
+      //   of that field of that variant in the enum as compiled, and the enum to have no other
+      //   variant and no other field. Each field has the layout of its type, or a restriction of
+      //   it. An enum is valid if its tag is that of a variant and the fields of that variant are
+      //   valid [3], which is what the layout accepts.
       // - `Variants` lists the variants in order, each with its fields (see the markers above).
       //   The other lists are `()`.
       // - Each field is `Pun`, and the tag is an integer, so no byte is in an `UnsafeCell`.
@@ -2423,6 +2541,7 @@ fn derive_discovered(
   let usize = quote!(::core::primitive::usize);
   let layout = quote!(#root::layout::Layout);
   let discover = quote!(<#this as __PunDiscover>);
+  let (homes, home_types) = variant_homes(input, data);
 
   let (mut items, mut samples, mut offsets, mut observed, mut variants) =
     (vec![], vec![], vec![], vec![], vec![]);
@@ -2441,7 +2560,7 @@ fn derive_discovered(
           .map_or_else(|| Member::Unnamed(Index::from(j)), |ident| Member::Named(ident.clone()))
       })
       .collect::<Vec<_>>();
-    let types = variant.fields.iter().map(|field| &field.ty).collect::<Vec<_>>();
+    let types = &home_types[i];
     let bindings = (0..n).map(|j| format_ident!("__pun_field{}", j)).collect::<Vec<_>>();
     let offsets_name = format_ident!("OFFSETS{}", i);
 
@@ -2499,7 +2618,7 @@ fn derive_discovered(
     let mut fields = vec![];
     for (j, field) in variant.fields.iter().enumerate() {
       let options = parse_options(&field.attrs, "a field of an enum", &["valid"])?;
-      let ty = &field.ty;
+      let ty = &types[j];
       let offset = quote!(<Self as __PunDiscover>::#offsets_name[#j]);
       fields.push(match &options.valid {
         None => quote!(#root::layout::Field::new(#offset, &<#ty as #root::Pun>::LAYOUT)),
@@ -2591,6 +2710,8 @@ fn derive_discovered(
     const _: () = {
       #pin
 
+      #homes
+
       #(#items)*
 
       trait __PunDiscover: ::core::marker::Sized {
@@ -2627,7 +2748,9 @@ fn derive_discovered(
       // SAFETY: The layout is the one that `rustc` gave the enum, found by the experiments of
       // `Discover::DESC`. These fail to compile rather than find a wrong layout, under the
       // facts of the compiler that the module documentation of `discover` lists. Each variant
-      // holds its fields at the offsets observed on its sample, each with the layout of its type.
+      // holds its fields at the offsets observed on its sample, each with the layout of its type,
+      // its home in `__PunTypes`, which `item` requires to be the type of that field in the enum
+      // as compiled, and the enum to have no other variant and no other field.
       // `Variants` lists the variants in order, each with its fields. The other lists are `()`.
       // Each field is `Pun`, so no byte is in an `UnsafeCell`.
       unsafe impl #impl_generics #root::Pun for #this #where_clause {
@@ -2674,14 +2797,18 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
   let where_clause = &generics.where_clause;
   let count = data.fields.named.len();
   let shadows = (0..count).map(|i| format_ident!("__PunVariant{}", i)).collect::<Vec<_>>();
-  let (mut items, mut variants) = (vec![], vec![]);
+  let (mut items, mut variants, mut named, mut same) = (vec![], vec![], vec![], vec![]);
   for (i, field) in data.fields.named.iter().enumerate() {
-    let ty = &field.ty;
+    let name = format_ident!("F{}", i);
+    let ty = home(&this, &name, &field.ty);
+    let member = &field.ident;
+    same.push(same_type(&quote!((*p).#member), &ty, &field.ty));
+    named.push((name, &field.ty));
     let options = parse_options(&field.attrs, "a field of a union", &["valid"])?;
     let layout = match &options.valid {
       None => quote!(#root::layout::Field::new(0, &<#ty as #root::Pun>::LAYOUT)),
       Some(ranges) => {
-        let ranges = valid_ranges(ranges, ty, &root)?;
+        let ranges = valid_ranges(ranges, &ty, &root)?;
         quote!(#root::layout::Field::restricted(
           0,
           const { &<#ty as #root::Pun>::LAYOUT.restricted(#ranges) },
@@ -2730,17 +2857,26 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
     });
   }
   let first = shadows.first().map_or_else(|| quote!(()), |shadow| quote!(#shadow #ty_generics));
+  // A field added after the derive read the union would be a value that the layout does not
+  // accept, which is sound as a target, and as a source, where it guarantees nothing.
+  let homes = homes(input, &named, &quote!(#(#same)*));
   let pin = pin(&root);
   Ok(quote! {
     const _: () = {
       #pin
 
+      #homes
+
       #(#items)*
 
       // SAFETY: The union is `repr(C)`, so each field is at offset 0 [1], which is where the layout
-      // puts it, with the layout of its type or a restriction of it. `Layout::union` takes the size
-      // and the alignment from the compiler. As a target, the layout accepts bytes that are a valid
-      // value of one field. Such bytes are a value that safe code makes by writing that field,
+      // puts it, with the layout of its type or a restriction of it. The derive trusts that the
+      // `repr` that it read is that of the union as compiled ("What the derive trusts"). The type
+      // of each field is its home in `__PunTypes`, which `item` requires to be the type of the
+      // field of that name in the union as compiled. A field that the derive did not read only
+      // adds values, which the layout does not accept as a target, and guarantees none.
+      // `Layout::union` takes the size and the alignment from the compiler. As a target, the
+      // layout accepts bytes that are a valid value of one field. Such bytes are a value that safe code makes by writing that field,
       // which is valid [2]. As a source, the layout guarantees nothing, not even that a byte is
       // initialized, which every value holds. `Variants` lists the fields in order. The other lists
       // are `()`. Each field is `Pun`, so no byte is in an `UnsafeCell`.
