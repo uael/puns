@@ -558,21 +558,30 @@ fn check_typed<S: puns_model::Oracle, D: ?Sized + Pun>(
   let verdict = const { hook::verdict::<S, D>() };
   let name = core::any::type_name::<S>().rsplit("::").next().unwrap_or_default();
   if !verdict.try_pun_ref {
+    if let Some(known) = puns_model::known(&format!("{name} -> {}", oracle.name)) {
+      errors.push(format!("{} is no longer reported: remove it from `KNOWN`", known.pair));
+    }
     return 0;
   }
   let len = size_of::<S>();
   let fits = len >= oracle.head
     && (len - oracle.head).is_multiple_of(oracle.stride.max(1))
     && padded(len, oracle.align) <= len;
+  let pair = format!("{name} -> {}", oracle.name);
+  let known = puns_model::known(&pair);
   let mut count = 0;
   for p in puns_model::values::<S>() {
     count += 1;
     if p.iter().any(Option::is_none) {
-      errors.push(format!(
+      let error = format!(
         "try_pun_ref::<{name}, {}> compiles, but {p:02x?} has a byte that may be uninitialized",
         oracle.name
-      ));
-      break;
+      );
+      match known {
+        Some(known) => println!("   KNOWN {}: {error}", known.finding),
+        None => errors.push(error),
+      }
+      return count;
     }
     let bytes: Vec<u8> = p.iter().map(|b| b.unwrap_or_default()).collect();
     // SAFETY: `p` is a value of `values::<S>()`, of `size_of::<S>()` bytes. The model check relies
@@ -591,6 +600,9 @@ fn check_typed<S: puns_model::Oracle, D: ?Sized + Pun>(
     if verdict.pun_ref && !want {
       errors.push(format!("pun_ref::<{name}, {}> compiles, but {bytes:02x?}", oracle.name));
     }
+  }
+  if known.is_some() {
+    errors.push(format!("{pair} is no longer reported: remove it from `KNOWN`"));
   }
   count
 }

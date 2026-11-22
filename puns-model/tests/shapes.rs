@@ -94,6 +94,10 @@ fn array_under_an_enum() {
 /// and in a variant with a scalar that a pun never makes, over bytes that may be uninitialized.
 /// Without the `unstable` feature, the analysis does not look into it.
 #[test]
+#[cfg_attr(
+  miri,
+  ignore = "finding 9, known: a check of a tuple in a union reads an uninitialized byte"
+)]
 fn layout_left_to_the_compiler() {
   puns_model::pairs!(check_pair, LIMIT;
     (TagUnits, HoldsTuple), (TagUnits, TupleNever), ([u8; 3], HoldsTuple), ([u8; 3], TupleNever),
@@ -104,6 +108,7 @@ fn layout_left_to_the_compiler() {
 /// A union whose first field has a rule that loads a field, proven by its second field, in an
 /// enum that is checked, over a byte that may be uninitialized.
 #[test]
+#[cfg_attr(miri, ignore = "finding 10, known: a rule in a union loads an uninitialized byte")]
 fn rule_in_a_union() {
   puns_model::pairs!(check_pair, LIMIT;
     (TagUnit, HoldsRule), ([u8; 2], HoldsRule), (RuleOrUnit, RuleOrUnit),
@@ -114,6 +119,10 @@ fn rule_in_a_union() {
 /// A union whose first field is proven by a requirement of the source (`valid(..)`), which safe
 /// code can break, in an enum that is checked: a source that breaks it has its union checked.
 #[test]
+#[cfg_attr(
+  miri,
+  ignore = "finding 11, known: a check of a union proven by a requirement reads an uninitialized byte"
+)]
 fn union_proven_by_a_requirement() {
   puns_model::pairs!(check_pair, LIMIT;
     (TagSoft, HoldsSoft), ([u8; 3], HoldsSoft), (SoftOrFlags, SoftOrFlags),

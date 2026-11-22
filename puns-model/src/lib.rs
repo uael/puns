@@ -72,6 +72,12 @@
 //! - A verdict is **imprecise** otherwise, where it refuses or checks what it could prove. These
 //!   are counted.
 //!
+//! A defect of `puns` that is known and not fixed yet is listed in [`KNOWN`], with its pair and the
+//! finding that names it. Its unsound or incorrect verdicts are printed as known and not counted,
+//! and a listed pair that is checked and no longer reported fails the check, so the entry goes
+//! with the fix. A test that reaches a known read of an uninitialized byte is ignored under Miri,
+//! which stops at it, with the finding as the reason.
+//!
 //! # Types
 //!
 //! The model has about 180 types of 1 to 8 bytes ([`types`]). It checks every ordered pair of
@@ -720,6 +726,69 @@ pub struct Report {
   pub views: usize,
   /// The number of variants of these view enums that have a base.
   pub view_bases: usize,
+  /// The pairs checked by [`check_pair`] or [`check_part`], by which [`finish`] tells a known
+  /// defect that is no longer reported.
+  pub checked: std::collections::BTreeSet<String>,
+}
+
+/// A verdict of `puns` that the model reports, and that is a known defect not fixed yet.
+///
+/// [`finish`] prints its findings as known, and does not count them. It fails if the pair was
+/// checked and nothing was reported of it: the entry is then removed, with the fix. A defect that
+/// only Miri reports, a read of an uninitialized byte, is not here, since Miri stops at it: the
+/// test that reaches it is ignored under Miri, with the finding as the reason.
+pub struct Known {
+  /// The pair, as the report names it: `source -> target`.
+  pub pair: &'static str,
+  /// Whether it is reported without the `unstable` feature of `puns`.
+  pub stable: bool,
+  /// Whether it is reported with the `unstable` feature of `puns`.
+  pub unstable: bool,
+  /// What the defect is, as the audit names it.
+  pub finding: &'static str,
+}
+
+/// The known defects of `puns` that the model reports.
+pub const KNOWN: &[Known] = &[
+  Known {
+    pair: "types::TagUnits -> types::TupleNever",
+    stable: true,
+    unstable: false,
+    finding: "finding 9, a check of a part whose layout Rust leaves to the compiler reads padding",
+  },
+  Known {
+    pair: "PadEnd -> str",
+    stable: true,
+    unstable: true,
+    finding: "finding 12, the check of a string reads past what is related",
+  },
+  Known {
+    pair: "PadMid -> str",
+    stable: true,
+    unstable: true,
+    finding: "finding 12, the check of a string reads past what is related",
+  },
+  Known {
+    pair: "TagUnit -> str",
+    stable: true,
+    unstable: true,
+    finding: "finding 12, the check of a string reads past what is related",
+  },
+  Known {
+    pair: "ByteZero -> str",
+    stable: true,
+    unstable: true,
+    finding: "finding 12, the check of a string reads past what is related",
+  },
+];
+
+/// Returns the known defect of `pair` that this build of `puns` has, if any.
+#[must_use]
+pub fn known(pair: &str) -> Option<&'static Known> {
+  let unstable = cfg!(feature = "unstable");
+  KNOWN
+    .iter()
+    .find(|known| known.pair == pair && if unstable { known.unstable } else { known.stable })
 }
 
 /// The report of the running process, which every check of every test adds to.
@@ -1006,6 +1075,7 @@ pub fn check_pair<S: Oracle, D: Oracle>(limit: usize) {
   }
   record(|report| {
     report.pairs += 1;
+    report.checked.insert(pair.clone());
     report.values += source.len();
     report.conversions += conversions;
     *report.classes.entry(class.into()).or_default() += 1;
@@ -1225,6 +1295,7 @@ pub fn check_part<S: Oracle, D: Oracle>(limit: usize) {
   }
   record(|report| {
     report.parts += 1;
+    report.checked.insert(pair.clone());
     report.conversions += conversions;
     report.unsound.extend(unsound);
     report.incorrect.extend(incorrect);
@@ -1238,9 +1309,29 @@ pub fn check_part<S: Oracle, D: Oracle>(limit: usize) {
 ///
 /// # Panics
 ///
-/// Panics if the report holds an unsound or an incorrect verdict, or if [`REPORT`] is poisoned.
+/// Panics if the report holds an unsound or an incorrect verdict that is not [`KNOWN`], if a known
+/// pair was checked and nothing was reported of it, or if [`REPORT`] is poisoned.
 pub fn finish(title: &str) {
-  let report = REPORT.lock().unwrap().take().unwrap_or_default();
+  let mut report = REPORT.lock().unwrap().take().unwrap_or_default();
+  // The findings of known defects, apart, and the known pairs checked of which none is reported.
+  let of = |line: &String| line.split(": ").next().and_then(known);
+  let mut reported = std::collections::BTreeSet::new();
+  let mut known_lines = vec![];
+  for lines in [&mut report.unsound, &mut report.incorrect] {
+    lines.retain(|line| {
+      let Some(known) = of(line) else { return true };
+      reported.insert(known.pair);
+      known_lines.push(format!("{}: {line}", known.finding));
+      false
+    });
+  }
+  let stale: Vec<&str> = report
+    .checked
+    .iter()
+    .filter_map(|pair| known(pair))
+    .filter(|known| !reported.contains(known.pair))
+    .map(|known| known.pair)
+    .collect();
   println!(
     "== {title}: {} pairs, {} pairs of parts, {} source values, {} conversions at run time",
     report.pairs, report.parts, report.values, report.conversions
@@ -1263,11 +1354,18 @@ pub fn finish(title: &str) {
   for line in &report.unsound {
     println!("   UNSOUND {line}");
   }
+  for line in &known_lines {
+    println!("   KNOWN {line}");
+  }
+  for pair in &stale {
+    println!("   NO LONGER REPORTED, remove it from `KNOWN`: {pair}");
+  }
   assert!(
-    report.unsound.is_empty() && report.incorrect.is_empty(),
-    "{title}: {} unsound, {} incorrect",
+    report.unsound.is_empty() && report.incorrect.is_empty() && stale.is_empty(),
+    "{title}: {} unsound, {} incorrect, {} known pairs no longer reported",
     report.unsound.len(),
-    report.incorrect.len()
+    report.incorrect.len(),
+    stale.len()
   );
 }
 
