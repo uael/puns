@@ -213,3 +213,44 @@ fn an_invalid_element_anywhere() {
     }
   }
 }
+
+/// Checks that a slice of elements without values is made only empty, and that what proves it
+/// stays proven.
+///
+/// A slice has a value whatever its element, the empty one. `Void1` has a byte, but no value.
+#[test]
+fn a_slice_of_elements_without_values_is_empty() {
+  use core::convert::Infallible;
+
+  use puns::{from_bytes, pun_ref};
+
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Void1 {
+    n: Infallible,
+    x: u8,
+  }
+  #[derive(Pun)]
+  #[repr(C)]
+  struct Tail {
+    h: u8,
+    items: [Void1],
+  }
+  #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
+  #[repr(C)]
+  struct Some1 {
+    x: u8,
+  }
+
+  // No element: the source has no byte for one.
+  let empty: &[Void1] = pun_ref::<[u8; 0], [Void1]>(&[]);
+  assert!(empty.is_empty());
+  let tail = pun_ref::<[u8; 1], Tail>(&[7]);
+  assert_eq!((tail.h, tail.items.len()), (7, 0));
+  // Each element of the target is an element of the source.
+  assert!(pun_ref::<[Void1], [Void1]>(empty).is_empty());
+  assert_eq!(pun_ref::<Tail, Tail>(tail).h, 7);
+  // The target has values.
+  assert_eq!(pun_ref::<[Void1], [u8]>(empty), &[] as &[u8]);
+  assert_eq!(from_bytes::<[Some1]>(&[1, 2]), Ok(&[Some1 { x: 1 }, Some1 { x: 2 }][..]));
+}

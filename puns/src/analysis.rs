@@ -90,6 +90,11 @@
 //! A pun from a type that has values to a type without values is never valid, and [`relate_at`]
 //! reports it so. A variant or a struct that holds a type without values has no value either.
 //!
+//! A slice has a value whatever its element, the empty one, and the element of a slice that a
+//! target ends with is under no byte if it has no value ([`tail_slice`]). Such a target is valid
+//! only with no element, so a source that gives it one is never valid, unless the source ends with
+//! a slice of the same elements at the same place, each of which is then an element of the source.
+//!
 //! # Uninitialized bytes
 //!
 //! A scalar may be required to be some values while nothing is known of it as a source, not even
@@ -924,6 +929,18 @@ const fn relate_with(
     relation.disjoint = Some(start);
     return relation;
   }
+  // Nor of a target with an element without values. `is_inhabited` goes through every sized part,
+  // not the elements of a slice. Nothing is assumed of the source, which may hold a value even
+  // where none can be made (a union none of whose fields has values).
+  if let Some((elem, at)) = tail_slice(b, base_b)
+    && elem.size > 0
+    && !elem.is_inhabited()
+    && (end == usize::MAX || end >= at + elem.size)
+    && !matches!(tail_slice(a, base_a), Some((source, from)) if from == at && equal(source, elem))
+  {
+    relation.disjoint = Some(at);
+    return relation;
+  }
   let mut a = Cursor::new(a, base_a, false, Checked::No);
   let mut b = Cursor::new(b, base_b, true, checked);
   b.known = *known;
@@ -1112,6 +1129,22 @@ const fn moves(source: &Layout, base: usize, start: usize, end: usize, tag: Opti
         || moves(elem, base + last * elem.size, lo, hi, tag)
     }
     _ => false,
+  }
+}
+
+/// Returns the element of the slice that `layout`, at `base`, ends with, and where the slice
+/// starts, if `layout` ends with one.
+///
+/// The slice is the last field of a struct, or of a struct that is the last field, at any depth.
+/// A string is not a slice: its bytes are not elements.
+const fn tail_slice(layout: &'static Layout, base: usize) -> Option<(&'static Layout, usize)> {
+  match layout.kind {
+    Kind::Slice(elem) => Some((elem, base)),
+    Kind::Struct(fields, _) if layout.unsized_ && !fields.is_empty() => {
+      let last = &fields[fields.len() - 1];
+      tail_slice(last.layout, base + last.offset)
+    }
+    _ => None,
   }
 }
 
