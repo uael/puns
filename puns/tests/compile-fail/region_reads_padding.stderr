@@ -1,0 +1,43 @@
+error[E0080]: evaluation panicked:
+              cannot pun: a byte that the target requires to be initialized is padding in the source.
+              This is at byte 1 of the target.
+
+    --> src/lib.rs
+     |
+     |   const BY_REF: () = Self::require(Self::check(Need::REF));
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<Record, [u8]>::BY_REF` failed inside this call
+     |
+note: inside `puns::Plan::<Record, [u8]>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, [u8]>::BY_REF };
+  |           ^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, [u8]>::BY_REF };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn puns::region::<Record>`
+ --> tests/compile-fail/region_reads_padding.rs:2:10
+  |
+2 | #[derive(puns::Pun)]
+  |          ^^^^^^^^^
+  |
+  = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

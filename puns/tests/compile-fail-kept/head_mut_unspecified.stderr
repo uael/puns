@@ -1,0 +1,41 @@
+error[E0080]: evaluation panicked:
+              cannot pun: the `&mut` covers a part of the source whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation), which only a `&mut` to the same type may write.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+
+    --> src/lib.rs
+     |
+     |   const HEAD_MUT: () = Self::require(Self::check_head_mut());
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<Record, [std::mem::MaybeUninit<u8>; 4]>::HEAD_MUT` failed inside this call
+     |
+note: inside `puns::Plan::<Record, [MaybeUninit<u8>; 4]>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::HEAD_MUT };
+  |           ^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::HEAD_MUT };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn head_mut::<Record, [MaybeUninit<u8>; 4]>`
+  --> tests/compile-fail-kept/head_mut_unspecified.rs:14:11
+   |
+14 |   let _ = puns::head_mut::<Record, [MaybeUninit<u8>; 4]>(&mut record);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
