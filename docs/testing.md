@@ -5,10 +5,10 @@
 
 ## The model check
 
-The analysis is compared with oracles written by hand, which do not use it. This model check takes
-every ordered pair of its test types that have the same size. For types of up to 2 bytes it tries
-every value of the source, and for larger ones a chosen set of values. It runs in full every night,
-and in part on every push, with and without the `unstable` feature. The [crate documentation of
+The analysis is compared with oracles that do not use it. This model check takes every ordered pair
+of its test types that have the same size. For types of up to 2 bytes it tries every value of the
+source, and for larger ones a chosen set of values. It runs in full every night, and in part on
+every push, with and without the `unstable` feature. The [crate documentation of
 `puns-model`][model] describes its types, its oracles and what runs where.
 
 ## Miri
