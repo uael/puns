@@ -51,7 +51,9 @@
 //! own. A repetition ends as soon as one of its elements leaves the set unchanged. Two patterns are
 //! compared by the product of their automata. The automaton must accept wherever the source may
 //! end, the start of the string included: a source that may leave no byte to the string proves it
-//! only if the automaton accepts the empty string.
+//! only if the automaton accepts the empty string. Where the string cannot be proven, the automaton
+//! stops, and the string is checked at run time, every byte of it: a byte after the place where it
+//! stopped that may be uninitialized is read from padding all the same ([`mark_pattern`]).
 //!
 //! So the cost of an analysis grows with the number of fields, variants, ranges of values and
 //! states of automata of the types. Where it would grow with their size, a search stops at a limit:
@@ -102,10 +104,10 @@
 //!
 //! A scalar may be required to be some values while nothing is known of it as a source, not even
 //! that it is initialized ([`Spec::maybe_uninit`]). Such a scalar is padding wherever a source is
-//! read: in [`atom_relation`], in a run of the target without constraints, in a pattern, and in
-//! [`Layout::segment`]. Two such scalars are never equal ([`Layout::equals`]), because two types
-//! can require the same values and be known to hold the same values while one may be padding where
-//! the other may not.
+//! read: in [`atom_relation`], in a run of the target without constraints, in a pattern up to its
+//! end, and in [`Layout::segment`]. Two such scalars are never equal ([`Layout::equals`]), because
+//! two types can require the same values and be known to hold the same values while one may be
+//! padding where the other may not.
 //!
 //! Two layouts are the same ([`Layout::equals`], by which an enum proves an enum without looking
 //! into it) only if they require the same values and guarantee the same values. A
@@ -2265,7 +2267,9 @@ const fn box_meets(lo: &[u8; 16], hi: &[u8; 16], size: usize, start: u128, end: 
 /// The automaton runs over the runs of `a`, with a set of states. The rest of an array or a slice
 /// of `a` is skipped as soon as one of its elements leaves the set of states as it found it. The
 /// pattern is marked if a string of the source may not be accepted, or past a budget of runs. A
-/// byte that may be padding under the pattern is recorded as read from padding.
+/// byte that may be padding under the pattern is recorded as read from padding, whether the
+/// automaton reaches it or stops before it: the check of the pattern reads it all
+/// ([`mark_pattern`]).
 ///
 /// The source may end wherever its slice may, and from the end of its sized part where it ends with
 /// bytes of any value, which are one run without elements: the automaton must accept there, before
@@ -2286,7 +2290,7 @@ const fn pattern_target(
   let mut budget = 1usize << 12;
   'runs: while pos < end {
     if budget == 0 {
-      return out.mark(leaf, pos);
+      return mark_pattern(a, leaf, pos, end, out);
     }
     budget -= 1;
     let run = a.run_at(pos);
@@ -2300,7 +2304,7 @@ const fn pattern_target(
       }
       // A slice can end before any of its elements.
       if repeat.end == usize::MAX && !dfa.accepts(set) {
-        return out.mark(leaf, pos);
+        return mark_pattern(a, leaf, pos, end, out);
       }
       let mut j = 0;
       while j < memo_len && !(memo[j].0.0 == repeat.id.0 && memo[j].0.1 == repeat.id.1) {
@@ -2328,7 +2332,7 @@ const fn pattern_target(
         // its sized part.
         let root = &a.stack[0];
         if stop == usize::MAX && pos >= root.base + root.layout.size && !dfa.accepts(set) {
-          return out.mark(leaf, pos);
+          return mark_pattern(a, leaf, pos, end, out);
         }
         // Any byte, `stop - pos` times, or until it changes nothing.
         let mut steps = 0;
@@ -2336,7 +2340,7 @@ const fn pattern_target(
           let (next, total) = dfa.step(set, 0, 0xff);
           // The source can end anywhere if nothing bounds the analysis.
           if !total || steps > 256 || (end == usize::MAX && !dfa.accepts(next)) {
-            return out.mark(leaf, pos);
+            return mark_pattern(a, leaf, pos, end, out);
           }
           if next == set {
             break;
@@ -2365,7 +2369,7 @@ const fn pattern_target(
                 let digit = if spec.endian.is_little() { spec.size - 1 - byte } else { byte };
                 let (next, total) = dfa.step(states, lo[digit], hi[digit]);
                 if !total {
-                  return out.mark(leaf, pos);
+                  return mark_pattern(a, leaf, pos, end, out);
                 }
                 (states, byte) = (next, byte + 1);
               }
@@ -2378,7 +2382,8 @@ const fn pattern_target(
         set = result;
       }
       RunKind::Pattern(source) => {
-        // The source may be anywhere in its own pattern if it started before.
+        // The source may be anywhere in its own pattern if it started before. A pattern goes on
+        // until the end, and its bytes are initialized, so the check reads nothing else.
         let from = if run.start == pos { 1 } else { source.reachable() };
         if !pattern_product(source, from, dfa, set) {
           out.mark(leaf, pos);
@@ -2388,9 +2393,22 @@ const fn pattern_target(
     }
     pos = stop;
   }
-  // The source ends here.
+  // The source ends here, and the check reads no byte that was not looked at.
   if end != usize::MAX && !dfa.accepts(set) {
     out.mark(leaf, pos);
+  }
+}
+
+/// Marks the pattern of the target, whose leaf is `leaf`, where [`pattern_target`] stops at `pos`,
+/// and records the first byte of `a` from `pos` to `end` that may be uninitialized.
+///
+/// The check of the pattern reads every byte of it, the ones after `pos` that the automaton did not
+/// run over included. Such a byte is read from padding, as it is where the automaton reaches it.
+const fn mark_pattern(a: &mut Cursor, leaf: usize, pos: usize, end: usize, out: &mut Relation) {
+  out.mark(leaf, pos);
+  if let Some(at) = uninit_from(a, pos, end, &Known::NONE) {
+    out.unreadable(leaf, 1, at);
+    out.uninit(at);
   }
 }
 
