@@ -751,12 +751,6 @@ pub struct Known {
 /// The known defects of `puns` that the model reports.
 pub const KNOWN: &[Known] = &[
   Known {
-    pair: "types::TagUnits -> types::TupleNever",
-    stable: true,
-    unstable: false,
-    finding: "finding 9, a check of a part whose layout Rust leaves to the compiler reads padding",
-  },
-  Known {
     pair: "PadEnd -> str",
     stable: true,
     unstable: true,
