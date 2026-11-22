@@ -42,9 +42,10 @@
 //! the start of an element of a repetition and the source is inside a repetition too, what happens
 //! over the least common multiple of both strides happens again for as long as both repetitions
 //! last, so one period is analyzed and the rest is skipped ([`find_skip`]). This is also what makes
-//! the analysis of two slice tails, which never end, terminate. The bytes of which the values are
-//! known, as the tag of the variant that is related ([`Known`]), are not a period: nothing is known
-//! of the bytes a period later, such as the elements of an array after the one that holds a niche.
+//! the analysis of two slice tails, which never end, terminate. A period does not cut an enum or a
+//! union of the target, which is related as a whole. The bytes of which the values are known, as
+//! the tag of the variant that is related ([`Known`]), are not a period: nothing is known of the
+//! bytes a period later, such as the elements of an array after the one that holds a niche.
 //!
 //! Patterns run with sets of states over the runs of the other side, each box of a scalar on its
 //! own. A repetition ends as soon as one of its elements leaves the set unchanged. Two patterns are
@@ -1347,6 +1348,11 @@ const fn relate_range(
       RunKind::Any => {
         if run_a.kind.may_be_uninit() && !b.known.covers(pos) {
           out.uninit(pos);
+          // An enum here is marked above, and its check may read the byte: a tag that accepts
+          // every value, or a field of its variant. A constrained tag is recorded as an atom.
+          if let Some((_, _, leaf)) = b.enumeration() {
+            out.unreadable(leaf, 1, pos);
+          }
         }
         pos = min(run_a.end, stop);
       }
@@ -1800,10 +1806,13 @@ enum Skip {
 /// Returns a period of both layouts at `pos`, if there is one.
 ///
 /// `b` must be at the start of an element of a repetition. The analysis is made of what happens
-/// to each run of `b`, so a period must not cut one. `a` only has to be inside a repetition,
-/// because what lies under a run of `b` a period later is the same, even if the period cuts runs of
-/// `a`. A period is taken if it repeats forever or at least twice before `end`. The outermost
-/// repetitions are tried first, since they skip the most.
+/// to each run of `b`, so a period must not cut one. Nor may it cut an enum or a union of `b`,
+/// which is related as a whole ([`relate_enums`], [`relate_union_from`], [`relate_enum_from`]).
+/// So a run of padding or of bytes of any value in one, such as a tag that accepts every value, is
+/// not a repetition, while an element of an array of `b` holds the enums in it whole. `a` only has
+/// to be inside a repetition, because what lies under a run of `b` a period later is the same, even
+/// if the period cuts runs of `a`. A period is taken if it repeats forever or at least twice before
+/// `end`. The outermost repetitions are tried first, since they skip the most.
 ///
 /// What is known of a tag ([`Cursor::known`]) holds of its own bytes, not of the bytes a period
 /// later. So bytes that hold it are not a period: what they prove, the next ones may not. The
@@ -1817,7 +1826,11 @@ const fn find_skip(
   run_b: &Run,
 ) -> Skip {
   let (mut repeats_a, mut repeats_b) = ([NO; MAX_DEPTH + 1], [NO; MAX_DEPTH + 1]);
-  let len_b = b.repeats(pos, run_b, true, &mut repeats_b);
+  let mut len_b = b.repeats(pos, run_b, true, &mut repeats_b);
+  // A run of an enum, the last repetition.
+  if len_b > 0 && repeats_b[len_b - 1].run && b.enumeration().is_some() {
+    len_b -= 1;
+  }
   if len_b == 0 {
     return Skip::No;
   }
