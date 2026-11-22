@@ -288,7 +288,8 @@
 //! and the fields of a variant of an enum that is checked as a whole. A union that is proven there
 //! would be checked with the others, its fields tried in order. If that would read a byte that may
 //! be padding in the source, or a byte of the same union, of which nothing is known, the pun is
-//! refused.
+//! refused. A byte that a field reads is one that it checks, a byte that a rule of a struct in it
+//! loads, or any byte of a struct whose rule reads bytes by offset.
 //!
 //! ## Types without values
 //!
