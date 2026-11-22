@@ -218,9 +218,9 @@ included, can keep `#![forbid(unsafe_code)]`. The [Soundness] section lists ever
 relies on, including three behaviors of `rustc` that no documentation guarantees, and how each
 is checked.
 
-The analysis is compared with hand-written oracles on every pair of test types of the same size,
-and the tests run under Miri, on 32-bit and big-endian targets as well. More than 70 programs must
-fail to compile, each with its expected message ([`docs/testing.md`][testing]). If you find a
+On every pair of test types of the same size, the analysis is compared with oracles that don't use
+it, and the tests run under Miri, on 32-bit and big-endian targets as well. More than 70 programs
+must fail to compile, each with its expected message ([`docs/testing.md`][testing]). If you find a
 soundness bug, please [open an issue][issues].
 
 ## Learn more
@@ -249,6 +249,22 @@ stabilizations that `puns` could not do without:
 - `size_of_val_raw` and `align_of_val_raw` in `const` (1.99), which give the layout of unsized types
 
 `mutant` was taken, so the crate is now `puns`, and the [changelog] lists everything since.
+
+## How `puns` is written
+
+The code, tests and documentation of `puns` were written by AI (Claude models), under my
+supervision. The design comes from prototypes I wrote by hand between 2023 and 2025. I set the
+requirements and chose between the options proposed.
+
+I haven't read every line, and I don't claim to understand every part. I understand the
+architecture and the design. What I trust is the process: the code is checked by tools that don't
+depend on the model that wrote it ([Safety and testing](#safety-and-testing)). I use `puns` myself
+because I trust these checks. That's my own judgement, and yours may differ.
+
+`puns` is published as it is, and I work on it alongside other projects. If people find it useful,
+I hope more of it gets reviewed by people over time, and that some of them help maintain it.
+Reviews, questions and tests that break it are all welcome. If that doesn't happen, `puns` stays as
+it is, and this section will say so.
 
 ## License
 
