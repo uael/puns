@@ -5,7 +5,7 @@ use puns::{
   Error, Pun, from_bytes, from_head,
   layout::{Dfa, DfaState, Layout},
   num::{f64be, i16be, i32le},
-  pun_ref,
+  pun_ref, try_pun_ref,
 };
 
 #[path = "support/non_empty.rs"]
@@ -178,4 +178,17 @@ fn the_empty_string_is_checked() {
   assert_eq!((msg.kind, &msg.body.0), (7, &[1][..]));
   assert_eq!(&pun_ref::<[u8], AnyBytes>(&[]).0, &[]);
   assert_eq!(&pun_ref::<[u8], AnyBytes>(&[7, 1]).0, &[7, 1]);
+  // A slice of elements whose bytes are all initialized, which may have no element: checked, every
+  // byte of it.
+  let pairs = |pairs: &[Pair]| try_pun_ref::<[Pair], NonEmpty>(pairs).map(|bytes| bytes.0.to_vec());
+  assert_eq!(pairs(&[]), Err(Error::Validity));
+  assert_eq!(pairs(&[Pair { a: 7, b: true }]), Ok(vec![7, 1]));
+}
+
+/// A byte of any value, then a `bool`.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+struct Pair {
+  a: u8,
+  b: bool,
 }

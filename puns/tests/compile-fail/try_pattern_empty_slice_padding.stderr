@@ -1,0 +1,41 @@
+error[E0080]: evaluation panicked:
+              cannot pun: a byte that the target requires to be initialized is padding in the source.
+              This is at byte 1 of the target.
+
+    --> src/lib.rs
+     |
+     |   const TRY_REF: () = Self::require(Self::check(Need::TRY_REF));
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[AnyThenHole], non_empty::NonEmpty>::TRY_REF` failed inside this call
+     |
+note: inside `puns::Plan::<[AnyThenHole], NonEmpty>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY_REF };
+  |           ^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY_REF };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn try_pun_ref::<[AnyThenHole], NonEmpty>`
+  --> tests/compile-fail/try_pattern_empty_slice_padding.rs:25:11
+   |
+25 |   let _ = puns::try_pun_ref::<[AnyThenHole], non_empty::NonEmpty>(&source);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
