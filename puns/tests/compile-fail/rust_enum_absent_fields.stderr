@@ -1,4 +1,4 @@
-error[E0080]: reading memory at alloc256[0x0..0x10], but memory is uninitialized at [0x1..0x2], and this operation requires initialized memory
+error[E0080]: reading memory at alloc258[0x0..0x10], but memory is uninitialized at [0x1..0x2], and this operation requires initialized memory
  --> src/layout.rs
   |
   |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };

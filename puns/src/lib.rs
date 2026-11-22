@@ -272,7 +272,8 @@
 //!   the rules do, and never less. A union is proven by any one field that the source proves, and
 //!   otherwise it is checked field by field at run time.
 //! - As a source, nothing is known about a union, not even that its bytes are initialized. Only the
-//!   same union proves a union.
+//!   same union proves a union. A union may then hold a value even if none of its fields has one,
+//!   so a value that holds it may exist, though no value of it can be made.
 //!
 //! A field is only checked if no byte it reads may be padding in the source. If some field might
 //! read padding and no field is proven, the pun is refused. Checking only the other fields would be
@@ -298,6 +299,11 @@
 //! No bytes are a variant without values of a target enum, or a field without values of a target
 //! union. The analysis does not look at it, and a check reads nothing of it: bytes whose tag is
 //! that variant's are refused, whatever its other fields would hold.
+//!
+//! A union none of whose fields has values is not a type without values as a source: a value of
+//! it may exist ([Unions](#unions)), and so may a variant or a struct that holds it. An enum of the
+//! `Rust` representation with such a variant is refused, since no sample of the variant can be made
+//! to find its tag.
 //!
 //! ## What deriving `Pun` means
 //!

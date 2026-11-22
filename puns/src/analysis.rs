@@ -83,7 +83,9 @@
 //! the source, and refused if one does ([`relate_union_from`]). The marks of the analysis cannot
 //! tell the validation which fields to skip, so a union is not checked by some of its fields only.
 //! As a source, a union is padding, and from a union only the same union proves a union
-//! ([`Layout::equals`]).
+//! ([`Layout::equals`]). It may hold a value even if none of its fields has one, so a part of the
+//! source, a variant included, is taken to have no value only if none may exist
+//! ([`Layout::may_exist`]).
 //!
 //! A pun from a type that has values to a type without values is never valid, and [`relate_at`]
 //! reports it so. A variant or a struct that holds a type without values has no value either.
@@ -913,8 +915,9 @@ const fn relate_with(
     return relation;
   }
   // No value of a source that has values is a value of a target without values, whatever their
-  // sizes.
-  if !b.is_inhabited() && a.is_inhabited() {
+  // sizes. A source that holds a union none of whose fields has values may exist without being
+  // made, as may such a target: it is refused only if the target cannot exist.
+  if !b.is_inhabited() && (a.is_inhabited() || a.may_exist() && !b.may_exist()) {
     relation.disjoint = Some(start);
     return relation;
   }
@@ -1455,8 +1458,8 @@ const fn relate_enums(
   while i < enum_a.variants.len() {
     let from = &enum_a.variants[i];
     i += 1;
-    // A variant that no value is.
-    if !from.is_present() {
+    // A variant that no value is, under any rule for unions.
+    if !from.may_exist() {
       continue;
     }
     // Proven if all of its tags are of one variant of `b`, which it proves.

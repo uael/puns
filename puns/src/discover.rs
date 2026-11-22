@@ -51,7 +51,9 @@
 //!
 //! Such an enum is then what an enum of a specified layout is. It is proven variant by variant, and
 //! checked by its tag and its variant, with the same precision. A variant whose fields have no
-//! value is in the layout, with no tag. The lists of fields and variants are the declared ones. A
+//! value is in the layout, with no tag. A variant that holds a union none of whose fields has
+//! values has no sample either, but a value of it may exist, with a tag that no experiment can
+//! find, so the enum is refused. The lists of fields and variants are the declared ones. A
 //! field of a variant without values is not in the layout, and its entry in the list says so (its
 //! `FIELD` is `None`). The sample of a variant cannot hold a scalar that a pun never makes, because
 //! `puns` cannot make a value of one ([`sample`]). `Option<T>` and `Result<T, E>` are found the
@@ -658,11 +660,17 @@ pub const unsafe fn discover<E, const V: usize>(
     } else {
       // A variant without values that `rustc` lays out all the same: one with a field that has
       // a size.
-      let mut i = 0;
+      let (mut i, mut exists) = (0, true);
       while i < these.len() {
         sized |= these[i].layout.size > 0;
+        exists &= these[i].layout.may_exist();
         i += 1;
       }
+      assert!(
+        !exists,
+        "a variant holds a union none of whose fields has values: a value of it may exist, but it \
+         has no sample to find its tag: unsupported layout"
+      );
     }
     v += 1;
   }

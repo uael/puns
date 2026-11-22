@@ -166,3 +166,53 @@ fn a_variant_without_values_is_not_read() {
   assert!(puns::try_pun::<Source, Either>(source(3)).is_ok());
   assert_eq!(puns::try_pun::<Source, Either>(source(4)).err(), Some(Error::Validity));
 }
+
+/// Checks that a variant of a source that holds a union none of whose fields has values is related
+/// as any other, since a value of it may exist.
+#[test]
+fn a_union_of_a_source_may_hold_a_value() {
+  use core::convert::Infallible;
+
+  use puns::Pun;
+
+  /// A union none of whose fields has values.
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Hollow {
+    a: Infallible,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "reinterpreted, not read")]
+  enum Source5 {
+    A(Hollow) = 0,
+    B(u8) = 1,
+    C = 2,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "reinterpreted, not read")]
+  enum Plain5 {
+    A(Infallible) = 0,
+    B(u8) = 1,
+    C = 2,
+  }
+  #[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
+  #[repr(u8)]
+  enum Target5 {
+    B(u8) = 1,
+    C = 2,
+  }
+
+  // SAFETY: The language has not settled the validity of unions. The compiler and Miri accept any
+  // bytes as a union today, so this value is accepted, though no field of it has a value. The test
+  // shows that `puns` is sound under that rule too: a pun that relies on a union without values
+  // being impossible would make an invalid `Target5` here.
+  let hollow: Hollow = unsafe { MaybeUninit::<Hollow>::uninit().assume_init() };
+  assert_eq!(puns::try_pun::<Source5, Target5>(Source5::A(hollow)), Err(Error::Validity));
+  assert_eq!(puns::try_pun::<Source5, Target5>(Source5::B(7)), Ok(Target5::B(7)));
+  assert_eq!(puns::try_pun::<Source5, Target5>(Source5::C), Ok(Target5::C));
+  // A variant whose field truly has no value: no value is it, and the pun is proven.
+  assert_eq!(puns::pun::<Plain5, Target5>(Plain5::B(7)), Target5::B(7));
+  assert_eq!(puns::pun::<Plain5, Target5>(Plain5::C), Target5::C);
+}
