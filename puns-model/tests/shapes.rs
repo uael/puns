@@ -6,8 +6,9 @@
 //! array; and a part that a check need not read next to a part that it checks, over bytes that may
 //! be uninitialized. Natively, the oracles judge the verdicts. Under Miri, the checks run on values
 //! whose bytes are uninitialized wherever the type allows, and Miri reports a check that reads one:
-//! no oracle sees a read whose value does not change the result. The full run has every pair of
-//! these types (`size*.rs`, `parts*.rs`).
+//! no oracle sees a read whose value does not change the result. These types are not in the
+//! product of the full run (`size*.rs`, `parts*.rs`), which they would grow by half: each shape is
+//! paired here with the sources whose bytes may be uninitialized and with its controls.
 //!
 //! Each shape is a test of its own, so that one runs alone under Miri, which stops at the first
 //! read of an uninitialized byte.

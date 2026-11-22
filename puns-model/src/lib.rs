@@ -80,9 +80,11 @@
 //!
 //! # Types
 //!
-//! The model has about 180 types of 1 to 8 bytes ([`types`]). It checks every ordered pair of
-//! types of the same size, and every value of the source over an alphabet, which is every value up
-//! to 2 bytes. It checks slices and structs that end with a slice on every pattern of up to 6
+//! The model has about 150 types of 1 to 8 bytes in the full run ([`types`]). It checks every
+//! ordered pair of types of the same size, and every value of the source over an alphabet, which is
+//! every value up to 2 bytes. The types of the shapes below are not in that product, which would
+//! grow by half: each is paired with the sources and the controls that matter for it, in
+//! `tests/shapes.rs`. It checks slices and structs that end with a slice on every pattern of up to 6
 //! bytes, among them a slice of elements without values, a struct that ends with a struct without
 //! values, and a string type whose automaton refuses the empty string, alone and after a field.
 //!
