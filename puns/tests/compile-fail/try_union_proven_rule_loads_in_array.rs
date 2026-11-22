@@ -72,7 +72,7 @@ struct Fields {
   pair: Pair,
 }
 
-/// 66 bytes of other parts, without an array, whose periods would cut the union.
+/// 66 bytes of other parts, without an array: in 0.2.0, a period of an array cut the union.
 #[derive(Pun, Clone, Copy)]
 #[repr(C)]
 struct Eight {
