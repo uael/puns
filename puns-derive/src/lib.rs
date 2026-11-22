@@ -2141,9 +2141,10 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
 /// It also finds whether the discriminant may have another value there. Only `Self` and a name
 /// written by a macro can mean something else there: the items that the derive declares next to
 /// that enum all have names that start with `__Pun`, which `find_reserved` refuses in the input. So
-/// the discriminant is `opaque` if it holds a macro, or a part that `syn` does not parse
-/// (`Verbatim`), which may hold one. In an item declared in the discriminant, `Self` is that item,
-/// so it is kept, and `items` counts how deep in items the visit is.
+/// the discriminant is `opaque` if it holds a macro, an attribute (one on an item of a block may be
+/// a macro), or a part that `syn` does not parse (`Verbatim`), which may hold one. In an item
+/// declared in the discriminant, `Self` is that item, so it is kept, and `items` counts how deep in
+/// items the visit is.
 struct Discriminant<'a> {
   this: &'a Ident,
   items: usize,
@@ -2158,6 +2159,10 @@ impl VisitMut for Discriminant<'_> {
   }
 
   fn visit_macro_mut(&mut self, _: &mut syn::Macro) {
+    self.opaque = true;
+  }
+
+  fn visit_attribute_mut(&mut self, _: &mut Attribute) {
     self.opaque = true;
   }
 

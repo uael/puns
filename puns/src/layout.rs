@@ -1403,9 +1403,10 @@ impl Variant {
   /// - If `samples[i]` is a value of the variant `i`, it starts with its tag ([RFC 2195]), which
   ///   must have the bytes of `tags[i]`.
   /// - Otherwise, `declared[i]` tells whether the tag is known from the declaration: `Some(true)`
-  ///   for an expression that holds no macro and that the derive parsed in full, which has the same
-  ///   value in both enums, `Some(false)` for another expression, and `None` for no discriminant,
-  ///   which is the tag before it plus one (0 for the first), so known if that one is.
+  ///   for an expression that holds no macro and no attribute and that the derive parsed in full,
+  ///   which has the same value in both enums, `Some(false)` for another expression, and `None` for
+  ///   no discriminant, which is the tag before it plus one (0 for the first), so known if that one
+  ///   is.
   ///
   /// A variant without a sample of which `exists` says that a value may exist in a source holds a
   /// scalar that a pun never makes, or a union none of whose fields has values. Its tag must be
@@ -1461,8 +1462,8 @@ impl Variant {
       };
       assert!(
         known || !exists[i],
-        "the tag of a variant without a sample is not known: its discriminant must hold no macro, \
-         or it must have none after a variant whose tag is known"
+        "the tag of a variant without a sample is not known: its discriminant must hold no macro \
+         and no attribute, or it must have none after a variant whose tag is known"
       );
       i += 1;
     }

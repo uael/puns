@@ -932,8 +932,8 @@
 //!   because `puns` cannot observe where those fields are and does not guess.
 //! - In an enum with fields and a primitive or `C` representation, a variant that holds a scalar
 //!   that a pun never makes, or a union none of whose fields has values, has no sample from which
-//!   `puns` reads its tag. Its discriminant must hold no macro, or it must have none after a
-//!   variant whose tag is known, or the enum is refused ([What the derive
+//!   `puns` reads its tag. Its discriminant must hold no macro and no attribute, or it must have
+//!   none after a variant whose tag is known, or the enum is refused ([What the derive
 //!   trusts](macro@Pun#what-the-derive-trusts)).
 //!
 //! ## Not done yet
@@ -1472,9 +1472,9 @@ pub use layout::{crc32, sum16};
 ///   sample of the variant, made as for the `Rust` representation, and fails the build if they
 ///   differ. A variant without a sample of which a value may exist, because it holds a scalar that
 ///   a pun never makes or a union none of whose fields has values, must have a discriminant that
-///   holds no macro, or none after a variant whose tag is known, since Rust then gives it the tag
-///   before it plus one. Such a discriminant has the same value in both enums: the derive names
-///   only items that start with `__Pun` there, which it refuses in the input.
+///   holds no macro and no attribute, or none after a variant whose tag is known, since Rust then
+///   gives it the tag before it plus one. Such a discriminant has the same value in both enums: the
+///   derive names only items that start with `__Pun` there, which it refuses in the input.
 /// - The trait that says where a field is (`Path`) is sealed, and the leaf at which a list of
 ///   fields places a field is checked against the layout.
 /// - Names that start with `__Pun` are reserved. In the type of a field, the derive replaces `Self`

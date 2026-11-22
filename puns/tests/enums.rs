@@ -81,8 +81,9 @@ enum Drawing {
 
 const FIVE: u8 = 5;
 
-/// Discriminants that are a literal, none, a constant and an expression. The derive evaluates them
-/// again where it declares the tag, and compares the tags with those of the enum.
+/// Discriminants that are a literal, none, a constant, an expression and a block with an
+/// attribute. The derive evaluates them again where it declares the tag, and compares the tags with
+/// those of the enum.
 #[derive(Pun, Debug, PartialEq, Clone, Copy)]
 #[repr(u8)]
 enum Declared {
@@ -90,6 +91,11 @@ enum Declared {
   Next(u8),
   Constant(u8) = FIVE,
   Expression(u8) = FIVE * 2 + 1,
+  Attributed(u8) = {
+    #[expect(unused_parens, reason = "an attribute in a discriminant, which is the point")]
+    let tag = (13);
+    tag
+  },
 }
 
 /// A trait whose constant is 1 for a `Copy` type, and 2 for `OfSelf`.
@@ -155,12 +161,13 @@ fn layouts_are_the_ones_of_the_compiler() {
 
 #[test]
 fn tags_are_the_discriminants() {
-  // 2, then 3 after it, then 5 and 11.
+  // 2, then 3 after it, then 5, 11 and 13.
   assert_eq!(puns::try_pun::<[u8; 2], Declared>([2, 1]), Ok(Declared::Literal(true)));
   assert_eq!(puns::try_pun::<[u8; 2], Declared>([2, 7]), Err(Error::Validity));
   assert_eq!(puns::try_pun::<[u8; 2], Declared>([3, 7]), Ok(Declared::Next(7)));
   assert_eq!(puns::try_pun::<[u8; 2], Declared>([5, 7]), Ok(Declared::Constant(7)));
   assert_eq!(puns::try_pun::<[u8; 2], Declared>([11, 7]), Ok(Declared::Expression(7)));
+  assert_eq!(puns::try_pun::<[u8; 2], Declared>([13, 7]), Ok(Declared::Attributed(7)));
   for tag in [0, 1, 4, 6, 10, 12] {
     assert_eq!(puns::try_pun::<[u8; 2], Declared>([tag, 0]), Err(Error::Validity));
   }

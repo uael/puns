@@ -1,4 +1,4 @@
-error[E0080]: evaluation panicked: the tag of a variant without a sample is not known: its discriminant must hold no macro, or it must have none after a variant whose tag is known
+error[E0080]: evaluation panicked: the tag of a variant without a sample is not known: its discriminant must hold no macro and no attribute, or it must have none after a variant whose tag is known
   --> tests/compile-fail/enum_discriminant_of_a_hollow_variant.rs:18:10
    |
 18 | #[derive(puns::Pun, Clone, Copy)]
@@ -13,8 +13,8 @@ note: inside `Variant::declared_tags::<E, __PunTag, 2>`
    |
    | /       assert!(
    | |         known || !exists[i],
-   | |         "the tag of a variant without a sample is not known: its discriminant must hold no macro, \
-   | |          or it must have none after a variant whose tag is known"
+   | |         "the tag of a variant without a sample is not known: its discriminant must hold no macro \
+   | |          and no attribute, or it must have none after a variant whose tag is known"
    | |       );
    | |_______- in this macro invocation
 
