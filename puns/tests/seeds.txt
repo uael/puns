@@ -161,7 +161,7 @@ bool -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: ++++++---++-
 [bool; 2] -> seeds::Plain: ------------
 [bool; 2] -> seeds::Kept: -+--+---++++
 [bool; 2] -> core::option::Option<bool>: ------------
-[bool; 2] -> core::option::Option<core::num::nonzero::NonZero<u16>>: --+--+------
+[bool; 2] -> core::option::Option<core::num::nonzero::NonZero<u16>>: +++--+---+--
 [bool; 2] -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++-
 [bool; 4] -> u8: -+--+----++-
 [bool; 4] -> bool: -+--+---++++
@@ -194,7 +194,7 @@ bool -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: ++++++---++-
 [bool; 4] -> seeds::Plain: ------------
 [bool; 4] -> seeds::Kept: -+--+---++++
 [bool; 4] -> core::option::Option<bool>: ------------
-[bool; 4] -> core::option::Option<core::num::nonzero::NonZero<u16>>: ------------
+[bool; 4] -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+-------+--
 [bool; 4] -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++-
 core::num::nonzero::NonZero<u16> -> u8: -+--+----++-
 core::num::nonzero::NonZero<u16> -> bool: ------------
@@ -1025,7 +1025,7 @@ core::option::Option<core::num::nonzero::NonZero<u16>> -> u8: -+--+----++-
 core::option::Option<core::num::nonzero::NonZero<u16>> -> bool: ------------
 core::option::Option<core::num::nonzero::NonZero<u16>> -> [u8; 2]: ++++++++++++
 core::option::Option<core::num::nonzero::NonZero<u16>> -> [u8; 4]: ------------
-core::option::Option<core::num::nonzero::NonZero<u16>> -> [bool; 2]: --+--+------
+core::option::Option<core::num::nonzero::NonZero<u16>> -> [bool; 2]: --+--+-+----
 core::option::Option<core::num::nonzero::NonZero<u16>> -> [bool; 4]: ------------
 core::option::Option<core::num::nonzero::NonZero<u16>> -> core::num::nonzero::NonZero<u16>: --+--+-+----
 core::option::Option<core::num::nonzero::NonZero<u16>> -> [core::num::nonzero::NonZero<u16>; 2]: ------------
