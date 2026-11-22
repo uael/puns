@@ -534,3 +534,83 @@ fn a_part_left_to_the_compiler_is_checked_only_from_initialized_bytes() {
   assert!(matches!(puns::try_pun::<[u8; 3], Target>([1, 2, 2]), Ok(Target::X)));
   assert_eq!(puns::try_pun::<[u8; 3], Target>([2, 0, 0]).err(), Some(Error::Validity));
 }
+
+/// Checks that a union proven by a field through a requirement is checked by its next field where
+/// a value breaks the requirement.
+///
+/// Safe code may write any `u8` to a field restricted by `valid(..)`, or read by a rule. The same
+/// requirement of the source proves that of the target, but its check fails then, and the check of
+/// the union tries the next field. Where that field would read a byte that may be uninitialized in
+/// the source, the pun must not compile: `try_union_proven_by_a_restriction` and
+/// `try_union_proven_by_a_rule` in `compile-fail/`.
+#[test]
+fn a_union_proven_through_a_requirement_is_checked_past_it() {
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Soft {
+    #[pun(valid(2..=3))]
+    x: u8,
+    rest: u8,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  #[pun(assert(x > 1))]
+  struct Ruled {
+    x: u8,
+    rest: u8,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union EitherSoft {
+    soft: Soft,
+    flags: [bool; 2],
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union EitherRuled {
+    ruled: Ruled,
+    flags: [bool; 2],
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum TargetSoft {
+    V(EitherSoft),
+    X,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum TargetRuled {
+    V(EitherRuled),
+    X,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct SourceSoft {
+    tag: u8,
+    soft: Soft,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct SourceRuled {
+    tag: u8,
+    ruled: Ruled,
+  }
+
+  // The requirement holds: the first field.
+  let soft = SourceSoft { tag: 0, soft: Soft { x: 2, rest: 7 } };
+  assert!(matches!(puns::try_pun::<SourceSoft, TargetSoft>(soft), Ok(TargetSoft::V(_))));
+  let ruled = SourceRuled { tag: 0, ruled: Ruled { x: 2, rest: 7 } };
+  assert!(matches!(puns::try_pun::<SourceRuled, TargetRuled>(ruled), Ok(TargetRuled::V(_))));
+  // Safe code broke it: the second field, two `bool`s.
+  let soft = SourceSoft { tag: 0, soft: Soft { x: 1, rest: 0 } };
+  assert!(matches!(puns::try_pun::<SourceSoft, TargetSoft>(soft), Ok(TargetSoft::V(_))));
+  let ruled = SourceRuled { tag: 0, ruled: Ruled { x: 1, rest: 0 } };
+  assert!(matches!(puns::try_pun::<SourceRuled, TargetRuled>(ruled), Ok(TargetRuled::V(_))));
+  // Neither field.
+  let soft = SourceSoft { tag: 0, soft: Soft { x: 1, rest: 7 } };
+  assert_eq!(puns::try_pun::<SourceSoft, TargetSoft>(soft).err(), Some(Error::Validity));
+  let ruled = SourceRuled { tag: 0, ruled: Ruled { x: 1, rest: 7 } };
+  assert_eq!(puns::try_pun::<SourceRuled, TargetRuled>(ruled).err(), Some(Error::Validity));
+}
