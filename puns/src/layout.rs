@@ -3073,6 +3073,8 @@ impl Layout {
   /// A type without values has none, and neither does an enum whose variants have none, nor a
   /// struct, or an array of at least one element, that holds a type without values. A slice has
   /// values, since it may be empty, and so does an array of no elements, whose one value is empty.
+  /// So a struct that ends with a slice or a string has values if its sized fields do, and one that
+  /// ends with a struct has values if that struct does.
   ///
   /// # Examples
   ///
@@ -3094,7 +3096,7 @@ impl Layout {
       Kind::Struct(fields, _) => {
         let mut i = 0;
         while i < fields.len() {
-          if !fields[i].layout.unsized_ && !fields[i].layout.is_inhabited() {
+          if !fields[i].layout.is_inhabited() {
             return false;
           }
           i += 1;
