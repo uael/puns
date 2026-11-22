@@ -256,8 +256,9 @@ stabilizations that `puns` could not do without:
 ## How `puns` is written
 
 The code, tests and documentation of `puns` were written by AI (Claude models), under my
-supervision. The design comes from prototypes I wrote by hand between 2023 and 2025. I set the
-requirements and chose between the options proposed.
+supervision. The design, most of the API and most of the approaches come from prototypes I wrote by
+hand between 2023 and 2025. They were incomplete, and AI brought them to completion while I steered
+the work and added ideas along the way.
 
 I haven't read every line, and I don't claim to understand every part. I understand the
 architecture and the design. What I trust is the process: the code is checked by tools that don't
