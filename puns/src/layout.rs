@@ -3,9 +3,9 @@
 //! Every [`Pun`](crate::Pun) type has a layout, a constant of type [`Layout`]. A layout is what
 //! `puns` knows about a type: its size, its alignment, where its fields are, and which values are
 //! [valid]. It is a tree, whose leaves are scalars ([`Spec`]) and tails of bytes that an automaton
-//! accepts ([`Dfa`]), and whose nodes are arrays, slices,
-//! structs ([`Field`], with their [`Rule`]s), and enums with fields and unions ([`Enum`],
-//! [`Variant`]). A byte of a struct that no field covers is padding.
+//! accepts ([`Dfa`]), and whose nodes are arrays, slices, structs ([`Field`], with their
+//! [`Rule`]s), and enums with fields and unions ([`Enum`], [`Variant`]). A byte of a struct that no
+//! field covers is padding.
 //!
 //! The analysis of `puns` is ordinary `const fn` code that compares two layouts and decides at
 //! compile time whether a pun is proven, checked or refused. At run time, the validation checks
@@ -500,7 +500,7 @@ impl Spec {
     merge_ranges(ranges)
   }
 
-  /// Returns [`bits_of`] `value`, for `#[derive(Pun)]`.
+  /// Returns [`bits_of`] of `value`, for `#[derive(Pun)]`.
   ///
   /// # Panics
   ///
@@ -803,8 +803,7 @@ pub(crate) struct Stable {
 
 impl Stable {
   /// The facts of a layout that Rust specifies, of parts that it specifies.
-  pub(crate) const FIXED: Self =
-    Self { fixed: true, ordered: true, size: true, deep: true, init: false };
+  pub(crate) const FIXED: Self = Self::computed(true, true);
 
   /// Returns the facts of a layout for which Rust specifies at most the size: the size if `size`,
   /// and that every byte is initialized if both `size` and `init`.
@@ -813,8 +812,13 @@ impl Stable {
   }
 
   /// Returns the facts of a node whose offsets Rust computes from the sizes and alignments of its
-  /// `parts`, as for a `repr(C)` struct. It is `fixed` if the size of every part is the same in
-  /// every layout.
+  /// parts, as for a `repr(C)` struct, given whether the size of every part is the same in every
+  /// layout (`size`), and whether every part is `deep`.
+  const fn computed(size: bool, deep: bool) -> Self {
+    Self { fixed: size, ordered: size, size, deep: size && deep, init: false }
+  }
+
+  /// Returns the facts of a node of the `parts`, as [`Stable::computed`] says.
   const fn of_parts(parts: &[Field]) -> Self {
     let (mut size, mut deep, mut i) = (true, true, 0);
     while i < parts.len() {
@@ -822,7 +826,7 @@ impl Stable {
       deep &= parts[i].layout.stable.deep;
       i += 1;
     }
-    Self { fixed: size, ordered: size, size, deep: size && deep, init: false }
+    Self::computed(size, deep)
   }
 
   /// Returns the facts of an enum of a representation that Rust specifies, or of a union, as
@@ -830,19 +834,17 @@ impl Stable {
   const fn of_variants(variants: &[Variant]) -> Self {
     let (mut size, mut deep, mut i) = (true, true, 0);
     while i < variants.len() {
-      let fields = variants[i].layout.stable;
-      size &= fields.size;
-      deep &= fields.deep;
+      size &= variants[i].layout.stable.size;
+      deep &= variants[i].layout.stable.deep;
       i += 1;
     }
-    Self { fixed: size, ordered: size, size, deep: size && deep, init: false }
+    Self::computed(size, deep)
   }
 
   /// Returns the facts of a node of one repeated part, the element of an array or a slice, as
-  /// [`Stable::of_parts`] does.
+  /// [`Stable::computed`] says.
   const fn of_part(part: &Layout) -> Self {
-    let size = part.stable.size;
-    Self { fixed: size, ordered: size, size, deep: size && part.stable.deep, init: false }
+    Self::computed(part.stable.size, part.stable.deep)
   }
 }
 
@@ -861,10 +863,10 @@ impl Stable {
 /// are equal only if both are known, with the same name, length and parameters.
 ///
 /// [`Id::NONE`] is the identity of a type that has none (a generic type that derives `Pun`,
-/// `PhantomData`, or a `Scalar` implemented by hand). It is equal to no
-/// identity, not even itself, and neither is an identity with a parameter that has none. Where two
-/// types have the same identity, the analysis still requires their layouts to be the same, so an
-/// identity can only refuse.
+/// `PhantomData`, or a `Scalar` implemented by hand). It is equal to no identity, not even itself,
+/// and neither is an identity with a parameter that has none. Where two types have the same
+/// identity, the analysis still requires their layouts to be the same, so an identity can only
+/// refuse.
 #[doc(hidden)]
 #[derive(Copy, Clone, Debug)]
 pub struct Id {
@@ -1844,32 +1846,22 @@ impl Layout {
   #[must_use]
   pub const fn scalar<T>(spec: Spec) -> Self {
     assert!(spec.size == size_of::<T>(), "`Spec` size mismatch");
-    Self {
-      kind: Kind::Scalar(spec),
-      size: spec.size,
-      align: align_of::<T>(),
-      tail: 0,
-      unsized_: false,
-      leaves: spec.is_constrained() as usize,
-      uniform: match spec.valid {
-        Valid::Uninit => Uniform::Pad,
-        Valid::Any => Uniform::Any,
-        Valid::In(_) | Valid::Never => Uniform::No,
-      },
-      has_rules: false,
-      stable: Stable::FIXED,
-      id: Id::NONE,
-    }
+    Self::of_scalar(spec, align_of::<T>())
   }
 
   /// Returns the tag layout of an enum of the `Rust` representation, as `discover.rs` finds it.
   ///
   /// The tag has no type of its own, so its alignment is 1.
   pub(crate) const fn tag(spec: Spec) -> Self {
+    Self::of_scalar(spec, 1)
+  }
+
+  /// Returns the layout of the scalar `spec`, of alignment `align`.
+  const fn of_scalar(spec: Spec, align: usize) -> Self {
     Self {
       kind: Kind::Scalar(spec),
       size: spec.size,
-      align: 1,
+      align,
       tail: 0,
       unsized_: false,
       leaves: spec.is_constrained() as usize,
@@ -2629,8 +2621,7 @@ impl Layout {
   #[doc(hidden)]
   #[must_use]
   pub const fn sized_like(self, like: &Layout) -> Self {
-    let size = like.stable.size;
-    Self { stable: Stable { fixed: size, ordered: size, size, deep: size, init: false }, ..self }
+    Self { stable: Stable::computed(like.stable.size, true), ..self }
   }
 
   /// Returns the facts of a struct whose representation specifies its offsets, as `repr(C)` and
@@ -4596,12 +4587,12 @@ impl Op {
       Op::Set(_) => 26,
       Op::Get(_) => 27,
       Op::Walk { .. } => 28,
+      Op::Shortcut { .. } => 29,
       Op::Varint { .. } => 30,
       Op::Crc(_) => 31,
       Op::CrcZeros(_) => 32,
       Op::Checksum(_) => 33,
       Op::Matches(_) => 34,
-      Op::Shortcut { .. } => 29,
       Op::Then(_) => 35,
       Op::Else(_) => 36,
     }
@@ -5676,10 +5667,10 @@ impl Machine {
           (self.get(depth - 1), if big { Endian::Big } else { Endian::Little });
         // In the value: one comparison of the offset, with what does not change in a walk.
         if size >= width as usize && offset <= (size - width as usize) as u128 {
-          // SAFETY: `offset + width <= size`, which is checked above, and `base` is valid for
-          // reads of `size` bytes, initialized since `op` reads bytes by offset, by contract on
-          // the caller. `check_ops` asserted
-          // that `width` is 1 to 16. These are the requirements of `add` and of `load`.
+          // SAFETY: `offset + width <= size`, which is checked above, and `base` is valid for reads
+          // of `size` bytes, initialized since `op` reads bytes by offset, by contract on the
+          // caller. `check_ops` asserted that `width` is 1 to 16. These are the requirements of
+          // `add` and of `load`.
           self.set(depth - 1, unsafe { load(base.add(offset as usize), width as usize, endian) });
         } else {
           return false;
@@ -5700,10 +5691,9 @@ impl Machine {
         if start <= end && end <= size as u128 && zeros <= to && to <= size as u128 {
           // SAFETY: `start <= end <= size`, which is checked above, and `base` is valid for reads
           // of `size` bytes, initialized since `op` reads bytes by offset, by contract on the
-          // caller. So `add(start)` stays within
-          // them, and the `end - start` bytes from there meet the requirements of
-          // `slice::from_raw_parts`, as in `Dfa::matches`. The slice lives only during this
-          // call, which writes no memory but `self`.
+          // caller. So `add(start)` stays within them, and the `end - start` bytes from there meet
+          // the requirements of `slice::from_raw_parts`, as in `Dfa::matches`. The slice lives only
+          // during this call, which writes no memory but `self`.
           let bytes = unsafe {
             core::slice::from_raw_parts(base.add(start as usize), (end - start) as usize)
           };

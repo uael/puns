@@ -85,10 +85,9 @@
 //! be uninitialized in the source (`ByteZero -> MaybeOpaque`): only the value of a decision that
 //! needs an uninitialized byte in both modes is unsound to check (`check_pair`), and Miri runs the
 //! pair. `OpaqueNz` is such a byte with a niche at zero, and `Option<OpaqueNz>` is such a scalar
-//! too, alone and in a struct (`HoldsOptOpaque`).
-//! That the same type does not prove it is not a verdict that the oracle can judge, since a source
-//! that does not meet its own requirements implies any requirement: the compile-fail case
-//! `never_same_type` of `puns` holds it.
+//! too, alone and in a struct (`HoldsOptOpaque`). That the same type does not prove it is not a
+//! verdict that the oracle can judge, since a source that does not meet its own requirements
+//! implies any requirement: the compile-fail case `never_same_type` of `puns` holds it.
 //!
 //! # Parts
 //!

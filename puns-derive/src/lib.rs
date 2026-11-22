@@ -303,6 +303,9 @@ impl Parse for Getter {
   }
 }
 
+/// The bounds of `#[pun(bound(..))]`.
+type Bounds = Punctuated<syn::WherePredicate, Token![,]>;
+
 /// The options of `#[pun(..)]` of a type, a variant or a field.
 #[derive(Default)]
 struct Options {
@@ -315,7 +318,7 @@ struct Options {
   len: Option<Expr>,
   regions: Option<Punctuated<Region, Token![,]>>,
   /// The bounds of the implementation, instead of the ones that the derive finds.
-  bounds: Option<Punctuated<syn::WherePredicate, Token![,]>>,
+  bounds: Option<Bounds>,
 }
 
 /// Returns the options of `attrs`, which are those of `place`.
@@ -359,7 +362,7 @@ fn parse_options(attrs: &[Attribute], place: &str, allowed: &[&str]) -> Result<O
       } else if meta.path.is_ident("bound") {
         let content;
         syn::parenthesized!(content in meta.input);
-        let bounds = Punctuated::<syn::WherePredicate, Token![,]>::parse_terminated(&content)?;
+        let bounds = Bounds::parse_terminated(&content)?;
         options.bounds.get_or_insert_default().extend(bounds);
       } else if meta.path.is_ident("size") {
         options.size = Some(meta.value()?.parse()?);
@@ -1455,6 +1458,37 @@ fn bound(generics: &mut syn::Generics, ty: &Type, root: &TokenStream) {
   }
 }
 
+/// Returns the generics of `input`, with the bounds of its implementation of `Pun`: `bounds` if
+/// `#[pun(bound(..))]` gives them, and otherwise `ty: Pun` for each of the `types` of its fields
+/// that needs it ([`needs_bound`]).
+fn bounded<'a>(
+  input: &DeriveInput,
+  types: impl Iterator<Item = &'a Type>,
+  bounds: Option<&Bounds>,
+  root: &TokenStream,
+) -> syn::Generics {
+  let mut generics = input.generics.clone();
+  match bounds {
+    Some(bounds) => generics.make_where_clause().predicates.extend(bounds.iter().cloned()),
+    None => types.filter(|ty| needs_bound(ty, input)).for_each(|ty| bound(&mut generics, ty, root)),
+  }
+  generics
+}
+
+/// Returns the constant that pins the types whose functions the generated code calls to those of
+/// the crate, since a path can name another type (`Layout::PIN`).
+fn pin(root: &TokenStream) -> TokenStream {
+  quote! {
+    const _: (
+      fn(#root::layout::Rule),
+      fn(#root::layout::Op),
+      fn(#root::layout::Field),
+      fn(#root::layout::Enum),
+      fn(#root::layout::Variant),
+    ) = #root::layout::Layout::PIN;
+  }
+}
+
 // -------------------------------------------------------------------------------------------------
 // Structs
 
@@ -1552,18 +1586,13 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
 
   // Only the layout of `repr(C)` and `repr(transparent)` is known without the size of the fields.
   let sized = !(repr.c || repr.transparent);
-  let mut generics = input.generics.clone();
+  let types = fields.iter().map(|field| field.ty);
+  let mut generics = bounded(input, types, options.bounds.as_ref(), &root);
+  // The types of the typed regions.
   for field in &fields {
-    if options.bounds.is_none() && needs_bound(field.ty, input) {
-      bound(&mut generics, field.ty, &root);
-    }
-    // The types of the typed regions.
     for ty in field.options.regions.iter().flatten().filter_map(|region| region.ty.as_ref()) {
       bound(&mut generics, ty, &root);
     }
-  }
-  if let Some(bounds) = &options.bounds {
-    generics.make_where_clause().predicates.extend(bounds.iter().cloned());
   }
   if sized {
     generics.make_where_clause().predicates.push(parse_quote!(#this: ::core::marker::Sized));
@@ -1800,16 +1829,10 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     quote!(const NULL_OPTIMIZED: bool = false #(|| <#types as #root::Pun>::NULL_OPTIMIZED)*;)
   });
 
+  let pin = pin(&root);
   Ok(quote! {
     const _: () = {
-      // The types whose functions are called are those of the crate (see `Layout::PIN`).
-      const _: (
-        fn(#root::layout::Rule),
-        fn(#root::layout::Op),
-        fn(#root::layout::Field),
-        fn(#root::layout::Enum),
-        fn(#root::layout::Variant),
-      ) = #root::layout::Layout::PIN;
+      #pin
 
       #(#lists)*
 
@@ -1829,10 +1852,10 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   (`Layout::restricted`), which guarantees the same values and accepts fewer. A struct is
       //   valid if each of its fields is valid [3], and a byte that no field covers is padding.
       //   Rules are requirements of `puns`, never of the language.
-      // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules
-      //   that have an expression, which `validate::check_rules` asserts against the layout. The
-      //   other lists are `()`. `NULL_OPTIMIZED` changes only what the
-      //   analysis takes to be the same in every layout that Rust allows.
+      // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules that
+      //   have an expression, which `validate::check_rules` asserts against the layout. The other
+      //   lists are `()`. `NULL_OPTIMIZED` changes only what the analysis takes to be the same in
+      //   every layout that Rust allows.
       // - Each field is `Pun`, so no byte is inside an `UnsafeCell`.
       // The functions called are those of the types that `Layout::PIN` fixes, which no path can
       // replace. A struct whose private fields keep an invariant must not derive `Pun` (crate
@@ -1972,8 +1995,6 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     }
     let (vis, bytes) = (&input.vis, quote!(&#lifetime [::core::primitive::u8]));
     let (result, option) = (quote!(::core::result::Result), quote!(::core::option::Option));
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let ident = &input.ident;
     let count = references.len();
     let types: Vec<&Type> = references.iter().map(|(_, reference)| &*reference.elem).collect();
     // The types of the variants, as a balanced tree; the place of each in it, as a type.
@@ -2070,7 +2091,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     });
   }
   if data.variants.iter().any(|variant| !matches!(variant.fields, Fields::Unit)) {
-    return derive_tagged(input, data, &root);
+    return derive_tagged(input, data, &root, options.bounds.as_ref());
   }
   let mut variants = vec![];
   for variant in &data.variants {
@@ -2142,26 +2163,23 @@ fn needs_bound(ty: &Type, input: &DeriveInput) -> bool {
 ///
 /// With `repr(C)` or an integer, Rust specifies the layout (RFC 2195): the offsets of the fields
 /// are those of `repr(C)` structs, computed from the sizes and the alignments of the fields
-/// (`Layout::repr_c`).
-fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Result<TokenStream> {
+/// (`Layout::repr_c`). `bounds` are those of `#[pun(bound(..))]`, if any.
+fn derive_tagged(
+  input: &DeriveInput,
+  data: &DataEnum,
+  root: &TokenStream,
+  bounds: Option<&Bounds>,
+) -> Result<TokenStream> {
   let repr = parse_repr(&input.attrs)?;
   if !repr.c && repr.int.is_none() {
-    return derive_discovered(input, data, root);
+    return derive_discovered(input, data, root, bounds);
   }
   let id = identity(input, root);
   let (ident, vis) = (&input.ident, &input.vis);
   let (impl_generics, ty_generics, _) = input.generics.split_for_impl();
   let this = quote!(#ident #ty_generics);
-  let mut generics = input.generics.clone();
-  let bounds = parse_options(&input.attrs, "an enum", &["crate", "bound"])?.bounds;
-  for field in data.variants.iter().flat_map(|variant| &variant.fields) {
-    if bounds.is_none() && needs_bound(&field.ty, input) {
-      bound(&mut generics, &field.ty, root);
-    }
-  }
-  if let Some(bounds) = bounds {
-    generics.make_where_clause().predicates.extend(bounds);
-  }
+  let types = data.variants.iter().flat_map(|variant| &variant.fields).map(|field| &field.ty);
+  let generics = bounded(input, types, bounds, root);
   let where_clause = &generics.where_clause;
 
   // The tag: an enum without fields of the same variants.
@@ -2288,18 +2306,11 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
       },
     )));
   }
-  let (first, outside) = (&shadows[0], repr.c);
+  let (first, outside, pin) = (&shadows[0], repr.c, pin(root));
 
   Ok(quote! {
     const _: () = {
-      // The types whose functions are called are those of the crate (see `Layout::PIN`).
-      const _: (
-        fn(#root::layout::Rule),
-        fn(#root::layout::Op),
-        fn(#root::layout::Field),
-        fn(#root::layout::Enum),
-        fn(#root::layout::Variant),
-      ) = #root::layout::Layout::PIN;
+      #pin
 
       #[repr(#tag_repr)]
       #[derive(Clone, Copy)]
@@ -2393,26 +2404,20 @@ fn derive_tagged(input: &DeriveInput, data: &DataEnum, root: &TokenStream) -> Re
 /// (`Discover::DESC`). The layouts of the fields make the samples (`Layout::sample`). The
 /// offsets of the fields are found by a `match` on the sample. Every function that the generated
 /// code calls is an associated function of a type that `Layout::PIN` fixes, or a method of a
-/// value that one of them makes, as in the rest of the derive.
+/// value that one of them makes, as in the rest of the derive. `bounds` are those of
+/// `#[pun(bound(..))]`, if any.
 fn derive_discovered(
   input: &DeriveInput,
   data: &DataEnum,
   root: &TokenStream,
+  bounds: Option<&Bounds>,
 ) -> Result<TokenStream> {
   let id = identity(input, root);
   let (ident, vis) = (&input.ident, &input.vis);
   let (impl_generics, ty_generics, _) = input.generics.split_for_impl();
   let this = quote!(#ident #ty_generics);
-  let mut generics = input.generics.clone();
-  let bounds = parse_options(&input.attrs, "an enum", &["crate", "bound"])?.bounds;
-  for field in data.variants.iter().flat_map(|variant| &variant.fields) {
-    if bounds.is_none() && needs_bound(&field.ty, input) {
-      bound(&mut generics, &field.ty, root);
-    }
-  }
-  if let Some(bounds) = bounds {
-    generics.make_where_clause().predicates.extend(bounds);
-  }
+  let types = data.variants.iter().flat_map(|variant| &variant.fields).map(|field| &field.ty);
+  let generics = bounded(input, types, bounds, root);
   let where_clause = &generics.where_clause;
   let count = data.variants.len();
   let usize = quote!(::core::primitive::usize);
@@ -2576,7 +2581,7 @@ fn derive_discovered(
       }
     });
   }
-  let first = &shadows[0];
+  let (first, pin) = (&shadows[0], pin(root));
   let offset_decls = data.variants.iter().enumerate().map(|(i, variant)| {
     let (name, n) = (format_ident!("OFFSETS{}", i), variant.fields.len());
     quote!(const #name: [#usize; #n];)
@@ -2584,14 +2589,7 @@ fn derive_discovered(
 
   Ok(quote! {
     const _: () = {
-      // The types whose functions are called are those of the crate (see `Layout::PIN`).
-      const _: (
-        fn(#root::layout::Rule),
-        fn(#root::layout::Op),
-        fn(#root::layout::Field),
-        fn(#root::layout::Enum),
-        fn(#root::layout::Variant),
-      ) = #root::layout::Layout::PIN;
+      #pin
 
       #(#items)*
 
@@ -2671,15 +2669,8 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
   let (impl_generics, ty_generics, _) = input.generics.split_for_impl();
   let id = identity(input, &root);
   let this = quote!(#ident #ty_generics);
-  let mut generics = input.generics.clone();
-  for field in &data.fields.named {
-    if options.bounds.is_none() && needs_bound(&field.ty, input) {
-      bound(&mut generics, &field.ty, &root);
-    }
-  }
-  if let Some(bounds) = &options.bounds {
-    generics.make_where_clause().predicates.extend(bounds.iter().cloned());
-  }
+  let types = data.fields.named.iter().map(|field| &field.ty);
+  let generics = bounded(input, types, options.bounds.as_ref(), &root);
   let where_clause = &generics.where_clause;
   let count = data.fields.named.len();
   let shadows = (0..count).map(|i| format_ident!("__PunVariant{}", i)).collect::<Vec<_>>();
@@ -2739,27 +2730,20 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
     });
   }
   let first = shadows.first().map_or_else(|| quote!(()), |shadow| quote!(#shadow #ty_generics));
+  let pin = pin(&root);
   Ok(quote! {
     const _: () = {
-      // The types whose functions are called are those of the crate (see `Layout::PIN`).
-      const _: (
-        fn(#root::layout::Rule),
-        fn(#root::layout::Op),
-        fn(#root::layout::Field),
-        fn(#root::layout::Enum),
-        fn(#root::layout::Variant),
-      ) = #root::layout::Layout::PIN;
+      #pin
 
       #(#items)*
 
-      // SAFETY: The union is `repr(C)`, so each field is at offset 0 [1], which is where the
-      // layout puts it, with the layout of its type or a restriction of it. `Layout::union`
-      // takes the size and the alignment from the compiler. As a target, the layout accepts
-      // bytes that are a valid value of one field. Such bytes are a value that safe code makes
-      // by writing that field, which is valid [2]. As a source, the layout guarantees nothing,
-      // not even that a byte is initialized, which every value holds. `Variants` lists the
-      // fields in order. The other lists are `()`. Each field is `Pun`,
-      // so no byte is in an `UnsafeCell`.
+      // SAFETY: The union is `repr(C)`, so each field is at offset 0 [1], which is where the layout
+      // puts it, with the layout of its type or a restriction of it. `Layout::union` takes the size
+      // and the alignment from the compiler. As a target, the layout accepts bytes that are a valid
+      // value of one field. Such bytes are a value that safe code makes by writing that field,
+      // which is valid [2]. As a source, the layout guarantees nothing, not even that a byte is
+      // initialized, which every value holds. `Variants` lists the fields in order. The other lists
+      // are `()`. Each field is `Pun`, so no byte is in an `UnsafeCell`.
       //
       // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.union.size-align:
       //

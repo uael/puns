@@ -5,10 +5,11 @@
 //! repository names the version of `puns` in `puns/Cargo.toml`, or its tag `v{version}`. So
 //! whichever page a reader starts from, each link leads to the same version. A link without a
 //! version would lead elsewhere: `docs.rs/puns/latest` is the newest stable release, and
-//! `blob/main` is the code after it. crates.io resolves a relative link to the default branch, so
-//! the README holds no relative link. The files of `docs/` are read on GitHub only, where a
-//! relative link stays in the revision being read, so their links to the repository are relative,
-//! and only their links to docs.rs are pinned.
+//! `blob/main` is the code after it. The one exception is a branch of [`BRANCHES`], which holds
+//! what no release contains, and is linked as it is. crates.io resolves a relative link to the
+//! default branch, so the README holds no relative link. The files of `docs/` are read on GitHub
+//! only, where a relative link stays in the revision being read, so their links to the repository
+//! are relative, and only their links to docs.rs are pinned.
 //!
 //! `cargo xtask links` writes the version into the links. A release PR changes the version, and
 //! the workflow `release-plz.yml` runs it on the branch of the PR. With `--check`, it fails if a
@@ -42,6 +43,10 @@ const PINNED: [(&str, &str); 5] = [
   ("https://github.com/uael/puns/blob", "v{v}"),
   ("https://github.com/uael/puns/tree", "v{v}"),
 ];
+
+/// The branches that a link names as they are, since no release contains them: `wip`, which keeps
+/// the prototypes that `puns` comes from, for history.
+const BRANCHES: [&str; 1] = ["wip"];
 
 /// Images of the repository, which GitHub, crates.io and docs.rs all show from this host.
 const RAW: (&str, &str) = ("https://raw.githubusercontent.com/uael/puns", "v{v}");
@@ -94,7 +99,8 @@ fn version(root: &Path) -> Result<String> {
   Ok(line.trim_end_matches('"').to_string())
 }
 
-/// Returns `text` with the version of each link of [`PINNED`] and [`RAW`] set to `version`.
+/// Returns `text` with the version of each link of [`PINNED`] and [`RAW`] set to `version`, except
+/// for a link to a branch of [`BRANCHES`].
 fn pin(text: &str, version: &str) -> String {
   let mut text = text.to_string();
   for (base, form) in PINNED.iter().chain([&RAW]) {
@@ -107,10 +113,14 @@ fn pin(text: &str, version: &str) -> String {
       match after.chars().next() {
         // A version, which this replaces.
         Some('/') => {
-          let len = after[1..].find(|c| !is_version(c)).unwrap_or(after.len() - 1);
+          let name = after[1..].split(|c| !is_version(c)).next().unwrap_or_default();
+          if BRANCHES.contains(&name) {
+            rest = after;
+            continue;
+          }
           out.push('/');
           out.push_str(&want);
-          rest = &after[1 + len..];
+          rest = &after[1 + name.len()..];
         }
         // None yet.
         None | Some(')' | ' ' | '>' | '\n') => {
@@ -293,7 +303,8 @@ mod tests {
                 [e]: https://github.com/uael/puns/tree/v0.1.0/puns/examples\n\
                 ![f](https://raw.githubusercontent.com/uael/puns/main/docs/charts/checks.svg)\n\
                 [g]: https://docs.rs/puns-derive/latest/puns_derive/\n\
-                [h]: https://github.com/uael/puns/issues\n";
+                [h]: https://github.com/uael/puns/issues\n\
+                [i]: https://github.com/uael/puns/tree/wip\n";
     let want = "[a]: https://docs.rs/puns/1.2.3-beta.4/puns/#soundness\n\
                 [b](https://docs.rs/puns/1.2.3-beta.4) \
                 [c](https://crates.io/crates/puns/1.2.3-beta.4)\n\
@@ -301,7 +312,8 @@ mod tests {
                 [e]: https://github.com/uael/puns/tree/v1.2.3-beta.4/puns/examples\n\
                 ![f](https://raw.githubusercontent.com/uael/puns/v1.2.3-beta.4/docs/charts/checks.svg)\n\
                 [g]: https://docs.rs/puns-derive/latest/puns_derive/\n\
-                [h]: https://github.com/uael/puns/issues\n";
+                [h]: https://github.com/uael/puns/issues\n\
+                [i]: https://github.com/uael/puns/tree/wip\n";
     assert_eq!(pin(text, "1.2.3-beta.4"), want);
     assert_eq!(pin(want, "1.2.3-beta.4"), want);
   }

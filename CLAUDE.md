@@ -163,7 +163,8 @@ Merging that PR publishes to crates.io and creates a GitHub release with a `v<ve
   first release PR
 - Every link of `README.md` to docs.rs, crates.io or a file of the repository names the version of
   `puns` or its tag, so that the README leads to the same version on GitHub, crates.io and docs.rs
-  (`xtask/src/links.rs`). The workflow pins them on the branch of each release PR. A new link is
+  (`xtask/src/links.rs`). A link to the `wip` branch, which keeps the prototypes for history, is
+  the one exception. The workflow pins them on the branch of each release PR. A new link is
   written pinned (`cargo xtask links`), and CI checks them (`cargo xtask links --check`). The files
   of `docs/` are read on GitHub only, and link to the repository relatively
 

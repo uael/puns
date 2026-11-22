@@ -366,8 +366,8 @@ jobs:
           # The model check under Miri: a selection of pairs that runs every unsafe path it
           # reaches (see `puns-model/tests/miri_sample.rs`); the verdicts of every pair are the
           # job of the full native run, in `model.yml`.
-          # In four jobs: whole puns (the two tests of the selection, told apart by name), the unit
-          # tests, the regressions and view enums, parts and unsized types.
+          # In four jobs: each of the two tests of the selection (told apart by name), the unit tests
+          # with the regressions and the view enums, and the parts with the unsized types.
           - name: model, puns
             id: model
             args: -p puns-model --test miri_sample

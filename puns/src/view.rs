@@ -266,14 +266,7 @@ const fn base(tree: &'static Tree, index: usize, from: usize, head: bool) -> (us
     if !apart(layout, 0, other) && (!head || same_extent(layout, other)) {
       // Every value of the variant is one of the other: what `pun_ref` proves.
       let into = analyze(layout, other);
-      let relation = into.relation;
-      let proven = matches!(into.fit.exact, Exact::Always)
-        && into.aligned
-        && relation.uninit.is_none()
-        && relation.disjoint.is_none()
-        && relation.partial.is_none()
-        && relation.unspecified.is_none();
-      if proven {
+      if matches!(into.fit.exact, Exact::Always) && into.aligned && into.relation.infallible() {
         // What the variant is checked for from the other: what `try_pun_ref` checks.
         let from = analyze(other, layout);
         let relation = from.relation;

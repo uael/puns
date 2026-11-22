@@ -9,7 +9,7 @@ Type punning proven at compile time: a safe alternative to `transmute` and to ha
 of bytes.
 
 > [!NOTE]
-> `puns` is written by AI. See [How `puns` is written](#how-puns-is-written).
+> `puns` is written using AI. See [How `puns` is written](#how-puns-is-written).
 
 `puns` lets you reinterpret a value as another type, or bytes as a typed value, without writing
 `unsafe`. It compares the layouts and valid values of the two types while your code compiles, and
@@ -255,9 +255,9 @@ stabilizations that `puns` could not do without:
 
 ## How `puns` is written
 
-The code, tests and documentation of `puns` were written by AI (Claude models), under my
-supervision. The design comes from prototypes I wrote by hand between 2023 and 2025. I set the
-requirements and chose between the options proposed.
+The current code, tests and documentation of `puns` were all written using AI (Claude models),
+under my supervision, based on prototypes I wrote by hand between 2023 and 2025. The [`wip`][wip]
+branch keeps those prototypes for history.
 
 I haven't read every line, and I don't claim to understand every part. I understand the
 architecture and the design. What I trust is the process: the code is checked by tools that don't
@@ -298,6 +298,7 @@ additional terms or conditions.
 [media]: https://github.com/uael/puns/blob/v0.2.0-beta.3/puns/examples/media.rs
 [link]: https://github.com/uael/puns/blob/v0.2.0-beta.3/puns/examples/link.rs
 [issues]: https://github.com/uael/puns/issues
+[wip]: https://github.com/uael/puns/tree/wip
 [apache]: https://github.com/uael/puns/blob/v0.2.0-beta.3/LICENSE-APACHE
 [mit]: https://github.com/uael/puns/blob/v0.2.0-beta.3/LICENSE-MIT
 [zerocopy]: https://crates.io/crates/zerocopy
