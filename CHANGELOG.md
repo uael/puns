@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2](https://github.com/uael/puns/compare/v0.2.1...v0.2.2) - 2026-11-22
+
+### Fixed
+
+- a union of a source may hold a value even if none of its fields has one ([#49](https://github.com/uael/puns/pull/49))
+- a slice of elements without values is valid only if it is empty ([#48](https://github.com/uael/puns/pull/48))
+- a struct that ends with an unsized struct without values has no value ([#47](https://github.com/uael/puns/pull/47))
+- the empty string of a target string type is proven only if its automaton accepts it ([#46](https://github.com/uael/puns/pull/46))
+
+### Other
+
+- a plain quote for the note of the README, and a CI badge of main ([#50](https://github.com/uael/puns/pull/50))
+- compile-fail cases for two refused enums and for the checks of the discovery ([#45](https://github.com/uael/puns/pull/45))
+- a call of a field, an `Option` whose `None` takes the tag of a variant; drop one case ([#44](https://github.com/uael/puns/pull/44))
+- compile-fail cases for the functions and the refusals that had none ([#43](https://github.com/uael/puns/pull/43))
+- a `bool` of an array proven over padding by the niche of the first ([#41](https://github.com/uael/puns/pull/41))
+
 ## [0.2.1](https://github.com/uael/puns/compare/v0.2.0...v0.2.1) - 2026-11-22
 
 ### Fixed
