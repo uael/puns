@@ -489,3 +489,48 @@ fn a_struct_that_ends_with_a_struct_without_values_has_none() {
   let text = puns::from_bytes::<Text>(b"\x01hi").unwrap();
   assert_eq!((text.h, &text.text), (1, "hi"));
 }
+
+/// Checks that a part whose layout Rust leaves to the compiler, which the source does not prove, is
+/// checked only from initialized bytes.
+///
+/// A union that a later field proves drops what an earlier field does not prove. Where the union
+/// is checked all the same, in an enum that is checked as a whole, its check tries the earlier
+/// field where `rustc` put its fields. From bytes that may be uninitialized, this must not
+/// compile: the cases `try_tuple_unproven_in_union` and `try_struct_unproven_in_union` in
+/// `compile-fail/`. From initialized bytes, it compiles, and the answer does not depend on where
+/// `rustc` put the fields, since the later field accepts every value.
+#[test]
+fn a_part_left_to_the_compiler_is_checked_only_from_initialized_bytes() {
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Byte {
+    any: u8,
+    none: (),
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Pair {
+    x: Byte,
+    y: Byte,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Either {
+    tuple: (bool, u8),
+    pair: Pair,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum Target {
+    V(Either),
+    X,
+  }
+
+  // Whatever the bytes of the tuple, `pair` accepts them.
+  for bytes in [[0, 0, 0], [0, 1, 7], [0, 2, 2], [0, 7, 1]] {
+    assert!(matches!(puns::try_pun::<[u8; 3], Target>(bytes), Ok(Target::V(_))));
+  }
+  assert!(matches!(puns::try_pun::<[u8; 3], Target>([1, 2, 2]), Ok(Target::X)));
+  assert_eq!(puns::try_pun::<[u8; 3], Target>([2, 0, 0]).err(), Some(Error::Validity));
+}
