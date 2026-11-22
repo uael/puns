@@ -9,8 +9,7 @@ Type punning proven at compile time: a safe alternative to `transmute` and to ha
 of bytes.
 
 > [!NOTE]
-> `puns` is written by AI (Claude models), under my supervision. See [How `puns` is
-> written](#how-puns-is-written).
+> `puns` is written by AI. See [How `puns` is written](#how-puns-is-written).
 
 `puns` lets you reinterpret a value as another type, or bytes as a typed value, without writing
 `unsafe`. It compares the layouts and valid values of the two types while your code compiles, and
