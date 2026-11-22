@@ -610,6 +610,33 @@ fn option_and_result() {
   assert_eq!(puns::pun::<Result<NonZero<u8>, bool>, Result<u8, u8>>(Err(true)), Err(1));
 }
 
+/// Checks that what is known of a niche is known of its own bytes only.
+///
+/// The niche of an `Option` of an array is in the first element. In `Some`, that element is not
+/// the tag of `None`, which says nothing of the next elements. The puns that would take them to be
+/// proven as the first is must not compile: the cases `niche_in_array*` in
+/// `compile-fail-unstable/`.
+#[test]
+fn a_niche_in_an_array_is_in_its_first_element() {
+  type Four = Option<[NonZero<u8>; 4]>;
+  let four = |bytes: [u8; 4]| bytes.map(|byte| NonZero::new(byte).unwrap());
+  // Proven: every byte is a value of an array of one element, and each `NonZero` is one.
+  assert_eq!(puns::pun::<[u8; 1], Option<[NonZero<u8>; 1]>>([0]), None);
+  assert_eq!(puns::pun::<[u8; 1], Option<[NonZero<u8>; 1]>>([7]), Some([NonZero::new(7).unwrap()]));
+  assert_eq!(puns::pun::<[NonZero<u8>; 4], Four>(four([1, 2, 3, 4])), Some(four([1, 2, 3, 4])));
+  // Checked: each element of `Some`, and nothing but the tag of `None`.
+  assert_eq!(puns::try_pun::<[u8; 4], Four>([1, 2, 3, 4]), Ok(Some(four([1, 2, 3, 4]))));
+  assert_eq!(puns::try_pun::<[u8; 4], Four>([1, 0, 0, 0]), Err(Error::Validity));
+  assert_eq!(puns::try_pun::<[u8; 4], Four>([1, 2, 3, 0]), Err(Error::Validity));
+  assert_eq!(puns::try_pun::<[u8; 4], Four>([0, 0, 0, 0]), Ok(None));
+  assert_eq!(puns::try_pun::<[u8; 4], Four>([0, 9, 9, 9]), Ok(None));
+  let bytes = [[1u8, 2], [3, 0]];
+  assert!(puns::try_pun_ref::<[[u8; 2]; 2], Option<[[NonZero<u8>; 2]; 2]>>(&bytes).is_err());
+  let bytes = [[1u8, 2], [3, 4]];
+  let nested = puns::try_pun_ref::<[[u8; 2]; 2], Option<[[NonZero<u8>; 2]; 2]>>(&bytes).unwrap();
+  assert_eq!(nested.map(|rows| rows.map(|row| row.map(NonZero::get))), Some([[1, 2], [3, 4]]));
+}
+
 /// A struct whose field requires one value and whose rule no value meets.
 ///
 /// Safe code can make values of it all the same, because `valid(..)` and rules are requirements,
