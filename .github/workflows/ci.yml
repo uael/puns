@@ -366,9 +366,9 @@ jobs:
           # The model check under Miri: a selection of pairs that runs every unsafe path it
           # reaches (see `puns-model/tests/miri_sample.rs`); the verdicts of every pair are the
           # job of the full native run, in `model.yml`.
-          # In five jobs: each of the two tests of the selection (told apart by name), the unit tests
+          # In six jobs: each of the two tests of the selection (told apart by name), the unit tests
           # with the regressions and the view enums, the parts with the unsized types, and the
-          # shapes, for what a check of them reads.
+          # shapes, for what a check of them reads, in two parts of about the same time.
           - name: model, puns
             id: model
             args: -p puns-model --test miri_sample
@@ -387,9 +387,15 @@ jobs:
             id: model
             args: -p puns-model --test parts --test dst
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
+          - name: model, shapes, array under an enum
+            id: model
+            args: -p puns-model --test shapes
+            filter: -- --exact array_under_an_enum
+            flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
           - name: model, shapes
             id: model
             args: -p puns-model --test shapes
+            filter: -- --skip array_under_an_enum
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
     steps:
       - uses: actions/checkout@v4
