@@ -924,11 +924,11 @@ const fn relate_with(
     return relation;
   }
   // Nor of a target with an element without values. `is_inhabited` goes through every sized part,
-  // not the elements of a slice.
+  // not the elements of a slice. Nothing is assumed of the source, which may hold a value even
+  // where none can be made (a union none of whose fields has values).
   if let Some((elem, at)) = tail_slice(b, base_b)
     && elem.size > 0
     && !elem.is_inhabited()
-    && a.is_inhabited()
     && (end == usize::MAX || end >= at + elem.size)
     && !matches!(tail_slice(a, base_a), Some((source, from)) if from == at && equal(source, elem))
   {
