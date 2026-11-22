@@ -415,14 +415,10 @@ macro_rules! ints {
   )+};
 }
 
-impl From<u16> for u16le {
-  #[inline]
-  fn from(value: u16) -> Self {
-    Self::new(value)
-  }
-}
-
 /// Implements `From<$raw>` for each `$name: $raw`, by `$name::new`.
+///
+/// `u24le`, `u24be`, `u48le` and `u48be` have none, since `new` panics on the values of their `$raw`
+/// that do not fit.
 macro_rules! from {
   ($($name:ident: $raw:ident;)+) => {$(
     impl From<$raw> for $name {
@@ -435,7 +431,8 @@ macro_rules! from {
 }
 
 from! {
-  u16be: u16; u32le: u32; u32be: u32; u64le: u64; u64be: u64; u128le: u128; u128be: u128;
+  u16le: u16; u16be: u16; u32le: u32; u32be: u32;
+  u64le: u64; u64be: u64; u128le: u128; u128be: u128;
 }
 
 ints! {

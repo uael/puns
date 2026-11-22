@@ -290,10 +290,10 @@ unsafe impl<T: Pun> Pun for Option<T> {
 }
 
 // SAFETY: The layout is the one that `rustc` gave `Result<T, E>`, found by the experiments of
-// `discover`, as for `Option<T>`. The variants `Ok` and `Err` hold the
-// layouts of `T` and `E` at the offsets observed on their samples, and the lists of variants and
-// fields are those of this layout (see `ResultOk`, `ResultErr`, `ResultOkField` and
-// `ResultErrField`). `Result<T, E>` holds a `T` or an `E`, and a tag, so no `UnsafeCell`.
+// `discover`, as for `Option<T>`. The variants `Ok` and `Err` hold the layouts of `T` and `E` at
+// the offsets observed on their samples, and the lists of variants and fields are those of this
+// layout (see `ResultOk`, `ResultErr`, `ResultOkField` and `ResultErrField`). `Result<T, E>` holds
+// a `T` or an `E`, and a tag, so no `UnsafeCell`.
 unsafe impl<T: Pun, E: Pun> Pun for Result<T, E> {
   type Elem = ();
   type Fields = ();

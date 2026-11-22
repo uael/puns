@@ -12,8 +12,8 @@
 //!   read from padding. This is always an error.
 //! - **Validity** ([`Relation`]): whether the pun is infallible, fallible, or never valid. Each
 //!   constrained scalar of the target must accept every value that the source may hold under it.
-//! - **Marks** ([`Marks`]): which scalars, patterns and rules of the target the source does not
-//!   prove. These are exactly what a checked pun checks at run time.
+//! - **Marks** ([`Marks`]): which scalars, patterns, enums, unions and rules of the target the
+//!   source does not prove. These are exactly what a checked pun checks at run time.
 //! - **Mutability** ([`mutable`], [`mutable_part`]): whether the reverse inclusion holds, which is
 //!   what a `&mut` requires. Every value written through the target must leave a valid source.
 //!
@@ -788,6 +788,21 @@ pub const fn relate_at(
   end: usize,
   checked: Checked,
 ) -> Relation {
+  relate_with(a, base_a, b, base_b, start, end, checked, &Known::NONE)
+}
+
+/// Relates `a` and `b` as [`relate_at`] does, knowing what the source holds at some bytes.
+#[expect(clippy::too_many_arguments, reason = "the arguments of `relate_at`, and what is known")]
+const fn relate_with(
+  a: &'static Layout,
+  base_a: usize,
+  b: &'static Layout,
+  base_b: usize,
+  start: usize,
+  end: usize,
+  checked: Checked,
+  known: &Known,
+) -> Relation {
   assert!(base_a == 0 || matches!(checked, Checked::No), "internal error: shifted source");
   let mut relation = Relation::NEW;
   if !sizes_kept(a, b) {
@@ -802,6 +817,7 @@ pub const fn relate_at(
   }
   let mut a = Cursor::new(a, base_a, false, Checked::No);
   let mut b = Cursor::new(b, base_b, true, checked);
+  b.known = *known;
   relate_range(&mut a, &mut b, start, end, &mut relation);
   relation
 }
@@ -1044,30 +1060,6 @@ const fn alike(a: &Layout, b: &Layout) -> bool {
   }
 }
 
-/// Relates `a` and `b` as [`relate`] does, knowing what the source holds at some bytes.
-const fn relate_known(
-  a: &'static Layout,
-  b: &'static Layout,
-  end: usize,
-  checked: Checked,
-  known: &Known,
-) -> Relation {
-  let mut relation = Relation::NEW;
-  if !sizes_kept(a, b) {
-    relation.unspecified(0);
-    return relation;
-  }
-  if !b.is_inhabited() && a.is_inhabited() {
-    relation.disjoint = Some(0);
-    return relation;
-  }
-  let mut a = Cursor::new(a, 0, false, Checked::No);
-  let mut b = Cursor::new(b, 0, true, checked);
-  b.known = *known;
-  relate_range(&mut a, &mut b, 0, end, &mut relation);
-  relation
-}
-
 /// Relates `a` and `b` over `pos..end`, and records what it finds in `out`.
 ///
 /// Returns `true` if this settles everything after `end` too, because what follows repeats forever,
@@ -1245,10 +1237,9 @@ const PLACES: usize = 1024;
 /// are in no order, such as the second byte of a `(bool, [u8; 3])`. More is then required, never
 /// less.
 ///
-/// Nothing is left to check at run time, since a check would read where the compiler may not
-/// have put the field. A field that the source does not prove somewhere fails the relation. So
-/// does a rule, which names fields. Past
-/// [`PLACES`] places, the relation fails too.
+/// Nothing is left to check at run time, since a check would read where the compiler may not have
+/// put the field. A field that the source does not prove somewhere fails the relation. So does a
+/// rule, which names fields. Past [`PLACES`] places, the relation fails too.
 const fn relate_fields(a: &Cursor, b: &Cursor, target: &'static Layout, pos: usize) -> bool {
   let Kind::Struct(fields, _) = target.kind else { return false };
   if !target.stable.size || target.has_rules {
@@ -1346,7 +1337,7 @@ const fn relate_enums(
       }
       // What the tag holds in `to`: the tags of both.
       let known = Known::both(tag, size, tag_b.endian, &tags, &to.tags());
-      let mut relation = relate_known(from.layout, to.layout, b.size, Checked::All, &known);
+      let mut relation = relate_with(from.layout, 0, to.layout, 0, 0, b.size, Checked::All, &known);
       mark_rules(from.layout, to.layout, 0, 0, &mut relation);
       if let Some(offset) = relation.uninit {
         out.uninit(pos + offset);

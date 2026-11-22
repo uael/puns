@@ -153,8 +153,7 @@ use core::mem::{self, MaybeUninit};
 use crate::layout::{Endian, Field, Kind, Layout, Spec, Valid, load, max_value};
 
 /// Returns a `T` that is valid in the sense of the Reference, whose rules may not hold, in which
-/// every scalar is the least of its values and padding is
-/// uninitialized.
+/// every scalar is the least of its values and padding is uninitialized.
 ///
 /// Of an enum, the sample is its first variant that has values.
 ///

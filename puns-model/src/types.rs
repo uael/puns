@@ -623,8 +623,7 @@ impl Oracle for Opaque {
 }
 
 /// A byte that a pun never makes, as `Opaque`, with a niche at zero, as an offset that is never
-/// zero.
-/// Its `Option` is one too, `None` as zero.
+/// zero. Its `Option` is one too, `None` as zero.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct OpaqueNz(pub NonZero<u8>);

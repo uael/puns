@@ -129,8 +129,8 @@ pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Option<Result<D,
   }
   // SAFETY: `S` and `D` have the same size. `validate` found every part of `D` that the analysis
   // marked to be valid in `value`. Every part that it did not mark is valid in every value of `S`,
-  // since the relation records no disjoint part, and nothing that Rust leaves to the
-  // compiler. So `value` is a valid `D`, as `pun_unchecked` requires.
+  // since the relation records no disjoint part, and nothing that Rust leaves to the compiler. So
+  // `value` is a valid `D`, as `pun_unchecked` requires.
   Some(Ok(unsafe { pun_unchecked(value) }))
 }
 
@@ -305,8 +305,8 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Option
   // `D`. It is made from `source`, a pointer that may write. The reference has the lifetime of the
   // exclusive borrow `value`, so nothing else reads or writes the bytes while it lives.
   // `mutable_part` found that every value of `D` is valid for what `S` has over its bytes, and that
-  // nothing of `S` outside them depends on them.
-  // So `value` is a valid `S` when the borrow ends, whatever `D` is written through the reference.
+  // nothing of `S` outside them depends on them. So `value` is a valid `S` when the borrow ends,
+  // whatever `D` is written through the reference.
   Some(unsafe { &mut *Plan::<S, D>::cast(source).cast_mut() })
 }
 
@@ -345,10 +345,9 @@ pub const fn from_head<D: ?Sized + Pun>(bytes: &[u8]) -> Option<Result<(&D, &[u8
     // - It is aligned. The address was checked if `D` is aligned to more than 1.
     // - It is not dangling, because it is within `bytes`.
     // - It points to a valid `D`. `validate` found every part that the analysis marked to be valid.
-    //   The relation records no disjoint part, and nothing that Rust leaves to the
-    //   compiler, so every other part accepts any initialized bytes.
-    // The reference has the lifetime of the shared borrow `bytes`, and `D` holds no `UnsafeCell`
-    // (`Pun`, section Safety).
+    //   The relation records no disjoint part, and nothing that Rust leaves to the compiler, so
+    //   every other part accepts any initialized bytes. The reference has the lifetime of the
+    //   shared borrow `bytes`, and `D` holds no `UnsafeCell` (`Pun`, section Safety).
     Ok((target, size)) => Ok((unsafe { &*target }, bytes.split_at(size).1)),
     Err(error) => Err(error),
   })

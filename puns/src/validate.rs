@@ -71,7 +71,7 @@ use crate::{
 
 /// The parts of a target that a validation checks.
 pub trait Checks {
-  /// The constrained scalars and rules to check, by index of leaf in the target.
+  /// The leaves to check (scalars, patterns, enums, unions and rules), by index in the target.
   const MARKS: Marks;
   /// Whether a scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) is accepted,
   /// as the initialized bytes that it is known to be, instead of refused.
@@ -280,9 +280,8 @@ const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(ptr: *co
 /// - `ptr` is valid for reads of `len` consecutive `T`s, each as [`validate`] requires.
 const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(ptr: *const T, len: usize) -> bool {
   let mut i = 0;
-  // Elements whose checks are a few comparisons are checked a block of about 64 bytes at a time,
-  // without stopping within a block. The optimizer can then vectorize it, which it cannot do with a
-  // loop that may stop at each element. The result is the same, and what is read is in the slice.
+  // Without a stop within a block, the optimizer can vectorize the checks, which it cannot do in a
+  // loop that may stop at each element.
   let block = const { T::LAYOUT.block() };
   if block > 1 {
     while len - i >= block {
@@ -371,7 +370,6 @@ const unsafe fn validate_fields<C: Checks, P: Path, T: ?Sized + Pun, F: Fields>(
 ///
 /// The rules of a struct are its last leaf.
 const fn rules_marked<C: Checks, P: Path, T: ?Sized + Pun>() -> bool {
-  // The rules of a struct are its last leaf.
   !T::LAYOUT.rules().is_empty() && C::MARKS.any(P::LEAF + T::LAYOUT.leaves - 1, 1)
 }
 
@@ -492,7 +490,7 @@ pub const unsafe fn length<T: ?Sized + Pun>(base: *const u8, n: usize) -> Option
   // The rule is the struct's own, or of its last field: the one that `length_rule` finds.
   let (own, offset) = const {
     let rule = T::LAYOUT.length_rule();
-    let own = match T::LAYOUT.length_rule() {
+    let own = match rule {
       Some(rule) => rule.base == 0 && sizing::<T, T::Rules>() != usize::MAX,
       None => false,
     };
@@ -513,8 +511,8 @@ pub const unsafe fn length<T: ?Sized + Pun>(base: *const u8, n: usize) -> Option
     (own, offset)
   };
   if own {
-    // SAFETY: `own` is `true`, so the rule is that of `T`. The requirements of
-    // `length_listed` are those of this call.
+    // SAFETY: `own` is `true`, so the rule is that of `T`. The requirements of `length_listed` are
+    // those of this call.
     return unsafe { length_listed::<T, T::Rules>(base, n) };
   }
   // SAFETY: The rule is that of the last field of `T`, at `offset`, whose type has the rule,

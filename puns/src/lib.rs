@@ -57,10 +57,10 @@
 //! offset of a self-relative pointer ([Scalars that a pun never
 //! makes](#scalars-that-a-pun-never-makes)), but they read such a value as plain data.
 //!
-//! [`num`] has the types with a fixed byte order or a fixed value. [`macro@Pun`] documents the
-//! options of the derive. [`layout`] has the types that describe a layout, and the checksums. The
-//! tests and the examples of the repository show more uses. Each example of a format says which
-//! parts of the format it does not cover, and why.
+//! [`num`] has numbers of a fixed byte order, and integers restricted to some values. [`macro@Pun`]
+//! documents the options of the derive. [`layout`] has the types that describe a layout, and the
+//! checksums. The tests and the examples of the repository show more uses. Each example of a format
+//! says which parts of the format it does not cover, and why.
 //!
 //! ## Using the functions
 //!
@@ -218,9 +218,8 @@
 //! struct or tuple of the `Rust` representation, the tag of an enum of that representation, or
 //! niches. One exception is whether an `Option` of a scalar that a pun never makes compiles
 //! ([Scalars that a pun never makes](#scalars-that-a-pun-never-makes)). With the feature, `puns`
-//! also uses the layout that
-//! `rustc` chose. [The `unstable` feature](#the-unstable-feature) states the rule and [what it
-//! relies on](#what-this-relies-on).
+//! also uses the layout that `rustc` chose. [The `unstable` feature](#the-unstable-feature) states
+//! the rule and [what it relies on](#what-this-relies-on).
 //!
 //! The tests run under [Miri], on the targets that [Portability](#portability) names. The analysis
 //! itself is checked against oracles that do not use it, both with and without the `unstable`
@@ -697,13 +696,13 @@
 //! The primitive types, the types of [`num`], arrays, slices, tuples, `Option`, `Result` and
 //! `MaybeUninit` have identities, and `ManuallyDrop<T>` is `T`. A type that derives `Pun` is named
 //! by where it is declared (the module, file, line and column), by its name, and by the number of
-//! its derive in its crate. A generic type that
-//! derives `Pun`, a `PhantomData`, and a [`Scalar`] implemented by hand have no identity. A part
-//! whose layout Rust leaves to the compiler and that holds one of them therefore proves itself only
-//! with the feature, unless it is proven field by field. A type whose every part has the same
-//! layout in every build, such as a generic `repr(C)` struct of a `u8` and a `PhantomData<T>`,
-//! needs no identity. An identity can only refuse a pun, because the layouts are compared as well,
-//! so two types that happened to share a name would still be told apart by their layouts.
+//! its derive in its crate. A generic type that derives `Pun`, a `PhantomData`, and a [`Scalar`]
+//! implemented by hand have no identity. A part whose layout Rust leaves to the compiler and that
+//! holds one of them therefore proves itself only with the feature, unless it is proven field by
+//! field. A type whose every part has the same layout in every build, such as a generic `repr(C)`
+//! struct of a `u8` and a `PhantomData<T>`, needs no identity. An identity can only refuse a pun,
+//! because the layouts are compared as well, so two types that happened to share a name would still
+//! be told apart by their layouts.
 //!
 //! ### What this relies on
 //!
@@ -788,9 +787,9 @@
 //!   arrays, and a scalar that a pun never makes. The record covers each pair whole, and in part
 //!   (by `&mut` and from the end). It also records which byte patterns each type accepts from
 //!   bytes, but not the message of a refusal, which may name what `rustc` chose. A rule and an enum
-//!   checked as a whole each have a type in the record. CI compares the record with
-//!   the one in the repository, without `-Zrandomize-layout` and with it under three seeds, and it
-//!   must be the same each time.
+//!   checked as a whole each have a type in the record. CI compares the record with the one in the
+//!   repository, without `-Zrandomize-layout` and with it under three seeds, and it must be the
+//!   same each time.
 //! - Compile-fail tests check each refusal without the feature, along with its message, and
 //!   compile-pass tests check what compiles. Other compile-fail tests run with the feature, and the
 //!   rest are the same both ways.
@@ -2137,8 +2136,8 @@ unsafe impl<T: Scalar> Pun for T {
 // SAFETY: `Layout::array(&T::LAYOUT, N)` is `N` elements of the layout of `T`, the size of `T`
 // apart, with the alignment of `T`: the layout of `[T; N]` [1]. An array is valid if each of its
 // elements is a valid `T` [2], which is what `T::LAYOUT` describes, by the `# Safety` of `Pun` for
-// `T`. `Elem` is `T`, and the other lists are `()`. Its bytes are those of
-// its elements, none of which is inside an `UnsafeCell`, since `T: Pun`.
+// `T`. `Elem` is `T`, and the other lists are `()`. Its bytes are those of its elements, none of
+// which is inside an `UnsafeCell`, since `T: Pun`.
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#array-layout:
 //
@@ -2163,9 +2162,8 @@ unsafe impl<T: Pun, const N: usize> Pun for [T; N] {
 // SAFETY: `Layout::slice` is the layout of elements that have the layout of `T`, the size of `T`
 // apart, with the alignment of `T`, as many as the length of the slice: the layout of `[T]` [1]. A
 // slice is valid if each of its elements is a valid `T`, as an array is, which is what `T::LAYOUT`
-// describes, by the `# Safety` of `Pun` for `T`. `Elem` is `T`, and the other lists are `()`.
-// Its bytes are those of its elements, none of which is inside an `UnsafeCell`,
-// since `T: Pun`.
+// describes, by the `# Safety` of `Pun` for `T`. `Elem` is `T`, and the other lists are `()`. Its
+// bytes are those of its elements, none of which is inside an `UnsafeCell`, since `T: Pun`.
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#slice-layout:
 //
@@ -2209,8 +2207,8 @@ unsafe impl Pun for str {
 }
 
 // SAFETY: `ManuallyDrop<T>` has the layout and the bit validity of `T` [1], so the layout of `T`,
-// and its lists, are those of `ManuallyDrop<T>`. It holds a `T` and nothing
-// else, so it holds no `UnsafeCell`, since `T: Pun`.
+// and its lists, are those of `ManuallyDrop<T>`. It holds a `T` and nothing else, so it holds no
+// `UnsafeCell`, since `T: Pun`.
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/struct.ManuallyDrop.html:
 //
@@ -2238,13 +2236,13 @@ unsafe impl<T: ?Sized + Pun> Pun for ManuallyDrop<T> {
   const NULL_OPTIMIZED: bool = T::NULL_OPTIMIZED;
 }
 
-// SAFETY: `Layout::padding::<Self>()` has the size and the alignment of `MaybeUninit<T>`, and
-// every byte of it is padding. As a target it accepts any bytes, uninitialized ones included, and
-// as a source it guarantees nothing. Any bit value is a valid `MaybeUninit<T>` [1], so the layout
+// SAFETY: `Layout::padding::<Self>()` has the size and the alignment of `MaybeUninit<T>`, and every
+// byte of it is padding. As a target it accepts any bytes, uninitialized ones included, and as a
+// source it guarantees nothing. Any bit value is a valid `MaybeUninit<T>` [1], so the layout
 // accepts only valid values, and every value holds what it guarantees. It has no element, field,
-// variant or rule, and each list is `()`. `sized_like` and
-// `identified` change neither its size, its alignment, nor its values. It holds a `T` or nothing,
-// so it holds no `UnsafeCell`, since `T: Pun`.
+// variant or rule, and each list is `()`. `sized_like` and `identified` change neither its size,
+// its alignment, nor its values. It holds a `T` or nothing, so it holds no `UnsafeCell`, since
+// `T: Pun`.
 //
 // Safe code may write uninitialized bytes through a `&mut MaybeUninit<T>`. The analysis makes one
 // from a `&mut S` only if every value of the target, padding included, is a valid `S` (the reverse
@@ -2272,11 +2270,11 @@ unsafe impl<T: Pun> Pun for core::mem::MaybeUninit<T> {
   const LAYOUT: Layout = Layout::padding::<Self>();
 }
 
-// SAFETY: `Layout::uninhabited::<Self>()` has the size and the alignment of `Infallible`, and is
-// an enum without variants, which accepts no value. `Infallible` is an enum without variants, so
-// no value of it is valid [1]. So every value that the layout accepts is valid, and every value
-// holds what the layout says, since there are none. The lists are `()`. It has
-// no byte, so none is inside an `UnsafeCell`.
+// SAFETY: `Layout::uninhabited::<Self>()` has the size and the alignment of `Infallible`, and is an
+// enum without variants, which accepts no value. `Infallible` is an enum without variants, so no
+// value of it is valid [1]. So every value that the layout accepts is valid, and every value holds
+// what the layout says, since there are none. The lists are `()`. It has no byte, so none is inside
+// an `UnsafeCell`.
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.enum:
 //
@@ -2315,13 +2313,13 @@ macro_rules! tuple {
   ([$($all:ident)+] $($index:tt)+) => {
     // SAFETY: The layout is `Layout::structure` of the elements of the tuple, at the offsets that
     // `offset_of!` gives, each with the layout of its type. `Layout::structure` takes the size and
-    // the alignment of the tuple from the compiler, and asserts that no two fields overlap and
-    // that each is within the size. A tuple is valid if each of its elements is valid [1], and
-    // every byte that no element covers is padding. So the layout is that of the tuple, by the
-    // `# Safety` of `Pun` for each element. `rust` and `identified` change neither the size, the
-    // alignment, the offsets nor the values. `Fields` lists the elements in order (see
-    // `TupleField`). The other lists are `()`. No byte of an element is in
-    // an `UnsafeCell`, since each is `Pun`, and a byte of padding belongs to no element.
+    // the alignment of the tuple from the compiler, and asserts that no two fields overlap and that
+    // each is within the size. A tuple is valid if each of its elements is valid [1], and every
+    // byte that no element covers is padding. So the layout is that of the tuple, by the `# Safety`
+    // of `Pun` for each element. `rust` and `identified` change neither the size, the alignment,
+    // the offsets nor the values. `Fields` lists the elements in order (see `TupleField`). The
+    // other lists are `()`. No byte of an element is in an `UnsafeCell`, since each is `Pun`, and a
+    // byte of padding belongs to no element.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.struct:
     //
@@ -2860,12 +2858,11 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
     let target = ptr::from_raw_parts::<D>(addr, len);
     // SAFETY: This satisfies the safety contract of `validate`, which does not require `target` to
     // be aligned. `target` is at the address of `source`, and its extent is the extent of `source`,
-    // which is checked above. Its size is at
-    // most the size of `source`. This is checked above if `D` is unsized and more aligned than
-    // `S`. Otherwise `D` is sized, and its size is its extent, or it is unsized and its extent is
-    // rounded up to an alignment that divides that of `S`. So `target` is valid for reads of a `D`,
-    // by contract on the caller. Every byte that a marked check reads is initialized, by contract
-    // on the caller.
+    // which is checked above. Its size is at most the size of `source`. This is checked above if
+    // `D` is unsized and more aligned than `S`. Otherwise `D` is sized, and its size is its extent,
+    // or it is unsized and its extent is rounded up to an alignment that divides that of `S`. So
+    // `target` is valid for reads of a `D`, by contract on the caller. Every byte that a marked
+    // check reads is initialized, by contract on the caller.
     if !unsafe { validate::<C, Root, D>(target) } {
       return Err(Error::Validity);
     }
@@ -2965,8 +2962,8 @@ pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
   // SAFETY: `Plan::<S, D>::BY_VALUE` compiled, so the analysis meets `Need::VALUE`. Its fit is
   // `Exact::Always`: `S` and `D` are `Copy`, so `Sized`, and `size_of::<S>() == size_of::<D>()`.
   // Its relation records nothing: no byte that `D` requires that may be padding in `S`, no disjoint
-  // or partial part, no part that Rust leaves to the compiler. So every value of `S` is
-  // a valid `D` (`Relation::infallible`). This is what `pun_unchecked` requires.
+  // or partial part, no part that Rust leaves to the compiler. So every value of `S` is a valid `D`
+  // (`Relation::infallible`). This is what `pun_unchecked` requires.
   unsafe { pun_unchecked(value) }
 }
 
