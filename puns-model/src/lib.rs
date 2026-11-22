@@ -751,32 +751,7 @@ pub struct Known {
 }
 
 /// The known defects of `puns` that the model reports.
-pub const KNOWN: &[Known] = &[
-  Known {
-    pair: "PadEnd -> str",
-    stable: true,
-    unstable: true,
-    finding: "finding 12, the check of a string reads past what is related",
-  },
-  Known {
-    pair: "PadMid -> str",
-    stable: true,
-    unstable: true,
-    finding: "finding 12, the check of a string reads past what is related",
-  },
-  Known {
-    pair: "TagUnit -> str",
-    stable: true,
-    unstable: true,
-    finding: "finding 12, the check of a string reads past what is related",
-  },
-  Known {
-    pair: "ByteZero -> str",
-    stable: true,
-    unstable: true,
-    finding: "finding 12, the check of a string reads past what is related",
-  },
-];
+pub const KNOWN: &[Known] = &[];
 
 /// Returns the known defect of `pair` that this build of `puns` has, if any.
 #[must_use]
