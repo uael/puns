@@ -1,6 +1,6 @@
 # puns
 
-[![CI](https://github.com/uael/puns/workflows/CI/badge.svg)](https://github.com/uael/puns/actions)
+[![CI](https://github.com/uael/puns/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/uael/puns/actions/workflows/ci.yml?query=branch%3Amain)
 [![docs.rs](https://img.shields.io/docsrs/puns/0.2.1)](https://docs.rs/puns/0.2.1)
 [![crates.io](https://img.shields.io/crates/v/puns)](https://crates.io/crates/puns/0.2.1)
 [![license](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)](#license)
@@ -8,8 +8,7 @@
 Type punning proven at compile time: a safe alternative to `transmute` and to hand-written parsing
 of bytes.
 
-> [!NOTE]
-> `puns` is written using AI. See [How `puns` is written](#how-puns-is-written).
+> **Note:** `puns` is written using AI. See [How `puns` is written](#how-puns-is-written).
 
 `puns` lets you reinterpret a value as another type, or bytes as a typed value, without writing
 `unsafe`. It compares the layouts and valid values of the two types while your code compiles, and
