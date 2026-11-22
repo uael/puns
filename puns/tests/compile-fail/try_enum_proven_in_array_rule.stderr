@@ -1,0 +1,41 @@
+error[E0080]: evaluation panicked:
+              cannot pun: a byte that the target requires to be initialized is padding in the source.
+              This is at byte 0 of the target.
+
+    --> src/lib.rs
+     |
+     |   const TRY_REF: () = Self::require(Self::check(Need::TRY_REF));
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<Source, [Holds; 2]>::TRY_REF` failed inside this call
+     |
+note: inside `puns::Plan::<Source, [Holds; 2]>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY_REF };
+  |           ^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY_REF };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn try_pun_ref::<Source, [Holds; 2]>`
+  --> tests/compile-fail/try_enum_proven_in_array_rule.rs:29:11
+   |
+29 |   let _ = puns::try_pun_ref::<Source, [Holds; 2]>(&source);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

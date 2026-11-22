@@ -256,8 +256,10 @@
 //!
 //! A rule that reads the bytes of its value by offset (`le`, `be`, a variable-length integer, a
 //! checksum, a CRC, `matches`, or a `walk` whose expressions do) reads its padding as well. Such a
-//! rule is checked when the source does not prove it, or when it belongs to a variant of an enum
-//! that is checked as a whole. Its struct must then have no byte that may be padding in the source.
+//! rule is checked when the source does not prove it. It is also checked with what it shares a
+//! check with: in a variant of an enum that is checked as a whole, in an element of an array of
+//! which another element is checked, and where every part of the target is checked. Its struct
+//! must then have no byte that may be padding in the source.
 //!
 //! ## Unions
 //!
@@ -275,6 +277,12 @@
 //! A field is only checked if no byte it reads may be padding in the source. If some field might
 //! read padding and no field is proven, the pun is refused. Checking only the other fields would be
 //! sound, but `puns` does not do it yet (see [Limitations](#limitations)).
+//!
+//! A union that is proven is not read. Some parts are checked together: the elements of an array,
+//! and the fields of a variant of an enum that is checked as a whole. A union that is proven there
+//! would be checked with the others, its fields tried in order. If that would read a byte that may
+//! be padding in the source, or a byte of the same union, of which nothing is known, the pun is
+//! refused.
 //!
 //! ## Types without values
 //!
@@ -934,6 +942,13 @@
 //!   by the bytes that every variant initializes, not variant by variant.
 //! - **Checking some fields of a union.** When the check of one field would read a byte that may be
 //!   padding, and no field is proven, the pun is refused.
+//! - **Checking only what is not proven, among parts that are checked together.** The elements of
+//!   an array share their check, and an enum is checked as a whole. A source that ends with a `str`
+//!   where the target does not has every part of the target checked. The parts to check of a target
+//!   past its first 1,024 are checked all together. A part that is proven there without being read
+//!   (a union, an enum that holds one, a struct whose rule reads its padding) is then checked too.
+//!   If that check would read a byte that may be uninitialized, the pun is refused, though the part
+//!   needs no check.
 //! - **Patterns other than `str` as types.** The engine accepts any automaton of at most 64 states
 //!   as a type that guarantees it, but no such type can come from the derive, since safe code can
 //!   write the fields of a type that derives `Pun`. A struct can require a pattern of its bytes
