@@ -48,7 +48,9 @@
 //!
 //! Patterns run with sets of states over the runs of the other side, each box of a scalar on its
 //! own. A repetition ends as soon as one of its elements leaves the set unchanged. Two patterns are
-//! compared by the product of their automata.
+//! compared by the product of their automata. The automaton must accept wherever the source may
+//! end, the start of the string included: a source that may leave no byte to the string proves it
+//! only if the automaton accepts the empty string.
 //!
 //! So the cost of an analysis grows with the number of fields, variants, ranges of values and
 //! states of automata of the types. Where it would grow with their size, a search stops at a limit:
@@ -89,6 +91,11 @@
 //!
 //! A pun from a type that has values to a type without values is never valid, and [`relate_at`]
 //! reports it so. A variant or a struct that holds a type without values has no value either.
+//!
+//! A slice has a value whatever its element, the empty one, and the element of a slice that a
+//! target ends with is under no byte if it has no value ([`tail_slice`]). Such a target is valid
+//! only with no element, so a source that gives it one is never valid, unless the source ends with
+//! a slice of the same elements at the same place, each of which is then an element of the source.
 //!
 //! # Uninitialized bytes
 //!
@@ -897,6 +904,10 @@ pub const fn relate_at(
 }
 
 /// Relates `a` and `b` as [`relate_at`] does, knowing what the source holds at some bytes.
+///
+/// A string that the target ends with and that starts at `end` is empty, and the range does not
+/// reach it. No value of the source is valid for it if its automaton does not accept the empty
+/// string.
 #[expect(clippy::too_many_arguments, reason = "the arguments of `relate_at`, and what is known")]
 const fn relate_with(
   a: &'static Layout,
@@ -921,10 +932,34 @@ const fn relate_with(
     relation.disjoint = Some(start);
     return relation;
   }
+  // Nor of a target with an element without values. `is_inhabited` goes through every sized part,
+  // not the elements of a slice. Nothing is assumed of the source, which may hold a value even
+  // where none can be made (a union none of whose fields has values).
+  if let Some((elem, at)) = tail_slice(b, base_b)
+    && elem.size > 0
+    && !elem.is_inhabited()
+    && (end == usize::MAX || end >= at + elem.size)
+    && !matches!(tail_slice(a, base_a), Some((source, from)) if from == at && equal(source, elem))
+  {
+    relation.disjoint = Some(at);
+    return relation;
+  }
   let mut a = Cursor::new(a, base_a, false, Checked::No);
   let mut b = Cursor::new(b, base_b, true, checked);
   b.known = *known;
   relate_range(&mut a, &mut b, start, end, &mut relation);
+  // The empty string at `end`. The root of a dynamic layout has no end, so the cursor reaches it.
+  if end != usize::MAX
+    && b.stack[0].layout.is_dynamic()
+    && end == base_b + b.stack[0].layout.size
+    && let Run { kind: RunKind::Pattern(dfa), leaf, .. } = b.run_at(end)
+    && !dfa.accepts(1)
+  {
+    relation.mark(leaf, end);
+    if relation.disjoint.is_none() {
+      relation.disjoint = Some(end);
+    }
+  }
   relation
 }
 
@@ -1097,6 +1132,22 @@ const fn moves(source: &Layout, base: usize, start: usize, end: usize, tag: Opti
         || moves(elem, base + last * elem.size, lo, hi, tag)
     }
     _ => false,
+  }
+}
+
+/// Returns the element of the slice that `layout`, at `base`, ends with, and where the slice
+/// starts, if `layout` ends with one.
+///
+/// The slice is the last field of a struct, or of a struct that is the last field, at any depth.
+/// A string is not a slice: its bytes are not elements.
+const fn tail_slice(layout: &'static Layout, base: usize) -> Option<(&'static Layout, usize)> {
+  match layout.kind {
+    Kind::Slice(elem) => Some((elem, base)),
+    Kind::Struct(fields, _) if layout.unsized_ && !fields.is_empty() => {
+      let last = &fields[fields.len() - 1];
+      tail_slice(last.layout, base + last.offset)
+    }
+    _ => None,
   }
 }
 
@@ -2185,6 +2236,10 @@ const fn box_meets(lo: &[u8; 16], hi: &[u8; 16], size: usize, start: u128, end: 
 /// of `a` is skipped as soon as one of its elements leaves the set of states as it found it. The
 /// pattern is marked if a string of the source may not be accepted, or past a budget of runs. A
 /// byte that may be padding under the pattern is recorded as read from padding.
+///
+/// The source may end wherever its slice may, and from the end of its sized part where it ends with
+/// bytes of any value, which are one run without elements: the automaton must accept there, before
+/// the first byte as after each one.
 const fn pattern_target(
   a: &mut Cursor,
   dfa: &'static Dfa,
@@ -2239,6 +2294,12 @@ const fn pattern_target(
         return out.uninit(pos);
       }
       RunKind::Any => {
+        // A source that ends with these bytes may end before the first of them, from the end of
+        // its sized part.
+        let root = &a.stack[0];
+        if stop == usize::MAX && pos >= root.base + root.layout.size && !dfa.accepts(set) {
+          return out.mark(leaf, pos);
+        }
         // Any byte, `stop - pos` times, or until it changes nothing.
         let mut steps = 0;
         while steps < stop - pos {

@@ -289,7 +289,9 @@
 //!
 //! `Infallible` and an enum without variants are types without values. No value of a type that has
 //! values can be one of them, so such a pun is refused as never valid, and a variant or struct that
-//! holds one has no value either. As a source, a variant without values needs no proof where an
+//! holds one has no value either. A slice of a type without values has one value, the empty one: a
+//! pun that may give it an element is refused, unless the source ends with a slice of the same
+//! elements at the same place. As a source, a variant without values needs no proof where an
 //! enum is related to a target enum variant by variant, since no value is that variant. Against any
 //! other target, the tag of the enum is read as a scalar that may hold the tag of that variant too,
 //! and a struct that holds a type without values is related field by field, as any struct is.
