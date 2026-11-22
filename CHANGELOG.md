@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-beta.4](https://github.com/uael/puns/compare/v0.2.0-beta.3...v0.2.0-beta.4) - 2026-11-22
+
+### Other
+
+- share repeated code, and fix docs that drifted from it ([#36](https://github.com/uael/puns/pull/36))
+- how puns is written ([#34](https://github.com/uael/puns/pull/34))
+
 ## [0.2.0-beta.3](https://github.com/uael/puns/compare/v0.2.0-beta.2...v0.2.0-beta.3) - 2026-11-21
 
 ### Added
