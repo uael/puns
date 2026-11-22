@@ -2,10 +2,16 @@
 //! byte order.
 
 use puns::{
-  Pun, from_bytes, from_head,
+  Error, Pun, from_bytes, from_head,
   layout::{Dfa, DfaState, Layout},
   num::{f64be, i16be, i32le},
+  pun_ref,
 };
+
+#[path = "support/non_empty.rs"]
+mod non_empty;
+
+use non_empty::{Msg, NonEmpty};
 
 /// A reduced tar header. It holds an ASCII name, then a size in octal digits ended by a space or
 /// a zero byte.
@@ -124,4 +130,52 @@ fn a_pattern_is_checked_by_its_states() {
   // A `str` is still UTF-8.
   assert_eq!(from_bytes::<str>("h\u{e9}".as_bytes()), Ok("h\u{e9}"));
   assert!(from_bytes::<str>(b"h\xc3").is_err());
+}
+
+/// Any bytes, the empty string included.
+const ANY: &Dfa = &Dfa {
+  id: u32::from_be_bytes(*b"anyB"),
+  states: &[DfaState { accept: true, edges: &[(0, 255, 0)] }],
+};
+
+/// A type that the user defines, whose values are any bytes.
+#[repr(transparent)]
+struct AnyBytes([u8]);
+
+// SAFETY: `Pun` is not to be implemented by hand, and this test does so to check a pattern that
+// a user defines. `AnyBytes` is `repr(transparent)` over `[u8]`, and any bytes are a valid
+// `AnyBytes`. So the layout of `Layout::pattern` with `ANY`, a tail of bytes at offset 0 that the
+// automaton accepts, is its layout. The lists are `()`, and it holds no `UnsafeCell`.
+unsafe impl Pun for AnyBytes {
+  type Elem = ();
+  type Fields = ();
+  type Variants = ();
+  type Rules = ();
+  const PROBE: *const Self = <[u8] as Pun>::PROBE as *const Self;
+  // SAFETY: `AnyBytes` is a struct whose last field is a slice. `Self::PROBE` is
+  // `<[u8] as Pun>::PROBE` cast with an `as` cast, and its 3 bytes fit in an `isize`. These are the
+  // requirements of `Layout::pattern`.
+  const LAYOUT: Layout = unsafe { Layout::pattern::<Self>(Self::PROBE, ANY) };
+}
+
+/// Checks that the empty string of a string type is checked where the source may leave no byte to
+/// it, if its automaton does not accept the empty string. `NonEmpty` takes at least one byte.
+#[test]
+fn the_empty_string_is_checked() {
+  assert_eq!(from_bytes::<NonEmpty>(&[]).map(|bytes| &bytes.0), Err(Error::Validity));
+  assert_eq!(from_bytes::<NonEmpty>(&[7]).map(|bytes| &bytes.0), Ok(&[7][..]));
+  // The kind, and no byte of the body.
+  assert!(from_bytes::<Msg>(&[7]).is_err());
+  let msg = from_bytes::<Msg>(&[7, 1]).unwrap();
+  assert_eq!((msg.kind, &msg.body.0), (7, &[1][..]));
+  assert!(from_head::<NonEmpty>(&[]).is_err());
+  assert!(from_head::<Msg>(&[7]).is_err());
+  let (msg, rest) = from_head::<Msg>(&[7, 1]).unwrap();
+  assert_eq!((msg.kind, &msg.body.0, rest), (7, &[1][..], &[][..]));
+  // Proven: the source has a byte for the body, or the automaton accepts every string.
+  assert_eq!(&pun_ref::<[u8; 1], NonEmpty>(&[7]).0, &[7]);
+  let msg = pun_ref::<[u8; 2], Msg>(&[7, 1]);
+  assert_eq!((msg.kind, &msg.body.0), (7, &[1][..]));
+  assert_eq!(&pun_ref::<[u8], AnyBytes>(&[]).0, &[]);
+  assert_eq!(&pun_ref::<[u8], AnyBytes>(&[7, 1]).0, &[7, 1]);
 }
