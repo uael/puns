@@ -126,9 +126,10 @@
 //! may be uninitialized in the source ([`Relation::unreadable`]). Such a byte is a byte of a union,
 //! padding that a rule reads ([`checkable`]), or what a field of a union reads before the field
 //! that proves it ([`relate_union_from`]). A rule that reads the bytes of its struct reads what the
-//! source has under every part of the struct, a part that is proven without being read included
-//! ([`unreadable_rules`]). A leaf that is both marked and unreadable is refused, as a byte read from
-//! padding is ([`Relation::settle`]).
+//! source has under every part of the struct, a part that is proven without being read included.
+//! A rule that loads a field reads the bytes of that field, though they are of any value and no
+//! other check reads them ([`unreadable_rules`]). A leaf that is both marked and unreadable is
+//! refused, as a byte read from padding is ([`Relation::settle`]).
 //!
 //! # Shifted relations
 //!
@@ -252,7 +253,9 @@
 //!
 //! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
 
-use crate::layout::{Dfa, Endian, Kind, Layout, Spec, Tags, UNSTABLE, Uniform, Valid, max_value};
+use crate::layout::{
+  Dfa, Endian, Kind, Layout, Op, Spec, Tags, UNSTABLE, Uniform, Valid, max_value,
+};
 
 /// Whether a part of a layout that Rust leaves to the compiler is opaque to the analysis.
 ///
@@ -780,7 +783,7 @@ pub struct Relation {
   /// ([`Relation::settle`]).
   ///
   /// This is not `uninit`, which also records a byte that the target requires to be initialized
-  /// and that no check reads, such as a byte of any value.
+  /// and that no check reads, such as a byte of any value that no rule loads.
   unreadable: Marks,
   /// The offset of the first such byte that was found, if any.
   unreadable_at: Option<usize>,
@@ -1657,7 +1660,7 @@ const fn relate_union_from(
   // A byte that a check of the union would read, and that may be uninitialized in the source. The
   // check tries the fields in order, and stops at the first that the bytes are, so it reads no
   // field after the first that the source proves. This is less than what a field requires to be
-  // initialized: a byte of any value must be initialized, and no check reads it.
+  // initialized: a byte of any value must be initialized, and only a rule that loads it reads it.
   let mut unreadable = None;
   let (source, base) = (a.stack[0].layout, a.stack[0].base);
   while i < layout.variants.len() {
@@ -2713,19 +2716,20 @@ const fn uninit_from(a: &mut Cursor, mut pos: usize, end: usize, known: &Known) 
   None
 }
 
-/// Records the rules of the structs of `target` that must not be checked, because they read the
-/// bytes of their struct, and one of these may be uninitialized in `source`
-/// ([`Relation::unreadable`]).
+/// Records the rules of the structs of `target` that must not be checked, because they read a byte
+/// of their struct that may be uninitialized in `source` ([`Relation::unreadable`]).
 ///
 /// `source` is at `base_a`. `target` is at `base`, and its first leaf is `leaf`. Only the bytes
 /// before `end` are read. The bytes that `known` covers are initialized.
 ///
-/// A rule that reads the bytes of its struct reads all of them: its padding, and what the source
-/// has under a part that is proven without being read, such as an enum. So every byte of the
-/// struct must be initialized in the source for the rule to be checked. The elements of an array
-/// share their leaves. Where the source has elements of the same size at the same place
-/// ([`same_elements`]), the first element tells of each. Otherwise each element is looked at, up to
-/// [`CUT_ELEMENTS`] of them, and past that every byte under the array counts.
+/// A rule that reads the bytes of its struct by offset reads all of them: its padding, and what
+/// the source has under a part that is proven without being read, such as an enum. So every byte
+/// of the struct must then be initialized in the source for the rule to be checked. Any other rule
+/// reads the fields that it loads ([`rules_uninit`]), which may be bytes of any value that the
+/// source leaves uninitialized, such as a byte of a union. The elements of an array share their
+/// leaves. Where the source has elements of the same size at the same place ([`same_elements`]),
+/// the first element tells of each. Otherwise each element is looked at, up to [`CUT_ELEMENTS`] of
+/// them, and past that every byte under the array counts.
 #[expect(clippy::too_many_arguments, reason = "two layouts where they are, the bytes, the tag")]
 const fn unreadable_rules(
   source: &'static Layout,
@@ -2743,9 +2747,7 @@ const fn unreadable_rules(
   let stop = min(extent_end(target, base), end);
   match target.kind {
     Kind::Struct(fields, _) => {
-      if target.rules_read_bytes()
-        && let Some(pos) = uninit_in(source, base_a, base, stop, known)
-      {
+      if let Some(pos) = rules_uninit(source, base_a, target, base, stop, known) {
         out.unreadable(leaf + target.leaves - 1, 1, pos);
       }
       let mut i = 0;
@@ -2783,7 +2785,7 @@ const fn unreadable_rules(
 }
 
 /// Records, as rules that must not be checked for the byte at `pos`, the rules of every struct of
-/// `target` that read the bytes of their struct. The first leaf of `target` is `leaf`.
+/// `target` that read bytes of their struct ([`rules_read`]). The first leaf of `target` is `leaf`.
 const fn unreadable_all_rules(
   target: &'static Layout,
   leaf: usize,
@@ -2795,7 +2797,7 @@ const fn unreadable_all_rules(
   }
   match target.kind {
     Kind::Struct(fields, _) => {
-      if target.rules_read_bytes() {
+      if rules_read(target) {
         out.unreadable(leaf + target.leaves - 1, 1, pos);
       }
       let mut i = 0;
@@ -2807,6 +2809,101 @@ const fn unreadable_all_rules(
     Kind::Array(elem, _) | Kind::Slice(elem) => unreadable_all_rules(elem, leaf, pos, out),
     Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) => {}
   }
+}
+
+/// Returns the offset of the first byte of the struct `target`, at `base`, that its rules read and
+/// that may be uninitialized in `source`, which is at `base_a`. Only the bytes before `stop` count.
+/// The bytes that `known` covers are initialized.
+///
+/// A rule that reads bytes by offset ([`Layout::rules_read_bytes`]) reads every byte of the struct.
+/// Any other rule reads the fields that it loads ([`Op::Load`]), in a walk too, and in a branch
+/// that may not be computed.
+const fn rules_uninit(
+  source: &'static Layout,
+  base_a: usize,
+  target: &'static Layout,
+  base: usize,
+  stop: usize,
+  known: &Known,
+) -> Option<usize> {
+  // Most sources have no such byte under the struct, which one search tells.
+  let Some(first) = uninit_in(source, base_a, base, stop, known) else { return None };
+  if target.rules_read_bytes() {
+    return Some(first);
+  }
+  let (rules, mut i) = (target.rules(), 0);
+  while i < rules.len() {
+    if let Some(ops) = rules[i].ops()
+      && let Some(pos) = loads_uninit(ops, source, base_a, base, stop, known)
+    {
+      return Some(pos);
+    }
+    i += 1;
+  }
+  None
+}
+
+/// Returns the offset of the first byte that the expression `ops` loads, of a struct at `base`,
+/// and that may be uninitialized in `source`, as [`rules_uninit`] does.
+const fn loads_uninit(
+  ops: &[Op],
+  source: &'static Layout,
+  base_a: usize,
+  base: usize,
+  stop: usize,
+  known: &Known,
+) -> Option<usize> {
+  let mut i = 0;
+  while i < ops.len() {
+    let found = match ops[i] {
+      Op::Load { offset, size, .. } => {
+        let end = min(base + offset + size as usize, stop);
+        uninit_in(source, base_a, base + offset, end, known)
+      }
+      Op::Walk { cond, next, .. } => match loads_uninit(cond, source, base_a, base, stop, known) {
+        None => loads_uninit(next, source, base_a, base, stop, known),
+        found => found,
+      },
+      _ => None,
+    };
+    if found.is_some() {
+      return found;
+    }
+    i += 1;
+  }
+  None
+}
+
+/// Returns whether a check of the rules of the struct `layout` reads any of its bytes: by offset
+/// ([`Layout::rules_read_bytes`]), or the fields that it loads ([`Op::Load`]).
+const fn rules_read(layout: &Layout) -> bool {
+  if layout.rules_read_bytes() {
+    return true;
+  }
+  let (rules, mut i) = (layout.rules(), 0);
+  while i < rules.len() {
+    if let Some(ops) = rules[i].ops()
+      && ops_load(ops)
+    {
+      return true;
+    }
+    i += 1;
+  }
+  false
+}
+
+/// Returns whether the expression `ops` loads a field ([`Op::Load`]), in a walk too.
+const fn ops_load(ops: &[Op]) -> bool {
+  let mut i = 0;
+  while i < ops.len() {
+    match ops[i] {
+      Op::Load { .. } => return true,
+      Op::Walk { cond, next, .. } if ops_load(cond) || ops_load(next) => return true,
+      _ => {}
+    }
+    i += 1;
+  }
+  false
 }
 
 // -------------------------------------------------------------------------------------------------

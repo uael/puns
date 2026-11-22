@@ -278,6 +278,93 @@ fn a_part_that_is_proven_unread_is_not_read_by_a_check() {
   let _: &[Holds; 2] = puns::pun_ref(&holds);
 }
 
+/// Checks that a rule that loads a field is checked where the field is initialized, and reads the
+/// field, not the padding next to it.
+///
+/// A field of any value is proven by any initialized byte, and its rule loads it. Where the source
+/// may leave the field uninitialized, in a union that a later field proves, the puns that would
+/// check the rule must not compile: `try_union_proven_rule_loads` and
+/// `try_union_proven_rule_loads_in_array` in `compile-fail/`.
+#[test]
+fn a_rule_reads_the_fields_that_it_loads() {
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Byte {
+    any: u8,
+    none: (),
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  #[pun(assert(x < 3))]
+  struct Small {
+    x: u8,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Plain {
+    x: u8,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Rule {
+    small: Small,
+    byte: Byte,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Unruled {
+    plain: Plain,
+    byte: Byte,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum Target {
+    V(Rule),
+    X,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum Free {
+    V(Unruled),
+    X,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Source {
+    tag: u8,
+    byte: Byte,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  #[pun(assert(x < 3))]
+  struct Padded {
+    x: u8,
+    y: u16,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Gapped {
+    x: u8,
+    gap: Byte,
+    y: u16,
+  }
+
+  // From initialized bytes: the rule of the first field holds for 1, and the second field takes 7.
+  assert!(matches!(puns::try_pun::<[u8; 2], Target>([0, 1]), Ok(Target::V(_))));
+  assert!(matches!(puns::try_pun::<[u8; 2], Target>([0, 7]), Ok(Target::V(_))));
+  assert_eq!(puns::try_pun::<[u8; 2], Target>([2, 7]).err(), Some(Error::Validity));
+  // Without a rule, nothing reads the byte, which is not written.
+  let source = Source { tag: 0, byte: Byte { none: () } };
+  assert!(matches!(puns::try_pun::<Source, Free>(source), Ok(Free::V(_))));
+  // The rule loads `x`, and does not read the padding after it, which is not written.
+  let gapped = Gapped { x: 1, gap: Byte { none: () }, y: 2 };
+  assert_eq!(puns::try_pun::<Gapped, Padded>(gapped).map(|padded| padded.y), Ok(2));
+  let gapped = Gapped { x: 5, ..gapped };
+  assert_eq!(puns::try_pun::<Gapped, Padded>(gapped).err(), Some(Error::Validity));
+}
+
 /// Checks that a struct that ends with an unsized struct has values only if that struct does.
 ///
 /// An unsized field used to count as having values, as a slice or a string does. Then a struct
