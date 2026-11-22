@@ -1418,6 +1418,12 @@ impl Variant {
     !matches!(self.ranges, Some(ranges) if ranges.is_empty()) && self.layout.is_inhabited()
   }
 
+  /// Returns whether a value of a source may be this variant (some value of the tag selects it,
+  /// and a value of its fields may exist, [`Layout::may_exist`]).
+  pub(crate) const fn may_exist(&self) -> bool {
+    !matches!(self.ranges, Some(ranges) if ranges.is_empty()) && self.layout.may_exist()
+  }
+
   /// Returns the fields of the variant, sorted by offset from the start of the enum.
   ///
   /// # Panics
@@ -3068,13 +3074,18 @@ impl Layout {
     }
   }
 
-  /// Returns whether a value of the layout can exist.
+  /// Returns whether a value of the layout can be made, valid under every rule that the language
+  /// may settle for unions.
+  ///
+  /// This is the question for a target. As a source, a value may exist where none can be made: a
+  /// union may hold any bytes under one of these rules, even if none of its fields has values.
   ///
   /// A type without values has none, and neither does an enum whose variants have none, nor a
   /// struct, or an array of at least one element, that holds a type without values. A slice has
   /// values, since it may be empty, and so does an array of no elements, whose one value is empty.
   /// So a struct that ends with a slice or a string has values if its sized fields do, and one that
-  /// ends with a struct has values if that struct does.
+  /// ends with a struct has values if that struct does. A union has values if one of its fields
+  /// has.
   ///
   /// # Examples
   ///
@@ -3107,6 +3118,43 @@ impl Layout {
         let mut i = 0;
         while i < layout.variants.len() {
           if layout.variants[i].is_present() {
+            return true;
+          }
+          i += 1;
+        }
+        false
+      }
+    }
+  }
+
+  /// Returns whether a value of the layout may exist, under some rule that the language may settle
+  /// for unions.
+  ///
+  /// This is the question for a source. A union may hold any bytes under one of these rules, so it
+  /// may exist even if none of its fields has values, though no such union can be made
+  /// ([`Layout::is_inhabited`]). Otherwise the answer is that of `is_inhabited`: a struct may exist
+  /// if each of its fields may, an array if it is empty or its element may, an enum if one of its
+  /// variants may, and a slice, a string and a scalar always.
+  #[must_use]
+  pub(crate) const fn may_exist(&self) -> bool {
+    match self.kind {
+      Kind::Scalar(_) | Kind::Pattern(_) | Kind::Slice(_) => true,
+      Kind::Array(elem, len) => len == 0 || elem.may_exist(),
+      Kind::Struct(fields, _) => {
+        let mut i = 0;
+        while i < fields.len() {
+          if !fields[i].layout.may_exist() {
+            return false;
+          }
+          i += 1;
+        }
+        true
+      }
+      Kind::Enum(layout) if layout.union => true,
+      Kind::Enum(layout) => {
+        let mut i = 0;
+        while i < layout.variants.len() {
+          if layout.variants[i].may_exist() {
             return true;
           }
           i += 1;
@@ -3276,12 +3324,14 @@ impl Layout {
         let (mut i, mut every, mut some) = (0, true, false);
         let mut stop = if offset < start { start } else { self.size };
         while i < layout.variants.len() {
-          // A variant that no value can be has nothing to tell.
-          if !layout.variants[i].is_present() {
+          // A variant that no value can be has nothing to tell. As a source, a variant that holds a
+          // union may be one, whatever the fields of the union.
+          let variant = &layout.variants[i];
+          if !(if always { variant.may_exist() } else { variant.is_present() }) {
             i += 1;
             continue;
           }
-          let (init, end) = layout.variants[i].layout.segment(offset, always, checked);
+          let (init, end) = variant.layout.segment(offset, always, checked);
           (every, some) = (every && init, some || init);
           if end < stop {
             stop = end;
