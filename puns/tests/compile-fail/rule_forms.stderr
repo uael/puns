@@ -51,3 +51,9 @@ error: not something that a rule computes: it computes with operators, `if`, `le
    |
 61 | #[pun(assert(match a { 1 => true, _ => false }))]
    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: a rule cannot call this function: it computes with operators, `if`, `let`, and `size_of_val(self)`, `le`, `be`, `leb128`, `leb128_len`, `quic`, `quic_len`, `vlq`, `vlq_len`, `crc32`, `crc::<..>`, `sum16`, `sum`, `fletcher16`, `adler32`, `matches` and `walk`
+  --> tests/compile-fail/rule_forms.rs:68:14
+   |
+68 | #[pun(assert(u8::min(a, 2) == 2))]
+   |              ^^^^^^^^^^^^^

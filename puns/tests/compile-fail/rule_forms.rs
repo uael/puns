@@ -63,4 +63,11 @@ struct Match {
   a: u8,
 }
 
+#[derive(puns::Pun)]
+#[repr(C)]
+#[pun(assert(u8::min(a, 2) == 2))]
+struct CallOfAField {
+  a: u8,
+}
+
 fn main() {}
