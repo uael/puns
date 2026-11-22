@@ -287,6 +287,10 @@
 //! Without the first rule, a variant of a `repr(u8)` enum whose field has no value would be proven
 //! from a variant whose field does, because no byte of a zero-sized type is ever compared.
 //!
+//! No bytes are a variant without values of a target enum, or a field without values of a target
+//! union. The analysis does not look at it, and a check reads nothing of it: bytes whose tag is
+//! that variant's are refused, whatever its other fields would hold.
+//!
 //! ## What deriving `Pun` means
 //!
 //! `puns` knows a type by its layout and by what the type system enforces about its bytes, and

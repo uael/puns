@@ -107,9 +107,10 @@ impl Checks for All {
 /// - Every byte that a check marked by `C` reads is initialized. A marked scalar reads its own
 ///   bytes, unless it is one that a pun never makes, which is never read: `C::NEVER` accepts it,
 ///   and otherwise it is refused. A marked pattern reads its tail. An enum or a union with a marked
-///   leaf reads its tag and what the checks of its variants read, which check every part. A struct
-///   whose rules are marked reads the fields that its rules load and, if one of its rules reads
-///   bytes by offset ([`Layout::rules_read_bytes`]), all of its bytes, padding included.
+///   leaf reads its tag and what the checks of its variants read, which check every part. Nothing
+///   is read of a variant, or of a field of a union, that has no value. A struct whose rules are
+///   marked reads the fields that its rules load and, if one of its rules reads bytes by offset
+///   ([`Layout::rules_read_bytes`]), all of its bytes, padding included.
 ///
 /// [`Layout::rules_read_bytes`]: layout::Layout::rules_read_bytes
 pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T) -> bool {
@@ -193,7 +194,8 @@ const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout:
 /// in the enum at `ptr`, with a scalar that a pun never makes accepted if `C` accepts it.
 ///
 /// Returns `false` if no such variant has the tag. A variant whose tag is a range of values (the
-/// variant of a niche) has the tag if `tag` is in that range.
+/// variant of a niche) has the tag if `tag` is in that range. Returns `false` too, without reading
+/// anything, if the variant that has the tag has no value, because one of its fields has none.
 ///
 /// # Safety
 ///
@@ -201,8 +203,8 @@ const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout:
 ///
 /// - `ptr` is valid for reads of a `T`.
 /// - `V` is `T::Variants`, or a list that `Variants::Next` reaches from it.
-/// - If a variant has the tag `tag`, every byte that the checks of its fields read, which check
-///   every part, is initialized.
+/// - If a variant that has values has the tag `tag`, every byte that the checks of its fields read,
+///   which check every part, is initialized.
 const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
   ptr: *const T,
   tag: u128,
@@ -219,7 +221,22 @@ const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
   // as `validate_fields` requires. Otherwise the requirements of the call for the next variants are
   // those of this call.
   unsafe {
-    if this { every::<C, T, V::Fields>(ptr) } else { validate_variants::<C, T, V::Next>(ptr, tag) }
+    if this {
+      // No value is a variant of which a field has no value, so nothing of it is read. The
+      // analysis does not look at such a variant either (`Variant::is_present`).
+      (const { inhabited::<V::Fields>() }) && every::<C, T, V::Fields>(ptr)
+    } else {
+      validate_variants::<C, T, V::Next>(ptr, tag)
+    }
+  }
+}
+
+/// Returns whether every field of the list `F` has values, so that a value of a variant of these
+/// fields exists.
+const fn inhabited<F: Fields>() -> bool {
+  match F::FIELD {
+    Some(field) => field.layout.is_inhabited() && inhabited::<F::Next>(),
+    None => true,
   }
 }
 
@@ -254,8 +271,8 @@ const unsafe fn every<C: Checks, T: ?Sized + Pun, F: Fields>(ptr: *const T) -> b
 /// - `ptr` is valid for reads of a `T`. It need not be aligned.
 /// - `V` is `T::Variants`, or a list that `Variants::Next` reaches from it.
 /// - Every byte that the checks of `V` or of a field after it read, which check every part, is
-///   initialized. The analysis refuses a union of which a field would read a byte that may be
-///   padding in the source.
+///   initialized, for the fields that have values. The analysis refuses a union of which such a
+///   field would read a byte that may be padding in the source.
 const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(ptr: *const T) -> bool {
   if const { V::TAG.is_none() } {
     return false;
@@ -264,8 +281,12 @@ const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(ptr: *co
   // the one field of a variant in the layout of the union, at offset 0 (`Variants`, section
   // Safety). Every byte that its checks read is initialized, by contract on the caller, as
   // `validate_fields` requires. The requirements of the call for the next fields are those of this
-  // call.
-  unsafe { every::<C, T, V::Fields>(ptr) || validate_union::<C, T, V::Next>(ptr) }
+  // call. Nothing is read of a field that has no value, which no bytes are, as in
+  // `validate_variants`.
+  unsafe {
+    (const { inhabited::<V::Fields>() } && every::<C, T, V::Fields>(ptr))
+      || validate_union::<C, T, V::Next>(ptr)
+  }
 }
 
 /// Returns whether the parts that `C` marks of the `len` elements at `ptr` are valid.

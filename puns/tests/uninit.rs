@@ -116,3 +116,53 @@ fn unions() {
   let _: MaybeUninit<u32> = puns::pun(word);
   let _: Word = puns::pun(word);
 }
+
+/// Checks that nothing is read of a variant of an enum, or of a field of a union, that has no
+/// value.
+///
+/// The analysis does not look at such a variant, since no value is one. So it does not require
+/// the bytes of its fields to be initialized in the source, and the check must not read them.
+#[test]
+fn a_variant_without_values_is_not_read() {
+  use core::convert::Infallible;
+
+  use puns::{Pun, num::u8in};
+
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only, and no value is `Never`")]
+  enum Tagged {
+    Unit,
+    Never(bool, Infallible),
+  }
+  /// A struct without values, since one of its fields has none.
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Absent {
+    byte: u8,
+    flag: bool,
+    none: Infallible,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Either {
+    absent: Absent,
+    small: u8in<0, 3>,
+  }
+  /// A byte, then a byte that is not written.
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Source {
+    byte: u8,
+    rest: MaybeUninit<u8>,
+  }
+
+  let source = |byte| Source { byte, rest: MaybeUninit::uninit() };
+  // The tag of `Never`: no value, whatever its `bool` would be, which is not read.
+  assert!(puns::try_pun::<Source, Tagged>(source(0)).is_ok());
+  assert_eq!(puns::try_pun::<Source, Tagged>(source(1)).err(), Some(Error::Validity));
+  assert_eq!(puns::try_pun::<Source, Tagged>(source(2)).err(), Some(Error::Validity));
+  // The field `absent` is first, and its `bool` is at the byte that is not written.
+  assert!(puns::try_pun::<Source, Either>(source(3)).is_ok());
+  assert_eq!(puns::try_pun::<Source, Either>(source(4)).err(), Some(Error::Validity));
+}
