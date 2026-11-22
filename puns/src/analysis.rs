@@ -42,7 +42,9 @@
 //! the start of an element of a repetition and the source is inside a repetition too, what happens
 //! over the least common multiple of both strides happens again for as long as both repetitions
 //! last, so one period is analyzed and the rest is skipped ([`find_skip`]). This is also what makes
-//! the analysis of two slice tails, which never end, terminate.
+//! the analysis of two slice tails, which never end, terminate. The bytes of which the values are
+//! known, as the tag of the variant that is related ([`Known`]), are not a period: nothing is known
+//! of the bytes a period later, such as the elements of an array after the one that holds a niche.
 //!
 //! Patterns run with sets of states over the runs of the other side, each box of a scalar on its
 //! own. A repetition ends as soon as one of its elements leaves the set unchanged. Two patterns are
@@ -405,6 +407,11 @@ impl Known {
   /// Returns whether the byte at `pos` holds a known value.
   const fn covers(&self, pos: usize) -> bool {
     self.len > 0 && self.start <= pos && pos < self.end
+  }
+
+  /// Returns whether a byte of `start..end` holds a known value.
+  const fn meets(&self, start: usize, end: usize) -> bool {
+    self.len > 0 && self.start < end && start < self.end
   }
 
   /// Returns the values known of exactly `start..end`, read in `endian` byte order, if any.
@@ -1580,6 +1587,10 @@ enum Skip {
 /// because what lies under a run of `b` a period later is the same, even if the period cuts runs of
 /// `a`. A period is taken if it repeats forever or at least twice before `end`. The outermost
 /// repetitions are tried first, since they skip the most.
+///
+/// What is known of a tag ([`Cursor::known`]) holds of its own bytes, not of the bytes a period
+/// later. So bytes that hold it are not a period: what they prove, the next ones may not. The
+/// first element of an array that holds a niche is such bytes.
 const fn find_skip(
   a: &Cursor,
   b: &Cursor,
@@ -1606,6 +1617,9 @@ const fn find_skip(
         continue;
       }
       let Some(period) = lcm(ra.stride, rb.stride) else { continue };
+      if b.known.meets(pos, pos.saturating_add(period)) {
+        continue;
+      }
       let until = min(min(ra.end, rb.end), end);
       if until == usize::MAX {
         return Skip::Forever { period };
