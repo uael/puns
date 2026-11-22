@@ -48,7 +48,9 @@
 //!
 //! Patterns run with sets of states over the runs of the other side, each box of a scalar on its
 //! own. A repetition ends as soon as one of its elements leaves the set unchanged. Two patterns are
-//! compared by the product of their automata.
+//! compared by the product of their automata. The automaton must accept wherever the source may
+//! end, the start of the string included: a source that may leave no byte to the string proves it
+//! only if the automaton accepts the empty string.
 //!
 //! So the cost of an analysis grows with the number of fields, variants, ranges of values and
 //! states of automata of the types. Where it would grow with their size, a search stops at a limit:
@@ -895,6 +897,10 @@ pub const fn relate_at(
 }
 
 /// Relates `a` and `b` as [`relate_at`] does, knowing what the source holds at some bytes.
+///
+/// A string that the target ends with and that starts at `end` is empty, and the range does not
+/// reach it. No value of the source is valid for it if its automaton does not accept the empty
+/// string.
 #[expect(clippy::too_many_arguments, reason = "the arguments of `relate_at`, and what is known")]
 const fn relate_with(
   a: &'static Layout,
@@ -922,6 +928,18 @@ const fn relate_with(
   let mut b = Cursor::new(b, base_b, true, checked);
   b.known = *known;
   relate_range(&mut a, &mut b, start, end, &mut relation);
+  // The empty string at `end`. The root of a dynamic layout has no end, so the cursor reaches it.
+  if end != usize::MAX
+    && b.stack[0].layout.is_dynamic()
+    && end == base_b + b.stack[0].layout.size
+    && let Run { kind: RunKind::Pattern(dfa), leaf, .. } = b.run_at(end)
+    && !dfa.accepts(1)
+  {
+    relation.mark(leaf, end);
+    if relation.disjoint.is_none() {
+      relation.disjoint = Some(end);
+    }
+  }
   relation
 }
 
@@ -2182,6 +2200,10 @@ const fn box_meets(lo: &[u8; 16], hi: &[u8; 16], size: usize, start: u128, end: 
 /// of `a` is skipped as soon as one of its elements leaves the set of states as it found it. The
 /// pattern is marked if a string of the source may not be accepted, or past a budget of runs. A
 /// byte that may be padding under the pattern is recorded as read from padding.
+///
+/// The source may end wherever its slice may, and from the end of its sized part where it ends with
+/// bytes of any value, which are one run without elements: the automaton must accept there, before
+/// the first byte as after each one.
 const fn pattern_target(
   a: &mut Cursor,
   dfa: &'static Dfa,
@@ -2236,6 +2258,12 @@ const fn pattern_target(
         return out.uninit(pos);
       }
       RunKind::Any => {
+        // A source that ends with these bytes may end before the first of them, from the end of
+        // its sized part.
+        let root = &a.stack[0];
+        if stop == usize::MAX && pos >= root.base + root.layout.size && !dfa.accepts(set) {
+          return out.mark(leaf, pos);
+        }
         // Any byte, `stop - pos` times, or until it changes nothing.
         let mut steps = 0;
         while steps < stop - pos {
