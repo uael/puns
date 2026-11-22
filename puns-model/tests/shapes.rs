@@ -94,10 +94,6 @@ fn array_under_an_enum() {
 /// and in a variant with a scalar that a pun never makes, over bytes that may be uninitialized.
 /// Without the `unstable` feature, the analysis does not look into it.
 #[test]
-#[cfg_attr(
-  miri,
-  ignore = "finding 9, known: a check of a tuple in a union reads an uninitialized byte"
-)]
 fn layout_left_to_the_compiler() {
   puns_model::pairs!(check_pair, LIMIT;
     (TagUnits, HoldsTuple), (TagUnits, TupleNever), ([u8; 3], HoldsTuple), ([u8; 3], TupleNever),
