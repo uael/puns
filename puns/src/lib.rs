@@ -931,9 +931,10 @@
 //!   fields of a variant without values before the fields of the other variants, the build fails,
 //!   because `puns` cannot observe where those fields are and does not guess.
 //! - In an enum with fields and a primitive or `C` representation, a variant that holds a scalar
-//!   that a pun never makes has no sample from which `puns` reads its tag. Its discriminant must be
-//!   an integer literal, or none after a variant whose tag is known, or the enum is refused ([What
-//!   the derive trusts](macro@Pun#what-the-derive-trusts)).
+//!   that a pun never makes, or a union none of whose fields has values, has no sample from which
+//!   `puns` reads its tag. Its discriminant must hold no macro, or it must have none after a
+//!   variant whose tag is known, or the enum is refused ([What the derive
+//!   trusts](macro@Pun#what-the-derive-trusts)).
 //!
 //! ## Not done yet
 //!
@@ -1464,14 +1465,16 @@ pub use layout::{crc32, sum16};
 ///   result type, named by a path does not have the type that these functions take or return, and
 ///   does not compile.
 /// - The tags of an enum with fields and a primitive or `C` representation are those of an enum
-///   without fields that the derive declares with the same representation and discriminants. It
-///   declares it next to its implementation, where `Self` names it and a name may name another
-///   item, even in what a macro writes, so a discriminant may have another value there. A function
-///   of [`layout::Variant`] compares each of its tags with the first bytes of a sample of the
-///   variant, made as for the `Rust` representation, and fails the build if they differ. A variant
-///   that has values but no sample, because it holds a scalar that a pun never makes, must have an
-///   integer literal as its discriminant, or none after a variant whose tag is known, since Rust
-///   then gives it the tag before it plus one.
+///   without fields that the derive declares with the same representation and discriminants, in
+///   which it replaces `Self` with the enum. It declares it next to its implementation, where a
+///   name that a macro writes may name another item, so a discriminant may have another value
+///   there. A function of [`layout::Variant`] compares each of its tags with the first bytes of a
+///   sample of the variant, made as for the `Rust` representation, and fails the build if they
+///   differ. A variant without a sample of which a value may exist, because it holds a scalar that
+///   a pun never makes or a union none of whose fields has values, must have a discriminant that
+///   holds no macro, or none after a variant whose tag is known, since Rust then gives it the tag
+///   before it plus one. Such a discriminant has the same value in both enums: the derive names
+///   only items that start with `__Pun` there, which it refuses in the input.
 /// - The trait that says where a field is (`Path`) is sealed, and the leaf at which a list of
 ///   fields places a field is checked against the layout.
 /// - Names that start with `__Pun` are reserved. In the type of a field, the derive replaces `Self`

@@ -1395,30 +1395,31 @@ impl Variant {
   /// the target.
   ///
   /// `tags` are the variants of `T`, the enum without fields that the derive declares with the
-  /// representation and the discriminant expressions of `E`. They are the tags of `E` only if each
-  /// expression evaluates to the same value in both enums. But `T` is declared elsewhere, where
-  /// `Self` is `T` and a name may mean another item, even through a macro. So each tag is compared
-  /// with the one in `E`:
+  /// representation and the discriminant expressions of `E`, `Self` replaced by `E`. They are the
+  /// tags of `E` only if each expression evaluates to the same value in both enums. But `T` is
+  /// declared elsewhere, where a name that a macro writes may mean another item. So each tag is
+  /// compared with the one in `E`:
   ///
   /// - If `samples[i]` is a value of the variant `i`, it starts with its tag ([RFC 2195]), which
   ///   must have the bytes of `tags[i]`.
   /// - Otherwise, `declared[i]` tells whether the tag is known from the declaration: `Some(true)`
-  ///   for an integer literal, which is the same value anywhere, `Some(false)` for another
-  ///   expression, and `None` for no discriminant, which is the tag before it plus one (0 for the
-  ///   first), so known if that one is.
+  ///   for an expression that holds no macro and that the derive parsed in full, which has the same
+  ///   value in both enums, `Some(false)` for another expression, and `None` for no discriminant,
+  ///   which is the tag before it plus one (0 for the first), so known if that one is.
   ///
-  /// A variant without a sample that `values` says has values holds a scalar that a pun never
-  /// makes. Its tag must be known. That of a variant without values is not: no value has it, and
-  /// it is not the tag of another variant, since the tags of `T` are distinct, and those of the
-  /// variants with values are those of `E`.
+  /// A variant without a sample of which `exists` says that a value may exist in a source holds a
+  /// scalar that a pun never makes, or a union none of whose fields has values. Its tag must be
+  /// known. That of a variant of which no value may exist need not be: no value has it, and it is
+  /// not the tag of another variant, since the tags of `T` are distinct, and those of the variants
+  /// of which a value may exist are those of `E`.
   ///
   /// [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
   ///
   /// # Panics
   ///
   /// Panics if `T` is larger than 16 bytes, or larger than `E`, if a sample does not start with the
-  /// bytes of its variant of `T`, or if a variant with values has no sample and a tag that is not
-  /// known.
+  /// bytes of its variant of `T`, or if a variant of which a value may exist has no sample and a
+  /// tag that is not known.
   ///
   /// # Safety
   ///
@@ -1432,7 +1433,7 @@ impl Variant {
     tags: &[T; N],
     samples: &[Option<mem::MaybeUninit<E>>; N],
     declared: [Option<bool>; N],
-    values: [bool; N],
+    exists: [bool; N],
   ) -> [u128; N] {
     let size = size_of::<T>();
     assert!(size <= 16, "an enum without fields cannot be larger than 16 bytes");
@@ -1459,9 +1460,9 @@ impl Variant {
         },
       };
       assert!(
-        known || !values[i],
-        "the tag of a variant that holds a scalar that a pun never makes is not known: its \
-         discriminant must be an integer literal, or none after a variant whose tag is known"
+        known || !exists[i],
+        "the tag of a variant without a sample is not known: its discriminant must hold no macro, \
+         or it must have none after a variant whose tag is known"
       );
       i += 1;
     }
@@ -1842,6 +1843,21 @@ impl Layout {
     let mut i = 0;
     while i < fields.len() {
       if !fields[i].is_inhabited() {
+        return false;
+      }
+      i += 1;
+    }
+    true
+  }
+
+  /// Returns whether a value of the type of each layout of `fields` may exist in a source
+  /// ([`Layout::may_exist`]), so that a value made of these fields may exist.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn may_exist_all(fields: &[&'static Layout]) -> bool {
+    let mut i = 0;
+    while i < fields.len() {
+      if !fields[i].may_exist() {
         return false;
       }
       i += 1;

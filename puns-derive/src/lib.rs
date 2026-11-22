@@ -2135,6 +2135,75 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
   })
 }
 
+/// Replaces `Self` with the enum `this` in a discriminant of an enum with fields, which the derive
+/// writes again in the enum without fields that holds its tags, where `Self` is that enum.
+///
+/// It also finds whether the discriminant may have another value there. Only `Self` and a name
+/// written by a macro can mean something else there: the items that the derive declares next to
+/// that enum all have names that start with `__Pun`, which `find_reserved` refuses in the input. So
+/// the discriminant is `opaque` if it holds a macro, or a part that `syn` does not parse
+/// (`Verbatim`), which may hold one. In an item declared in the discriminant, `Self` is that item,
+/// so it is kept, and `items` counts how deep in items the visit is.
+struct Discriminant<'a> {
+  this: &'a Ident,
+  items: usize,
+  opaque: bool,
+}
+
+impl VisitMut for Discriminant<'_> {
+  fn visit_ident_mut(&mut self, ident: &mut Ident) {
+    if self.items == 0 && ident == "Self" {
+      *ident = Ident::new(&self.this.to_string(), ident.span());
+    }
+  }
+
+  fn visit_macro_mut(&mut self, _: &mut syn::Macro) {
+    self.opaque = true;
+  }
+
+  fn visit_expr_mut(&mut self, expr: &mut Expr) {
+    self.opaque |= matches!(expr, Expr::Verbatim(_));
+    visit_mut::visit_expr_mut(self, expr);
+  }
+
+  fn visit_type_mut(&mut self, ty: &mut Type) {
+    self.opaque |= matches!(ty, Type::Verbatim(_));
+    visit_mut::visit_type_mut(self, ty);
+  }
+
+  fn visit_pat_mut(&mut self, pat: &mut syn::Pat) {
+    self.opaque |= matches!(pat, syn::Pat::Verbatim(_));
+    visit_mut::visit_pat_mut(self, pat);
+  }
+
+  fn visit_type_param_bound_mut(&mut self, bound: &mut syn::TypeParamBound) {
+    self.opaque |= matches!(bound, syn::TypeParamBound::Verbatim(_));
+    visit_mut::visit_type_param_bound_mut(self, bound);
+  }
+
+  fn visit_item_mut(&mut self, item: &mut syn::Item) {
+    self.opaque |= matches!(item, syn::Item::Verbatim(_));
+    self.items += 1;
+    visit_mut::visit_item_mut(self, item);
+    self.items -= 1;
+  }
+
+  fn visit_impl_item_mut(&mut self, item: &mut syn::ImplItem) {
+    self.opaque |= matches!(item, syn::ImplItem::Verbatim(_));
+    visit_mut::visit_impl_item_mut(self, item);
+  }
+
+  fn visit_trait_item_mut(&mut self, item: &mut syn::TraitItem) {
+    self.opaque |= matches!(item, syn::TraitItem::Verbatim(_));
+    visit_mut::visit_trait_item_mut(self, item);
+  }
+
+  fn visit_foreign_item_mut(&mut self, item: &mut syn::ForeignItem) {
+    self.opaque |= matches!(item, syn::ForeignItem::Verbatim(_));
+    visit_mut::visit_foreign_item_mut(self, item);
+  }
+}
+
 /// Returns whether the implementation of `Pun` for the type of `input` needs the bound `ty: Pun`,
 /// for the type `ty` of a field.
 ///
@@ -2182,40 +2251,45 @@ fn derive_tagged(
   let generics = bounded(input, types, bounds, root);
   let where_clause = &generics.where_clause;
 
-  // The tag: an enum without fields of the same variants. It evaluates the discriminant
-  // expressions again, here, so `Variant::declared_tags` compares its tags with those of the enum.
+  // The tag: an enum without fields of the same variants and discriminants, with `Self` replaced
+  // by the enum (`Discriminant`). It evaluates the discriminants again, here, so
+  // `Variant::declared_tags` compares its tags with those of the enum.
   let tag = format_ident!("__PunTag");
   let tag_repr = repr.int.as_ref().map_or_else(|| quote!(C), |int| quote!(#int));
-  let tags = data.variants.iter().map(|variant| {
-    let (name, discriminant) =
-      (&variant.ident, variant.discriminant.as_ref().map(|(_, expr)| expr));
-    let discriminant = discriminant.map(|expr| quote!(= #expr));
+  let discriminants = data
+    .variants
+    .iter()
+    .map(|variant| {
+      variant.discriminant.as_ref().map(|(_, expr)| {
+        let mut discriminant = Discriminant { this: ident, items: 0, opaque: false };
+        let mut expr = expr.clone();
+        discriminant.visit_expr_mut(&mut expr);
+        (expr, discriminant.opaque)
+      })
+    })
+    .collect::<Vec<_>>();
+  let tags = data.variants.iter().zip(&discriminants).map(|(variant, discriminant)| {
+    let name = &variant.ident;
+    let discriminant = discriminant.as_ref().map(|(expr, _)| quote!(= #expr));
     quote!(#name #discriminant)
   });
   let names = data.variants.iter().map(|variant| &variant.ident).collect::<Vec<_>>();
   let count = names.len();
-  // What the declaration of each variant tells of its tag, for a variant without a sample: an
-  // integer literal is the same value anywhere, another expression may not be, and no
+  // What the declaration of each variant tells of its tag, for a variant without a sample: a
+  // discriminant has the same value here if all of it is read (`Discriminant`), and no
   // discriminant is the tag before it plus one.
   let option = quote!(::core::option::Option);
-  let declared = data.variants.iter().map(|variant| match &variant.discriminant {
+  let declared = discriminants.iter().map(|discriminant| match discriminant {
     None => quote!(#option::None),
-    Some((_, expr)) => {
-      let literal = match expr {
-        Expr::Lit(ExprLit { lit: Lit::Int(_), .. }) => true,
-        Expr::Unary(unary) => {
-          matches!(unary.op, UnOp::Neg(_))
-            && matches!(&*unary.expr, Expr::Lit(ExprLit { lit: Lit::Int(_), .. }))
-        }
-        _ => false,
-      };
-      quote!(#option::Some(#literal))
+    Some((_, opaque)) => {
+      let known = !opaque;
+      quote!(#option::Some(#known))
     }
   });
   // A value of each variant whose fields have samples, made as `derive_discovered` makes them,
   // whose first bytes are its tag.
   let layout = quote!(#root::layout::Layout);
-  let (samples, values): (Vec<_>, Vec<_>) = data
+  let (samples, exists): (Vec<_>, Vec<_>) = data
     .variants
     .iter()
     .map(|variant| {
@@ -2240,7 +2314,7 @@ fn derive_tagged(
             #option::None
           }
         },
-        quote!(#layout::inhabited_all(#layouts)),
+        quote!(#layout::may_exist_all(#layouts)),
       )
     })
     .unzip();
@@ -2429,7 +2503,7 @@ fn derive_tagged(
               &[#(#tag::#names),*],
               &[#(#samples),*],
               [#(#declared),*],
-              [#(#values),*],
+              [#(#exists),*],
             )
           };
       }

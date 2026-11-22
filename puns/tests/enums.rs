@@ -92,6 +92,28 @@ enum Declared {
   Expression(u8) = FIVE * 2 + 1,
 }
 
+/// A trait whose constant is 1 for a `Copy` type, and 2 for `OfSelf`.
+trait Num {
+  const N: u8;
+}
+
+impl<T: Copy> Num for T {
+  const N: u8 = 1;
+}
+
+impl Num for OfSelf {
+  const N: u8 = 2;
+}
+
+/// A discriminant that names `Self`, which is this enum here, and would be the enum without fields
+/// that holds the tags where the derive declares it, which is `Copy`.
+#[derive(Pun, Debug, PartialEq)]
+#[repr(u8)]
+enum OfSelf {
+  A(bool) = <Self as Num>::N,
+  B(u8),
+}
+
 fn bytes<T: Copy, const N: usize>(value: T) -> [u8; N] {
   assert_eq!(size_of::<T>(), N);
   // SAFETY: `transmute_copy` reads `size_of::<[u8; N]>()` bytes of `value`, which is the size of
@@ -142,6 +164,11 @@ fn tags_are_the_discriminants() {
   for tag in [0, 1, 4, 6, 10, 12] {
     assert_eq!(puns::try_pun::<[u8; 2], Declared>([tag, 0]), Err(Error::Validity));
   }
+  // `A` is 2, checked as a `bool`, and `B` is 3. No variant is 1.
+  assert_eq!(puns::try_pun_ref::<[u8; 2], OfSelf>(&[2, 1]), Ok(&OfSelf::A(true)));
+  assert_eq!(puns::try_pun_ref::<[u8; 2], OfSelf>(&[2, 7]), Err(Error::Validity));
+  assert_eq!(puns::try_pun_ref::<[u8; 2], OfSelf>(&[1, 0]), Err(Error::Validity));
+  assert_eq!(puns::try_pun_ref::<[u8; 2], OfSelf>(&[3, 7]), Ok(&OfSelf::B(7)));
 }
 
 #[test]
