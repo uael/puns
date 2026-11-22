@@ -1,0 +1,22 @@
+error[E0080]: evaluation panicked: value is out of range
+ --> tests/compile-fail/int_out_of_range.rs:4:18
+  |
+4 | const _: u24le = u24le::new(1 << 24);
+  |                  ^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+  |
+note: inside `u24le::new`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/num.rs
+  |
+  | / ints! {
+  | |   u16le u16lec: u16[2] Little;
+  | |   u16be u16bec: u16[2] Big;
+  | |   u24le u24lec: u32[3] Little;
+... |
+  | |   u128be u128bec: u128[16] Big;
+  | | }
+  | |_- in this macro invocation
+  = note: this error originates in the macro `$crate::panic::panic_2021` which comes from the expansion of the macro `ints` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,11 @@
+error: `regions` is an option of the last field
+ --> tests/compile-fail/region_options.rs:8:3
+  |
+8 |   count: u8,
+  |   ^^^^^
+
+error: only the last region can be unsized
+  --> tests/compile-fail/region_options.rs:16:17
+   |
+16 |   #[pun(regions(name, value = count))]
+   |                 ^^^^

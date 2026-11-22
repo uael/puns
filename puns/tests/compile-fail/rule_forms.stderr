@@ -1,0 +1,53 @@
+error: an `if` has an `else`
+ --> tests/compile-fail/rule_forms.rs:5:14
+  |
+5 | #[pun(assert(if a == 1 { true }))]
+  |              ^^
+
+error: no such field
+  --> tests/compile-fail/rule_forms.rs:12:19
+   |
+12 | #[pun(assert(self.b == 1))]
+   |                   ^
+
+error: unsupported operator
+  --> tests/compile-fail/rule_forms.rs:19:16
+   |
+19 | #[pun(assert(a += 1))]
+   |                ^
+
+error: expected `|name| EXPR`
+  --> tests/compile-fail/rule_forms.rs:26:22
+   |
+26 | #[pun(assert(walk(0, |at, step| at < 2, |at| at + 1) == 2))]
+   |                      ^
+
+error: a CRC has parameters: `crc::<WIDTH, POLY, INIT, REFLECT, XOROUT>(start, end)`
+  --> tests/compile-fail/rule_forms.rs:33:14
+   |
+33 | #[pun(assert(crc(0, 1) == 0))]
+   |              ^^^
+
+error: `crc::<WIDTH, POLY, INIT, REFLECT, XOROUT>` takes 2 arguments, or 4 (the last two a range taken as zeros)
+  --> tests/compile-fail/rule_forms.rs:40:14
+   |
+40 | #[pun(assert(crc::<8, 7, 0, false, 0>(0) == 0))]
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: `#[pun(..)]` computes on unsigned integers: this literal is not one
+  --> tests/compile-fail/rule_forms.rs:47:19
+   |
+47 | #[pun(assert(a == "1"))]
+   |                   ^^^
+
+error: `self` is only `size_of_val(self)` in a rule
+  --> tests/compile-fail/rule_forms.rs:54:14
+   |
+54 | #[pun(assert(self == 1))]
+   |              ^^^^
+
+error: not something that a rule computes: it computes with operators, `if`, `let`, and `size_of_val(self)`, `le`, `be`, `leb128`, `leb128_len`, `quic`, `quic_len`, `vlq`, `vlq_len`, `crc32`, `crc::<..>`, `sum16`, `sum`, `fletcher16`, `adler32`, `matches` and `walk`
+  --> tests/compile-fail/rule_forms.rs:61:14
+   |
+61 | #[pun(assert(match a { 1 => true, _ => false }))]
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

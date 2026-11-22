@@ -1,0 +1,26 @@
+error[E0080]: evaluation panicked: a CRC has 1 to 64 bits
+ --> tests/compile-fail/crc_width.rs:5:14
+  |
+3 | #[derive(puns::Pun)]
+  |          --------- in this derive macro expansion
+4 | #[repr(C)]
+5 | #[pun(assert(crc::<0, 0, 0, false, 0>(0, 2) == 0))]
+  |              ^^^ evaluation of `_::<impl puns::Pun for NoBit>::LAYOUT::{constant#1}::{constant#0}` failed inside this call
+  |
+note: inside `puns::layout::Crc::new`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/layout.rs
+  |
+  |     assert!(width >= 1 && width <= 64, "a CRC has 1 to 64 bits");
+  |     ------------------------------------------------------------ in this macro invocation
+
+note: erroneous constant encountered
+ --> tests/compile-fail/crc_width.rs:3:10
+  |
+3 | #[derive(puns::Pun)]
+  |          ^^^^^^^^^
+  |
+  = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

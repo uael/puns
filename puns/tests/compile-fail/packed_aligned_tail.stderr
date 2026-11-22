@@ -1,0 +1,27 @@
+error[E0080]: evaluation panicked: unsupported layout: the trailing padding of this unsized struct is not the one of its unsized field (packed struct with an aligned unsized field?)
+  --> tests/compile-fail/packed_aligned_tail.rs:11:10
+   |
+11 | #[derive(puns::Pun)]
+   |          ^^^^^^^^^ evaluation of `_::<impl puns::Pun for Outer>::LAYOUT` failed inside this call
+   |
+note: inside `puns::layout::Layout::structure::<Outer>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   | /           assert!(
+   | |             matches!(this.size_of_val(len), Some(s) if s == size),
+   | |             "unsupported layout: the trailing padding of this unsized struct is not the one of \
+   | |              its unsized field (packed struct with an aligned unsized field?)",
+   | |           );
+   | |___________- in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/packed_aligned_tail.rs:11:10
+   |
+11 | #[derive(puns::Pun)]
+   |          ^^^^^^^^^
+   |
+   = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

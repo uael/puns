@@ -1,0 +1,51 @@
+error[E0080]: evaluation panicked: not the rules of the struct
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `puns::validate::check_rules::<Fewer>::{constant#0}` failed here
+  |
+ ::: src/validate.rs
+  |
+  |   const { assert!(listed::<T, T::Rules>(0), "not the rules of the struct") };
+  |           ---------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   const { assert!(listed::<T, T::Rules>(0), "not the rules of the struct") };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn puns::validate::check_rules::<Fewer>`
+ --> src/validate.rs
+  |
+  |           && (const { !rules_marked::<C, P, T>() } || check_rules(ptr))
+  |                                                       ^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: not the operations of the expression
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `puns::validate::steps::<puns::steps::InRule<NoWalk, puns::RuleAt<0, puns::steps::Two<puns::steps::Two<puns::steps::One<0>, puns::steps::One<1>>, puns::steps::Two<puns::steps::One<2>, puns::steps::One<3>>>, ()>>, puns::steps::One<1>>::{constant#0}` failed here
+  |
+ ::: src/validate.rs
+  |
+  | /     assert!(
+  | |       S::KIND != ONE || matches!(op_at(X::OPS, S::AT), Some(op) if !matches!(op, Op::Walk { .. })),
+  | |       "not the operations of the expression"
+  | |     );
+  | |_____- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  | /   const {
+  | |     assert!(
+  | |       S::KIND != ONE || matches!(op_at(X::OPS, S::AT), Some(op) if !matches!(op, Op::Walk { .. })),
+  | |       "not the operations of the expression"
+  | |     );
+  | |   };
+  | |___^
+
+note: the above error was encountered while instantiating `fn puns::validate::steps::<puns::steps::InRule<NoWalk, puns::RuleAt<0, puns::steps::Two<puns::steps::Two<puns::steps::One<0>, puns::steps::One<1>>, puns::steps::Two<puns::steps::One<2>, puns::steps::One<3>>>, ()>>, puns::steps::One<1>>`
+ --> src/validate.rs
+  |
+  |         steps::<X, S::B>(machine, base, size)
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

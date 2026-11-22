@@ -1,0 +1,98 @@
+error[E0080]: evaluation panicked: a DFA has 1 to 64 states
+  --> tests/compile-fail/dfa_malformed.rs:12:22
+   |
+10 | #[derive(puns::Pun)]
+   |          --------- in this derive macro expansion
+11 | #[repr(C)]
+12 | #[pun(assert(matches(NO_STATE, 0, 2)))]
+   |                      ^^^^^^^^ evaluation of `_::<impl puns::Pun for NoState>::LAYOUT::{constant#1}` failed inside this call
+   |
+note: inside `Op::matches`
+  --> src/layout.rs
+   |
+   |     dfa.check();
+   |     ^^^^^^^^^^^
+note: inside `Dfa::check`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |     assert!(!self.states.is_empty() && self.states.len() <= 64, "a DFA has 1 to 64 states");
+   |     --------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/dfa_malformed.rs:10:10
+   |
+10 | #[derive(puns::Pun)]
+   |          ^^^^^^^^^
+   |
+   = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0080]: evaluation panicked: a DFA edge is empty or leads to no state
+  --> tests/compile-fail/dfa_malformed.rs:19:22
+   |
+17 | #[derive(puns::Pun)]
+   |          --------- in this derive macro expansion
+18 | #[repr(C)]
+19 | #[pun(assert(matches(TO_NO_STATE, 0, 2)))]
+   |                      ^^^^^^^^^^^ evaluation of `_::<impl puns::Pun for ToNoState>::LAYOUT::{constant#1}` failed inside this call
+   |
+note: inside `Op::matches`
+  --> src/layout.rs
+   |
+   |     dfa.check();
+   |     ^^^^^^^^^^^
+note: inside `Dfa::check`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   | /         assert!(
+   | |           edges[j].0 <= edges[j].1 && (edges[j].2 as usize) < self.states.len(),
+   | |           "a DFA edge is empty or leads to no state"
+   | |         );
+   | |_________- in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/dfa_malformed.rs:17:10
+   |
+17 | #[derive(puns::Pun)]
+   |          ^^^^^^^^^
+   |
+   = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0080]: evaluation panicked: DFA edges must be sorted and disjoint
+  --> tests/compile-fail/dfa_malformed.rs:26:22
+   |
+24 | #[derive(puns::Pun)]
+   |          --------- in this derive macro expansion
+25 | #[repr(C)]
+26 | #[pun(assert(matches(UNSORTED, 0, 2)))]
+   |                      ^^^^^^^^ evaluation of `_::<impl puns::Pun for Unsorted>::LAYOUT::{constant#1}` failed inside this call
+   |
+note: inside `Op::matches`
+  --> src/layout.rs
+   |
+   |     dfa.check();
+   |     ^^^^^^^^^^^
+note: inside `Dfa::check`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |         assert!(j == 0 || edges[j - 1].1 < edges[j].0, "DFA edges must be sorted and disjoint");
+   |         --------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/dfa_malformed.rs:24:10
+   |
+24 | #[derive(puns::Pun)]
+   |          ^^^^^^^^^
+   |
+   = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

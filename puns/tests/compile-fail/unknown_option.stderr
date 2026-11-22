@@ -1,0 +1,5 @@
+error: unknown `pun` option
+ --> tests/compile-fail/unknown_option.rs:5:7
+  |
+5 | #[pun(sized = 4)]
+  |       ^^^^^

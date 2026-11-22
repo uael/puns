@@ -1,0 +1,17 @@
+error: unsupported operator
+ --> tests/compile-fail/derive_failed.rs:5:16
+  |
+5 | #[pun(assert(a += 1))]
+  |                ^
+
+error[E0080]: evaluation panicked: `#[derive(Pun)]` failed
+ --> tests/compile-fail/derive_failed.rs:3:10
+  |
+3 | #[derive(puns::Pun)]
+  |          ^^^^^^^^^ evaluation of `<Failed as puns::Pun>::LAYOUT` failed here
+
+note: erroneous constant encountered
+  --> tests/compile-fail/derive_failed.rs:10:33
+   |
+10 | const _: puns::layout::Layout = <Failed as puns::Pun>::LAYOUT;
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

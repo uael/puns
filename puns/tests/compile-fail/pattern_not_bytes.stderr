@@ -1,0 +1,15 @@
+error[E0080]: evaluation panicked: not a byte string
+  --> tests/compile-fail/pattern_not_bytes.rs:11:12
+   |
+11 |   unsafe { Layout::pattern::<[u16]>(<[u8] as Pun>::PROBE as *const [u16], Dfa::DIGITS) };
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+   |
+note: inside `puns::layout::Layout::pattern::<[u16]>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |     assert!(unsafe { mem::size_of_val_raw(probe) } == ptr::PROBE_LEN, "not a byte string");
+   |     -------------------------------------------------------------------------------------- in this macro invocation

@@ -1,0 +1,29 @@
+error: a block has a value
+ --> tests/compile-fail/rule_blocks.rs:6:14
+  |
+6 | #[pun(assert({}))]
+  |              ^^
+
+error: expected `let name = EXPR;`
+  --> tests/compile-fail/rule_blocks.rs:13:16
+   |
+13 | #[pun(assert({ a; a == 1 }))]
+   |                ^
+
+error: expected `let name = EXPR;`
+  --> tests/compile-fail/rule_blocks.rs:20:16
+   |
+20 | #[pun(assert({ let b; a == 1 }))]
+   |                ^^^
+
+error: expected a name
+  --> tests/compile-fail/rule_blocks.rs:27:20
+   |
+27 | #[pun(assert({ let (b, c) = (a, a); b == c }))]
+   |                    ^^^^^^
+
+error: a block ends with its value
+  --> tests/compile-fail/rule_blocks.rs:34:16
+   |
+34 | #[pun(assert({ let b = a == 1; }))]
+   |                ^^^

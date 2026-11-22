@@ -1,0 +1,41 @@
+error[E0080]: evaluation panicked:
+              cannot pun: the size of the source may not be a size of the target, depending on the length of its slice.
+              Use `try_pun_ref` or `try_pun_mut` to check it at run time.
+
+    --> src/lib.rs
+     |
+     |   const BY_REF: () = Self::require(Self::check(Need::REF));
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u16], [u8; 4]>::BY_REF` failed inside this call
+     |
+note: inside `puns::Plan::<[u16], [u8; 4]>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_REF };
+  |           ^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_REF };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn pun_ref::<[u16], [u8; 4]>`
+ --> tests/compile-fail/ref_slice_length.rs:4:21
+  |
+4 |   let _: &[u8; 4] = puns::pun_ref::<[u16], [u8; 4]>(&[1, 2][..]);
+  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
