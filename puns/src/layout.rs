@@ -2953,6 +2953,47 @@ impl Layout {
     }
   }
 
+  /// Returns whether a part of the layout, at any depth, requires what a value of its type may not
+  /// hold: a rule, or a scalar whose valid values are not those that it is known to hold, such as a
+  /// field restricted by `#[pun(valid(..))]`.
+  ///
+  /// Safe code may write a value that breaks such a requirement. So the check of the layout may
+  /// fail on a value of the same type, or of a type that proves it through the same requirement.
+  pub(crate) const fn holds_requirement(&self) -> bool {
+    // Every requirement is a leaf.
+    if self.leaves == 0 {
+      return false;
+    }
+    match self.kind {
+      Kind::Scalar(spec) => !same_valid(spec.valid, spec.known, spec.endian, spec.endian),
+      Kind::Pattern(_) => false,
+      Kind::Array(elem, _) | Kind::Slice(elem) => elem.holds_requirement(),
+      Kind::Struct(fields, rules) => {
+        let mut i = 0;
+        while i < fields.len() {
+          if fields[i].layout.holds_requirement() {
+            return true;
+          }
+          i += 1;
+        }
+        !rules.is_empty()
+      }
+      Kind::Enum(layout) => {
+        if !layout.union && layout.tag.layout.holds_requirement() {
+          return true;
+        }
+        let mut i = 0;
+        while i < layout.variants.len() {
+          if layout.variants[i].layout.holds_requirement() {
+            return true;
+          }
+          i += 1;
+        }
+        false
+      }
+    }
+  }
+
   /// Returns whether no part that is not `fixed`, at any depth, has something to check, or whether
   /// the `unstable` feature is enabled.
   ///

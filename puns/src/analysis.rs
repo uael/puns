@@ -87,6 +87,10 @@
 //! checked field by field at run time if the check of no field reads a byte that may be padding in
 //! the source, and refused if one does ([`relate_union_from`]). The marks of the analysis cannot
 //! tell the validation which fields to skip, so a union is not checked by some of its fields only.
+//! A union that is proven may still be checked, with a part that holds it. That check stops at the
+//! first field that the source proves whatever safe code writes, one that holds no requirement
+//! ([`Layout::holds_requirement`]). A field proven through a requirement, a `valid(..)` or a rule,
+//! fails its check where a value breaks the requirement, and the next field is tried.
 //! As a source, a union is padding, and from a union only the same union proves a union
 //! ([`Layout::equals`]). It may hold a value even if none of its fields has one, so a part of the
 //! source, a variant included, is taken to have no value only if none may exist
@@ -1681,9 +1685,13 @@ const fn relate_union_from(
   let mut unspecified = None;
   // A byte that a check of the union would read, and that may be uninitialized in the source. The
   // check tries the fields in order, and stops at the first that the bytes are, so it reads no
-  // field after the first that the source proves. This is less than what a field requires to be
-  // initialized: a byte of any value must be initialized, and no check reads it.
+  // field after the first that the source proves whatever safe code writes, one that holds no
+  // requirement ([`Layout::holds_requirement`]). A field proven through a requirement fails its
+  // check where a value breaks it, and the next field is tried. This is less than what a field
+  // requires to be initialized: a byte of any value must be initialized, and no check reads it.
   let mut unreadable = None;
+  // Whether such a field is found, after which no field is tried.
+  let mut settled = false;
   let (source, base) = (a.stack[0].layout, a.stack[0].base);
   while i < layout.variants.len() {
     let field = &layout.variants[i];
@@ -1699,18 +1707,19 @@ const fn relate_union_from(
     if unspecified.is_none() {
       unspecified = relation.unspecified;
     }
-    if !proven && unreadable.is_none() {
+    if !settled && unreadable.is_none() {
       unreadable = relation.unreadable_at;
     }
     if relation.uninit.is_none() {
       proven |= relation.infallible();
+      settled |= relation.infallible() && !field.layout.holds_requirement();
       some |= relation.disjoint.is_none();
     } else if uninit.is_none() {
       // Its check would read padding: it cannot be checked.
       uninit = relation.uninit;
     }
   }
-  // A check would try the fields before the one that proves the union, and that one, or every
+  // A check would try the fields before the one that settles the union, and that one, or every
   // field if none does.
   if let Some(at) = unreadable {
     out.unreadable(leaf, 1, at);
