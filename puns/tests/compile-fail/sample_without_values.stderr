@@ -1,0 +1,20 @@
+error[E0080]: evaluation panicked: a type without values has no sample
+ --> tests/compile-fail/sample_without_values.rs:5:36
+  |
+5 | const _: MaybeUninit<Infallible> = puns::layout::Layout::sample::<Infallible>();
+  |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+  |
+note: inside `puns::layout::Layout::sample::<!>`
+ --> src/layout.rs
+  |
+  |     crate::discover::sample::<T>()
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::discover::sample::<!>`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/discover.rs
+  |
+  |   assert!(T::LAYOUT.is_inhabited(), "a type without values has no sample");
+  |   ------------------------------------------------------------------------ in this macro invocation

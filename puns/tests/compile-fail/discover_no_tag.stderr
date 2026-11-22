@@ -1,0 +1,21 @@
+error[E0080]: evaluation panicked: no tag found in the enum: unsupported layout
+ --> src/layout.rs
+  |
+  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
+  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Direct as puns::layout::Discover<2>>::DESC` failed inside this call
+  |
+note: inside `puns::discover::discover::<Direct, 2>`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/discover.rs
+  |
+  |   panic!("no tag found in the enum: unsupported layout")
+  |   ------------------------------------------------------ in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/discover_no_tag.rs:26:11
+   |
+26 |   let _ = <Direct as Discover<2>>::DESC;
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

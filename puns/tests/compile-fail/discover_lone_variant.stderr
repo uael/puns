@@ -1,0 +1,26 @@
+error[E0080]: evaluation panicked: the only variant that has values is told by bytes that are not its fields
+ --> src/layout.rs
+  |
+  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
+  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Direct as puns::layout::Discover<2>>::DESC` failed inside this call
+  |
+note: inside `puns::discover::discover::<Direct, 2>`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/discover.rs
+  |
+  | /     assert!(
+  | |       // SAFETY: `discover` is evaluated at compile time, by contract on the caller, so this call
+  | |       // is too.
+  | |       unsafe { decided_by(&samples[first], these, first, 0, 0) },
+  | |       "the only variant that has values is told by bytes that are not its fields"
+  | |     );
+  | |_____- in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/discover_lone_variant.rs:24:11
+   |
+24 |   let _ = <Direct as Discover<2>>::DESC;
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

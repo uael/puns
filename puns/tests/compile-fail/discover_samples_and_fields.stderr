@@ -1,0 +1,95 @@
+error[E0080]: evaluation panicked: the discriminant is not the index
+ --> src/layout.rs
+  |
+  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
+  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Swapped as puns::layout::Discover<2>>::DESC` failed inside this call
+  |
+note: inside `puns::discover::discover::<Swapped, 2>`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/discover.rs
+  |
+  |       assert!(unsafe { variant(samples[v].as_ptr()) } == v, "the discriminant is not the index");
+  |       ------------------------------------------------------------------------------------------ in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/discover_samples_and_fields.rs:64:11
+   |
+64 |   let _ = <Swapped as Discover<2>>::DESC;
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: the discriminant of an enum of the `Rust` representation is not an `isize`
+ --> src/layout.rs
+  |
+  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
+  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Specified as puns::layout::Discover<2>>::DESC` failed inside this call
+  |
+note: inside `puns::discover::discover::<Specified, 2>`
+ --> src/discover.rs
+  |
+  |       assert!(unsafe { variant(samples[v].as_ptr()) } == v, "the discriminant is not the index");
+  |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::discover::variant::<Specified>`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/discover.rs
+  |
+  | /   assert!(
+  | |     size_of::<mem::Discriminant<E>>() == size_of::<isize>(),
+  | |     "the discriminant of an enum of the `Rust` representation is not an `isize`"
+  | |   );
+  | |___- in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/discover_samples_and_fields.rs:65:11
+   |
+65 |   let _ = <Specified as Discover<2>>::DESC;
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: a field is out of the enum
+ --> src/layout.rs
+  |
+  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
+  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Outside as puns::layout::Discover<2>>::DESC` failed inside this call
+  |
+note: inside `puns::discover::discover::<Outside, 2>`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/discover.rs
+  |
+  |         assert!(field.offset + field.layout.size <= size, "a field is out of the enum");
+  |         ------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/discover_samples_and_fields.rs:66:11
+   |
+66 |   let _ = <Outside as Discover<2>>::DESC;
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: fields overlap
+ --> src/layout.rs
+  |
+  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
+  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Twice as puns::layout::Discover<2>>::DESC` failed inside this call
+  |
+note: inside `puns::discover::discover::<Twice, 2>`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/discover.rs
+  |
+  |         assert!(!covers(these.split_at(i).0, field.offset, field.layout.size), "fields overlap");
+  |         ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/discover_samples_and_fields.rs:67:11
+   |
+67 |   let _ = <Twice as Discover<2>>::DESC;
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,44 @@
+error[E0080]: reading memory at alloc256[0x0..0x10], but memory is uninitialized at [0x1..0x2], and this operation requires initialized memory
+ --> src/layout.rs
+  |
+  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
+  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Shape as puns::layout::Discover<2>>::DESC` failed inside this call
+  |
+  = note: the raw bytes of the constant (size: 16, align: 16) {
+                 01 __ 00 00 00 00 00 00 00 00 00 00 00 00 00 00 │ .░..............
+             }
+note: inside `puns::discover::discover::<Shape, 2>`
+ --> src/discover.rs
+  |
+  |     unsafe { try_tag(&mut desc, samples, fields, (0, start, None), V) };
+  |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::discover::try_tag::<Shape, 2>`
+ --> src/discover.rs
+  |
+  |       let value = unsafe { read(&samples[v], offset, len) };
+  |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::discover::read::<Shape>`
+ --> src/discover.rs
+  |
+  |   unsafe { load(sample.as_ptr().cast::<u8>().add(offset), len, Endian::NATIVE) }
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::load`
+ --> src/layout.rs
+  |
+  |         u128::from_le_bytes(buf)
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `core::num::<impl u128>::from_le_bytes`
+ --> $RUST/core/src/num/uint_macros.rs
+ --> $RUST/core/src/num/mod.rs
+ ::: $RUST/core/src/num/mod.rs
+  |
+  = note: in this macro invocation
+  = note: this error originates in the macro `uint_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+note: erroneous constant encountered
+ --> tests/compile-fail/rust_enum_absent_fields.rs:7:10
+  |
+7 | #[derive(puns::Pun, Clone, Copy)]
+  |          ^^^^^^^^^
+  |
+  = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
