@@ -322,6 +322,18 @@ note: erroneous constant encountered
   |            ^^^^^^^^^
 
 note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   match F::FIELD {
+  |         ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     (const { inhabited::<V::Fields>() } && every::<C, T, V::Fields>(ptr))
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
  --> src/lib.rs
   |
   |     + match F::FIELD {
@@ -416,3 +428,9 @@ note: erroneous constant encountered
   |
   |   let this = match const { V::RANGES } {
   |                    ^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |       (const { inhabited::<V::Fields>() }) && every::<C, T, V::Fields>(ptr)
+  |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

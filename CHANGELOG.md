@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/uael/puns/compare/v0.2.0...v0.2.1) - 2026-11-22
+
+### Fixed
+
+- do not prove an array from the niche in its first element ([#37](https://github.com/uael/puns/pull/37))
+- read nothing of a variant that has no value ([#38](https://github.com/uael/puns/pull/38))
+- refuse a check that would read uninitialized bytes of a part that is proven ([#39](https://github.com/uael/puns/pull/39))
+
 ## [0.2.0](https://github.com/uael/puns/compare/v0.2.0-beta.3...v0.2.0) - 2026-11-22
 
 ### Other

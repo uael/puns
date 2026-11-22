@@ -53,8 +53,8 @@
 //! So the cost of an analysis grows with the number of fields, variants, ranges of values and
 //! states of automata of the types. Where it would grow with their size, a search stops at a limit:
 //! [`PLACES`] places of fields, a budget of boxes of a scalar, a budget of runs under a pattern,
-//! and [`CUT_ELEMENTS`] elements of a `&mut` to a part. These limits keep the analysis within the
-//! bound of const evaluation (see "Minimum Rust version" in the [crate
+//! and [`CUT_ELEMENTS`] elements of an array looked at one by one. These limits keep the analysis
+//! within the bound of const evaluation (see "Minimum Rust version" in the [crate
 //! documentation](crate#minimum-rust-version)).
 //!
 //! # Enums and unions
@@ -100,6 +100,26 @@
 //! Two layouts are the same ([`Layout::equals`], by which an enum proves an enum without looking
 //! into it) only if they require the same values and guarantee the same values. A
 //! `V(#[pun(valid(0..=1))] u8)` is not a `V(bool)`.
+//!
+//! # What a check reads
+//!
+//! A proof reads nothing, so some parts are proven whatever their bytes are in the source: an enum
+//! or a union by the same type ([`equal`]), a union by one of its fields, and the rules of a struct
+//! by the same rules. A check reads. A part that is proven is checked all the same where its leaf
+//! is marked for another reason:
+//!
+//! - The elements of an array share their leaves, so each is checked if one is.
+//! - A pattern of the source under something that is not one marks every leaf.
+//! - An enum or a union is checked as a whole, with every part of its variant.
+//! - The leaves past the capacity of a set of marks are all marked, or none is ([`Marks`]).
+//!
+//! So each proof that reads nothing also tells whether a check of the part would read a byte that
+//! may be uninitialized in the source ([`Relation::unreadable`]). Such a byte is a byte of a union,
+//! padding that a rule reads ([`checkable`]), or what a field of a union reads before the field
+//! that proves it ([`relate_union_from`]). A rule that reads the bytes of its struct reads what the
+//! source has under every part of the struct, a part that is proven without being read included
+//! ([`unreadable_rules`]). A leaf that is both marked and unreadable is refused, as a byte read from
+//! padding is ([`Relation::settle`]).
 //!
 //! # Shifted relations
 //!
@@ -420,6 +440,19 @@ impl Known {
       self.start == start && self.end == end && (end - start == 1 || self.endian.equals(endian));
     if self.len > 0 && same { Some(self.ranges.split_at(self.len).0) } else { None }
   }
+
+  /// Returns where the bytes from `pos` stop being all known or all unknown, at most `next`.
+  ///
+  /// What is known holds of its own bytes only, so a step that reads it must not go past them.
+  const fn step(&self, pos: usize, next: usize) -> usize {
+    if self.len == 0 || pos >= self.end {
+      next
+    } else if pos < self.start {
+      min(next, self.start)
+    } else {
+      min(next, self.end)
+    }
+  }
 }
 
 /// Which rules of a target may be checked at run time.
@@ -668,6 +701,18 @@ impl Marks {
     Self { bits, overflow: self.overflow || other.overflow }
   }
 
+  /// Returns whether a leaf is in both sets.
+  const fn meets(&self, other: &Self) -> bool {
+    let mut i = 0;
+    while i < self.bits.len() {
+      if self.bits[i] & other.bits[i] != 0 {
+        return true;
+      }
+      i += 1;
+    }
+    self.overflow && other.overflow
+  }
+
   /// Returns whether one of the `count` leaves from `first` on is in the set.
   pub(crate) const fn any(&self, first: usize, count: usize) -> bool {
     let (mut i, end) = (first, first + count);
@@ -715,12 +760,34 @@ pub struct Relation {
   /// Whatever reads the fields of a relation one by one must read this one too. With it, nothing
   /// is proven.
   pub(crate) unspecified: Option<usize>,
+  /// The leaves of the target whose check would read a byte that may be uninitialized in the
+  /// source.
+  ///
+  /// Such a leaf that the source does not prove is refused where it is found (`uninit`). One that
+  /// the source proves needs no check: a proof reads nothing, so it holds whatever these bytes
+  /// are. But it may be checked all the same, where it shares its leaf with a part that is not
+  /// proven (the elements of an array), where every leaf is marked, or where it is in an enum or
+  /// a union that is checked as a whole. A leaf in both this set and `marks` is refused
+  /// ([`Relation::settle`]).
+  ///
+  /// This is not `uninit`, which also records a byte that the target requires to be initialized
+  /// and that no check reads, such as a byte of any value.
+  unreadable: Marks,
+  /// The offset of the first such byte that was found, if any.
+  unreadable_at: Option<usize>,
 }
 
 impl Relation {
   /// A relation in which nothing is found yet.
-  const NEW: Self =
-    Self { uninit: None, disjoint: None, partial: None, marks: Marks::NONE, unspecified: None };
+  const NEW: Self = Self {
+    uninit: None,
+    disjoint: None,
+    partial: None,
+    marks: Marks::NONE,
+    unspecified: None,
+    unreadable: Marks::NONE,
+    unreadable_at: None,
+  };
 
   /// Records `pos` as a part that is not proven in every layout, if none is recorded yet.
   const fn unspecified(&mut self, pos: usize) {
@@ -743,6 +810,35 @@ impl Relation {
   const fn uninit(&mut self, pos: usize) {
     if self.uninit.is_none() {
       self.uninit = Some(pos);
+    }
+  }
+
+  /// Records that a check of any of the `count` leaves from `leaf` would read the byte at `pos`,
+  /// which may be uninitialized in the source.
+  const fn unreadable(&mut self, leaf: usize, count: usize, pos: usize) {
+    let mut i = 0;
+    while i < count {
+      self.unreadable.set(leaf + i);
+      // The leaves past the capacity of a set are all in it, or none is.
+      if leaf + i >= Marks::CAPACITY {
+        break;
+      }
+      i += 1;
+    }
+    if self.unreadable_at.is_none() {
+      self.unreadable_at = Some(pos);
+    }
+  }
+
+  /// Records a byte read from padding if a leaf that is marked must not be read.
+  ///
+  /// This is the last step of an analysis whose marks tell the validation what to check. Before
+  /// it, a leaf may still be marked.
+  const fn settle(&mut self) {
+    if let Some(pos) = self.unreadable_at
+      && self.marks.meets(&self.unreadable)
+    {
+      self.uninit(pos);
     }
   }
 
@@ -1129,7 +1225,14 @@ const fn relate_range(
         && run_a.start == pos
         && whole
         && !target.holds_never();
-      let proven = same || (whole && relate_fields(a, b, target, pos));
+      let fields = if same || !whole { (false, None) } else { relate_fields(a, b, target, pos) };
+      let proven = same || fields.0;
+      // Proven, but what a check of it would read may be uninitialized in the source.
+      if same && !checkable(target) {
+        out.unreadable(run_b.leaf, target.leaves, pos);
+      } else if let (true, Some(at)) = fields {
+        out.unreadable(run_b.leaf, target.leaves, at);
+      }
       if !proven && target.holds_never() {
         // Refused in every layout, so not for the layout.
         if out.disjoint.is_none() {
@@ -1206,7 +1309,11 @@ const fn relate_range(
           atom_relation(&pieces, len, &spec)
         };
         match relation {
-          None => out.uninit(pos),
+          // Nothing proves it, and its check would read what may be uninitialized.
+          None => {
+            out.uninit(pos);
+            out.unreadable(run_b.leaf, 1, pos);
+          }
           Some(Rel::Subset) => {}
           Some(rel) => {
             out.mark(run_b.leaf, pos);
@@ -1247,10 +1354,18 @@ const PLACES: usize = 1024;
 /// Nothing is left to check at run time, since a check would read where the compiler may not have
 /// put the field. A field that the source does not prove somewhere fails the relation. So does a
 /// rule, which names fields. Past [`PLACES`] places, the relation fails too.
-const fn relate_fields(a: &Cursor, b: &Cursor, target: &'static Layout, pos: usize) -> bool {
-  let Kind::Struct(fields, _) = target.kind else { return false };
+///
+/// Also returns the offset of a byte that a check of a field would read, and that may be
+/// uninitialized in the source, if there is one ([`Relation::unreadable`]).
+const fn relate_fields(
+  a: &Cursor,
+  b: &Cursor,
+  target: &'static Layout,
+  pos: usize,
+) -> (bool, Option<usize>) {
+  let Kind::Struct(fields, _) = target.kind else { return (false, None) };
   if !target.stable.size || target.has_rules {
-    return false;
+    return (false, None);
   }
   // The greatest common divisor of the sizes.
   let (mut step, mut i) = (0, 0);
@@ -1262,7 +1377,7 @@ const fn relate_fields(a: &Cursor, b: &Cursor, target: &'static Layout, pos: usi
     i += 1;
   }
   let tiled = target.tiled();
-  let (mut places, mut proven, mut i) = (0, true, 0);
+  let (mut places, mut proven, mut unreadable, mut i) = (0, true, None, 0);
   while i < fields.len() {
     let field = fields[i].layout;
     i += 1;
@@ -1274,7 +1389,7 @@ const fn relate_fields(a: &Cursor, b: &Cursor, target: &'static Layout, pos: usi
     while offset + field.size <= target.size {
       places += 1;
       if places > PLACES {
-        return false;
+        return (false, None);
       }
       let start = pos + offset;
       let (mut from, mut to) = (*a, Cursor::new(field, start, true, b.checked));
@@ -1282,10 +1397,13 @@ const fn relate_fields(a: &Cursor, b: &Cursor, target: &'static Layout, pos: usi
       let mut relation = Relation::NEW;
       relate_range(&mut from, &mut to, start, start + field.size, &mut relation);
       proven &= relation.infallible();
+      if unreadable.is_none() {
+        unreadable = relation.unreadable_at;
+      }
       offset += by;
     }
   }
-  proven
+  (proven, unreadable)
 }
 
 /// Relates the enum `a` with the enum `b`, both at `pos`, variant by variant.
@@ -1306,6 +1424,11 @@ const fn relate_enums(
   out: &mut Relation,
 ) -> bool {
   if equal(a, b) && !b.holds_never() {
+    // Proven without reading anything. A check of it would read what the same type does not
+    // promise to be initialized, such as the bytes of a union.
+    if !checkable(b) {
+      out.unreadable(leaf, 1, pos);
+    }
     return true;
   }
   let (Kind::Enum(enum_a), Kind::Enum(enum_b)) = (a.kind, b.kind) else { panic!() };
@@ -1326,6 +1449,8 @@ const fn relate_enums(
   }
   // Whether some variants of `a` are valid for `b`, and whether all are.
   let (mut some, mut all, mut i) = (false, true, 0);
+  // A byte that the check of a variant would read, and that may be uninitialized in the source.
+  let mut unreadable = None;
   let (tag, size) = (enum_b.tag.offset, tag_b.size);
   while i < enum_a.variants.len() {
     let from = &enum_a.variants[i];
@@ -1346,12 +1471,16 @@ const fn relate_enums(
       let known = Known::both(tag, size, tag_b.endian, &tags, &to.tags());
       let mut relation = relate_with(from.layout, 0, to.layout, 0, 0, b.size, Checked::All, &known);
       mark_rules(from.layout, to.layout, 0, 0, &mut relation);
+      unreadable_rules(from.layout, 0, to.layout, 0, 0, b.size, &known, &mut relation);
       if let Some(offset) = relation.uninit {
         out.uninit(pos + offset);
       }
       // The check of the enum would read it where `rustc` put it.
       if let Some(offset) = relation.unspecified {
         out.unspecified(pos + offset);
+      }
+      if let (None, Some(offset)) = (unreadable, relation.unreadable_at) {
+        unreadable = Some(pos + offset);
       }
       some |= relation.disjoint.is_none();
       proven |= relation.infallible() && tags.within(&to.tags());
@@ -1362,6 +1491,10 @@ const fn relate_enums(
   }
   if !all {
     out.mark(leaf, pos);
+  }
+  // The check of the enum checks every part of the variant that the tag selects.
+  if let Some(at) = unreadable {
+    out.unreadable(leaf, 1, at);
   }
   if !some && out.disjoint.is_none() {
     out.disjoint = Some(pos);
@@ -1399,11 +1532,15 @@ const fn relate_enum_from(
   let start = pos + layout.tag.offset;
   // What the source holds at the tag.
   let Some(values) = tag_values(a, start, &tag, known) else {
-    // Padding where the tag is: nothing is ever this enum.
+    // Padding where the tag is: nothing is ever this enum, and its check would read the tag.
     out.uninit(start);
+    out.unreadable(leaf, 1, start);
     return true;
   };
   let (mut some, mut all, mut i) = (false, true, 0);
+  // A byte that the check of a variant would read, and that may be uninitialized in the source.
+  let mut unreadable = None;
+  let (source, base) = (a.stack[0].layout, a.stack[0].base);
   while i < layout.variants.len() {
     let variant = &layout.variants[i];
     i += 1;
@@ -1415,18 +1552,26 @@ const fn relate_enum_from(
     let (mut from, mut to) = (*a, Cursor::new(variant.layout, pos, true, Checked::All));
     to.known = known;
     relate_range(&mut from, &mut to, pos, pos + b.size, &mut relation);
-    mark_rules(a.stack[0].layout, variant.layout, pos, 0, &mut relation);
+    mark_rules(source, variant.layout, pos, 0, &mut relation);
+    unreadable_rules(source, base, variant.layout, pos, 0, pos + b.size, &known, &mut relation);
     if let Some(offset) = relation.uninit {
       out.uninit(offset);
     }
     if let Some(offset) = relation.unspecified {
       out.unspecified(offset);
     }
+    if unreadable.is_none() {
+      unreadable = relation.unreadable_at;
+    }
     some |= relation.disjoint.is_none();
     all &= relation.infallible();
   }
   if !all || !all_tags(&values, layout.variants) {
     out.mark(leaf, pos);
+  }
+  // The check of the enum checks every part of the variant that the tag selects.
+  if let Some(at) = unreadable {
+    out.unreadable(leaf, 1, at);
   }
   if !some && out.disjoint.is_none() {
     out.disjoint = Some(pos);
@@ -1455,6 +1600,12 @@ const fn relate_union_from(
   }
   let (mut proven, mut some, mut uninit, mut i) = (false, false, None, 0);
   let mut unspecified = None;
+  // A byte that a check of the union would read, and that may be uninitialized in the source. The
+  // check tries the fields in order, and stops at the first that the bytes are, so it reads no
+  // field after the first that the source proves. This is less than what a field requires to be
+  // initialized: a byte of any value must be initialized, and no check reads it.
+  let mut unreadable = None;
+  let (source, base) = (a.stack[0].layout, a.stack[0].base);
   while i < layout.variants.len() {
     let field = &layout.variants[i];
     i += 1;
@@ -1464,9 +1615,13 @@ const fn relate_union_from(
     let mut relation = Relation::NEW;
     let (mut from, mut to) = (*a, Cursor::new(field.layout, pos, true, Checked::All));
     relate_range(&mut from, &mut to, pos, pos + b.size, &mut relation);
-    mark_rules(a.stack[0].layout, field.layout, pos, 0, &mut relation);
+    mark_rules(source, field.layout, pos, 0, &mut relation);
+    unreadable_rules(source, base, field.layout, pos, 0, pos + b.size, &Known::NONE, &mut relation);
     if unspecified.is_none() {
       unspecified = relation.unspecified;
+    }
+    if !proven && unreadable.is_none() {
+      unreadable = relation.unreadable_at;
     }
     if relation.uninit.is_none() {
       proven |= relation.infallible();
@@ -1475,6 +1630,11 @@ const fn relate_union_from(
       // Its check would read padding: it cannot be checked.
       uninit = relation.uninit;
     }
+  }
+  // A check would try the fields before the one that proves the union, and that one, or every
+  // field if none does.
+  if let Some(at) = unreadable {
+    out.unreadable(leaf, 1, at);
   }
   if proven {
     return true;
@@ -2070,7 +2230,11 @@ const fn pattern_target(
     }
     let stop = min(run.end, end);
     match run.kind.seen() {
-      RunKind::Pad | RunKind::Opaque(_) => return out.uninit(pos),
+      // The check of the pattern would read what may be uninitialized.
+      RunKind::Pad | RunKind::Opaque(_) => {
+        out.unreadable(leaf, 1, pos);
+        return out.uninit(pos);
+      }
       RunKind::Any => {
         // Any byte, `stop - pos` times, or until it changes nothing.
         let mut steps = 0;
@@ -2086,7 +2250,10 @@ const fn pattern_target(
           (set, steps) = (next, steps + 1);
         }
       }
-      RunKind::Atom(spec) if spec.may_be_uninit() => return out.uninit(pos),
+      RunKind::Atom(spec) if spec.may_be_uninit() => {
+        out.unreadable(leaf, 1, pos);
+        return out.uninit(pos);
+      }
       RunKind::Atom(spec) => {
         // Each box of the scalar goes through the automaton on its own. Only what the type
         // system enforces is known of it.
@@ -2371,6 +2538,214 @@ const fn covered(source: &'static Layout, offset: usize, target: &'static Layout
 }
 
 // -------------------------------------------------------------------------------------------------
+// What a check reads
+
+/// Returns whether a check of every part of a value of `layout` reads only bytes that are
+/// initialized in every value of `layout`.
+///
+/// The same type proves a part without reading it. This tells whether the part could be checked
+/// as well, where something else marks its leaf. It could not if the check would read:
+///
+/// - The bytes of a union, of which nothing is known. The check of a union tries its fields in
+///   order, and reads nothing where its first field has nothing to check. Any other union counts
+///   as read.
+/// - The padding of a struct, which a rule that reads its bytes reads.
+/// - A scalar that may be uninitialized ([`Spec::maybe_uninit`]).
+const fn checkable(layout: &'static Layout) -> bool {
+  if layout.leaves == 0 {
+    return true;
+  }
+  match layout.kind {
+    Kind::Scalar(spec) => !(spec.may_be_uninit() && matches!(spec.valid, Valid::In(_))),
+    Kind::Pattern(_) => true,
+    Kind::Array(elem, _) | Kind::Slice(elem) => checkable(elem),
+    Kind::Struct(fields, _) => {
+      let end = extent_end(layout, 0);
+      if layout.rules_read_bytes() && uninit_in(layout, 0, 0, end, &Known::NONE).is_some() {
+        return false;
+      }
+      let mut i = 0;
+      while i < fields.len() {
+        if !checkable(fields[i].layout) {
+          return false;
+        }
+        i += 1;
+      }
+      true
+    }
+    // The first field is tried first. If it has nothing to check, the bytes are it, and no other
+    // field is tried.
+    Kind::Enum(enumeration) if enumeration.union => {
+      enumeration.variants.is_empty() || enumeration.variants[0].layout.leaves == 0
+    }
+    Kind::Enum(enumeration) => {
+      let mut i = 0;
+      while i < enumeration.variants.len() {
+        let variant = &enumeration.variants[i];
+        i += 1;
+        // No value of the type is a variant that has no value, so its fields are not checked.
+        if variant.is_present() && !checkable(variant.layout) {
+          return false;
+        }
+      }
+      true
+    }
+  }
+}
+
+/// Returns the offset of the first byte of `start..end` that may be uninitialized in a value of
+/// `source`, which is at `base`.
+///
+/// The bytes that `known` covers are initialized. A part of the source is what the analysis reads
+/// of it ([`Cursor::run_at`], [`RunKind::seen`]).
+const fn uninit_in(
+  source: &'static Layout,
+  base: usize,
+  start: usize,
+  end: usize,
+  known: &Known,
+) -> Option<usize> {
+  let mut cursor = Cursor::new(source, base, false, Checked::No);
+  uninit_from(&mut cursor, max(start, base), end, known)
+}
+
+/// Returns [`uninit_in`] of the layout of `a`, from `pos`.
+///
+/// An element of an array or a slice whose bytes are all initialized tells of the elements after
+/// it, so they are not read one by one. What is known is of its own bytes, not of those of the
+/// next element, so it is left out of what an element tells.
+const fn uninit_from(a: &mut Cursor, mut pos: usize, end: usize, known: &Known) -> Option<usize> {
+  let end = min(end, a.stack[0].end());
+  while pos < end {
+    let run = a.run_at(pos);
+    let mut repeats = [NO; MAX_DEPTH + 1];
+    let (len, mut i, mut skipped) = (a.repeats(pos, &run, true, &mut repeats), 0, false);
+    while i < len && !skipped {
+      let repeat = repeats[i];
+      i += 1;
+      let until = min(repeat.end, end);
+      // Not a run of the same bytes, which is one step below, and at least two elements.
+      if repeat.run || (until - pos) / repeat.stride < 2 {
+        continue;
+      }
+      let mut element = *a;
+      if uninit_from(&mut element, pos, pos + repeat.stride, &Known::NONE).is_some() {
+        continue;
+      }
+      if until == usize::MAX {
+        return None;
+      }
+      pos += (until - pos) / repeat.stride * repeat.stride;
+      skipped = true;
+    }
+    if skipped {
+      continue;
+    }
+    if run.kind.seen().may_be_uninit() && !known.covers(pos) {
+      return Some(pos);
+    }
+    pos = known.step(pos, min(run.end, end));
+  }
+  None
+}
+
+/// Records the rules of the structs of `target` that must not be checked, because they read the
+/// bytes of their struct, and one of these may be uninitialized in `source`
+/// ([`Relation::unreadable`]).
+///
+/// `source` is at `base_a`. `target` is at `base`, and its first leaf is `leaf`. Only the bytes
+/// before `end` are read. The bytes that `known` covers are initialized.
+///
+/// A rule that reads the bytes of its struct reads all of them: its padding, and what the source
+/// has under a part that is proven without being read, such as an enum. So every byte of the
+/// struct must be initialized in the source for the rule to be checked. The elements of an array
+/// share their leaves. Where the source has elements of the same size at the same place
+/// ([`same_elements`]), the first element tells of each. Otherwise each element is looked at, up to
+/// [`CUT_ELEMENTS`] of them, and past that every byte under the array counts.
+#[expect(clippy::too_many_arguments, reason = "two layouts where they are, the bytes, the tag")]
+const fn unreadable_rules(
+  source: &'static Layout,
+  base_a: usize,
+  target: &'static Layout,
+  base: usize,
+  leaf: usize,
+  end: usize,
+  known: &Known,
+  out: &mut Relation,
+) {
+  if !target.has_rules || base >= end {
+    return;
+  }
+  let stop = min(extent_end(target, base), end);
+  match target.kind {
+    Kind::Struct(fields, _) => {
+      if target.rules_read_bytes()
+        && let Some(pos) = uninit_in(source, base_a, base, stop, known)
+      {
+        out.unreadable(leaf + target.leaves - 1, 1, pos);
+      }
+      let mut i = 0;
+      while i < fields.len() {
+        let (field, at) = (fields[i].layout, base + fields[i].offset);
+        unreadable_rules(source, base_a, field, at, leaf + fields[i].leaf, end, known, out);
+        i += 1;
+      }
+    }
+    Kind::Array(elem, _) | Kind::Slice(elem) => {
+      if elem.size == 0 {
+        return;
+      }
+      // Each element is to the source what the first one is. What is known is of the bytes of one
+      // element only, so it is left out. Nothing is lost: where the source has the same elements,
+      // it has an element at these bytes, not the padding of a tag.
+      if same_elements(source, base - base_a, target) {
+        return unreadable_rules(source, base_a, elem, base, leaf, end, &Known::NONE, out);
+      }
+      let count = if stop == usize::MAX { usize::MAX } else { (stop - base) / elem.size };
+      if count > CUT_ELEMENTS {
+        if let Some(pos) = uninit_in(source, base_a, base, stop, known) {
+          unreadable_all_rules(elem, leaf, pos, out);
+        }
+        return;
+      }
+      let mut k = 0;
+      while k < count {
+        unreadable_rules(source, base_a, elem, base + k * elem.size, leaf, end, known, out);
+        k += 1;
+      }
+    }
+    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) => {}
+  }
+}
+
+/// Records, as rules that must not be checked for the byte at `pos`, the rules of every struct of
+/// `target` that read the bytes of their struct. The first leaf of `target` is `leaf`.
+const fn unreadable_all_rules(
+  target: &'static Layout,
+  leaf: usize,
+  pos: usize,
+  out: &mut Relation,
+) {
+  if !target.has_rules {
+    return;
+  }
+  match target.kind {
+    Kind::Struct(fields, _) => {
+      if target.rules_read_bytes() {
+        out.unreadable(leaf + target.leaves - 1, 1, pos);
+      }
+      let mut i = 0;
+      while i < fields.len() {
+        unreadable_all_rules(fields[i].layout, leaf + fields[i].leaf, pos, out);
+        i += 1;
+      }
+    }
+    Kind::Array(elem, _) | Kind::Slice(elem) => unreadable_all_rules(elem, leaf, pos, out),
+    Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) => {}
+  }
+}
+
+// -------------------------------------------------------------------------------------------------
 // `Fit`
 
 /// Whether a source and a target have the same extent.
@@ -2491,6 +2866,8 @@ pub const fn analyze(a: &'static Layout, b: &'static Layout) -> Analysis {
   let mut relation = if hopeless { Relation::NEW } else { relate(a, b, fit.end, Checked::Marked) };
   if !hopeless {
     mark_rules(a, b, 0, 0, &mut relation);
+    unreadable_rules(a, 0, b, 0, 0, fit.end, &Known::NONE, &mut relation);
+    relation.settle();
     if let Some(pos) = reads_moved(a, 0, b, 0, 0, &relation.marks, 0, fit.end, None) {
       relation.unspecified(pos);
     }
@@ -2533,6 +2910,8 @@ pub const fn analyze_tail(a: &'static Layout, b: &'static Layout) -> Analysis {
   let fit = Fit { exact, shrink: true, end: b.size };
   let mut relation = relate_at(a, 0, b, shift, shift, a.size, Checked::Marked);
   mark_rules(a, b, shift, 0, &mut relation);
+  unreadable_rules(a, 0, b, shift, 0, a.size, &Known::NONE, &mut relation);
+  relation.settle();
   if let Some(pos) = reads_moved(a, 0, b, shift, 0, &relation.marks, shift, a.size, None) {
     relation.unspecified(pos);
   }
@@ -2622,10 +3001,12 @@ pub const fn mutable_part(
   if relate_at(b, shift, a, 0, shift, end, Checked::No).infallible() { None } else { Some(MUTABLE) }
 }
 
-/// The most elements with rules that [`cut`] looks at one by one, in an array that the bytes of a
-/// `&mut` cover in part.
+/// The most elements with rules that are looked at one by one: by [`cut`], in an array that the
+/// bytes of a `&mut` cover in part, and by [`unreadable_rules`], in an array whose elements the
+/// source does not match.
 ///
-/// Past it, `cut` refuses. A period, as in the analysis, would lift this limit.
+/// Past it, `cut` refuses, and `unreadable_rules` counts every byte under the array. A period, as
+/// in the analysis, would lift this limit.
 const CUT_ELEMENTS: usize = 64;
 
 /// Returns why something of `layout`, at `base`, depends on the bytes `lo..hi` without lying
