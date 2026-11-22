@@ -242,6 +242,11 @@
 //! size. Two types have the same layout only if they require and guarantee the same values, so a
 //! field `#[pun(valid(0..=1))] u8` is not a `bool`.
 //!
+//! A requirement that the source has too proves the same requirement of the target, but a check
+//! of it may still fail on a value of the source. Where a union is proven by a field through a
+//! requirement and checked all the same, its later fields may be tried, and what they read counts
+//! as read (see [Unions](#unions)).
+//!
 //! ## Padding and `MaybeUninit`
 //!
 //! A pun is refused if a byte that the target requires to be initialized may be padding in the
@@ -283,7 +288,8 @@
 //! and the fields of a variant of an enum that is checked as a whole. A union that is proven there
 //! would be checked with the others, its fields tried in order. If that would read a byte that may
 //! be padding in the source, or a byte of the same union, of which nothing is known, the pun is
-//! refused.
+//! refused. A byte that a field reads is one that it checks, a byte that a rule of a struct in it
+//! loads, or any byte of a struct whose rule reads bytes by offset.
 //!
 //! ## Types without values
 //!

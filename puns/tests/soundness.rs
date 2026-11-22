@@ -352,6 +352,93 @@ fn a_period_does_not_cut_an_enum() {
   assert_eq!(puns::try_pun::<Source, Tagged>(tag).err(), Some(Error::Validity));
 }
 
+/// Checks that a rule that loads a field is checked where the field is initialized, and reads the
+/// field, not the padding next to it.
+///
+/// A field of any value is proven by any initialized byte, and its rule loads it. Where the source
+/// may leave the field uninitialized, in a union that a later field proves, the puns that would
+/// check the rule must not compile: `try_union_proven_rule_loads` and
+/// `try_union_proven_rule_loads_in_array` in `compile-fail/`.
+#[test]
+fn a_rule_reads_the_fields_that_it_loads() {
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Byte {
+    any: u8,
+    none: (),
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  #[pun(assert(x < 3))]
+  struct Small {
+    x: u8,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Plain {
+    x: u8,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Rule {
+    small: Small,
+    byte: Byte,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Unruled {
+    plain: Plain,
+    byte: Byte,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum Target {
+    V(Rule),
+    X,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum Free {
+    V(Unruled),
+    X,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Source {
+    tag: u8,
+    byte: Byte,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  #[pun(assert(x < 3))]
+  struct Padded {
+    x: u8,
+    y: u16,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Gapped {
+    x: u8,
+    gap: Byte,
+    y: u16,
+  }
+
+  // From initialized bytes: the rule of the first field holds for 1, and the second field takes 7.
+  assert!(matches!(puns::try_pun::<[u8; 2], Target>([0, 1]), Ok(Target::V(_))));
+  assert!(matches!(puns::try_pun::<[u8; 2], Target>([0, 7]), Ok(Target::V(_))));
+  assert_eq!(puns::try_pun::<[u8; 2], Target>([2, 7]).err(), Some(Error::Validity));
+  // Without a rule, nothing reads the byte, which is not written.
+  let source = Source { tag: 0, byte: Byte { none: () } };
+  assert!(matches!(puns::try_pun::<Source, Free>(source), Ok(Free::V(_))));
+  // The rule loads `x`, and does not read the padding after it, which is not written.
+  let gapped = Gapped { x: 1, gap: Byte { none: () }, y: 2 };
+  assert_eq!(puns::try_pun::<Gapped, Padded>(gapped).map(|padded| padded.y), Ok(2));
+  let gapped = Gapped { x: 5, ..gapped };
+  assert_eq!(puns::try_pun::<Gapped, Padded>(gapped).err(), Some(Error::Validity));
+}
+
 /// Checks that a struct that ends with an unsized struct has values only if that struct does.
 ///
 /// An unsized field used to count as having values, as a slice or a string does. Then a struct
@@ -446,4 +533,84 @@ fn a_part_left_to_the_compiler_is_checked_only_from_initialized_bytes() {
   }
   assert!(matches!(puns::try_pun::<[u8; 3], Target>([1, 2, 2]), Ok(Target::X)));
   assert_eq!(puns::try_pun::<[u8; 3], Target>([2, 0, 0]).err(), Some(Error::Validity));
+}
+
+/// Checks that a union proven by a field through a requirement is checked by its next field where
+/// a value breaks the requirement.
+///
+/// Safe code may write any `u8` to a field restricted by `valid(..)`, or read by a rule. The same
+/// requirement of the source proves that of the target, but its check fails then, and the check of
+/// the union tries the next field. Where that field would read a byte that may be uninitialized in
+/// the source, the pun must not compile: `try_union_proven_by_a_restriction` and
+/// `try_union_proven_by_a_rule` in `compile-fail/`.
+#[test]
+fn a_union_proven_through_a_requirement_is_checked_past_it() {
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Soft {
+    #[pun(valid(2..=3))]
+    x: u8,
+    rest: u8,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  #[pun(assert(x > 1))]
+  struct Ruled {
+    x: u8,
+    rest: u8,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union EitherSoft {
+    soft: Soft,
+    flags: [bool; 2],
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union EitherRuled {
+    ruled: Ruled,
+    flags: [bool; 2],
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum TargetSoft {
+    V(EitherSoft),
+    X,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  #[expect(dead_code, reason = "made by a pun only")]
+  enum TargetRuled {
+    V(EitherRuled),
+    X,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct SourceSoft {
+    tag: u8,
+    soft: Soft,
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct SourceRuled {
+    tag: u8,
+    ruled: Ruled,
+  }
+
+  // The requirement holds: the first field.
+  let soft = SourceSoft { tag: 0, soft: Soft { x: 2, rest: 7 } };
+  assert!(matches!(puns::try_pun::<SourceSoft, TargetSoft>(soft), Ok(TargetSoft::V(_))));
+  let ruled = SourceRuled { tag: 0, ruled: Ruled { x: 2, rest: 7 } };
+  assert!(matches!(puns::try_pun::<SourceRuled, TargetRuled>(ruled), Ok(TargetRuled::V(_))));
+  // Safe code broke it: the second field, two `bool`s.
+  let soft = SourceSoft { tag: 0, soft: Soft { x: 1, rest: 0 } };
+  assert!(matches!(puns::try_pun::<SourceSoft, TargetSoft>(soft), Ok(TargetSoft::V(_))));
+  let ruled = SourceRuled { tag: 0, ruled: Ruled { x: 1, rest: 0 } };
+  assert!(matches!(puns::try_pun::<SourceRuled, TargetRuled>(ruled), Ok(TargetRuled::V(_))));
+  // Neither field.
+  let soft = SourceSoft { tag: 0, soft: Soft { x: 1, rest: 7 } };
+  assert_eq!(puns::try_pun::<SourceSoft, TargetSoft>(soft).err(), Some(Error::Validity));
+  let ruled = SourceRuled { tag: 0, ruled: Ruled { x: 1, rest: 7 } };
+  assert_eq!(puns::try_pun::<SourceRuled, TargetRuled>(ruled).err(), Some(Error::Validity));
 }
