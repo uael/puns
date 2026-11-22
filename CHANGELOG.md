@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0-beta.4](https://github.com/uael/puns/compare/v0.2.0-beta.3...v0.2.0-beta.4) - 2026-11-22
+## [0.2.0](https://github.com/uael/puns/compare/v0.2.0-beta.3...v0.2.0) - 2026-11-22
 
 ### Other
 
