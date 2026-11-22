@@ -18,13 +18,13 @@ fn parts2() {
       [u8in<0, 0x7f>; 2], E16, ByteNz, NzByte, Aligned, AlignedFlag, PackedU16, RustPair,
       NotOneOne, Opt, OptFlag, Either, EitherC, Skewed, OptSoftBit, [E01; 2], (u8c<1>, u8),
       LastNotFf2, NotOneOneNz, ThirdIn, ThirdSoftIn, RustThird, RustThirdSoft, ThirdUninit,
-      ThirdSoftUninit, [Third; 2], [ThirdSoft; 2],
+      ThirdSoftUninit, [Third; 2], [ThirdSoft; 2], RuleOrUnit, HoldsRule, TagUnit, SoftUnit, SoftOrFlags, HalfNever, VoidBools, VoidFirstU, FirstU, MaybeHollow, NotHollow, FlagsArr, Option<[NonZero<u8>; 2]>, [Void1; 2], [ByteUnit; 2], UnitPair, OptOrUnits,
     ];
     [
       u8, i8, bool, NonZero<u8>, Option<NonZero<u8>>, u8c<0>, u8c<7>, u8c<255>, u8in<0, 0x7f>,
       u8in<1, 1>, u8in<0x80, 0xff>, u8in<2, 5>, E01, E37, Eff, Eneg, Erust, [u8; 1], [bool; 1],
       (bool,), Flag, Byte, Ascii, SoftBit, SoftTrue, Third, core::mem::ManuallyDrop<bool>,
-      ThirdSoft, Fifth, LastNotFf1, ThirdU,
+      ThirdSoft, Fifth, LastNotFf1, ThirdU, Void1, [Void1; 1], HollowByte, ByteUnit,
     ]
   );
   puns_model::finish("parts of 2 bytes");

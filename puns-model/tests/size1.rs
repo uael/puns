@@ -18,7 +18,7 @@ fn size1() {
     (bool,), Flag, Byte, Ascii, SoftBit, SoftTrue, Third, core::mem::ManuallyDrop<bool>, Zero,
     core::mem::MaybeUninit<u8>, MaybeFlag, NzOpt, ChoiceU, Option<bool>,
     Option<Option<bool>>, ThirdSoft, Fifth, LastNotFf1, ThirdU, Opaque,
-    OpaqueNz, Option<OpaqueNz>,
+    OpaqueNz, Option<OpaqueNz>, Void1, [Void1; 1], HollowByte, ByteUnit,
   );
   puns_model::finish("1 bytes");
 }

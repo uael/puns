@@ -24,9 +24,27 @@
 //! # Requirements
 //!
 //! A value that safe code holds need not meet what `#[pun(valid(..))]` or a rule requires, because
-//! safe code can write any value of its type to a field. The oracles therefore have two modes:
-//! without `target`, an oracle decides only what the type system guarantees, and with `target`, the
-//! requirements count too.
+//! safe code can write any value of its type to a field. The oracles therefore have two modes
+//! ([`Mode::required`]): without it, an oracle decides only what the type system guarantees, and
+//! with it, the requirements count too.
+//!
+//! # Unions
+//!
+//! The language has not settled the validity of unions, and `puns` must be sound under every rule.
+//! An oracle decides under either end ([`Unions`]): a union is one of its fields, or any bytes,
+//! initialized or not, as Miri implements. The values of a source are its values under either
+//! rule. A pun must make a valid target of each value under the first rule under which that value
+//! is a source ([`rule_of`]): a value that is a source only if a union may hold any bytes is judged
+//! with the unions of the target holding any bytes too. A check must accept a value that is a valid
+//! target with every union one of its fields, since that is how `puns` checks a union. So a union
+//! without values may hold a value in a source, and a union of the source is read as nothing, as
+//! the documentation of `puns` says, while the same union of the target accepts it.
+//!
+//! What a check reads is not an oracle's: an oracle decides validity. The values that the model
+//! makes leave uninitialized every byte that may be (padding, `MaybeUninit`, the bytes of a union
+//! that may hold anything, a field of a union of size 0), and under Miri the checks run on them, so
+//! a check that reads such a byte is reported there. Natively, only a decision that needs such a
+//! byte is found unsound.
 //!
 //! The library may leave a requirement of the target unchecked only if the requirements of the
 //! source imply it. A source that meets its own requirements then meets it, and the library
@@ -56,10 +74,11 @@
 //!
 //! # Types
 //!
-//! The model has about 140 types of 1 to 8 bytes ([`types`]). It checks every ordered pair of
+//! The model has about 180 types of 1 to 8 bytes ([`types`]). It checks every ordered pair of
 //! types of the same size, and every value of the source over an alphabet, which is every value up
 //! to 2 bytes. It checks slices and structs that end with a slice on every pattern of up to 6
-//! bytes.
+//! bytes, among them a slice of elements without values, a struct that ends with a struct without
+//! values, and a string type whose automaton refuses the empty string, alone and after a field.
 //!
 //! Nothing of the test of the library (the same rules, the same extent) is in the oracle. So a rule
 //! of the target wrongly taken as proven by another rule is reported. The types include the same
@@ -74,9 +93,22 @@
 //! and one that `rustc` widened, one variant, and a variant without values that `rustc` gives a
 //! tag. Their oracles are written from how `rustc` lays out enums. They are checked against the
 //! bytes of values natively, and by Miri on the values that the oracle makes. The offsets of the
-//! fields are taken from values, never from the library. The types also include unions, whose
-//! oracle is "one of its fields", a variant without values, `MaybeUninit`, and a scalar that may be
-//! uninitialized (`Zero`). Against `Zero`, reading such a scalar as initialized is found unsound.
+//! fields are taken from values, never from the library. With the `unstable` feature, a niche in
+//! an array is in the model, in an `Option` and in a derived enum. The types also include unions,
+//! `MaybeUninit`, and a scalar that may be uninitialized (`Zero`). Against `Zero`, reading such a
+//! scalar as initialized is found unsound.
+//!
+//! Parts without values are in the model, of size 0 and above: in a struct, in an array, in a
+//! variant next to a field that has values, and as a field of a union. So is a union without
+//! values, in a struct and in a variant of a source. Their oracles read nothing of a part without
+//! values. The shapes of the model put a part that a check need not read next to a part that it
+//! checks: the same union in an array, a union in an enum checked as a whole, an array of small
+//! unions under an enum of the target whose first run accepts every value of 2 bytes, and a tuple,
+//! whose layout Rust leaves to the compiler, in a field of a union and in a variant next to a
+//! scalar that a pun never makes, a struct with a rule that loads its field, in a union in an
+//! enum, and a union whose first field the source proves only through a requirement, which a
+//! value of the source may break: the values of a source are what the type guarantees, not what
+//! it requires. `tests/shapes.rs` has a sample of each, and runs under Miri.
 //!
 //! A scalar that a pun never makes (`Opaque`, made with `Spec::never`) is in the model alone, in a
 //! struct, and in a variant of an enum. Its oracle reads an initialized byte as a source, and as a
@@ -115,8 +147,9 @@
 //!
 //! Every check that CI runs on a push takes at most a minute. So `cargo test` runs a sample of the
 //! model check, and Miri runs a selection of pairs chosen for the unsafe paths that they reach, not
-//! for the verdicts (`tests/miri_sample.rs` lists what each pair is for). Miri is there to find
-//! undefined behavior. The examples of `puns` other than `ethernet` do not run under Miri. They are
+//! for the verdicts (`tests/miri_sample.rs` lists what each pair is for). Miri also runs the pairs
+//! of `tests/shapes.rs`, for what a check of them reads. Miri is there to find undefined behavior.
+//! The examples of `puns` other than `ethernet` do not run under Miri. They are
 //! declarations, and the unsafe code that they reach is that of the library, which its own tests
 //! and `ethernet` run there.
 //!
@@ -149,18 +182,71 @@ pub type Valid = Result<bool, Uninit>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Uninit;
 
+/// The rule for the validity of unions under which an oracle decides.
+///
+/// The language has not settled it. `puns` must be sound under every rule, so the model decides
+/// under the two ends: a union whose bytes are one of its fields, which the strictest rules
+/// require, and a union of any bytes, initialized or not, which Miri implements. Every type that
+/// holds no union has the same values under both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Unions {
+  /// A union is valid if one of its fields is.
+  Field,
+  /// A union is valid whatever its bytes, and its oracle reads none of them.
+  Bytes,
+}
+
+/// How an oracle decides: under which rule for unions, and whether requirements count.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Mode {
+  /// Whether the requirements of the type count (`valid(..)`, rules), as for a target. Without
+  /// them, only what the type system guarantees counts.
+  pub required: bool,
+  /// The rule for unions.
+  pub unions: Unions,
+}
+
+impl Mode {
+  /// What the type system guarantees under `unions`.
+  #[must_use]
+  pub const fn guaranteed(unions: Unions) -> Self {
+    Self { required: false, unions }
+  }
+
+  /// What the type requires under `unions`.
+  #[must_use]
+  pub const fn requires(unions: Unions) -> Self {
+    Self { required: true, unions }
+  }
+}
+
 /// An oracle of the valid values of a type, written without the analysis of `puns`.
 pub trait Oracle: Pun + Copy + 'static {
-  /// Returns whether `b[off..off + size_of::<Self>()]` is a valid value of `Self`.
+  /// Returns whether `b[off..off + size_of::<Self>()]` is a valid value of `Self`, decided as
+  /// `mode` says.
   ///
-  /// With `target`, the requirements of the type count (`valid(..)`, rules). Without it, only what
-  /// the type system guarantees counts. The oracle sets `reads[i]` for every byte `b[i]` that it
-  /// looks at, and leaves the other elements of `reads` unchanged.
+  /// The oracle sets `reads[i]` for every byte `b[i]` that it looks at, and leaves the other
+  /// elements of `reads` unchanged.
   ///
   /// # Errors
   ///
   /// Returns [`Uninit`] if the decision depends on an uninitialized byte.
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid;
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid;
+}
+
+/// Returns the rule for unions under which `p` is a value of `T`: [`Unions::Field`] if it is one
+/// under that rule, [`Unions::Bytes`] otherwise.
+///
+/// A value under the first rule is one under the second too, and a target valid under the first
+/// is valid under the second. So a pun must make a valid target of a value under the first rule
+/// under which that value is a source, which is the one that this function returns.
+fn rule_of<T: Oracle>(p: &Bytes) -> Unions {
+  let mut reads = vec![false; p.len()];
+  if T::check(p, 0, &mut reads, Mode::guaranteed(Unions::Field)) == Ok(true) {
+    Unions::Field
+  } else {
+    Unions::Bytes
+  }
 }
 
 /// Reads the unsigned integer of `size` bytes at `off`, least significant byte first if `little`.
@@ -246,12 +332,13 @@ pub fn require_whole(off: usize, what: &'static str, holds: impl FnOnce() -> Val
 /// Returns the requirements of `p[off..off + size_of::<D>()]` as a `D`, each with its offset in the
 /// `D`.
 ///
-/// A requirement in a variant that the bytes are not is not returned.
-fn requirements<D: Oracle>(p: &Bytes, off: usize) -> Vec<Requirement> {
+/// A requirement in a variant that the bytes are not is not returned, nor one of a union under
+/// [`Unions::Bytes`].
+fn requirements<D: Oracle>(p: &Bytes, off: usize, unions: Unions) -> Vec<Requirement> {
   let p = &p[off..off + size_of::<D>()];
   let mut reads = vec![false; p.len()];
   let outer = REQUIRED.with(|required| required.borrow_mut().replace(vec![]));
-  let _ = D::check(p, 0, &mut reads, true);
+  let _ = D::check(p, 0, &mut reads, Mode::requires(unions));
   REQUIRED
     .with(|required| std::mem::replace(&mut *required.borrow_mut(), outer))
     .unwrap_or_default()
@@ -264,12 +351,14 @@ fn requirements<D: Oracle>(p: &Bytes, off: usize) -> Vec<Requirement> {
 /// `source` that meets the requirements of `S` meets it. A value that does not have the
 /// requirement, because it is another variant, meets it. The library may leave an implied
 /// requirement unchecked, because a source that does not meet it does not meet its own
-/// requirements.
+/// requirements. Each value is judged under its rule for unions ([`rule_of`]).
 fn implied<S: Oracle, D: Oracle>(source: &[Vec<Option<u8>>], off: usize) -> Vec<bool> {
-  let required: Vec<Vec<Requirement>> = source.iter().map(|p| requirements::<D>(p, off)).collect();
+  let rules: Vec<Unions> = source.iter().map(|p| rule_of::<S>(p)).collect();
+  let required: Vec<Vec<Requirement>> =
+    source.iter().zip(&rules).map(|(p, rule)| requirements::<D>(p, off, *rule)).collect();
   let mut broken = std::collections::BTreeSet::<(usize, &'static str)>::new();
-  for (p, required) in source.iter().zip(&required) {
-    if truth::<S>(p).soft == Ok(true) {
+  for ((p, required), rule) in source.iter().zip(&required).zip(&rules) {
+    if truth::<S>(p, *rule).soft == Ok(true) {
       for (at, what, holds) in required {
         if *holds != Ok(true) {
           broken.insert((*at, *what));
@@ -300,7 +389,7 @@ pub fn all(results: &[Valid]) -> Valid {
 macro_rules! scalar_oracle {
   ($($ty:ty => |$v:ident| $pred:expr, $little:expr;)+) => {$(
     impl Oracle for $ty {
-      fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+      fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
         let $v = int(b, off, size_of::<$ty>(), $little, reads)?;
         Ok($pred)
       }
@@ -347,7 +436,7 @@ scalar_oracle! {
 /// `None`, so the oracle reads it from a value of `None`. The current `rustc` uses 255, the value
 /// below 0 when the byte wraps.
 impl Oracle for Option<Option<bool>> {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     let v = int(b, off, 1, true, reads)?;
     let none = None::<Option<bool>>;
     const { assert!(size_of::<Option<Option<bool>>>() == 1, "the niches are in one byte") };
@@ -361,19 +450,19 @@ impl Oracle for Option<Option<bool>> {
 
 /// The oracle of a niche in a `bool`, where `None` is 2.
 impl Oracle for Option<bool> {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     Ok(int(b, off, 1, true, reads)? <= 2)
   }
 }
 
 impl<const V: u8> Oracle for u8c<V> {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     Ok(int(b, off, 1, true, reads)? == u128::from(V))
   }
 }
 
 impl<const MIN: u8, const MAX: u8> Oracle for u8in<MIN, MAX> {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     let v = int(b, off, 1, true, reads)?;
     Ok(u128::from(MIN) <= v && v <= u128::from(MAX))
   }
@@ -382,7 +471,7 @@ impl<const MIN: u8, const MAX: u8> Oracle for u8in<MIN, MAX> {
 macro_rules! literal_oracle {
   ($($ty:ident: $raw:ty, $size:literal, $little:literal;)+) => {$(
     impl<const V: $raw> Oracle for $ty<V> {
-      fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+      fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
         Ok(int(b, off, $size, $little, reads)? == u128::from(V))
       }
     }
@@ -399,63 +488,63 @@ literal_oracle! {
 }
 
 impl Oracle for () {
-  fn check(_: &Bytes, _: usize, _: &mut [bool], _: bool) -> Valid {
+  fn check(_: &Bytes, _: usize, _: &mut [bool], _: Mode) -> Valid {
     Ok(true)
   }
 }
 
 impl<T: ?Sized + 'static> Oracle for core::marker::PhantomData<T> {
-  fn check(_: &Bytes, _: usize, _: &mut [bool], _: bool) -> Valid {
+  fn check(_: &Bytes, _: usize, _: &mut [bool], _: Mode) -> Valid {
     Ok(true)
   }
 }
 
 impl<T: Oracle, const N: usize> Oracle for [T; N] {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let results: Vec<Valid> =
-      (0..N).map(|i| T::check(b, off + i * size_of::<T>(), reads, target)).collect();
+      (0..N).map(|i| T::check(b, off + i * size_of::<T>(), reads, mode)).collect();
     all(&results)
   }
 }
 
 impl<T: Oracle> Oracle for core::mem::ManuallyDrop<T> {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
-    T::check(b, off, reads, target)
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    T::check(b, off, reads, mode)
   }
 }
 
 impl<A: Oracle> Oracle for (A,) {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
-    A::check(b, off + core::mem::offset_of!(Self, 0), reads, target)
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    A::check(b, off + core::mem::offset_of!(Self, 0), reads, mode)
   }
 }
 
 impl<A: Oracle, B: Oracle> Oracle for (A, B) {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     all(&[
-      A::check(b, off + core::mem::offset_of!(Self, 0), reads, target),
-      B::check(b, off + core::mem::offset_of!(Self, 1), reads, target),
+      A::check(b, off + core::mem::offset_of!(Self, 0), reads, mode),
+      B::check(b, off + core::mem::offset_of!(Self, 1), reads, mode),
     ])
   }
 }
 
 impl<A: Oracle, B: Oracle, C: Oracle> Oracle for (A, B, C) {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     all(&[
-      A::check(b, off + core::mem::offset_of!(Self, 0), reads, target),
-      B::check(b, off + core::mem::offset_of!(Self, 1), reads, target),
-      C::check(b, off + core::mem::offset_of!(Self, 2), reads, target),
+      A::check(b, off + core::mem::offset_of!(Self, 0), reads, mode),
+      B::check(b, off + core::mem::offset_of!(Self, 1), reads, mode),
+      C::check(b, off + core::mem::offset_of!(Self, 2), reads, mode),
     ])
   }
 }
 
 impl<A: Oracle, B: Oracle, C: Oracle, D: Oracle> Oracle for (A, B, C, D) {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     all(&[
-      A::check(b, off + core::mem::offset_of!(Self, 0), reads, target),
-      B::check(b, off + core::mem::offset_of!(Self, 1), reads, target),
-      C::check(b, off + core::mem::offset_of!(Self, 2), reads, target),
-      D::check(b, off + core::mem::offset_of!(Self, 3), reads, target),
+      A::check(b, off + core::mem::offset_of!(Self, 0), reads, mode),
+      B::check(b, off + core::mem::offset_of!(Self, 1), reads, mode),
+      C::check(b, off + core::mem::offset_of!(Self, 2), reads, mode),
+      D::check(b, off + core::mem::offset_of!(Self, 3), reads, mode),
     ])
   }
 }
@@ -514,9 +603,10 @@ pub fn patterns_over(size: usize, of: usize) -> Vec<Vec<Option<u8>>> {
 
 /// Returns the values of `T` as a source, over the alphabet of a type of its size.
 ///
-/// The values of a source are what safe code may hold, so requirements do not count. A value is a
-/// pattern that the oracle of `T` accepts without `target`. Its bytes that the oracle does not
-/// read are padding, and are uninitialized in the pattern.
+/// The values of a source are what may exist under some rule for unions, so requirements do not
+/// count. A value is a pattern that the oracle of `T` accepts under one of the two rules
+/// ([`Unions`]), without requirements. Its bytes that the oracle does not read under that rule are
+/// padding, or bytes of a union that may be anything, and are uninitialized in the pattern.
 #[must_use]
 pub fn values<T: Oracle>() -> Vec<Vec<Option<u8>>> {
   values_over::<T>(size_of::<T>())
@@ -529,8 +619,11 @@ pub fn values_over<T: Oracle>(of: usize) -> Vec<Vec<Option<u8>>> {
   patterns_over(size, of)
     .into_iter()
     .filter(|p| {
-      let mut reads = vec![false; size];
-      T::check(p, 0, &mut reads, false) == Ok(true) && (0..size).all(|i| reads[i] || p[i].is_none())
+      [Unions::Field, Unions::Bytes].into_iter().any(|unions| {
+        let mut reads = vec![false; size];
+        T::check(p, 0, &mut reads, Mode::guaranteed(unions)) == Ok(true)
+          && (0..size).all(|i| reads[i] || p[i].is_none())
+      })
     })
     .collect()
 }
@@ -565,7 +658,8 @@ pub unsafe fn make<T: Oracle>(bytes: &Bytes) -> T {
 ///
 /// Which bytes the oracle reads depends on the value, for example on the tag of an enum. The
 /// function therefore reads the bytes of `value` in rounds, only those that the oracle has read so
-/// far, until a round reads no new byte.
+/// far, until a round reads no new byte. The oracle decides under [`Unions::Bytes`], under which
+/// it reads no byte of a union, since a union may hold uninitialized bytes.
 ///
 /// # Safety
 ///
@@ -583,7 +677,7 @@ pub unsafe fn bytes_of<T: Oracle>(value: &T) -> Vec<Option<u8>> {
   let mut known: Vec<Option<u8>> = vec![None; size];
   loop {
     let before = reads.clone();
-    let _ = T::check(&known, 0, &mut reads, false);
+    let _ = T::check(&known, 0, &mut reads, Mode::guaranteed(Unions::Bytes));
     for i in 0..size {
       if reads[i] {
         // SAFETY: `i < size_of::<T>()`, so `add(i)` stays in `value`, which is valid for reads. A
@@ -679,17 +773,19 @@ struct Truth {
   soft: Valid,
 }
 
-/// Returns what the oracle of `D` says of the first `size_of::<D>()` bytes of `p`.
-fn truth<D: Oracle>(p: &Bytes) -> Truth {
-  truth_at::<D>(p, 0)
+/// Returns what the oracle of `D` says of the first `size_of::<D>()` bytes of `p`, under the rule
+/// for unions `unions`.
+fn truth<D: Oracle>(p: &Bytes, unions: Unions) -> Truth {
+  truth_at::<D>(p, 0, unions)
 }
 
-/// Returns what the oracle of `D` says of `p[off..off + size_of::<D>()]`.
-fn truth_at<D: Oracle>(p: &Bytes, off: usize) -> Truth {
+/// Returns what the oracle of `D` says of `p[off..off + size_of::<D>()]`, under the rule for
+/// unions `unions`.
+fn truth_at<D: Oracle>(p: &Bytes, off: usize, unions: Unions) -> Truth {
   let p = &p[off..off + size_of::<D>()];
   let mut reads = vec![false; p.len()];
-  let hard = D::check(p, 0, &mut reads, false);
-  let soft = D::check(p, 0, &mut reads, true);
+  let hard = D::check(p, 0, &mut reads, Mode::guaranteed(unions));
+  let soft = D::check(p, 0, &mut reads, Mode::requires(unions));
   Truth { hard, soft }
 }
 
@@ -713,8 +809,12 @@ pub fn check_pair<S: Oracle, D: Oracle>(limit: usize) {
   let pair = format!("{} -> {}", name::<S>(), name::<D>());
   let (ss, ds) = (size_of::<S>(), size_of::<D>());
   let source = values::<S>();
-  let truths: Vec<Truth> =
-    if ds <= ss { source.iter().map(|p| truth::<D>(p)).collect() } else { vec![] };
+  let rules: Vec<Unions> = source.iter().map(|p| rule_of::<S>(p)).collect();
+  let truths: Vec<Truth> = if ds <= ss {
+    source.iter().zip(&rules).map(|(p, rule)| truth::<D>(p, *rule)).collect()
+  } else {
+    vec![]
+  };
   // Whatever the requirements of the target that a value does not meet are implied by those of
   // the source.
   let claims: Vec<bool> = if ds <= ss { implied::<S, D>(&source, 0) } else { vec![] };
@@ -808,8 +908,16 @@ pub fn check_pair<S: Oracle, D: Oracle>(limit: usize) {
       imprecise.push(("demoted to a run-time check".into(), pair.clone()));
     }
     // (b) the run-time check accepts exactly the valid values.
-    if v.try_pun && !any_uninit && !soft_uninit {
-      for ((p, t), claim) in source.iter().zip(&truths).zip(&claims).take(limit) {
+    // A conversion is not run once the verdict lets through a value that is not valid: it would
+    // make that value, and the model would hold an invalid value (`static_unsound`).
+    let static_unsound = !unsound.is_empty();
+    if v.try_pun && !any_uninit && !soft_uninit && !static_unsound {
+      for (((p, t), claim), rule) in source.iter().zip(&truths).zip(&claims).zip(&rules).take(limit)
+      {
+        // A check must accept a value that is a valid target under every rule for unions. Under
+        // `Unions::Bytes` alone, a union of the target over other bytes of the source is valid
+        // whatever they are, but `puns` checks it as one of its fields, by design.
+        let firm = if *rule == Unions::Field { *t } else { truth::<D>(p, Unions::Field) };
         // SAFETY: `p` is a value of `values::<S>()`, of `size_of::<S>()` bytes. The model check
         // relies on the oracles being right, which Miri checks. These are the requirements of
         // `make`.
@@ -844,18 +952,18 @@ pub fn check_pair<S: Oracle, D: Oracle>(limit: usize) {
         }
         for (what, accepted) in [("try_pun", Some(accepted)), ("try_pun_ref", result_ref)] {
           let Some(accepted) = accepted else { continue };
-          match (accepted, t.hard, t.soft) {
-            (true, Ok(true), Ok(true)) | (false, _, Ok(false) | Err(_)) | (false, Ok(false), _) => {
+          if accepted {
+            match (t.hard, t.soft) {
+              (Ok(true), Ok(true)) => {}
+              (Ok(true), _) if *claim => {}
+              (Ok(true), _) => incorrect.push(format!(
+                "{pair}: {what} accepts {} ({t:?}), a requirement is not checked",
+                show(p)
+              )),
+              _ => unsound.push(format!("{pair}: {what} accepts {} ({t:?})", show(p))),
             }
-            (true, Ok(true), _) if *claim => {}
-            (true, Ok(true), _) => incorrect.push(format!(
-              "{pair}: {what} accepts {} ({t:?}), a requirement is not checked",
-              show(p)
-            )),
-            (true, _, _) => unsound.push(format!("{pair}: {what} accepts {} ({t:?})", show(p))),
-            (false, _, _) => {
-              incorrect.push(format!("{pair}: {what} rejects the valid {} ({t:?})", show(p)));
-            }
+          } else if firm.hard == Ok(true) && firm.soft == Ok(true) {
+            incorrect.push(format!("{pair}: {what} rejects the valid {} ({firm:?})", show(p)));
           }
         }
         if unsound.len() + incorrect.len() > 3 {
@@ -865,9 +973,10 @@ pub fn check_pair<S: Oracle, D: Oracle>(limit: usize) {
     }
     // (d) a `&mut` needs the inclusion both ways.
     if ss == ds && (v.pun_mut || v.try_pun_mut) {
+      // Under each rule for unions, every target is a source.
       for q in values::<D>() {
         let mut reads = vec![false; ss];
-        let back = S::check(&q, 0, &mut reads, false);
+        let back = S::check(&q, 0, &mut reads, Mode::guaranteed(rule_of::<D>(&q)));
         if back != Ok(true) {
           unsound
             .push(format!("{pair}: &mut, and the target {} is not a source ({back:?})", show(&q)));
@@ -876,7 +985,7 @@ pub fn check_pair<S: Oracle, D: Oracle>(limit: usize) {
       }
     }
     // Truncation: the first bytes of the source, unchanged.
-    if ds < ss && v.head {
+    if ds < ss && v.head && !static_unsound {
       for p in source.iter().take(limit) {
         // SAFETY: `p` is a value of `values::<S>()`, of `size_of::<S>()` bytes. The model check
         // relies on the oracles being right, which Miri checks. These are the requirements of
@@ -923,34 +1032,42 @@ struct Writes {
 /// result with the oracle of `S`.
 ///
 /// The values of `D` are those over the alphabet of the source. Sources that differ only in the
-/// bytes written are tried once.
+/// bytes written, and in nothing else that matters here, are tried once. A result is judged under
+/// the rule for unions under which both the source and the value written exist: [`Unions::Bytes`]
+/// if one of them is a value under that rule only.
 fn writes<S: Oracle, D: Oracle>(source: &[Vec<Option<u8>>], off: usize) -> Writes {
   let (ss, ds) = (size_of::<S>(), size_of::<D>());
-  // What a source is outside of the bytes, and whatever one of those sources meets its
-  // requirements.
-  let mut outsides: BTreeMap<Vec<Option<u8>>, bool> = BTreeMap::new();
+  // What a source is outside of the bytes, under which rule for unions, and whatever one of those
+  // sources meets its requirements.
+  let mut outsides: BTreeMap<(Vec<Option<u8>>, Unions), bool> = BTreeMap::new();
   for p in source {
     let mut outside = p.clone();
     outside[off..off + ds].fill(None);
-    *outsides.entry(outside).or_default() |= truth::<S>(p).soft == Ok(true);
+    let rule = rule_of::<S>(p);
+    *outsides.entry((outside, rule)).or_default() |= truth::<S>(p, rule).soft == Ok(true);
   }
   let (mut hard, mut soft) = (None, None);
   // With whatever the target meets its own requirements: one that does not breaks those of the
   // source as surely as a `&mut` to the source itself does.
-  let targets: Vec<(Vec<Option<u8>>, bool)> = values_over::<D>(ss)
+  let targets: Vec<(Vec<Option<u8>>, Unions, bool)> = values_over::<D>(ss)
     .into_iter()
-    .map(|q| (q.clone(), truth::<D>(&q).soft == Ok(true)))
+    .map(|q| {
+      let rule = rule_of::<D>(&q);
+      let met = truth::<D>(&q, rule).soft == Ok(true);
+      (q, rule, met)
+    })
     .collect();
-  for (outside, requirements) in &outsides {
-    for (q, met) in &targets {
+  for ((outside, rule), requirements) in &outsides {
+    for (q, rule_q, met) in &targets {
+      let unions = (*rule).max(*rule_q);
       let mut r = outside.clone();
       r[off..off + ds].copy_from_slice(q);
       let mut reads = vec![false; ss];
-      let valid = S::check(&r, 0, &mut reads, false);
+      let valid = S::check(&r, 0, &mut reads, Mode::guaranteed(unions));
       if valid != Ok(true) && hard.is_none() {
         hard = Some(format!("{} written at {off} leaves {} ({valid:?})", show(q), show(&r)));
       }
-      let required = S::check(&r, 0, &mut reads, true);
+      let required = S::check(&r, 0, &mut reads, Mode::requires(unions));
       if *requirements && *met && required != Ok(true) && soft.is_none() {
         soft = Some(format!("{} written at {off} leaves {} ({required:?})", show(q), show(&r)));
       }
@@ -1012,7 +1129,8 @@ pub fn check_part<S: Oracle, D: Oracle>(limit: usize) {
     }
     // The bytes of the part, and whatever the requirements of the part that a value does not meet
     // are implied by those of the source.
-    let truths: Vec<Truth> = source.iter().map(|p| truth_at::<D>(p, off)).collect();
+    let truths: Vec<Truth> =
+      source.iter().map(|p| truth_at::<D>(p, off, rule_of::<S>(p))).collect();
     let claims = if ds <= ss { implied::<S, D>(&source, off) } else { vec![] };
     let example = |pred: &dyn Fn(&Truth) -> bool| {
       source
@@ -1038,7 +1156,9 @@ pub fn check_part<S: Oracle, D: Oracle>(limit: usize) {
     if !by_value && all_valid && !source.is_empty() {
       imprecise.push((format!("{part} refused, but every part is a target"), pair.clone()));
     }
-    // At run time: the very bytes, at the very place.
+    // At run time: the very bytes, at the very place. Not once the verdict lets through a value
+    // that is not valid, which the model would then hold.
+    let limit = if unsound.is_empty() { limit } else { 0 };
     let want = |p: &Bytes, got: &[Option<u8>]| -> Vec<Option<u8>> {
       (0..ds).map(|i| if got[i].is_some() { p[off + i] } else { None }).collect()
     };

@@ -12,7 +12,7 @@ use puns_model::types::*;
 fn size3() {
   puns_model::all_pairs!(usize::MAX;
     [u8; 3], [bool; 3], (u8, u8, bool), u24le, u24be, u24lec<0x10>, u24bec<0x10>, PackedU16Bool,
-    PackedBoolNz, Triple, Wide, WideBe, Lit, [E01; 3], (u8, [u8in<0x80, 0xff>; 2]),
+    PackedBoolNz, Triple, Wide, WideBe, Lit, [E01; 3], (u8, [u8in<0x80, 0xff>; 2]), TagFlag, UnionIn, HoldsSoft, TagSoft, HoldsTuple, TupleNever, TagUnits,
   );
   puns_model::finish("3 bytes");
 }

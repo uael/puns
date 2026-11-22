@@ -18,7 +18,7 @@ fn size2() {
     Opt, OptFlag, Either, EitherC, Skewed, OptSoftBit, [E01; 2], (u8c<1>, u8), ByteZero, Never, Pair, Mixed, Single, Flags2, FlagsU, NestPair,
     core::mem::MaybeUninit<u16>, LastNotFf2, NotOneOneNz, ThirdIn, ThirdSoftIn, RustThird,
     RustThirdSoft, ThirdUninit, ThirdSoftUninit, [Third; 2], [ThirdSoft; 2], HoldsOpaque,
-    MaybeOpaque, HoldsOptOpaque,
+    MaybeOpaque, HoldsOptOpaque, RuleOrUnit, HoldsRule, TagUnit, SoftUnit, SoftOrFlags, HalfNever, VoidBools, VoidFirstU, FirstU, MaybeHollow, NotHollow, FlagsArr, Option<[NonZero<u8>; 2]>, [Void1; 2], [ByteUnit; 2], UnitPair, OptOrUnits,
   );
   puns_model::finish("2 bytes");
 }

@@ -94,22 +94,22 @@ jobs:
           - name: puns
             id: model-puns
             tests: --test miri_sample
-          - name: rules, unsized, views, never made
+          - name: rules, unsized, views, never made, shapes
             id: model-rules
             tests: >-
               --lib --test core_shadowed --test regressions --test rules --test dst --test views
-              --test opaque
+              --test opaque --test shapes
           - name: parts
             id: model-parts
             tests: --test parts
           - name: unstable, puns
             id: model-unstable-puns
             tests: --features unstable --test miri_sample
-          - name: unstable, rules, unsized, views, never made
+          - name: unstable, rules, unsized, views, never made, shapes
             id: model-unstable-rules
             tests: >-
               --features unstable --lib --test core_shadowed --test regressions --test rules
-              --test dst --test views --test opaque
+              --test dst --test views --test opaque --test shapes
           - name: unstable, parts
             id: model-unstable-parts
             tests: --features unstable --test parts
@@ -366,8 +366,9 @@ jobs:
           # The model check under Miri: a selection of pairs that runs every unsafe path it
           # reaches (see `puns-model/tests/miri_sample.rs`); the verdicts of every pair are the
           # job of the full native run, in `model.yml`.
-          # In four jobs: each of the two tests of the selection (told apart by name), the unit tests
-          # with the regressions and the view enums, and the parts with the unsized types.
+          # In five jobs: each of the two tests of the selection (told apart by name), the unit tests
+          # with the regressions and the view enums, the parts with the unsized types, and the
+          # shapes, for what a check of them reads.
           - name: model, puns
             id: model
             args: -p puns-model --test miri_sample
@@ -385,6 +386,10 @@ jobs:
           - name: model, parts
             id: model
             args: -p puns-model --test parts --test dst
+            flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
+          - name: model, shapes
+            id: model
+            args: -p puns-model --test shapes
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
     steps:
       - uses: actions/checkout@v4
