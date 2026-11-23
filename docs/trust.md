@@ -10,14 +10,14 @@ against a fake `core`][testing#the-derive-against-a-fake-core] checks this.
 ## Sizes and offsets
 
 The derive takes sizes and alignments from the compiler, and measures the offset of each field on
-the type as compiled, except where the `repr` that it read gives the offset. It does not use
-`offset_of!`, a macro named by a path, but projects a pointer (`&raw const (*p).field`) and
-subtracts with `byte_offset_from`, which run only in const evaluation. For a struct of the `Rust`
-representation and for a union, which are `Sized`, the pointer is to an uninitialized value. A
-`repr(C)` or `repr(transparent)` struct may be unsized, so the pointer is into 4096 bytes of memory
-of `puns`, with a tail of no element. A struct that is larger than that with such a tail keeps the
-offsets that its `repr` specifies: those computed from the sizes and alignments of the fields for
-`repr(C)`, and 0 for `repr(transparent)`.
+the type as compiled, except in a variant without a sample ([Enums with
+fields](#enums-with-fields)). It does not use `offset_of!`, a macro named by a path, but projects a
+pointer (`&raw const (*p).field`) and subtracts with `byte_offset_from`, which run only in const
+evaluation. For a struct of the `Rust` representation and for a union, which are `Sized`, the
+pointer is to an uninitialized value. A `repr(C)` or `repr(transparent)` struct may be unsized, so
+the pointer is into uninitialized bytes that hold it with a tail of no element: the smallest power
+of two from 4096 bytes up, a local of const evaluation. A struct of any size is measured, and if
+const evaluation cannot allocate those bytes, the build fails.
 
 ## Enums with fields
 
