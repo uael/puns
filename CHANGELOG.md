@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4](https://github.com/uael/puns/compare/v0.2.3...v0.2.4) - 2026-11-23
+
+### Fixed
+
+- no path of `#[pun(crate = ..)]` chooses what a layout is made of ([#63](https://github.com/uael/puns/pull/63))
+
 ## [0.2.3](https://github.com/uael/puns/compare/v0.2.2...v0.2.3) - 2026-11-23
 
 ### Fixed
