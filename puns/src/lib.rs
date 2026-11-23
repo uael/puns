@@ -4,9 +4,7 @@
 //! [kinds]: reference::concepts#proven-checked-and-refused
 //! [pairs]: reference::concepts#why-the-pair-decides
 //! [requirements]: reference::concepts#requirements
-//! [opaque]: reference::concepts#opaque-scalars
 //! [layouts]: reference::concepts#layouts-and-rules
-//! [unsized]: reference::limits#limits-of-rust
 //! [msrv]: reference::target#minimum-rust-version
 //! [rules]: reference::rules
 //! [performance]: reference::performance
