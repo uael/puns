@@ -798,7 +798,7 @@ fn link_labels(text: &str) -> Vec<String> {
 /// the README defines and the rest of it also defines or uses would make one of the two links point
 /// to the target of the other, as `[reference]` once sent the Rust Reference to docs.rs. The one
 /// label that `lib.rs` defines on purpose is that of a relative link of the README, to a chapter
-/// of the guide, which rustdoc does not resolve: `lib.rs` defines it before the README, as an
+/// of the reference, which rustdoc does not resolve: `lib.rs` defines it before the README, as an
 /// intra-doc link, and the first definition counts.
 #[test]
 #[cfg_attr(

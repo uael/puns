@@ -21,10 +21,10 @@ of bytes.
   - [Caveats](#caveats)
   - [Performance](#performance)
   - [Safety and testing](#safety-and-testing)
-- [The guide][guide]
+- [The reference][reference]
   - [How `puns` decides][concepts]
-  - [Choosing a function][functions]
-  - [Describing a format][formats]
+  - [The API][functions]
+  - [In practice][formats]
   - [Compile-time errors]
   - [Unspecified layouts and the `unstable` feature][unstable]
   - [The language of rules][rules]
@@ -273,7 +273,7 @@ and then makes the reference.
 - [`Error`][error-type] says which check failed: the alignment, the size, or the values.
 - [`num`][num] has numbers of a fixed byte order, and integers restricted to some values.
 - [`layout`][layout] has the types that describe a layout, and the checksums.
-- The [guide] explains how `puns` decides, teaches the attributes and the rules from examples, and
+- The [reference] explains how `puns` decides, teaches the attributes and the rules from examples, and
   says what its soundness rests on.
 
 The tests and the [examples] of the repository show more uses. The examples read parts of more
@@ -342,7 +342,7 @@ by hand.
 ### Safety and testing
 
 `puns` is built on `unsafe` code so that yours doesn't have to be: crates that use it, derive
-included, can keep `#![forbid(unsafe_code)]`. The [Soundness] chapter of the guide states what a
+included, can keep `#![forbid(unsafe_code)]`. The [Soundness] chapter of the reference states what a
 pun guarantees, and [What `puns` relies on][rust] what that code relies on, including behaviors of
 `rustc` that no documentation guarantees, and how each is checked. On every pair of test types of
 the same size, the analysis is compared with oracles that don't use it, and the tests run under
@@ -410,7 +410,7 @@ additional terms or conditions.
 [comparison]: docs/performance.md#compared-with-zerocopy-and-bytemuck
 [costs]: docs/performance.md#costs
 [rust]: docs/rust.md
-[guide]: docs/README.md
+[reference]: docs
 [concepts]: docs/concepts.md
 [functions]: docs/functions.md
 [formats]: docs/formats.md

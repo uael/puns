@@ -1,4 +1,4 @@
-# Describing a format
+# In practice
 
 A binary format is a layout of fields, and relations between them: a header gives the length
 of what follows, a byte gives the kind of a message, a checksum covers the data. With

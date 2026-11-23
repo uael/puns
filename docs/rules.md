@@ -5,7 +5,7 @@ The [rules][concepts#layouts-and-rules] of a struct are the expressions of its
 and [`regions`][macro@Pun#regions] on its last field. They give the
 [extent][concepts#layouts-and-rules] of a value, the length of its trailing slice, the size of a
 [region](#regions), or a condition such as a checksum, the relations that binary formats store in
-their headers. [Describing a format][formats] shows them in use.
+their headers. [In practice][formats] shows them in use.
 
 A rule is a [requirement][concepts#requirements]. It is checked when a value of the
 struct is made from another type, as by [`try_pun`] or [`from_head`], unless the source proves

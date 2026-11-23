@@ -1,7 +1,7 @@
-// The guide's page is docs/README.md, read on GitHub as well. Rustdoc keeps the first definition
-// of a link, so this one, before it, makes its link to the crate page intra-doc.
-//! [crate]: crate
-#![doc = include_str!("../docs/README.md")]
+//! The chapters of the reference, the files of `docs/` in the repository, which the [contents]
+//! of the crate page list in reading order.
+//!
+//! [contents]: crate
 
 pub mod concepts;
 pub mod errors;

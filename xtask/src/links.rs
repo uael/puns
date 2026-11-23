@@ -7,7 +7,7 @@
 //! newest stable release, and `blob/main` is the code after it. The one exception is a branch of
 //! [`BRANCHES`], which holds what no release contains, and is linked as it is.
 //!
-//! The chapters of the guide are files of `docs/`, which rustdoc includes as the guide's modules,
+//! The chapters of the reference are files of `docs/`, which rustdoc includes as the reference's modules,
 //! as it includes the README as the crate page. A link between them is relative, so that GitHub
 //! stays in the revision being read. rustdoc does not resolve such a link, so the `.rs` file that
 //! includes a Markdown file defines the same label before the include, as an intra-doc link: of
@@ -275,11 +275,9 @@ fn repository(
 fn rendered(root: &Path, file: &Path, text: &str, faults: &mut Vec<String>) -> Result<()> {
   let page = if file == Path::new(README) {
     PathBuf::from("index.html")
-  } else if file == Path::new(DOCS).join(README) {
-    PathBuf::from("guide/index.html")
   } else if includer(root, file).is_some() {
     let name = file.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
-    PathBuf::from(format!("guide/{name}/index.html"))
+    PathBuf::from(format!("reference/{name}/index.html"))
   } else {
     return Ok(());
   };
@@ -300,16 +298,13 @@ fn rendered(root: &Path, file: &Path, text: &str, faults: &mut Vec<String>) -> R
 
 /// Returns the `.rs` file that includes `file` as documentation, and the labels that it defines
 /// before the include, or `None` if no file includes it: the README is included by
-/// `puns/src/lib.rs`, `docs/README.md` by `puns/src/guide.rs`, and `docs/{name}.md` by
-/// `puns/src/guide/{name}.rs`.
+/// `puns/src/lib.rs`, and `docs/{name}.md` by `puns/src/reference/{name}.rs`.
 fn includer(root: &Path, file: &Path) -> Option<(PathBuf, BTreeSet<String>)> {
   let rs = if file == Path::new(README) {
     PathBuf::from("puns/src/lib.rs")
-  } else if file == Path::new(DOCS).join(README) {
-    PathBuf::from("puns/src/guide.rs")
   } else {
     let name = file.file_stem()?.to_str()?;
-    PathBuf::from(format!("puns/src/guide/{name}.rs"))
+    PathBuf::from(format!("puns/src/reference/{name}.rs"))
   };
   let source = fs::read_to_string(root.join(&rs)).ok()?;
   let name = file.file_name()?.to_str()?;

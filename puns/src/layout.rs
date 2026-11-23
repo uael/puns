@@ -29,7 +29,7 @@
 //! [`Op`]s. [`Enum`] and [`Variant`] are an enum with fields or a union. [`DfaState`] is a state of
 //! a `Dfa`, and [`sorted_ranges`] makes the ranges of a `Spec`.
 //!
-//! [valid]: crate::guide::concepts#what-is-a-valid-value
+//! [valid]: crate::reference::concepts#what-is-a-valid-value
 
 use core::mem;
 
@@ -119,8 +119,8 @@ pub(crate) enum Valid {
 ///   to hold anything, padding included;
 /// - an [opaque scalar] ([`Spec::never`]) accepts no value, but is known to hold initialized bytes.
 ///
-/// [requirement]: crate::guide::concepts#requirements
-/// [opaque scalar]: crate::guide::concepts#opaque-scalars
+/// [requirement]: crate::reference::concepts#requirements
+/// [opaque scalar]: crate::reference::concepts#opaque-scalars
 ///
 /// # Examples
 ///
@@ -368,7 +368,7 @@ impl Spec {
   ///
   /// This is the scalar of a signed or floating-point number, a `bool`, a `char` or an enum, which
   /// a rule does not read as a field
-  /// ([Fields in a rule](crate::guide::rules#fields-in-a-rule)).
+  /// ([Fields in a rule](crate::reference::rules#fields-in-a-rule)).
   ///
   /// # Examples
   ///
@@ -725,7 +725,7 @@ pub(crate) enum Uniform {
 ///
 /// Rust leaves part of some layouts to the compiler, which may choose differently in its next
 /// version, or at random under `-Zrandomize-layout`, as [Unspecified
-/// layouts](crate::guide::layouts) lists. A `Stable` says which facts about a layout hold
+/// layouts](crate::reference::layouts) lists. A `Stable` says which facts about a layout hold
 /// under every choice. It is computed from the layouts of its parts.
 ///
 /// Without the `unstable` feature, the analysis does not look into a layout that is not `fixed`
@@ -803,7 +803,7 @@ impl Stable {
 /// The identity of a type, which tells two types apart where their layouts are the same.
 ///
 /// Without the `unstable` feature, a layout that Rust leaves to the compiler proves only the same
-/// type, at the same place, and [The same type](crate::guide::layouts#the-same-type) says why, and
+/// type, at the same place, and [The same type](crate::reference::layouts#the-same-type) says why, and
 /// which types have an identity. An identity is a name, together with the identities of the
 /// parameters that make up the type. `__site!` names a type that derives `Pun` by where it is
 /// declared, and this crate names the types of `core` that it supports. Two identities are equal
@@ -919,9 +919,9 @@ pub(crate) enum Kind {
 ///
 /// A union of `repr(C)` is an enum without a tag whose variants are its fields, each at offset 0.
 /// A target union is one of its fields, while a source union may hold any bytes
-/// ([Unions](crate::guide::soundness#unions)).
+/// ([Unions](crate::reference::soundness#unions)).
 ///
-/// [uninhabited]: crate::guide::concepts#uninhabited-types
+/// [uninhabited]: crate::reference::concepts#uninhabited-types
 ///
 /// # Examples
 ///
@@ -1542,7 +1542,7 @@ impl Field {
   /// hold only what its type guarantees, since safe code may write any value of its type to it: a
   /// [requirement], not a guarantee.
   ///
-  /// [requirement]: crate::guide::concepts#requirements
+  /// [requirement]: crate::reference::concepts#requirements
   ///
   /// # Panics
   ///
@@ -1696,7 +1696,7 @@ fn pin<T>(_: T) {}
 
 /// Whether the `unstable` feature is enabled.
 ///
-/// [Unspecified layouts and the `unstable` feature](crate::guide::layouts) says what the feature
+/// [Unspecified layouts and the `unstable` feature](crate::reference::layouts) says what the feature
 /// changes.
 pub const UNSTABLE: bool = cfg!(feature = "unstable");
 
@@ -1708,7 +1708,7 @@ impl Layout {
   /// names, which safe code can make name something else. It also writes this constant with the
   /// same paths, as a tuple of `fn` types, so a path that names another type does not compile,
   /// because a `fn` type is not a path, and nothing can replace it. [The generated
-  /// code](crate::guide::trust#the-generated-code), in the chapter What the derive trusts, says
+  /// code](crate::reference::trust#the-generated-code), in the chapter What the derive trusts, says
   /// what fixes the rest of what the generated code names.
   #[doc(hidden)]
   #[expect(
@@ -1865,7 +1865,7 @@ impl Layout {
     );
   }
 
-  /// Returns a `T` that is valid in the sense of the Reference, whose rules may not hold, made from
+  /// Returns a `T` that is valid in the sense of the Rust Reference, whose rules may not hold, made from
   /// its layout alone, for the samples of the variants of an enum of the `Rust` representation
   /// (`Layout::discover`).
   ///
@@ -2389,7 +2389,7 @@ impl Layout {
   /// - If `T` is unsized, the size of a value of `T` whose tail has 8 elements is at most
   ///   `isize::MAX`.
   ///
-  /// [limit of the evaluator]: crate::guide::rules#limits-of-the-evaluator
+  /// [limit of the evaluator]: crate::reference::rules#limits-of-the-evaluator
   ///
   /// # Examples
   ///
@@ -2837,7 +2837,7 @@ impl Layout {
   ///   byte is initialized in every order. Orders are tried for up to 6 fields that have a size or
   ///   an alignment greater than 1. With more, the size counts as the same only if the fields need
   ///   no padding in any order. [Bounds of the
-  ///   analysis](crate::guide::limits#bounds-of-the-analysis) lists this bound.
+  ///   analysis](crate::reference::limits#bounds-of-the-analysis) lists this bound.
   ///
   /// # Panics
   ///
@@ -3026,7 +3026,7 @@ impl Layout {
   /// the same in every layout that Rust allows. The answer does not depend on the `unstable`
   /// feature.
   ///
-  /// [unspecified layout]: crate::guide::layouts
+  /// [unspecified layout]: crate::reference::layouts
   ///
   /// # Examples
   ///
@@ -3223,7 +3223,7 @@ impl Layout {
   /// Returns the layout of `T`, an enum without variants such as `Infallible`, which is
   /// [uninhabited] and has size 0. No value has this layout.
   ///
-  /// [uninhabited]: crate::guide::concepts#uninhabited-types
+  /// [uninhabited]: crate::reference::concepts#uninhabited-types
   ///
   /// # Examples
   ///
@@ -3253,7 +3253,7 @@ impl Layout {
   }
 
   /// Returns whether a value of the layout can be made, valid under every proposal for the validity
-  /// of unions that the language may adopt ([Unions](crate::guide::soundness#unions)).
+  /// of unions that the language may adopt ([Unions](crate::reference::soundness#unions)).
   ///
   /// An uninhabited type has no value, nor has an enum whose variants have none, or a struct or an
   /// array of at least one element that holds an uninhabited type. A slice has values, since it may
@@ -3344,7 +3344,7 @@ impl Layout {
   /// Only `Enum::union` makes a `layout` that this function accepts.
   ///
   /// The language has not settled the validity of unions, and this layout takes what is sound under
-  /// each of the proposals being considered, as [Unions](crate::guide::soundness#unions) describes.
+  /// each of the proposals being considered, as [Unions](crate::reference::soundness#unions) describes.
   ///
   /// # Panics
   ///
@@ -4177,7 +4177,7 @@ const fn same_valid(a: Valid, b: Valid, endian_a: Endian, endian_b: Endian) -> b
 /// leads by an edge to a next state, and the state reached after the last byte accepts.
 /// [`Layout::pattern`] makes the layout of a type whose values are the bytes that an automaton
 /// accepts, and `matches(DFA, start, end)` runs one in a rule
-/// ([Functions](crate::guide::rules#functions)).
+/// ([Functions](crate::reference::rules#functions)).
 ///
 /// An automaton is known by its states and edges. Its `id`, a field that safe code can write, only
 /// tells two automata apart early: two pattern types whose automata have different `id`s are
@@ -4522,7 +4522,7 @@ impl Dfa {
 /// An operation of the expression of a [`Rule`], in postfix order.
 ///
 /// An expression is operations over a stack of values and a set of variables, and [The language
-/// of rules](crate::guide::rules) specifies what it means, how it fails, and its limits, which
+/// of rules](crate::reference::rules) specifies what it means, how it fails, and its limits, which
 /// [`Layout::structure`] checks. A binary operation replaces the two values at the top of the
 /// stack with its result, the value pushed first being its left side. A comparison gives 1 if it
 /// holds, and 0 otherwise. An operation on the bytes from a start offset to an end offset fails if
@@ -4602,7 +4602,7 @@ pub enum Op {
     /// Whether the integer is big-endian.
     big: bool,
   },
-  /// Pushes the [extent](crate::guide::concepts#layouts-and-rules) of the value in bytes,
+  /// Pushes the [extent](crate::reference::concepts#layouts-and-rules) of the value in bytes,
   /// `size_of_val(self)` in a rule.
   Size,
   /// Replaces an offset with the unsigned integer of `size` bytes at that offset in the value.
@@ -4704,7 +4704,7 @@ pub enum Op {
   Get(u8),
   /// Replaces a value with what it becomes when it is replaced by `next` for as long as `cond`
   /// holds for it. In both expressions, the value is the variable `var`. Fails as a
-  /// [walk](crate::guide::rules#walks) does.
+  /// [walk](crate::reference::rules#walks) does.
   Walk {
     /// The variable of the value.
     var: u8,
@@ -5480,7 +5480,7 @@ pub(crate) const fn same_ops(a: &[Op], b: &[Op]) -> bool {
 /// A rule of a struct, what a value requires beyond the validity of its fields.
 ///
 /// `#[derive(Pun)]` makes the rules of `size` and `assert` on a struct, and of `len` and `regions`
-/// on its last field. [The language of rules](crate::guide::rules) specifies them.
+/// on its last field. [The language of rules](crate::reference::rules) specifies them.
 ///
 /// # Examples
 ///
@@ -5536,7 +5536,7 @@ pub(crate) const fn same_ops(a: &[Op], b: &[Op]) -> bool {
 /// ```
 #[derive(Copy, Clone, Debug)]
 pub enum Rule {
-  /// The [extent](crate::guide::concepts#layouts-and-rules) of the value is the value of the
+  /// The [extent](crate::reference::concepts#layouts-and-rules) of the value is the value of the
   /// expression.
   Size(&'static [Op]),
   /// The length of the tail of the value, an array, a slice or a `str`, is the value of the

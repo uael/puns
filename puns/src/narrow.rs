@@ -33,7 +33,7 @@
 //!
 //! The state of a walk is a fixed point. It is what the walk starts as, joined twice with what a
 //! step makes of it. Then each bound that still moves goes as far as it can, in at most four more
-//! steps. The limit on the steps of a walk ([Walks](crate::guide::rules#walks)) bounds nothing
+//! steps. The limit on the steps of a walk ([Walks](crate::reference::rules#walks)) bounds nothing
 //! here: on 64 bits, it is `usize::MAX` steps for a value of `isize::MAX` bytes, so a state that
 //! grows at each step could pass `2^64`. The state of a walk three deep or more, inside two others,
 //! may be anything, so that the analysis stays a few times the length of the expression.

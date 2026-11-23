@@ -69,8 +69,8 @@
 //! assert!(puns::from_bytes::<Class>(&[0; 8]).is_err());
 //! ```
 //!
-//! [guarantee]: crate::guide::concepts#what-is-a-valid-value
-//! [requirement]: crate::guide::concepts#requirements
+//! [guarantee]: crate::reference::concepts#what-is-a-valid-value
+//! [requirement]: crate::reference::concepts#requirements
 
 use core::fmt;
 
@@ -307,7 +307,7 @@ macro_rules! ints {
     // `SPEC` has its size. The items of the `# Safety` of `Scalar` hold:
     // - Every value of `$name` is initialized bytes, all of which `Spec::any` accepts.
     // - Every initialized `[u8; $size]` is a valid `$name`, whose one field is all that it requires
-    //   to be valid. The Reference requires the field to be valid [2]. `puns` relies on this being
+    //   to be valid. The Rust Reference requires the field to be valid [2]. `puns` relies on this being
     //   all, which no documentation states (`docs/rust.md`, "A value whose fields are valid"). No
     //   code of `$name` relies on what its bytes are: `from_bytes` makes one of any bytes.
     // - `$name` holds no `UnsafeCell`.
@@ -368,7 +368,7 @@ macro_rules! ints {
     #[doc = concat!("A [`", stringify!($name), "`] whose only valid value is `V`.")]
     ///
     #[doc = narrower!($raw $size, concat!(
-      "# Compile-time errors\n\nA pun of a type that holds it [compiles](crate::guide::errors) ",
+      "# Compile-time errors\n\nA pun of a type that holds it [compiles](crate::reference::errors) ",
       "only if `V` fits in ", stringify!($size), " bytes:\n\n",
       "```compile_fail,E0080\nuse puns::num::", stringify!($literal), ";\n\n",
       "// One more than the greatest value of ", stringify!($size), " bytes.\n",
@@ -617,7 +617,7 @@ macro_rules! numbers {
     // `SPEC` has its size. The items of the `# Safety` of `Scalar` hold:
     // - Every value of `$name` is initialized bytes, all of which `Spec::any` accepts.
     // - Every initialized `[u8; $size]` is a valid `$name`, whose one field is all that it requires
-    //   to be valid. The Reference requires the field to be valid [2]. `puns` relies on this being
+    //   to be valid. The Rust Reference requires the field to be valid [2]. `puns` relies on this being
     //   all, which no documentation states (`docs/rust.md`, "A value whose fields are valid"). No
     //   code of `$name` relies on what its bytes are: `from_bytes` makes one of any bytes.
     // - `$name` holds no `UnsafeCell`.
@@ -789,7 +789,7 @@ impl<const V: u8> fmt::Debug for u8c<V> {
 ///
 /// # Compile-time errors
 ///
-/// A pun of a type that holds it [compiles](crate::guide::errors) only if `MIN` is not greater
+/// A pun of a type that holds it [compiles](crate::reference::errors) only if `MIN` is not greater
 /// than `MAX`:
 ///
 /// ```compile_fail,E0080

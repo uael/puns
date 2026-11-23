@@ -471,7 +471,7 @@ where
 /// # Compile-time errors
 ///
 /// A call compiles only under the compile-time conditions of [`from_bytes`](crate::from_bytes) for
-/// the type of `I`, which are checked after monomorphization, as [the guide](crate::guide::errors)
+/// the type of `I`, which are checked after monomorphization, as [the reference](crate::reference::errors)
 /// explains. Among them:
 ///
 /// - The type of `I` holds no scalar that a pun never makes in a part that the check covers, except

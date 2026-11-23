@@ -4,7 +4,7 @@ The library: `#![no_std]`, no dependency but the derive.
 
 ## Where the design is written
 
-- Each chapter of the guide is a file of [`docs/`](../docs), included by `src/guide/<chapter>.rs`,
+- Each chapter of the reference is a file of [`docs/`](../docs), included by `src/reference/<chapter>.rs`,
   which only documents and imports the crate under `#[cfg(doc)]` for its links.
 - The derive page, on `pub use puns_derive::Pun` in [`src/lib.rs`](src/lib.rs), states each
   attribute, [The language of rules](../docs/rules.md) what a rule means and reads, and

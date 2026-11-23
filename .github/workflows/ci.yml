@@ -132,7 +132,7 @@ jobs:
       - run: cargo test -p puns-model ${{ matrix.tests }}
 
   # Without the `unstable` feature, nothing that `puns` does depends on what Rust lets `rustc`
-  # lay out otherwise (the chapter "Unspecified layouts" of the guide, `docs/layouts.md`).
+  # lay out otherwise (the chapter "Unspecified layouts" of the reference, `docs/layouts.md`).
   # `tests/seeds.rs` records the verdict of every function on pairs of types, and which bytes each
   # accepts: the record must be `tests/seeds.txt` without `-Zrandomize-layout`, and with it, of
   # each seed (one job each: a seed is other flags, which build everything again).
@@ -232,7 +232,7 @@ jobs:
       # A target without `std`: nothing may need it.
       - run: cargo build -p puns --target thumbv7em-none-eabihf
       # A 16-bit target (a `usize` of 16 bits, `isize::MAX` of 32 KiB, see the chapter "Rust
-      # version and targets" of the guide, `docs/target.md`), whose `core` is built from source on
+      # version and targets" of the reference, `docs/target.md`), whose `core` is built from source on
       # the pinned nightly.
       - uses: dtolnay/rust-toolchain@master
         with:

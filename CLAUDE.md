@@ -16,11 +16,11 @@ A scalar valid for reasons that are not in its bytes, such as a self-relative of
 is an [opaque scalar](puns/src/lib.rs) that its own crate declares and proves. So `nearest` depends
 on `puns`, not the reverse.
 
-The design is in the rustdoc: the crate page (the README), the chapters of the guide
-(`puns::guide`), and the module docs of each part, private modules included
+The design is in the rustdoc: the crate page (the README), the chapters of the reference
+(`puns::reference`), and the module docs of each part, private modules included
 (`cargo doc --document-private-items`). `puns/CLAUDE.md` says where each part is written, the
 invariants that cross modules and what is not done yet included. Read it, and the module docs of
-what you change, before changing the library. Keep them, the guide and the README consistent with
+what you change, before changing the library. Keep them, the reference and the README consistent with
 the code.
 
 ## Toolchain
@@ -87,7 +87,7 @@ code do not hold ([`puns/CLAUDE.md`](puns/CLAUDE.md#tests)).
 
 ## The documentation
 
-The chapters of the guide are the files `docs/<chapter>.md`, which `puns/src/guide/<chapter>.rs`
+The chapters of the reference are the files `docs/<chapter>.md`, which `puns/src/reference/<chapter>.rs`
 includes, so they are read on GitHub and on docs.rs. [`xtask/src/links.rs`](xtask/src/links.rs)
 states how their links and those of the README are written. In CI, `cargo xtask links --check`
 checks that each of these links names the version where it must, and that its target exists if it
@@ -99,7 +99,7 @@ with `-D warnings` checks the intra-doc links. The links are written so:
   tag, so that it leads to the same version on GitHub, crates.io and docs.rs. A link to the `wip`
   branch, which keeps the prototypes for history, is the one exception. The release workflow pins
   the links on the branch of each release PR.
-- A link to a chapter of the guide is relative, so that GitHub stays in the revision being read,
+- A link to a chapter of the reference is relative, so that GitHub stays in the revision being read,
   and the `.rs` file that includes the page defines its label as an intra-doc link
   (`puns/src/lib.rs` for the README). crates.io resolves a relative link of the README in the
   directory of the package, where `docs/` is not, so these links lead nowhere there.

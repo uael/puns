@@ -1509,7 +1509,7 @@ fn home(this: &TokenStream, name: &Ident, ty: &Type) -> TokenStream {
 /// `rustc` compiled it.
 ///
 /// The derive reads the tokens of the item, which can name other types than the item that `rustc`
-/// compiles: the guide of `puns`, chapter What the derive trusts, says how ("The generated code"
+/// compiles: the reference of `puns`, chapter What the derive trusts, says how ("The generated code"
 /// and "Attribute macros below the derive"). So the type of each field is written once, as the
 /// associated type `name` of `__PunTypes`, in an implementation for the type, where `Self` is the
 /// type as in its declaration. Every other place names it through [`home`], so they all name one
@@ -1825,7 +1825,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
                A call compiles only if every byte of the struct, up to the end of its tail, is \
                initialized and, without the `unstable` feature of `puns`, this does not depend on \
                a layout that Rust leaves to the compiler.\n\n# Examples\n\nSee [Bit fields and \
-               regions]({DOCS}guide/formats/index.html#bit-fields-and-regions)."
+               regions]({DOCS}reference/formats/index.html#bit-fields-and-regions)."
             );
             quote! {
               #[doc = #doc]
@@ -1847,7 +1847,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
                `puns`, this does not depend on a layout that Rust leaves to the compiler. It also \
                compiles only under the compile-time conditions of `puns::from_bytes` for the type \
                of the region.\n\n# Examples\n\nSee [A region with a \
-               type]({DOCS}guide/formats/index.html#a-region-with-a-type)."
+               type]({DOCS}reference/formats/index.html#a-region-with-a-type)."
             );
             quote! {
               #[doc = #doc]
@@ -1872,7 +1872,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
        # Compile-time errors\n\nA call compiles only if each field that the expression names is \
        an unsigned integer, or a sized struct whose only field with a size is one and is as large \
        as the struct.\n\n# Examples\n\nSee [Bit fields and \
-       regions]({DOCS}guide/formats/index.html#bit-fields-and-regions).",
+       regions]({DOCS}reference/formats/index.html#bit-fields-and-regions).",
       getter.expr.to_token_stream(),
       ty.to_token_stream()
     );
@@ -2005,7 +2005,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   field. Each field has the layout of its type (`Pun`, section Safety), or a restriction
       //   of it (`Layout::restricted`), which guarantees the same values and accepts fewer. A
       //   struct is valid if, and only if, each of its fields is valid, and a byte that no field
-      //   covers is padding. The Reference states the "only if" [1]. The derive relies on the
+      //   covers is padding. The Rust Reference states the "only if" [1]. The derive relies on the
       //   "if", which no documentation states (`docs/rust.md`, "A value whose fields are valid").
       //   Rules are requirements of `puns`, never of the language.
       // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules that
@@ -2034,7 +2034,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         // `as` casts, cast again to `*const Self`. The size of the struct with 8 elements in its
         // tail must fit in an `isize`, which is not established. The derive relies on `rustc` to
         // report an error in const evaluation where it does not fit. No documentation promises this
-        // behavior, which the guide discloses (`docs/rust.md`, "Errors of const evaluation").
+        // behavior, which the reference discloses (`docs/rust.md`, "Errors of const evaluation").
         const LAYOUT: #root::layout::Layout = unsafe {
           #root::layout::Layout::structure::<Self>(
             Self::PROBE,
@@ -2256,7 +2256,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     // initialized, which is not established: `align` may add padding after the discriminant, and
     // with the `Rust` representation, Rust does not say how the discriminant is stored. The call
     // is evaluated in the constant `SPEC`, where `rustc` reports an error instead of reading an
-    // uninitialized byte. No documentation promises this behavior, which the guide discloses
+    // uninitialized byte. No documentation promises this behavior, which the reference discloses
     // (`docs/rust.md`, "Errors of const evaluation").
     variants.push(quote!(unsafe { #root::layout::Spec::bits_of(Self::#variant) }));
   }
@@ -2706,7 +2706,7 @@ fn derive_tagged(
           // the sample may be among these bytes. These are the requirements of `declared_tags`,
           // except that one. The constant is evaluated at compile time, where `rustc` reports an
           // error instead of reading an uninitialized byte. No documentation promises this
-          // behavior, which the guide discloses (`docs/rust.md`, "Errors of const evaluation").
+          // behavior, which the reference discloses (`docs/rust.md`, "Errors of const evaluation").
           //
           // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.adt:
           //
@@ -2760,7 +2760,7 @@ fn derive_tagged(
                 // sample whose byte `after` may have been changed, so it may be no `Self`. This
                 // constant is evaluated at compile time, where the `match`, which reads the
                 // variant, relies on the behaviors of `rustc` that `discover` relies on, and that
-                // the guide discloses (`docs/rust.md`, "Errors of const evaluation" and "The
+                // the reference discloses (`docs/rust.md`, "Errors of const evaluation" and "The
                 // variant read from the tag"): `rustc` reports an error if the tag is not the tag
                 // of a variant, and otherwise reads the variant from the tag alone, without
                 // reading the fields.
@@ -2794,7 +2794,7 @@ fn derive_tagged(
       //   of that field of that variant in the enum as compiled, and the enum to have no other
       //   variant and no other field. Each field has the layout of its type, or a restriction of
       //   it. An enum is valid if, and only if, its tag is that of a variant and the fields of
-      //   that variant are valid, which is what the layout accepts. The Reference states the
+      //   that variant are valid, which is what the layout accepts. The Rust Reference states the
       //   "only if" [3]. The derive relies on the "if", which no documentation states
       //   (`docs/rust.md`, "A value whose fields are valid").
       // - `Variants` lists the variants in order, each with its fields (see the markers above).

@@ -4,7 +4,7 @@
 //! value of `S` is a [valid] value of `D`. It walks both layouts together, as the product of two
 //! automata, and answers the following questions:
 //!
-//! - **Fit** ([`Fit`]): how the [extent](crate::guide::concepts#layouts-and-rules) of a source
+//! - **Fit** ([`Fit`]): how the [extent](crate::reference::concepts#layouts-and-rules) of a source
 //!   maps to the extent of a target. The extents are the same always, for some lengths of a slice,
 //!   or never, or the source is truncated to the extent of the target. The trailing padding of an
 //!   unsized target is not part of its extent: where the target is more aligned than the source,
@@ -26,7 +26,7 @@
 //! [Layouts that Rust leaves to the compiler](#layouts-that-rust-leaves-to-the-compiler)).
 //!
 //! The errors of the analysis are panics of `const { .. }` blocks in the generic functions of the
-//! crate, evaluated after monomorphization ([Compile-time errors](crate::guide::errors) says when
+//! crate, evaluated after monomorphization ([Compile-time errors](crate::reference::errors) says when
 //! a build reports them).
 //!
 //! # Cost
@@ -64,7 +64,7 @@
 //! [`PLACES`] places of fields, a budget of boxes of a scalar, a budget of runs under a pattern and
 //! of steps of its automaton over bytes of any value, [`KNOWN`] ranges of the values of a tag, and
 //! [`CUT_ELEMENTS`] elements of an array looked at one by one. These limits keep the analysis
-//! within the bound of const evaluation ([Limits of Rust](crate::guide::limits#limits-of-rust)).
+//! within the bound of const evaluation ([Limits of Rust](crate::reference::limits#limits-of-rust)).
 //!
 //! # Enums and unions
 //!
@@ -199,7 +199,7 @@
 //! Rules are checked when a value is made from something else, and tell `from_head` how long a
 //! value is. A rule is proven only by the same rules, at the same place of the source, in a struct
 //! of the same extent ([`proves_rules`]), as [Why the pair
-//! decides](crate::guide::concepts#why-the-pair-decides) states. [`Layout::same_rules`]
+//! decides](crate::reference::concepts#why-the-pair-decides) states. [`Layout::same_rules`]
 //! says why such a struct computes the same rules over the same bytes, whatever its fields, which
 //! are related to the target as any others. This is how `Frame<Ipv4<Udp>>` proves the rules of
 //! `Frame<Ipv4>`, since the payload of `Ipv4` is a typed region of its bytes, not a field of
@@ -229,7 +229,7 @@
 //!   struct or a tuple whose size is the same in every layout may also be proven field by field
 //!   ([`relate_fields`]). A field may be anywhere, so it must be proven everywhere that it may be,
 //!   and since a struct is valid if each of its fields is valid at its place ([A value whose fields
-//!   are valid](crate::guide::rust#a-value-whose-fields-are-valid)), the source proves the
+//!   are valid](crate::reference::rust#a-value-whose-fields-are-valid)), the source proves the
 //!   struct in every order of its fields if, and only if, it proves each field at each offset that
 //!   the field has in some order. This is exact, and tries no order. The offsets taken are the
 //!   multiples of the alignment of the field where the field fits or, where no order needs padding,
@@ -256,7 +256,7 @@
 //!
 //! A check must not read a byte of the source that, in another layout that Rust allows, holds
 //! another field ([`reads_moved`]). The analysis counts the bytes that a check reads as "What a
-//! check may read" in the [guide](crate::guide::layouts#what-a-check-may-read) says. Under an
+//! check may read" in the [reference](crate::reference::layouts#what-a-check-may-read) says. Under an
 //! array whose elements the source does not match, it counts every byte, including bytes that no
 //! check reads.
 //!
@@ -271,7 +271,7 @@
 //! specify has something to check ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does not
 //! accept the zeros of an enum that is not fixed.
 //!
-//! [valid]: crate::guide::concepts#what-is-a-valid-value
+//! [valid]: crate::reference::concepts#what-is-a-valid-value
 
 use crate::layout::{
   Dfa, Endian, Kind, Layout, Op, Spec, Tags, UNSTABLE, Uniform, Valid, max_value,
@@ -288,7 +288,7 @@ const STRICT: bool = !UNSTABLE;
 
 /// The most frames of a [`Cursor`]: one for the part where it is, and one for each array, slice and
 /// struct around it, so 31 levels of nesting around a scalar ([Bounds of the
-/// analysis](crate::guide::limits#bounds-of-the-analysis)).
+/// analysis](crate::reference::limits#bounds-of-the-analysis)).
 const MAX_DEPTH: usize = 32;
 
 /// The kind of a [`Run`].
@@ -1436,7 +1436,7 @@ const PLACES: usize = 1024;
 /// proven everywhere it may be.
 ///
 /// A struct is valid if each of its fields is valid at its place ([A value whose fields are
-/// valid](crate::guide::rust#a-value-whose-fields-are-valid)). So the source proves the struct in
+/// valid](crate::reference::rust#a-value-whose-fields-are-valid)). So the source proves the struct in
 /// every order of its fields if, and only if, it proves each field at each offset that
 /// the field has in some order. This is exact, and no order is tried. The offsets taken are all
 /// those that the field may have, the multiples of its alignment where it fits. Where no order
@@ -2986,7 +2986,7 @@ pub enum Exact {
   Never(&'static str),
 }
 
-/// How the [extent](crate::guide::concepts#layouts-and-rules) of a source maps to the extent of a
+/// How the [extent](crate::reference::concepts#layouts-and-rules) of a source maps to the extent of a
 /// target.
 ///
 /// The extent of an unsized value is the offset of its slice tail plus the size of that slice.

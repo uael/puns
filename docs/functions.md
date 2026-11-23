@@ -1,4 +1,4 @@
-# Choosing a function
+# The API
 
 Choose a function by what it reads, a typed value or bytes, and by how much of it: the whole, the
 front or the back ([the table of functions][crate#going-further]). The choice also decides whether

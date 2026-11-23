@@ -851,7 +851,7 @@ const unsafe fn walk<X: Ops, W: Steps>(
 /// extent of the struct.
 ///
 /// The tail of a `Sized` struct is its last field, and its
-/// [extent](crate::guide::concepts#layouts-and-rules) is its size. The extent of an unsized struct
+/// [extent](crate::reference::concepts#layouts-and-rules) is its size. The extent of an unsized struct
 /// is the offset of its slice plus the size of that slice.
 #[inline(always)]
 pub const fn tail_of<T: ?Sized + Pun>(ptr: *const T) -> (usize, usize, usize) {

@@ -15,7 +15,7 @@ Reference, and one only from 1.100, as marked.
 | Guarantee | Where |
 |---|---|
 | A size is a multiple of the alignment, and the stride of an array | R [`r-layout.properties.size`][size] |
-| `bool`, the integers, the floats and `char` have the sizes that the Reference lists, and `usize` and `isize` the same size | R [`r-layout.primitive.size`][primitive size], [`r-layout.primitive.size-align`][primitive size-align] |
+| `bool`, the integers, the floats and `char` have the sizes that the Rust Reference lists, and `usize` and `isize` the same size | R [`r-layout.primitive.size`][primitive size], [`r-layout.primitive.size-align`][primitive size-align] |
 | The alignment of a primitive is that of the platform, so `puns` reads it | R [`r-layout.primitive.platform-specific-alignment`][primitive align] |
 | Any initialized bytes are an integer or a float | R [`r-type.numeric.validity`][numeric validity] |
 | `bool` is one byte, 0 or 1 | R [`r-type.bool.layout`][bool layout], [`r-type.bool.repr`][bool repr] |
@@ -57,7 +57,7 @@ and the documentation of `MaybeUninit` and `UnsafeCell` says that such layouts v
 
 ### A value whose fields are valid
 
-The Reference states what validity requires of a struct, a tuple, an array and an enum (the rows
+The Rust Reference states what validity requires of a struct, a tuple, an array and an enum (the rows
 above), and warns that its list of undefined behavior "is not exhaustive; it may grow or shrink"
 ([`r-undefined`][undefined]). `puns` takes these conditions to be all that validity requires. A
 struct, a tuple, an array or a slice is valid if its fields or its elements are, whatever its
@@ -150,7 +150,7 @@ take for the tag fails the build, by the first error above. The compile-fail tes
 
 Const evaluation reads the variant of a value from its tag alone, when the tag is that of a
 variant, and reads no other byte of the value. Yet `mem::discriminant` takes a reference to the
-whole value, and the Reference requires a reference to point to a valid value
+whole value, and the Rust Reference requires a reference to point to a valid value
 ([`r-undefined.validity.reference-box`][validity reference]). The experiments rely on it when they
 move the tag of one variant into a value of another. The derive also relies on it to check the
 width of the tag of an enum of a primitive or `C` representation ([Attribute macros below the

@@ -41,7 +41,7 @@ the build on a byte of padding ([The padding of a new value][rust#the-padding-of
 
 ## Unions
 
-The language has not decided which bytes a union may hold. The Reference states only this
+The language has not decided which bytes a union may hold. The Rust Reference states only this
 ([`r-undefined.validity.union`][union validity]):
 
 > Obviously, all values that can be created entirely in safe code are valid. If the union has a

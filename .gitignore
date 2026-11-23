@@ -15,7 +15,7 @@
 !LICENSE-*
 !docs/
 !docs/*.md
-# The chapters of the guide, which `puns` includes as its documentation (`include_str!`), and
+# The chapters of the reference, which `puns` includes as its documentation (`include_str!`), and
 # which Cargo packages through this link.
 !puns/docs
 !docs/*.txt
@@ -42,7 +42,7 @@
 !puns/benches/
 !puns/examples/
 !puns/src/
-!puns/src/guide/
+!puns/src/reference/
 !puns/tests/
 !puns/tests/compile-fail/
 !puns/tests/compile-fail/*.stderr
