@@ -2,7 +2,7 @@
 //! initialized bytes, never made, not even from the same type, and excluded from the variants that
 //! a check accepts.
 //!
-//! The full run adds them to every pair of their size (`size1.rs`, `size2.rs`).
+//! The full run adds them to every pair of their size (`support/size1.rs`, `support/size2.rs`).
 
 use core::num::NonZero;
 

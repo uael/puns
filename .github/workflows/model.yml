@@ -2,9 +2,14 @@ name: Model check
 
 # The exhaustive model check: every pair of the types of the model, every part, every value over
 # the alphabets, every pair of the types of 1 and 2 bytes as a view enum
-# (`puns-model/tests/size*.rs`, `parts*.rs` and `views_full.rs`, behind the `full` feature, which
+# (`puns-model/tests/size*.rs`, `parts*.rs` and `views_full_*.rs`, behind the `full` feature, which
 # `cargo test` does not build). It takes minutes to build and a few to run, too long for every
 # push, where CI runs a sample of it: here on demand, and every night.
+#
+# One `rustc` builds each test file, and the largest checks are cut along their sources into
+# several files, so that each `rustc` fits in the memory of a runner ("What runs where" in the docs
+# of `puns-model`). The files are built in groups of about the same time, a job for each group and
+# each feature set (`.github/model-tests.sh`, which also names the groups for the matrix).
 
 on:
   workflow_dispatch:
@@ -15,8 +20,49 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  groups:
+    name: Groups of test files
+    runs-on: ubuntu-latest
+    outputs:
+      groups: ${{ steps.groups.outputs.groups }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: groups
+        run: echo "groups=$(sh .github/model-tests.sh groups)" >> "$GITHUB_OUTPUT"
+
   model:
-    name: Model check
+    name: Model check (${{ matrix.set.name }}, ${{ matrix.group }})
+    needs: groups
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Without the `unstable` feature, then with it: `puns` takes the layout that `rustc` chose,
+        # other verdicts.
+        set:
+          - name: default
+            features: full
+          - name: unstable
+            features: full,unstable
+        group: ${{ fromJSON(needs.groups.outputs.groups) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.100.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # A cache for each job of the matrix: they do not build the same binaries. Not the
+          # features: a key of a cache has no comma.
+          key: model-${{ matrix.set.name }}-${{ matrix.group }}
+      - name: Select the test files of the job
+        run: echo "TESTS=$(sh .github/model-tests.sh ${{ matrix.group }} | tr '\n' ' ')" >> "$GITHUB_ENV"
+      # Optimized: the `model` profile is the release one without LTO.
+      - run: cargo test --profile model -p puns-model --features ${{ matrix.set.features }} $TESTS
+
+  # The tests that CI does not build on a push. Clippy checks, and builds no test binary.
+  clippy:
+    name: Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,10 +71,7 @@ jobs:
           toolchain: 1.100.0
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # Optimized: the `model` profile is the release one without LTO. Without the `unstable`
-      # feature, then with it: `puns` takes the layout that `rustc` chose, other verdicts.
-      - run: cargo test --profile model -p puns-model --features full
-      - run: cargo test --profile model -p puns-model --features full,unstable
-      # The tests that CI does not build on a push.
+        with:
+          key: model-clippy
       - run: cargo clippy -p puns-model --tests --features full -- -D warnings
       - run: cargo clippy -p puns-model --tests --features full,unstable -- -D warnings
