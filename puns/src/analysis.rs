@@ -253,7 +253,7 @@
 //!
 //! A check must not read a byte of the source that, in another layout that Rust allows, holds
 //! another field ([`reads_moved`]). The analysis counts the bytes that a check reads as "What a
-//! check may read" in the [guide](crate::guide::unstable#what-a-check-may-read) says. Under an
+//! check may read" in the [guide](crate::guide::layouts#what-a-check-may-read) says. Under an
 //! array whose elements the source does not match, it counts every byte, including bytes that no
 //! check reads.
 //!
@@ -3000,7 +3000,7 @@ pub const TOO_LARGE: &str = "the source is larger than the target";
 /// The reason of [`Exact::Never`] when no number of elements in the tail of the target makes it the
 /// size of the source.
 pub const UNEVEN: &str =
-  "the size of the source cannot be reached with elements of the tail slice of the target";
+  "the size of the source cannot be reached with elements of the trailing slice of the target";
 
 /// Returns how the extent of a source of layout `a` maps to the extent of a target of layout `b`.
 pub const fn fit(a: &Layout, b: &Layout) -> Fit {

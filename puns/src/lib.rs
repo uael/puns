@@ -6,21 +6,21 @@
 //! [requirements]: guide::concepts#requirements
 //! [opaque]: guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 //! [layouts]: guide::concepts#layouts-and-rules
-//! [unsized]: guide::limitations#limits
+//! [unsized]: guide::limits#limits-of-rust
 //! [msrv]: guide::msrv
 //! [concepts]: guide::concepts
 //! [functions]: guide::functions
 //! [formats]: guide::formats
 //! [rules]: guide::rules
-//! [limitations]: guide::limitations
+//! [limits]: guide::limits
 //! [never-made]: guide::never_made
 //! [portability]: guide::portability
 //! [guide]: guide
-//! [not-yet]: guide::limitations#not-done-yet
+//! [not-yet]: guide::limits#not-yet
 //! [Compile-time errors]: guide::errors
 //! [Soundness]: guide::soundness
 //! [deriving]: guide::soundness#what-deriving-pun-means
-//! [unstable]: guide::unstable
+//! [unstable]: guide::layouts
 #![doc = include_str!("../README.md")]
 #![cfg_attr(not(test), no_std)]
 // Every public item has documentation, as docs.rs counts it. CI checks that each item that rustdoc
@@ -455,7 +455,7 @@ pub use layout::{crc32, sum16};
 /// is known to hold initialized bytes if it does in every order, and nothing more. As a target, a
 /// struct whose size is the same in every order, without rules or an opaque scalar, is proven
 /// field by field, each field at every place where it may be, and any other is proven only by the
-/// same type ([Puns without the feature](crate::guide::unstable#puns-without-the-feature)).
+/// same type ([Puns without the feature](crate::guide::layouts#puns-without-the-feature)).
 ///
 /// For an enum with fields of the `Rust` representation, the derive finds the layout that `rustc`
 /// chose by experimenting in const evaluation on a value of each variant. An experiment that fails
@@ -499,7 +499,7 @@ pub use layout::{crc32, sum16};
 ///
 /// Without the `unstable` feature, nothing that a pun does depends on a layout that Rust leaves to
 /// the compiler, and with it, a pun uses the layout that `rustc` chose for this build ([The
-/// `unstable` feature](crate::guide::unstable)).
+/// `unstable` feature](crate::guide::layouts#the-unstable-feature)).
 ///
 /// ## What the derive trusts
 ///
@@ -595,9 +595,9 @@ pub use layout::{crc32, sum16};
 ///   variant of an enum none of whose variants has a sample, of which no tag width is checked.
 /// - The derive takes from the `repr` that it read whether Rust specifies the layout, on which,
 ///   without the `unstable` feature, a verdict may rely ([The `unstable`
-///   feature](crate::guide::unstable)). A struct or a union whose `repr(C)` such an attribute
-///   removes has the offsets of this compilation, but is taken to have them in every compilation,
-///   which Rust does not promise.
+///   feature](crate::guide::layouts#the-unstable-feature)). A struct or a union whose `repr(C)`
+///   such an attribute removes has the offsets of this compilation, but is taken to have them in
+///   every compilation, which Rust does not promise.
 pub use puns_derive::Pun;
 use validate::{Checks, validate};
 
@@ -1635,7 +1635,8 @@ const fn check(analysis: &Analysis, need: Need) -> Option<Message> {
     }
     Exact::Never(why) if fit.shrink => {
       return Some(Message::new(why).str(
-        ".\nUse `head` or `tail` (or their `_ref` and `_mut` forms) to take a part of the source",
+        ".\nUse `head` or `tail` (or their `_ref` and `_mut` forms) to take the first or last bytes \
+         of the source",
       ));
     }
     Exact::Never(why) => return Some(Message::new(why)),
@@ -1963,19 +1964,13 @@ impl Message {
 
 /// Reinterprets a value of type `S` as a value of type `D`.
 ///
-/// The result has the bytes of `value`. As with [`core::mem::transmute`], its padding is not
-/// guaranteed to keep them. Nothing is checked at run time.
+/// The result has the bytes of `value`, except that, as with [`core::mem::transmute`], the bytes of
+/// its padding may differ. Nothing is checked at run time.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
-///
-/// - `size_of::<S>() == size_of::<D>()`.
-/// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
-/// - Every value of `S` is a [valid] `D`.
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles does not depend on an [unspecified
-///   layout].
+/// A call [compiles] only under the conditions [same size], [initialized bytes], [proven target],
+/// [no opaque scalar] and [layout independence].
 ///
 /// # Examples
 ///
@@ -1988,10 +1983,12 @@ impl Message {
 /// let _: bool = puns::pun(2u8);
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [compiles]: crate::guide::errors
+/// [same size]: crate::guide::functions#sizes
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [proven target]: crate::guide::functions#proven-target
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline(always)]
 pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
   const { Plan::<S, D>::BY_VALUE };
@@ -2005,20 +2002,13 @@ pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 
 /// Reinterprets the first bytes of a value of type `S` as a value of type `D`.
 ///
-/// The result has the first `size_of::<D>()` bytes of `value`. As with [`core::mem::transmute`],
-/// its padding is not guaranteed to keep them. Nothing is checked at run time.
+/// The result has the first `size_of::<D>()` bytes of `value`, which are the covered bytes, except
+/// that the bytes of its padding may differ, as with [`pun`]. Nothing is checked at run time.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
-///
-/// - `size_of::<S>() >= size_of::<D>()`.
-/// - Every byte that `D` requires to be initialized is initialized in the first `size_of::<D>()`
-///   bytes of every value of `S`.
-/// - These bytes are a [valid] `D` in every value of `S`.
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles does not depend on an [unspecified
-///   layout].
+/// A call [compiles] only under the conditions [room for the target], [initialized bytes], [proven
+/// target], [no opaque scalar] and [layout independence].
 ///
 /// # Examples
 ///
@@ -2027,15 +2017,18 @@ pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// ```
 ///
 /// ```compile_fail,E0080
-/// // The second byte may be padding: Rust does not specify the order of the fields of a tuple,
-/// // and `rustc` puts the `u16` after a byte of padding.
+/// // Rust does not specify the order of the fields of a tuple. Without the `unstable` feature, the
+/// // pun is refused for that. With it, the second byte is padding, since `rustc` puts the `u16`
+/// // after a byte of padding.
 /// let _: [u8; 2] = puns::head((0u8, 0u16));
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [compiles]: crate::guide::errors
+/// [room for the target]: crate::guide::functions#sizes
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [proven target]: crate::guide::functions#proven-target
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline(always)]
 pub const fn head<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
   const { Plan::<S, D>::HEAD };
@@ -2048,21 +2041,14 @@ pub const fn head<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 
 /// Reinterprets the last bytes of a value of type `S` as a value of type `D`.
 ///
-/// The result has the last `size_of::<D>()` bytes of `value`, which start `size_of::<S>() -
-/// size_of::<D>()` bytes after its start. As with [`core::mem::transmute`], its padding is not
-/// guaranteed to keep them. Nothing is checked at run time.
+/// The result has the last `size_of::<D>()` bytes of `value`, which are the covered bytes and start
+/// `size_of::<S>() - size_of::<D>()` bytes after its start, except that the bytes of its padding
+/// may differ, as with [`pun`]. Nothing is checked at run time.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
-///
-/// - `size_of::<S>() >= size_of::<D>()`.
-/// - Every byte that `D` requires to be initialized is initialized in the last `size_of::<D>()`
-///   bytes of every value of `S`.
-/// - These bytes are a [valid] `D` in every value of `S`.
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles does not depend on an [unspecified
-///   layout].
+/// A call [compiles] only under the conditions [room for the target], [initialized bytes], [proven
+/// target], [no opaque scalar] and [layout independence].
 ///
 /// # Examples
 ///
@@ -2089,10 +2075,12 @@ pub const fn head<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// let _: u8 = puns::tail(Padded { a: 0, b: 0 });
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [compiles]: crate::guide::errors
+/// [room for the target]: crate::guide::functions#sizes
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [proven target]: crate::guide::functions#proven-target
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline(always)]
 pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
   const { Plan::<S, D>::TAIL };
@@ -2118,24 +2106,17 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// Reinterprets a value of type `S` as a value of type `D`, after checking what [the analysis]
 /// could not prove.
 ///
-/// The result is as with [`pun`].
+/// The result has the bytes of `value`, as with [`pun`].
 ///
 /// # Errors
 ///
-/// Returns [`Error::Validity`] if the bytes of `value` are not a [valid] `D`.
+/// Returns [`Error::Validity`] if the bytes are not a [valid] `D` or do not meet its
+/// [requirements].
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
-///
-/// - `size_of::<S>() == size_of::<D>()`.
-/// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
-/// - Each [part] of `D` accepts what some value of `S` holds at its place: each scalar outside an
-///   enum or a union, some variant of each enum, and some field of each union. So `D` is
-///   [inhabited] if `S` is.
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles, what it checks and which values
-///   pass do not depend on an [unspecified layout].
+/// A call [compiles] only under the conditions [same size], [initialized bytes], [accepted by a
+/// check], [no opaque scalar] and [layout independence].
 ///
 /// # Examples
 ///
@@ -2150,12 +2131,14 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// ```
 ///
 /// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [requirements]: crate::guide::concepts#requirements
 /// [the analysis]: crate::guide::concepts#layouts-and-rules
-/// [part]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
+/// [same size]: crate::guide::functions#sizes
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [accepted by a check]: crate::guide::functions#accepted-by-a-check
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline]
 pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Result<D, Error> {
   const { Plan::<S, D>::TRY };
@@ -2211,20 +2194,12 @@ const unsafe fn pun_unchecked<S: Copy, D: Copy>(value: S) -> D {
 /// The returned reference points to the same bytes as `value`. If `D` ends with a slice, its length
 /// is chosen so that the result covers the same bytes as `value`, up to the end of the slice of
 /// `value`. Padding after that slice is not included. Nothing is checked at run time.
+/// [`try_pun_ref`] checks at run time what this function would refuse.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
-///
-/// - Whatever the length of its slice, every value of `S` has a size that `D` can have. For sized
-///   types, this means `size_of::<S>() == size_of::<D>()`.
-/// - `D` needs no greater alignment than `S`. [`try_pun_ref`] checks the address at run time
-///   instead.
-/// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
-/// - Every value of `S` is a [valid] `D`.
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles does not depend on an [unspecified
-///   layout].
+/// A call [compiles] only under the conditions [same size], [alignment], [initialized bytes],
+/// [proven target], [no opaque scalar] and [layout independence].
 ///
 /// # Examples
 ///
@@ -2240,10 +2215,13 @@ const unsafe fn pun_unchecked<S: Copy, D: Copy>(value: S) -> D {
 /// let _: &u16 = puns::pun_ref(&[0u8; 2]);
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [compiles]: crate::guide::errors
+/// [same size]: crate::guide::functions#sizes
+/// [alignment]: crate::guide::functions#alignment
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [proven target]: crate::guide::functions#proven-target
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline(always)]
 pub const fn pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
   const { Plan::<S, D>::BY_REF };
@@ -2272,35 +2250,24 @@ pub const fn pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 
 /// Reinterprets a mutable reference to an `S` as a mutable reference to a `D`.
 ///
-/// The returned reference points to the same bytes as `value`, as with [`pun_ref`]. Since a rule is
-/// a [requirement], `D` need not have the rules of `S`: a write through the result may break them,
-/// as a write to a field of `S` may. Nothing is checked at run time.
+/// The returned reference points to the same bytes as `value`, as with [`pun_ref`]. A write through
+/// it may break a rule of `S`, but not a `valid(..)` range ([Writing through `&mut`]). Nothing is
+/// checked at run time. [`try_pun_mut`] checks at run time what this function would refuse.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
-///
-/// - Whatever the length of its slice, every value of `S` has a size that `D` can have. For sized
-///   types, this means `size_of::<S>() == size_of::<D>()`.
-/// - `D` needs no greater alignment than `S`. [`try_pun_mut`] checks the address at run time
-///   instead.
-/// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
-/// - Every value of `S` is a [valid] `D`.
-/// - Every value of `D` is a valid `S`, apart from the [rules] of `S`, since any `D` may be written
-///   through the result. In particular, every byte that `S` requires to be initialized is
-///   initialized in every value of `D`.
-/// - Neither `D` nor the bytes of `S` that it covers hold an [opaque scalar], except in a variant
-///   of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles does not depend on an [unspecified
-///   layout].
+/// A call [compiles] only under the conditions [same size], [alignment], [initialized bytes],
+/// [proven target], [writes leave a valid source], [no opaque scalar] and [layout independence].
 ///
 /// # Examples
 ///
 /// ```
 /// let mut value = 0x0102u16;
 /// puns::pun_mut::<_, [u8; 2]>(&mut value)[0] = 0xff;
-/// // The first byte is the low one on a little-endian target, and the high one otherwise.
-/// assert!(value == 0x01ff || value == 0xff02);
+/// // The first byte in memory, whichever half of the number it is on this machine.
+/// let mut expected = 0x0102u16.to_ne_bytes();
+/// expected[0] = 0xff;
+/// assert_eq!(value.to_ne_bytes(), expected);
 /// ```
 ///
 /// ```compile_fail,E0080
@@ -2308,12 +2275,15 @@ pub const fn pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 /// let _: &mut u8 = puns::pun_mut(&mut true);
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [rules]: crate::guide::concepts#layouts-and-rules
-/// [requirement]: crate::guide::concepts#requirements
 /// [compiles]: crate::guide::errors
+/// [same size]: crate::guide::functions#sizes
+/// [alignment]: crate::guide::functions#alignment
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [proven target]: crate::guide::functions#proven-target
+/// [writes leave a valid source]: crate::guide::functions#writes-leave-a-valid-source
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [layout independence]: crate::guide::layouts#layout-independence
+/// [writing through `&mut`]: crate::guide::functions#writing-through-mut
 #[inline(always)]
 pub const fn pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D {
   const { Plan::<S, D>::BY_MUT };
@@ -2336,17 +2306,8 @@ pub const fn pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D 
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
-///
-/// - Every value of `S` is at least as large as the smallest `D`. For sized types, this means
-///   `size_of::<S>() >= size_of::<D>()`.
-/// - `D` needs no greater alignment than `S`.
-/// - Every byte that `D` requires to be initialized is initialized in the bytes that it covers in
-///   every value of `S`.
-/// - These bytes are a [valid] `D` in every value of `S`.
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles does not depend on an [unspecified
-///   layout].
+/// A call [compiles] only under the conditions [room for the target], [alignment], [initialized
+/// bytes], [proven target], [no opaque scalar] and [layout independence].
 ///
 /// # Examples
 ///
@@ -2362,11 +2323,14 @@ pub const fn pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D 
 /// let _: &u8 = puns::head_ref::<[u8], u8>(&[1, 2]);
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [extent]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
+/// [room for the target]: crate::guide::functions#sizes
+/// [alignment]: crate::guide::functions#alignment
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [proven target]: crate::guide::functions#proven-target
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline(always)]
 pub const fn head_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
   const { Plan::<S, D>::HEAD_REF };
@@ -2387,24 +2351,17 @@ pub const fn head_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 /// Reinterprets a reference to the last bytes of an `S` as a reference to a `D`.
 ///
 /// The returned reference points `size_of::<S>() - size_of::<D>()` bytes after the start of
-/// `value`, and covers its last `size_of::<D>()` bytes. Nothing is checked at run time.
+/// `value`, and covers its last `size_of::<D>()` bytes. Since `D` is no more aligned than `S`, this
+/// offset is a multiple of the alignment of `D`. Nothing is checked at run time.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
+/// A call [compiles] only under the conditions [room for the target], [alignment], [initialized
+/// bytes], [proven target], [no opaque scalar] and [layout independence], and if:
 ///
 /// - `S` is sized, because where the last bytes of an unsized value start is known only at run
 ///   time. [`from_tail`] takes a value from the end of bytes.
-/// - `D` is sized.
-/// - `size_of::<S>() >= size_of::<D>()`.
-/// - `align_of::<D>() <= align_of::<S>()`. The offset of the result is then a multiple of the
-///   alignment of `D`.
-/// - Every byte that `D` requires to be initialized is initialized in the last `size_of::<D>()`
-///   bytes of every value of `S`.
-/// - These bytes are a [valid] `D` in every value of `S`.
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles does not depend on an [unspecified
-///   layout].
+/// - `D` is sized, since an unsized target has no size to count from the end of `S`.
 ///
 /// # Examples
 ///
@@ -2425,10 +2382,13 @@ pub const fn head_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 /// let _: &u16 = puns::tail_ref(&[0u8; 4]);
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [compiles]: crate::guide::errors
+/// [room for the target]: crate::guide::functions#sizes
+/// [alignment]: crate::guide::functions#alignment
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [proven target]: crate::guide::functions#proven-target
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline(always)]
 pub const fn tail_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
   const { Plan::<S, D>::TAIL_REF };
@@ -2453,25 +2413,9 @@ pub const fn tail_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
-///
-/// - Every value of `S` is at least as large as the smallest `D`. For sized types, this means
-///   `size_of::<S>() >= size_of::<D>()`.
-/// - `D` needs no greater alignment than `S`.
-/// - Every byte that `D` requires to be initialized is initialized in the bytes that it covers in
-///   every value of `S`.
-/// - These bytes are a [valid] `D` in every value of `S`.
-/// - Every value of `D`, written over the bytes that it covers, leaves a valid `S`, whatever the
-///   other bytes of `S` hold, since any `D` may be written through the result.
-/// - No struct of `S` that has a [rule] overlaps the covered bytes, unless it is in no enum, lies
-///   within them, and is in `D` at the same place with the same rules.
-/// - Each enum of `S` lies wholly within the covered bytes or wholly outside them, whatever the
-///   length of the slice of `S`.
-/// - No `str` of `S` overlaps the covered bytes, unless both `S` and `D` end with a slice.
-/// - Neither `D` nor the bytes of `S` that it covers hold an [opaque scalar], except in a variant
-///   of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles does not depend on an [unspecified
-///   layout].
+/// A call [compiles] only under the conditions [room for the target], [alignment], [initialized
+/// bytes], [proven target], [writes leave a valid source], [no opaque scalar] and [layout
+/// independence].
 ///
 /// # Examples
 ///
@@ -2501,11 +2445,14 @@ pub const fn tail_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 /// let _: &mut u8 = puns::head_mut(&mut Shape::Rect(1, true));
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [rule]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
+/// [room for the target]: crate::guide::functions#sizes
+/// [alignment]: crate::guide::functions#alignment
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [proven target]: crate::guide::functions#proven-target
+/// [writes leave a valid source]: crate::guide::functions#writes-leave-a-valid-source
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline(always)]
 pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D {
   const { Plan::<S, D>::HEAD_MUT };
@@ -2528,25 +2475,13 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
+/// A call [compiles] only under the conditions [room for the target], [alignment], [initialized
+/// bytes], [proven target], [writes leave a valid source], [no opaque scalar] and [layout
+/// independence], and if:
 ///
 /// - `S` is sized, because where the last bytes of an unsized value start is known only at run
 ///   time. [`from_tail_mut`] takes a value from the end of bytes.
-/// - `D` is sized.
-/// - `size_of::<S>() >= size_of::<D>()`.
-/// - `align_of::<D>() <= align_of::<S>()`.
-/// - Every byte that `D` requires to be initialized is initialized in the last `size_of::<D>()`
-///   bytes of every value of `S`.
-/// - These bytes are a [valid] `D` in every value of `S`.
-/// - Every value of `D`, written over the bytes that it covers, leaves a valid `S`, whatever the
-///   other bytes of `S` hold, since any `D` may be written through the result.
-/// - No struct of `S` that has a [rule] overlaps the covered bytes, unless it is in no enum, lies
-///   within them, and is in `D` at the same place with the same rules.
-/// - Each enum of `S` lies wholly within the covered bytes or wholly outside them.
-/// - Neither `D` nor the bytes of `S` that it covers hold an [opaque scalar], except in a variant
-///   of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles does not depend on an [unspecified
-///   layout].
+/// - `D` is sized, since an unsized target has no size to count from the end of `S`.
 ///
 /// # Examples
 ///
@@ -2569,11 +2504,14 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 /// let _: &mut u8 = puns::tail_mut(&mut Ordered { a: 1, b: 2 });
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [rule]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
+/// [room for the target]: crate::guide::functions#sizes
+/// [alignment]: crate::guide::functions#alignment
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [proven target]: crate::guide::functions#proven-target
+/// [writes leave a valid source]: crate::guide::functions#writes-leave-a-valid-source
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline(always)]
 pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D {
   const { Plan::<S, D>::TAIL_MUT };
@@ -2592,34 +2530,26 @@ pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 ///
 /// The returned reference points to the same bytes as `value`. At run time, it checks the size, if
 /// it depends on the length of a slice; the address, if `D` is more aligned than `S`; and the
-/// values of `D` that the bytes of `S` do not guarantee.
+/// values of `D` that the bytes of `S` do not prove.
 ///
 /// # Errors
 ///
-/// Returns [`Error::Alignment`] if `value` is not aligned for `D`, then [`Error::Size`] if no `D`
-/// has the [extent] of `value` or if that `D` is larger than `value`, then [`Error::Validity`] if
-/// the bytes are not a [valid] `D`. The first check that fails gives the error.
+/// Returns, in the order of the checks, [`Error::Alignment`] if `value` is not aligned for `D`,
+/// [`Error::Size`] if no `D` has the [extent] of `value` or if that `D` is larger than `value`, and
+/// [`Error::Validity`] if the bytes are not a [valid] `D` or do not meet its [requirements]. The
+/// first check that fails gives the error.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
-///
-/// - Some length of `value` gives it a size that `D` can have. For sized types, this means
-///   `size_of::<S>() == size_of::<D>()`.
-/// - In a constant, `D` is no more aligned than `S`, since an address [cannot be checked there].
-/// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
-/// - Each [part] of `D` accepts what some value of `S` holds at its place: each scalar outside an
-///   enum or a union, some variant of each enum, and some field of each union. So `D` is
-///   [inhabited] if `S` is.
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles, what it checks and which values
-///   pass do not depend on an [unspecified layout].
+/// A call [compiles] only under the conditions [a size in common], [no address check in a
+/// constant], [initialized bytes], [accepted by a check], [no opaque scalar] and [layout
+/// independence].
 ///
 /// # Examples
 ///
 /// ```
 /// assert_eq!(puns::try_pun_ref::<[u8], str>(b"caf\xc3\xa9"), Ok("café"));
-/// assert!(puns::try_pun_ref::<[u8], str>(b"caf\xc3").is_err());
+/// assert_eq!(puns::try_pun_ref::<[u8], str>(b"caf\xc3"), Err(puns::Error::Validity));
 /// ```
 ///
 /// ```compile_fail,E0080
@@ -2628,14 +2558,16 @@ pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 /// ```
 ///
 /// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [requirements]: crate::guide::concepts#requirements
 /// [the analysis]: crate::guide::concepts#layouts-and-rules
-/// [part]: crate::guide::concepts#layouts-and-rules
 /// [extent]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
-/// [cannot be checked there]: crate::guide::functions#in-a-constant
+/// [a size in common]: crate::guide::functions#sizes
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [accepted by a check]: crate::guide::functions#accepted-by-a-check
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [no address check in a constant]: crate::guide::functions#in-a-constant
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline]
 pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<&D, Error> {
   const { Plan::<S, D>::TRY_REF };
@@ -2667,32 +2599,18 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
 /// [the analysis] could not prove.
 ///
 /// The returned reference points to the same bytes as `value`, and is checked at run time as
-/// [`try_pun_ref`] checks it. As with [`pun_mut`], `D` need not have the [rules] of `S`.
+/// [`try_pun_ref`] checks it. As with [`pun_mut`], a write through it may break a rule of `S`, but
+/// not a `valid(..)` range.
 ///
 /// # Errors
 ///
-/// Returns [`Error::Alignment`] if `value` is not aligned for `D`, then [`Error::Size`] if no `D`
-/// has the [extent] of `value` or if that `D` is larger than `value`, then [`Error::Validity`] if
-/// the bytes are not a [valid] `D`. The first check that fails gives the error.
+/// Returns the errors of [`try_pun_ref`], in the same order.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
-///
-/// - Some length of `value` gives it a size that `D` can have. For sized types, this means
-///   `size_of::<S>() == size_of::<D>()`.
-/// - In a constant, `D` is no more aligned than `S`, since an address [cannot be checked there].
-/// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
-/// - Each [part] of `D` accepts what some value of `S` holds at its place: each scalar outside an
-///   enum or a union, some variant of each enum, and some field of each union. So `D` is
-///   [inhabited] if `S` is.
-/// - Every value of `D` is a valid `S`, apart from the [rules] of `S`, since any `D` may be written
-///   through the result. In particular, every byte that `S` requires to be initialized is
-///   initialized in every value of `D`.
-/// - Neither `D` nor the bytes of `S` that it covers hold an [opaque scalar], except in a variant
-///   of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles, what it checks and which values
-///   pass do not depend on an [unspecified layout].
+/// A call [compiles] only under the conditions [a size in common], [no address check in a
+/// constant], [initialized bytes], [accepted by a check], [writes leave a valid source], [no opaque
+/// scalar] and [layout independence].
 ///
 /// # Examples
 ///
@@ -2711,16 +2629,15 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
 /// let _ = puns::try_pun_mut::<bool, u8>(&mut true);
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [the analysis]: crate::guide::concepts#layouts-and-rules
-/// [part]: crate::guide::concepts#layouts-and-rules
-/// [rules]: crate::guide::concepts#layouts-and-rules
-/// [extent]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
-/// [cannot be checked there]: crate::guide::functions#in-a-constant
+/// [a size in common]: crate::guide::functions#sizes
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [accepted by a check]: crate::guide::functions#accepted-by-a-check
+/// [writes leave a valid source]: crate::guide::functions#writes-leave-a-valid-source
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [no address check in a constant]: crate::guide::functions#in-a-constant
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline]
 pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Result<&mut D, Error> {
   const { Plan::<S, D>::TRY_MUT };
@@ -2741,18 +2658,17 @@ pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Res
 
 /// Returns a value of type `T` whose fields and elements are all zero bytes.
 ///
-/// As with [`core::mem::zeroed`], the padding of the result is not guaranteed to be zero. The
-/// [rules] of `T` are not checked, so the result may break them.
+/// Unlike [`core::mem::zeroed`], it is safe: a `T` that zero bytes do not make does not compile. As
+/// with `core::mem::zeroed`, the padding of the result is not guaranteed to be zero. The [rules] of
+/// `T` are not checked, so the result may break them.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
+/// A call [compiles] only under the conditions [layout independence], and if:
 ///
 /// - A `T` whose bytes are all zero is a [valid] `T`, apart from its rules.
 /// - `T` holds no [opaque scalar] where the zero bytes would make one, since `puns` never makes
 ///   one.
-/// - Without the `unstable` feature, whether the call compiles does not depend on an [unspecified
-///   layout].
 ///
 /// # Examples
 ///
@@ -2766,9 +2682,9 @@ pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Res
 ///
 /// [valid]: crate::guide::concepts#what-is-a-valid-value
 /// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [rules]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline(always)]
 #[must_use]
 pub const fn zeroed<T: Pun + Copy>() -> T {
@@ -2820,16 +2736,13 @@ pub const fn int<T: Pun>(value: &T) -> u128 {
 /// Returns the bytes of a value.
 ///
 /// `as_bytes(value)` is [`pun_ref::<S, [u8]>(value)`](pun_ref), with identical behavior: the result
-/// covers `value` up to the end of its slice, without any padding after the slice. Since the target
-/// is named, only `S` is inferred. Nothing is checked at run time.
+/// covers `value` up to the end of its slice, without any padding after the slice. Only `S` is a
+/// type parameter, since the target is `[u8]`. Nothing is checked at run time.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
-///
-/// - Every byte that the result covers is initialized in every value of `S`.
-/// - Without the `unstable` feature, whether the call compiles does not depend on an [unspecified
-///   layout].
+/// A call [compiles] only under the conditions [initialized bytes] and [layout independence]. Here,
+/// every byte that the result covers is initialized in every value of `S`.
 ///
 /// # Examples
 ///
@@ -2842,8 +2755,9 @@ pub const fn int<T: Pun>(value: &T) -> u128 {
 /// let _ = puns::as_bytes(&(0u8, 0u16));
 /// ```
 ///
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [compiles]: crate::guide::errors
+/// [initialized bytes]: crate::guide::functions#initialized-bytes
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline(always)]
 pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
   // The body of `pun_ref`, not a call to it: a call would evaluate the constant inside `puns`
@@ -2861,19 +2775,17 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 ///
 /// # Errors
 ///
-/// Returns [`Error::Alignment`] if `bytes` is not aligned for `D`, then [`Error::Size`] if the
-/// length of `bytes` is not a size that `D` can have, then [`Error::Validity`] if the bytes are not
-/// a [valid] `D`.
+/// Returns, in the order of the checks, [`Error::Alignment`] if `D` needs an alignment greater than
+/// 1 and `bytes` is not aligned for it, [`Error::Size`] if the length of `bytes` is not a size that
+/// `D` can have, and [`Error::Validity`] if the bytes are not a [valid] `D` or do not meet its
+/// [requirements].
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
+/// A call [compiles] only under the conditions [no address check in a constant], [no opaque scalar]
+/// and [layout independence], and if:
 ///
-/// - In a constant, `D` has an alignment of 1, since an address [cannot be checked there].
 /// - `D` is [inhabited].
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles, what it checks and which values
-///   pass do not depend on an [unspecified layout].
 ///
 /// # Examples
 ///
@@ -2906,11 +2818,12 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 /// ```
 ///
 /// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [requirements]: crate::guide::concepts#requirements
 /// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [compiles]: crate::guide::errors
-/// [cannot be checked there]: crate::guide::functions#in-a-constant
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [no address check in a constant]: crate::guide::functions#in-a-constant
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline]
 pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
   // The body of `try_pun_ref`, not a call to it, for the reason given in `as_bytes`.
@@ -2923,29 +2836,27 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
   }
 }
 
-/// Checks that `bytes` are a valid `D`, except that its [opaque scalars] are only required to be
-/// initialized, as bytes are.
+/// Checks that `bytes` are a valid `D` that meets its requirements, except that its [opaque
+/// scalars] need only be initialized bytes.
 ///
-/// It returns `Ok(())` if they are. This is the check of [`from_bytes`] for a `D` that holds opaque
-/// scalars, which `from_bytes` refuses, since it would make one. It is the only function that
-/// accepts such a `D`, whose opaque scalars it does not read, and it makes no `D`: the crate that
-/// declares the scalars proves them, then makes the reference. The bytes need not be aligned for
-/// `D`, since no reference to them is made. The crate that makes the reference checks the address.
+/// A crate that declares an opaque scalar, such as the offset of a self-relative pointer, checks
+/// the rest of its type with this function. It then proves the scalar itself, checks the address,
+/// and makes the reference. The name says that `puns` never makes such a scalar: [`from_bytes`]
+/// refuses a `D` that holds one, and this is the only function that accepts it, without reading the
+/// scalar or making a `D`. The bytes need not be aligned for `D`, since no reference to them is
+/// made.
 ///
 /// # Errors
 ///
 /// Returns [`Error::Size`] if the length of `bytes` is not a size that `D` can have, then
-/// [`Error::Validity`] if a part of `D` other than its opaque scalars is not [valid], or a [rule]
-/// of `D` does not hold.
+/// [`Error::Validity`] if a part of `D` other than its opaque scalars is not [valid], or a
+/// requirement of `D` (a `valid(..)` range or a rule) does not hold.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
-///
-/// - Without the `unstable` feature, no [part] of `D` with an [unspecified layout] (a struct, a
-///   tuple or an enum of the `Rust` representation) has something to check.
-///
-/// An [uninhabited] `D` compiles, and no bytes are valid for it.
+/// A call [compiles] only if, without the `unstable` feature, no [part] of `D` with an [unspecified
+/// layout] (a struct, a tuple or an enum of the `Rust` representation) has something to check. An
+/// [uninhabited] `D` compiles, and no bytes are valid for it.
 ///
 /// # Examples
 ///
@@ -2976,7 +2887,7 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
 ///   next: Next,
 /// }
 ///
-/// // The bytes of a node, in the byte order of the target, as `Node` reads them.
+/// // The bytes of a node, in the byte order of the machine, as `Node` reads them.
 /// let node = |len: u32| {
 ///   let mut bytes = [0; 8];
 ///   bytes[..4].copy_from_slice(&len.to_ne_bytes());
@@ -2992,15 +2903,19 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
 /// [`from_bytes`] does not compile for such a type, since it would make a `Next`:
 ///
 /// ```compile_fail,E0080
-/// # use core::num::NonZero;
-/// # use puns::{Pun, Scalar, layout::Spec};
-/// # #[derive(Clone, Copy)]
-/// # #[repr(transparent)]
-/// # struct Next(NonZero<u32>);
-/// # // SAFETY: As above.
-/// # unsafe impl Scalar for Next {
-/// #   const SPEC: Spec = Spec::never::<Next>();
-/// # }
+/// use core::num::NonZero;
+///
+/// use puns::{Scalar, layout::Spec};
+///
+/// #[derive(Clone, Copy)]
+/// #[repr(transparent)]
+/// struct Next(NonZero<u32>);
+///
+/// // SAFETY: As above.
+/// unsafe impl Scalar for Next {
+///   const SPEC: Spec = Spec::never::<Next>();
+/// }
+///
 /// let _ = puns::from_bytes::<Next>(&[8, 0, 0, 0]);
 /// ```
 ///
@@ -3009,7 +2924,6 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
 /// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [uninhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [part]: crate::guide::concepts#layouts-and-rules
-/// [rule]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
 pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Error> {
   const {
@@ -3029,25 +2943,18 @@ pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Err
 /// Reinterprets mutable bytes as a mutable reference to a `D`, after checking them.
 ///
 /// `from_bytes_mut(bytes)` is [`try_pun_mut::<[u8], D>(bytes)`](try_pun_mut), with identical
-/// behavior, and exists for the same reasons as [`from_bytes`], whose checks it makes.
+/// behavior, and exists for the same reasons as [`from_bytes`].
 ///
 /// # Errors
 ///
-/// Returns [`Error::Alignment`] if `bytes` is not aligned for `D`, then [`Error::Size`] if the
-/// length of `bytes` is not a size that `D` can have, then [`Error::Validity`] if the bytes are not
-/// a [valid] `D`.
+/// Returns the errors of [`from_bytes`], in the same order.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
+/// A call [compiles] only under the conditions [no address check in a constant], [writes leave a
+/// valid source], [no opaque scalar] and [layout independence], and if:
 ///
-/// - In a constant, `D` has an alignment of 1, since an address [cannot be checked there].
 /// - `D` is [inhabited].
-/// - Every byte of every value of `D` is initialized, as bytes are, since any `D` may be written
-///   through the result.
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles, what it checks and which values
-///   pass do not depend on an [unspecified layout].
 ///
 /// # Examples
 ///
@@ -3055,7 +2962,7 @@ pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Err
 /// let mut bytes = [0u8, 0, 0, 1];
 /// *puns::from_bytes_mut::<[bool; 2]>(&mut bytes[2..]).unwrap() = [true, false];
 /// assert_eq!(bytes, [0, 0, 1, 0]);
-/// assert!(puns::from_bytes_mut::<[bool; 2]>(&mut [2, 0]).is_err());
+/// assert_eq!(puns::from_bytes_mut::<[bool; 2]>(&mut [2, 0]), Err(puns::Error::Validity));
 /// ```
 ///
 /// ```compile_fail,E0080
@@ -3063,12 +2970,12 @@ pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Err
 /// let _ = puns::from_bytes_mut::<(u8, u16)>(&mut [0; 4]);
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [compiles]: crate::guide::errors
-/// [cannot be checked there]: crate::guide::functions#in-a-constant
+/// [writes leave a valid source]: crate::guide::functions#writes-leave-a-valid-source
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [no address check in a constant]: crate::guide::functions#in-a-constant
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline]
 pub const fn from_bytes_mut<D: ?Sized + Pun>(bytes: &mut [u8]) -> Result<&mut D, Error> {
   // The body of `try_pun_mut`, not a call to it, for the reason given in `as_bytes`.
@@ -3223,27 +3130,29 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
 /// Reinterprets the start of `bytes` as a `D`, and returns it with the bytes that follow it.
 ///
 /// A sized `D` takes `size_of::<D>()` bytes. A `D` that ends with a slice takes the size that its
-/// `size` or `len` [rule] gives (see [`macro@Pun`]), or else as many elements as fit, trailing
+/// `size` or `len` rule gives (see [`macro@Pun`]), or else as many elements as fit, trailing
 /// padding included.
 ///
 /// # Errors
 ///
-/// Returns [`Error::Size`] if `bytes` is shorter than the part of `D` before its slice (all of a
-/// sized `D`), then [`Error::Alignment`] if `bytes` is not aligned for `D`. Then it returns
-/// [`Error::Validity`] if the `size` or `len` rule of `D` cannot be computed or gives a size that
-/// `D` cannot have, [`Error::Size`] if `bytes` is shorter than what the `D` takes, and
-/// [`Error::Validity`] if the bytes taken are not a [valid] `D`.
+/// Returns, in the order of the checks:
+///
+/// 1. [`Error::Size`] if `bytes` is shorter than the fields of `D` before its slice, or than a
+///    sized `D`;
+/// 2. [`Error::Alignment`] if `D` needs an alignment greater than 1 and `bytes` is not aligned for
+///    it;
+/// 3. [`Error::Validity`] if the `size` or `len` rule of `D` cannot be computed, or gives a size
+///    that `D` cannot have;
+/// 4. [`Error::Size`] if `bytes` is shorter than what the `D` takes;
+/// 5. [`Error::Validity`] if the bytes taken are not a [valid] `D` or do not meet its
+///    [requirements].
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
+/// A call [compiles] only under the conditions [no address check in a constant], [no opaque scalar]
+/// and [layout independence], and if:
 ///
-/// - In a constant, `D` has an alignment of 1, or `bytes` is shorter than the part of `D` before
-///   its slice, which is checked first, since an address [cannot be checked there].
 /// - `D` is [inhabited].
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles, what it checks and which values
-///   pass do not depend on an [unspecified layout].
 ///
 /// # Examples
 ///
@@ -3265,12 +3174,12 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
 /// ```
 ///
 /// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [requirements]: crate::guide::concepts#requirements
 /// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [rule]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
-/// [cannot be checked there]: crate::guide::functions#in-a-constant
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [no address check in a constant]: crate::guide::functions#in-a-constant
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline]
 pub const fn from_head<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&D, &[u8]), Error> {
   const { Plan::<[u8], D>::TRY_REF };
@@ -3322,22 +3231,19 @@ pub const fn rejects<D: ?Sized + Pun>(bytes: &[u8]) -> bool {
 ///
 /// # Errors
 ///
-/// Returns [`Error::Size`] if `bytes` is shorter than `size_of::<D>()`, then [`Error::Alignment`]
-/// if the last `size_of::<D>()` bytes are not aligned for `D`, then [`Error::Validity`] if they are
-/// not a [valid] `D`.
+/// Returns, in the order of the checks, [`Error::Size`] if `bytes` is shorter than
+/// `size_of::<D>()`, [`Error::Alignment`] if `D` needs an alignment greater than 1 and the last
+/// `size_of::<D>()` bytes are not aligned for it, and [`Error::Validity`] if the bytes are not a
+/// [valid] `D` or do not meet its [requirements].
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
+/// A call [compiles] only under the conditions [no address check in a constant], [no opaque scalar]
+/// and [layout independence], and if:
 ///
+/// - `D` is [inhabited].
 /// - `D` is sized, because where an unsized `D` starts cannot be found from the end of the bytes.
 ///   [`from_head`] and [`from_bytes`] take an unsized `D`.
-/// - In a constant, `D` has an alignment of 1, or `bytes` is shorter than a `D`, which is checked
-///   first, since an address [cannot be checked there].
-/// - `D` is [inhabited].
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles, what it checks and which values
-///   pass do not depend on an [unspecified layout].
 ///
 /// # Examples
 ///
@@ -3364,11 +3270,12 @@ pub const fn rejects<D: ?Sized + Pun>(bytes: &[u8]) -> bool {
 /// ```
 ///
 /// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [requirements]: crate::guide::concepts#requirements
 /// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [compiles]: crate::guide::errors
-/// [cannot be checked there]: crate::guide::functions#in-a-constant
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [no address check in a constant]: crate::guide::functions#in-a-constant
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline]
 pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&[u8], &D), Error> {
   const { Plan::<[u8], D>::FROM_TAIL };
@@ -3392,24 +3299,14 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&[u8], &D), Err
 ///
 /// # Errors
 ///
-/// Returns [`Error::Size`] if `bytes` is shorter than the part of `D` before its slice (all of a
-/// sized `D`), then [`Error::Alignment`] if `bytes` is not aligned for `D`. Then it returns
-/// [`Error::Validity`] if the `size` or `len` rule of `D` cannot be computed or gives a size that
-/// `D` cannot have, [`Error::Size`] if `bytes` is shorter than what the `D` takes, and
-/// [`Error::Validity`] if the bytes taken are not a [valid] `D`.
+/// Returns the errors of [`from_head`], in the same order.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
+/// A call [compiles] only under the conditions [no address check in a constant], [writes leave a
+/// valid source], [no opaque scalar] and [layout independence], and if:
 ///
-/// - In a constant, `D` has an alignment of 1, or `bytes` is shorter than the part of `D` before
-///   its slice, which is checked first, since an address [cannot be checked there].
 /// - `D` is [inhabited].
-/// - Every byte of every value of `D` is initialized, as bytes are, since any `D` may be written
-///   through the result.
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles, what it checks and which values
-///   pass do not depend on an [unspecified layout].
 ///
 /// # Examples
 ///
@@ -3419,7 +3316,7 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&[u8], &D), Err
 /// flags[1] = true;
 /// rest[0] = 9;
 /// assert_eq!(bytes, [1, 1, 9, 7]);
-/// assert!(puns::from_head_mut::<[bool; 2]>(&mut [1, 2, 0]).is_err());
+/// assert_eq!(puns::from_head_mut::<[bool; 2]>(&mut [1, 2, 0]).err(), Some(puns::Error::Validity));
 /// ```
 ///
 /// ```compile_fail,E0080
@@ -3427,12 +3324,12 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&[u8], &D), Err
 /// let _ = puns::from_head_mut::<(u8, u16)>(&mut [0; 4]);
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [compiles]: crate::guide::errors
-/// [cannot be checked there]: crate::guide::functions#in-a-constant
+/// [writes leave a valid source]: crate::guide::functions#writes-leave-a-valid-source
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [no address check in a constant]: crate::guide::functions#in-a-constant
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline]
 pub const fn from_head_mut<D: ?Sized + Pun>(
   bytes: &mut [u8],
@@ -3464,23 +3361,15 @@ pub const fn from_head_mut<D: ?Sized + Pun>(
 ///
 /// # Errors
 ///
-/// Returns [`Error::Size`] if `bytes` is shorter than `size_of::<D>()`, then [`Error::Alignment`]
-/// if the last `size_of::<D>()` bytes are not aligned for `D`, then [`Error::Validity`] if they are
-/// not a [valid] `D`.
+/// Returns the errors of [`from_tail`], in the same order.
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only if:
+/// A call [compiles] only under the conditions [no address check in a constant], [writes leave a
+/// valid source], [no opaque scalar] and [layout independence], and if:
 ///
-/// - `D` is sized. [`from_head_mut`] and [`from_bytes_mut`] take an unsized `D`.
-/// - In a constant, `D` has an alignment of 1, or `bytes` is shorter than a `D`, which is checked
-///   first, since an address [cannot be checked there].
 /// - `D` is [inhabited].
-/// - Every byte of every value of `D` is initialized, as bytes are, since any `D` may be written
-///   through the result.
-/// - `D` holds no [opaque scalar], except in a variant of an enum, which `puns` then never makes.
-/// - Without the `unstable` feature, whether the call compiles, what it checks and which values
-///   pass do not depend on an [unspecified layout].
+/// - `D` is sized. [`from_head_mut`] and [`from_bytes_mut`] take an unsized `D`.
 ///
 /// # Examples
 ///
@@ -3490,7 +3379,7 @@ pub const fn from_head_mut<D: ?Sized + Pun>(
 /// flags[0] = true;
 /// rest[0] = 9;
 /// assert_eq!(bytes, [9, 7, 1, 1]);
-/// assert!(puns::from_tail_mut::<[bool; 2]>(&mut [1, 2]).is_err());
+/// assert_eq!(puns::from_tail_mut::<[bool; 2]>(&mut [1, 2]).err(), Some(puns::Error::Validity));
 /// ```
 ///
 /// ```compile_fail,E0080
@@ -3498,12 +3387,12 @@ pub const fn from_head_mut<D: ?Sized + Pun>(
 /// let _ = puns::from_tail_mut::<(u8, u16)>(&mut [0; 4]);
 /// ```
 ///
-/// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [compiles]: crate::guide::errors
-/// [cannot be checked there]: crate::guide::functions#in-a-constant
+/// [writes leave a valid source]: crate::guide::functions#writes-leave-a-valid-source
+/// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
+/// [no address check in a constant]: crate::guide::functions#in-a-constant
+/// [layout independence]: crate::guide::layouts#layout-independence
 #[inline]
 pub const fn from_tail_mut<D: ?Sized + Pun>(
   bytes: &mut [u8],

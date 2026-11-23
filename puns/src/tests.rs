@@ -173,7 +173,7 @@ fn unsized_types() {
   assert_eq!(verdict::<[u8; 8], [u16]>(), "infallible, mutable");
   assert_eq!(
     verdict::<[u8; 7], [u16]>(),
-    "infallible (truncated: the size of the source cannot be reached with elements of the tail slice of the target)"
+    "infallible (truncated: the size of the source cannot be reached with elements of the trailing slice of the target)"
   );
   assert_eq!(verdict::<[u8], u32>(), "infallible, mutable (some lengths)");
   assert_eq!(verdict::<Pair<u16, [u16]>, [u8]>(), "infallible, mutable");

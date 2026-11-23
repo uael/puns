@@ -1,120 +1,24 @@
-# The `unstable` feature
+# The `unstable` feature: what remains to move
 
-Rust leaves parts of the layout of some types to the compiler
-([`r-layout.guarantees`][layout guarantees],
-[`r-layout.repr.rust.unspecified`][rust unspecified]), which may choose differently in its next
-version, or at random under [`-Zrandomize-layout`]. These parts are:
+This file holds the statements of the former chapter "The `unstable` feature" whose homes are the
+chapters "What `puns` relies on" and "Testing", and two statements of the former chapter
+"Limitations" whose home is "What `puns` relies on". Those chapters take them, and this file is
+then deleted.
 
-- The order of the fields of a struct or tuple of the `Rust` representation, and therefore its
-  size, so `(u8, u16, u8)` is 4 or 6 bytes.
-- The position and the values of the tag, for an enum of the `Rust` representation.
-- The niches of `Option` and `Result`, except where `core` documents them.
+## How `rustc` lays out the tag of an enum
 
-`puns` reads what the compiler chose, so a pun is sound for the build that compiles it, whatever
-the choice was. The `unstable` feature decides whether a pun must also behave the same under any
-other choice. [`layout::UNSTABLE`] is `true` if the feature is enabled.
-
-## The rule
-
-Without the `unstable` feature, a pun compiles only if `-Zrandomize-layout` cannot change what
-it does (whether it compiles, what it checks, and which values a check accepts). The message of
-a refusal is not part of this, and may name what the compiler chose. For example, reinterpreting
-`(u8, u16, u8)` as `[u8; 4]` is refused because of its layout, or because of its size when it is
-6 bytes.
-
-With the feature, `puns` uses the layout that `rustc` chose. Within one build, a pun that
-compiles without the feature also compiles with it, and does the same thing.
-
-The rule applies to a pun, not to a type. Reinterpreting `(bool, u8)` as bytes is proven
-whichever byte holds the `bool`, but reinterpreting bytes as `(bool, u8)` would need a check of
-one byte or the other, so that pun is refused.
-
-## What a check may read
-
-A check never reads a byte of the source that holds a different field in another layout that
-Rust allows. Such a check would read a different part of the same value, and could give a
-different answer, so a check that reads a byte of a struct whose fields Rust may reorder is
-refused. Only the bytes that a check reads count, as follows:
-
-- The check of an enum reads its tag, then the fields of the variant that the tag selects. A
-  byte under a variant therefore counts only for the values of the source whose tag is that
-  variant's. This holds where the source has an enum whose tag is at the same place, with the
-  same size and byte order.
-- The elements of an array share their checks. Where the source has elements of the same size at
-  the same places, the check of every element reads the same bytes of its element as the check
-  of the first one. Otherwise, every byte under the array counts.
-- A checked rule may read any byte of its struct, so every byte of that struct counts.
-
-Which field a byte holds is not part of what a pun does. `pun::<[u8; 2], (u8, u8)>([1, 2])` is
-`(1, 2)` or `(2, 1)`. Either is a valid value, and a pun promises a valid value and nothing
-more, as `transmute` does. Which bytes a value of a struct of the `Rust` representation has is
-the compiler's choice, with or without `puns`. But `puns` decides the result of a check on given
-bytes, so that result is the same in every layout. For example, whether `try_pun::<(u8, u8),
-F>((0, 2))` is `Ok`, for `F` a `repr(C)` struct of a `bool` and a `u8`, must not depend on which
-byte holds the `0`.
-
-## Puns without the feature
-
-| Pun, without `unstable` | | Why |
-|---|---|---|
-| `[u8; 2]` as `(u8, u8)`, and back | proven | bytes of any value, in either order |
-| `[u8; 2]` as `(bool, bool)` | checked | both bytes are a `bool`, in either order |
-| `(bool, u8)` as `[u8; 2]`, `as_bytes` | proven | both bytes are initialized, in either order |
-| `[u8; 4]` as `(u8, u16)` | proven | it only requires initialized bytes, wherever its padding is |
-| a `repr(C)` struct that holds a `(bool, u8)` as itself, or its first bytes as the `(bool, u8)` | proven | the same type at the same place |
-| an enum of the `Rust` representation as itself | proven | a type has one layout in a program |
-| `[bool; 2]` as `(bool, u8)` | proven | the `bool` may be either byte, and both bytes are a `bool` |
-| `[u8; 2]` as `(bool, u8)` | refused | the byte that must be 0 or 1 is either byte |
-| `(u8, u8)` as `[bool; 2]` | refused | the check of each element reads a byte that, in another layout, holds the other field |
-| the first two bytes of `(u8, u16)` | refused | the second byte is padding in one layout and not in another |
-| bytes as a `struct P { a: u8, b: u8 }` with the rule `a < b` | refused | the rule reads `a`, which is either byte |
-| `(u8, u8)` as a `repr(C)` struct of a `bool` and a `u8` | refused | the check reads one field or the other, and `(0, 2)` passes in one order only |
-| `(u8, u8)` as `NonZero<u16>` | refused | the check reads both bytes, and each may hold either field |
-| a pun from `(u8, u16, u8)` or to it, other than to itself | refused | it is 4 or 6 bytes |
-| bytes as an enum of the `Rust` representation, or as `Option<bool>` | refused | nothing documents where its tag is, nor its values |
-| `validate_but_never::<(bool, u8)>` | refused | the byte that it checks is either byte |
-
-A struct or tuple of the `Rust` representation whose size is the same in every layout, and that
-has no rule and no scalar that a pun never makes, is proven field by field. Since a field may be
-anywhere, it must be proven at every place where it may be. So two `bool`s prove a `(bool, u8)`,
-four initialized bytes prove a `(u8, u16)`, and two `NonZero<u16>` prove a `(NonZero<u16>,
-u16)`. A struct with a rule, which names fields, is proven only by itself, as an enum is. A part
-that holds a scalar that a pun never makes is not proven at all. No check replaces a proof in a
-part whose layout Rust leaves to the compiler, because the check would read where the compiler
-may not have put the field, so whatever is not proven there does not compile. Such a part is
-still read by the check of a union that a later field proves, or of an enum whose variant holds
-a scalar that a pun never makes. The answer is then the same in every layout, and the pun
-compiles only if every byte under the part is initialized in the source.
-
-## The same type
-
-Without the feature, a part whose layout Rust leaves to the compiler, unless it is proven field
-by field as above, is proven only by the same type at the same place. A type has one layout in a
-program, but two types, however alike, may each be arranged differently ([`offset_of!`, "Layout
-is subject to change"][offset_of layout]). `-Zrandomize-layout`, for example, arranges
-`Wrapper<u8, u8>` and `Wrapper<u8, i8>` differently. Stable Rust cannot compare types in
-`const`, since `TypeId` cannot be compared there and `type_name` is not a `const fn`.
-
-So `puns` identifies a type by a name, together with the identities of the types it is made of.
-The primitive types, the types of [`num`], arrays, slices, tuples, `Option`, `Result` and
-`MaybeUninit` have identities, and `ManuallyDrop<T>` is `T`. A type that derives `Pun` is named
-by where it is declared (the module, file, line and column), by its name, and by the number of
-its derive in its crate. A generic type that derives `Pun`, a `PhantomData`, and a [`Scalar`]
-implemented by hand have no identity. A part whose layout Rust leaves to the compiler and that
-holds one of them therefore proves itself only with the feature, unless it is proven field by
-field. A type whose every part has the same layout in every build, such as a generic `repr(C)`
-struct of a `u8` and a `PhantomData<T>`, needs no identity. An identity can only refuse a pun,
-because the layouts are compared as well, so two types that happened to share a name would still
-be told apart by their layouts.
+The direct tag of an enum of the `Rust` representation, which is all the bytes before the first
+field of any variant, must be 1, 2, 4, 8 or 16 bytes, since `rustc` makes no other size, or the
+enum is refused. If `rustc` places the fields of a variant without values before the fields of the
+other variants, the build fails, because `puns` cannot observe where those fields are and does
+not guess.
 
 ## What this relies on
 
 `rustc` places the fields of a struct of the `Rust` representation one after another, each at
 the first offset its alignment allows, in an order of its choosing. The sizes it may give are
-therefore the sizes of the possible orders of the fields. `puns` tries them all for a struct of
-up to 6 fields that have a size or an alignment greater than 1. With more such fields, it
-assumes that the size depends on the order, unless the fields need no padding in any order.
-`-Zrandomize-layout` draws the order at random and does nothing else. No documentation states
+therefore the sizes of the possible orders of the fields, which `puns` tries up to a
+[bound](limits.md#bounds-of-the-analysis). `-Zrandomize-layout` draws the order at random and does nothing else. No documentation states
 that `rustc` places fields this way. Rust only bounds the offsets
 ([`r-layout.repr.rust.layout`][rust layout]), and a compiler could put padding where no
 alignment needs it. In that case the size that `puns` reads would differ from the size that
@@ -171,21 +75,17 @@ documented for and one with no sized field, is [ABI-compatible][abi compatibilit
 type. `puns` does not use it: it gives the size of the enum, but not which bytes its other
 variant is.
 
-Niches are not guaranteed beyond the rows for `Option` and `Result` above. `Option<bool>` is one
-byte with `None` at 2, but only because that is how `rustc` does it today, and the documentation
-of `MaybeUninit` and `UnsafeCell` says that such optimizations vary. So `Option<bool>` needs the
-`unstable` feature. Niches that Rust documents only as "ABI-compatible" are not used either, so
-an enum of the `Rust` representation with a variant that holds a `NonZero` and a variant without
-fields, such as `enum Ticket { Free, Paid(NonZero<u32>) }`, needs the feature, even though
-`rustc` lays it out like the corresponding `Option`.
+`Option<bool>` is one byte with `None` at 2, but only because that is how `rustc` does it today,
+and the documentation of `MaybeUninit` and `UnsafeCell` says that such optimizations vary. So
+`Option<bool>` needs the `unstable` feature.
 
 ## How it is tested
 
 The tests of `puns` run both without the feature and with it.
 
 - Without it, a test records the verdict of every function on every pair of 33 types. These are
-  the types of the table in [Puns without the feature](#puns-without-the-feature), along with
-  what holds them: an enum and a union of a specified representation, a struct with a rule,
+  the types of the table in [Puns without the feature](layouts.md#puns-without-the-feature),
+  along with what holds them: an enum and a union of a specified representation, a struct with a rule,
   arrays, and a scalar that a pun never makes. The record covers each pair whole, and in part
   (by `&mut` and from the end). It also records which byte patterns each type accepts from
   bytes, but not the message of a refusal, which may name what `rustc` chose. A rule and an enum
@@ -198,7 +98,6 @@ The tests of `puns` run both without the feature and with it.
 - With the feature, the tests that need it run as well: enums of the `Rust` representation,
   `Option` and `Result`, and the tests of the layout that `rustc` chose. CI also builds the
   example `codegen`, which needs it. The benchmark needs it too, and is run by hand.
-
 [reference root]: https://doc.rust-lang.org/reference/
 [`core`]: https://doc.rust-lang.org/core/
 [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
@@ -253,7 +152,3 @@ The tests of `puns` run both without the feature and with it.
 [maybe-uninit validity]: https://doc.rust-lang.org/core/mem/union.MaybeUninit.html#validity
 [phantom layout]: https://doc.rust-lang.org/core/marker/struct.PhantomData.html#layout-1
 [abi compatibility]: https://doc.rust-lang.org/core/primitive.fn.html#abi-compatibility
-
-[`layout::UNSTABLE`]: https://docs.rs/puns/0.2.3/puns/layout/constant.UNSTABLE.html
-[`num`]: https://docs.rs/puns/0.2.3/puns/num/index.html
-[`Scalar`]: https://docs.rs/puns/0.2.3/puns/trait.Scalar.html

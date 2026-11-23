@@ -769,8 +769,8 @@ pub(crate) enum Uniform {
 /// What a layout has in common with every layout that Rust allows for its type.
 ///
 /// Rust leaves part of some layouts to the compiler, which may choose differently in its next
-/// version, or at random under `-Zrandomize-layout`, as [The `unstable`
-/// feature](crate::guide::unstable) lists. A `Stable` says which facts about a layout hold
+/// version, or at random under `-Zrandomize-layout`, as [Unspecified
+/// layouts](crate::guide::layouts) lists. A `Stable` says which facts about a layout hold
 /// under every choice. It is computed from the layouts of its parts.
 ///
 /// Without the `unstable` feature, the analysis does not look into a layout that is not `fixed`
@@ -1774,8 +1774,8 @@ fn pin<T>(_: T) {}
 /// Whether the `unstable` feature is enabled.
 ///
 /// Rust leaves part of some layouts to the compiler, which may choose differently in its next
-/// version, or at random under `-Zrandomize-layout`, as [The `unstable`
-/// feature](crate::guide::unstable) lists.
+/// version, or at random under `-Zrandomize-layout`, as [Unspecified
+/// layouts](crate::guide::layouts) lists.
 ///
 /// Without the `unstable` feature, nothing that `puns` does depends on a layout that Rust leaves to
 /// the compiler, so whether a pun compiles, what it checks, and which values it accepts are the
@@ -1784,7 +1784,7 @@ fn pin<T>(_: T) {}
 /// With the `unstable` feature, `puns` uses the layout that `rustc` chose for the build, as it is,
 /// and a pun is still sound for the build that compiles it. Everything that compiles without the
 /// feature also compiles with it and does the same, and more compiles. See [The `unstable`
-/// feature](crate::guide::unstable).
+/// feature](crate::guide::layouts#the-unstable-feature).
 pub const UNSTABLE: bool = cfg!(feature = "unstable");
 
 impl Layout {
@@ -2782,7 +2782,7 @@ impl Layout {
   }
 
   // -----------------------------------------------------------------------------------------------
-  // What every layout that Rust allows has (see the chapter "The `unstable` feature" of the guide)
+  // What every layout that Rust allows has (see the chapter "Unspecified layouts" of the guide)
 
   /// Returns the same layout, of the type whose identity is `id`.
   #[doc(hidden)]

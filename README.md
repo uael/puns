@@ -26,9 +26,9 @@ of bytes.
   - [Choosing a function][functions]
   - [Describing a format][formats]
   - [Compile-time errors]
+  - [Unspecified layouts and the `unstable` feature][unstable]
   - [The language of rules][rules]
-  - [The `unstable` feature][unstable]
-  - [Limitations][limitations]
+  - [Limits, and what is not done yet][limits]
   - [Scalars that a pun never makes][never-made]
   - [Soundness]
   - [Minimum Rust version][msrv]
@@ -405,21 +405,21 @@ additional terms or conditions.
 [requirements]: docs/concepts.md#requirements
 [opaque]: docs/concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [layouts]: docs/concepts.md#layouts-and-rules
-[unsized]: docs/limitations.md#limits
+[unsized]: docs/limits.md#limits-of-rust
 [msrv]: docs/msrv.md
 [concepts]: docs/concepts.md
 [functions]: docs/functions.md
 [formats]: docs/formats.md
 [rules]: docs/rules.md
-[limitations]: docs/limitations.md
+[limits]: docs/limits.md
 [never-made]: docs/never_made.md
 [portability]: docs/portability.md
 [guide]: docs/README.md
-[not-yet]: docs/limitations.md#not-done-yet
+[not-yet]: docs/limits.md#not-yet
 [Compile-time errors]: docs/errors.md
 [Soundness]: docs/soundness.md
 [deriving]: docs/soundness.md#what-deriving-pun-means
-[unstable]: docs/unstable.md
+[unstable]: docs/layouts.md
 [num]: https://docs.rs/puns/0.2.3/puns/num/index.html
 [layout]: https://docs.rs/puns/0.2.3/puns/layout/index.html
 [derive]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html

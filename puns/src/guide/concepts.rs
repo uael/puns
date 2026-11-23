@@ -16,7 +16,7 @@
 //! [rules#extent]: super::rules#extent
 //! [rules#regions]: super::rules#regions
 //! [soundness#what-deriving-pun-means]: super::soundness#what-deriving-pun-means
-//! [unstable]: super::unstable
+//! [layouts]: super::layouts
 #![doc = include_str!("../../docs/concepts.md")]
 
 // The items of the crate, which the links of this chapter name. Only rustdoc reads them.

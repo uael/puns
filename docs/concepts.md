@@ -173,7 +173,7 @@ assert_eq!(text, "hi");
 
 ## Unspecified layouts, opaque scalars and uninhabited types
 
-An *[unspecified layout][unstable]* is a part of a layout that Rust leaves to the
+An *[unspecified layout][layouts]* is a part of a layout that Rust leaves to the
 compiler, which may choose differently in its next version, or at random under
 `-Zrandomize-layout`. Only what the Reference lists is guaranteed ([`r-layout.guarantees`]).
 
@@ -205,4 +205,4 @@ without variants are uninhabited.
 [rules#extent]: rules.md#extent
 [rules#regions]: rules.md#regions
 [soundness#what-deriving-pun-means]: soundness.md#what-deriving-pun-means
-[unstable]: unstable.md
+[layouts]: layouts.md

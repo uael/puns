@@ -4,16 +4,16 @@
 //! [`num`]: num
 //! [`Pun`]: Pun
 //! [`zeroed`]: zeroed
-//! [limitations]: super::limitations
+//! [limits#not-yet]: super::limits#not-yet
 //! [macro@Pun#what-the-derive-trusts]: macro@Pun#what-the-derive-trusts
 //! [never_made]: super::never_made
 //! [num::u16bec]: num::u16bec
 //! [num::u8in]: num::u8in
 //! [portability]: super::portability
 //! [properly aligned]: core::ptr#alignment
-//! [unstable]: super::unstable
-//! [unstable#what-rust-documents]: super::unstable#what-rust-documents
-//! [unstable#what-this-relies-on]: super::unstable#what-this-relies-on
+//! [unstable]: super::layouts
+//! [unstable-rest#what-rust-documents]: https://github.com/uael/puns/blob/main/docs/unstable-rest.md#what-rust-documents
+//! [unstable-rest#what-this-relies-on]: https://github.com/uael/puns/blob/main/docs/unstable-rest.md#what-this-relies-on
 #![doc = include_str!("../../docs/soundness.md")]
 
 // The items of the crate, which the links of this chapter name. Only rustdoc reads them.

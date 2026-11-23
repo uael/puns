@@ -27,7 +27,7 @@ implements `Pun` itself.
 `puns` relies on the layouts that the [Reference] specifies: `repr(C)`, `repr(transparent)`, the
 primitive representations of enums, `packed` and `align`. It also relies on the layouts of
 `Option` and `Result` that `core` documents. [What Rust
-documents][unstable#what-rust-documents] lists each of these guarantees with its source.
+documents][unstable-rest#what-rust-documents] lists each of these guarantees with its source.
 Where Rust leaves a layout to the compiler, `puns` reads the one that `rustc` chose for the
 build. It measures field offsets on a value, and finds the tag of an enum of the `Rust`
 representation by experimenting on a value of each variant. An experiment that fails stops the
@@ -64,7 +64,7 @@ struct or tuple of the `Rust` representation, the tag of an enum of that represe
 niches. One exception is whether an `Option` of a scalar that a pun never makes compiles
 ([Scalars that a pun never makes][never_made]). With the feature, `puns`
 also uses the layout that `rustc` chose. [The `unstable` feature][unstable] states
-the rule and [what it relies on][unstable#what-this-relies-on].
+the rule and [what it relies on][unstable-rest#what-this-relies-on].
 
 The tests run under [Miri], on the targets that [Portability][portability] names. The
 analysis itself is checked against oracles that do not use it, both with and without the
@@ -127,7 +127,7 @@ accepts only what is sound under every one of these rules:
 
 A field is only checked if no byte it reads may be padding in the source. If some field might
 read padding and no field is proven, the pun is refused. Checking only the other fields would be
-sound, but `puns` does not do it yet (see [Limitations][limitations]).
+sound, but `puns` does not do it yet (see [Not yet][limits#not-yet]).
 
 A union that is proven is not read. Some parts are checked together: the elements of an array,
 and the fields of a variant of an enum that is checked as a whole. A union that is proven there
@@ -227,13 +227,13 @@ assert_eq!(odd.get(), 3);
 [`num`]: https://docs.rs/puns/0.2.3/puns/num/index.html
 [`Pun`]: https://docs.rs/puns/0.2.3/puns/trait.Pun.html
 [`zeroed`]: https://docs.rs/puns/0.2.3/puns/fn.zeroed.html
-[limitations]: limitations.md
+[limits#not-yet]: limits.md#not-yet
 [macro@Pun#what-the-derive-trusts]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#what-the-derive-trusts
 [never_made]: never_made.md
 [num::u16bec]: https://docs.rs/puns/0.2.3/puns/num/struct.u16bec.html
 [num::u8in]: https://docs.rs/puns/0.2.3/puns/num/struct.u8in.html
 [portability]: portability.md
 [properly aligned]: https://doc.rust-lang.org/1.100.0/core/ptr/index.html#alignment
-[unstable]: unstable.md
-[unstable#what-rust-documents]: unstable.md#what-rust-documents
-[unstable#what-this-relies-on]: unstable.md#what-this-relies-on
+[unstable]: layouts.md
+[unstable-rest#what-rust-documents]: unstable-rest.md#what-rust-documents
+[unstable-rest#what-this-relies-on]: unstable-rest.md#what-this-relies-on

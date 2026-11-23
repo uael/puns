@@ -145,7 +145,7 @@ const fn discovered<T: Pun>() -> Layout {
     .identified(Id::new("Option", &[T::LAYOUT.id]));
   // Where `core` documents it (a `NonZero`, a `repr(transparent)` struct around one), what is
   // found is what it documents: a niche at zero, which is `None`. Else Rust specifies nothing of
-  // it (see the chapter "The `unstable` feature" of the guide).
+  // it (see the chapter "Unspecified layouts" of the guide).
   if T::NULL_OPTIMIZED { layout } else { layout.unspecified() }
 }
 

@@ -19,14 +19,17 @@
 //! [`try_pun_mut`]: try_pun_mut
 //! [`try_pun_ref`]: try_pun_ref
 //! [`try_pun`]: try_pun
+//! [concepts#layouts-and-rules]: super::concepts#layouts-and-rules
 //! [concepts#proven-checked-and-refused]: super::concepts#proven-checked-and-refused
 //! [concepts#requirements]: super::concepts#requirements
 //! [concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+//! [concepts#what-is-a-valid-value]: super::concepts#what-is-a-valid-value
+//! [concepts#why-the-pair-decides]: super::concepts#why-the-pair-decides
 //! [core::mem::transmute#transmutation-between-pointers-and-integers]: core::mem::transmute#transmutation-between-pointers-and-integers
 //! [crate#going-further]: crate#going-further
 //! [crate#reading-one-of-several-types]: crate#reading-one-of-several-types
 //! [errors]: super::errors
-//! [limitations#not-done-yet]: super::limitations#not-done-yet
+//! [limits#not-yet]: super::limits#not-yet
 #![doc = include_str!("../../docs/functions.md")]
 
 // The items of the crate, which the links of this chapter name. Only rustdoc reads them.

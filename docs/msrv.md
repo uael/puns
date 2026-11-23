@@ -25,7 +25,7 @@ after 2,000,000 basic blocks ([`LINT_TERMINATOR_LIMIT`] in `rustc`). The analysi
 cannot take a step for each byte of a type, nor a step or an instance for each element of an
 array. Its cost grows with the number of fields, variants, ranges of values and states of
 automata of the types, and where it would grow with their size, a search stops at a limit
-([Limits][limitations#limits]).
+([Bounds of the analysis][limits#bounds-of-the-analysis]).
 
 [`TransmuteFrom`]: https://doc.rust-lang.org/core/mem/trait.TransmuteFrom.html
 [`ptr::metadata`]: https://doc.rust-lang.org/core/ptr/fn.metadata.html
@@ -41,4 +41,4 @@ automata of the types, and where it would grow with their size, a search stops a
 [`long_running_const_eval`]: https://doc.rust-lang.org/rustc/lints/listing/deny-by-default.html#long-running-const-eval
 [`LINT_TERMINATOR_LIMIT`]: https://github.com/rust-lang/rust/blob/main/compiler/rustc_const_eval/src/const_eval/machine.rs
 
-[limitations#limits]: limitations.md#limits
+[limits#bounds-of-the-analysis]: limits.md#bounds-of-the-analysis
