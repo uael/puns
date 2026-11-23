@@ -174,9 +174,9 @@
 //!
 //! The analysis reads the layout of each type from its implementation of [`Pun`]: its size, its
 //! alignment, the offset of each field, the values each scalar may hold, and its rules.
-//! `#[derive(Pun)]` takes sizes and alignments from the compiler. It computes offsets as the type's
-//! `repr` specifies them, or measures them on a value when the compiler chooses them. A layout
-//! never depends on a path that the deriving crate could redefine (see [What the derive
+//! `#[derive(Pun)]` takes sizes and alignments from the compiler. It measures offsets on the type as
+//! compiled, except in a variant of an enum of which it has no value. A layout never depends on a
+//! path that the deriving crate could redefine (see [What the derive
 //! trusts](macro@Pun#what-the-derive-trusts)). For the types of `core` that it supports, `puns`
 //! implements `Pun` itself.
 //!
@@ -1458,14 +1458,12 @@ pub use layout::{crc32, sum16};
 ///   function of `Layout` returns, so only the real type compiles.
 /// - The offsets of the fields do not come from `offset_of!`, which is a macro named by a path.
 ///   They are measured on the type as compiled, by projecting a pointer to it (`&raw const
-///   (*p).field`) and `byte_offset_from`, which cost nothing in const evaluation. For a struct of
-///   the `Rust` representation and for a union, which are `Sized`, the pointer is to an
-///   uninitialized value. A `repr(C)` or `repr(transparent)` struct may be unsized, so the pointer
-///   is into 4096 bytes of memory of `puns`, with a tail of no element. A `repr(C)` or
-///   `repr(transparent)` struct whose head, its size with a tail of no element, is larger than
-///   4096 bytes keeps the offsets that the representation that the derive read specifies:
-///   computed from the sizes and alignments of the fields for `repr(C)`, and 0 for
-///   `repr(transparent)`.
+///   (*p).field`) and `byte_offset_from`, which read no memory. For a struct of the `Rust`
+///   representation and for a union, which are `Sized`, the pointer is to an uninitialized value.
+///   A `repr(C)` or `repr(transparent)` struct may be unsized, so the pointer is into uninitialized
+///   bytes that hold it with a tail of no element: the smallest power of two from 4096 bytes up, a
+///   local of const evaluation. A struct of any size is measured, and if const evaluation cannot
+///   allocate those bytes, the build fails.
 /// - The tag and the size of an enum with fields and a primitive or `C` representation are those
 ///   that [RFC 2195] specifies. The offsets of the fields of each variant are found on a sample of
 ///   the variant, which another function of `Layout` makes, by code that matches on it, with
@@ -1524,8 +1522,7 @@ pub use layout::{crc32, sum16};
 /// refused. Where such an attribute changes the order of the fields or the `repr`, the layout is
 /// that of the type as compiled, or the build fails:
 ///
-/// - The offsets of the fields of a struct and of a union are measured, as above, except those of
-///   a `repr(C)` or `repr(transparent)` struct whose head is larger than 4096 bytes.
+/// - The offsets of the fields of a struct and of a union are measured, as above.
 /// - The offsets of the fields of a variant of an enum with a primitive or `C` representation are
 ///   measured on a sample of the variant, made as for the `Rust` representation. The tags are
 ///   compared with the samples, as above, so reordered variants fail the build. In a copy of each

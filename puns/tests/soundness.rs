@@ -116,7 +116,7 @@ mod fake {
   pub use puns::Scalar;
   pub mod layout {
     pub use puns::layout::{
-      Checksum, Crc, Endian, Enum, Field, Id, Layout, Op, Rule, Spec, Variant, Varint,
+      Checksum, Crc, Endian, Enum, Field, Id, Layout, Offsets, Op, Rule, Spec, Variant, Varint,
     };
     /// Returns ranges that would make every byte a variant of the enum, if the generated code
     /// called it.
@@ -320,13 +320,37 @@ fn offsets_are_those_of_the_struct_as_compiled() {
     c: bool,
     rest: [u8],
   }
-  // Larger than the memory in which the derive measures: the offsets of `repr(C)`.
+  // Larger than the smallest memory in which the derive measures, 4096 bytes.
   #[derive(Pun)]
   #[repr(C)]
   struct Large {
     head: [u8; 5000],
     on: bool,
   }
+  // As large, `repr(C)` removed: the compiler chooses the order.
+  #[derive(Pun)]
+  #[rewrite::repr()]
+  #[repr(C)]
+  struct LargeBare {
+    a: u8,
+    on: bool,
+    b: u16,
+    head: [u8; 5000],
+  }
+  // Unsized, its head as large, `repr(C)` removed: the compiler chooses the order of the sized
+  // fields.
+  #[derive(Pun)]
+  #[rewrite::repr()]
+  #[repr(C)]
+  struct LargeTail {
+    head: [u8; 5000],
+    a: u8,
+    c: bool,
+    rest: [u8],
+  }
+  /// Bytes aligned for a `LargeBare`.
+  #[repr(C, align(2))]
+  struct Aligned([u8; size_of::<LargeBare>()]);
 
   let at = offset_of!(Reversed, a);
   assert_eq!(at, 1);
@@ -355,6 +379,22 @@ fn offsets_are_those_of_the_struct_as_compiled() {
   assert!(puns::from_bytes::<Large>(&large).unwrap().on);
   large[5000] = 2;
   assert!(puns::from_bytes::<Large>(&large).is_err());
+  let at = offset_of!(LargeBare, on);
+  let mut large = Aligned([0; size_of::<LargeBare>()]);
+  large.0[at] = 1;
+  assert!(puns::from_bytes::<LargeBare>(&large.0).unwrap().on);
+  large.0[at] = 2;
+  assert!(puns::from_bytes::<LargeBare>(&large.0).is_err());
+  // The offset of `c`, from a value of zeros, which is valid for every field.
+  let mut large = [0; 5003];
+  let tail = puns::from_bytes::<LargeTail>(&large).unwrap();
+  let at = (&raw const tail.c).addr() - (&raw const *tail).cast::<u8>().addr();
+  large[at] = 1;
+  large[5002] = 7;
+  let tail = puns::from_bytes::<LargeTail>(&large).unwrap();
+  assert!(tail.c && tail.rest == [7]);
+  large[at] = 2;
+  assert!(puns::from_bytes::<LargeTail>(&large).is_err());
 }
 
 /// Checks that the offsets of the fields of a variant of an enum with a primitive representation
