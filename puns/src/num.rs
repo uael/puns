@@ -307,9 +307,10 @@ macro_rules! ints {
     // `SPEC` has its size. The items of the `# Safety` of `Scalar` hold:
     // - Every value of `$name` is initialized bytes, all of which `Spec::any` accepts.
     // - Every initialized `[u8; $size]` is a valid `$name`, whose one field is all that it requires
-    //   to be valid. The Rust Reference requires the field to be valid [2]. `puns` relies on this being
-    //   all, which no documentation states (`docs/rust.md`, "A value whose fields are valid"). No
-    //   code of `$name` relies on what its bytes are: `from_bytes` makes one of any bytes.
+    //   to be valid. The Rust Reference requires the field to be valid [2]. `puns` relies on this
+    //   being all, which no documentation states (`docs/rust.md`, "A value whose fields are
+    //   valid"). No code of `$name` relies on what its bytes are: `from_bytes` makes one of any
+    //   bytes.
     // - `$name` holds no `UnsafeCell`.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi:
@@ -617,9 +618,10 @@ macro_rules! numbers {
     // `SPEC` has its size. The items of the `# Safety` of `Scalar` hold:
     // - Every value of `$name` is initialized bytes, all of which `Spec::any` accepts.
     // - Every initialized `[u8; $size]` is a valid `$name`, whose one field is all that it requires
-    //   to be valid. The Rust Reference requires the field to be valid [2]. `puns` relies on this being
-    //   all, which no documentation states (`docs/rust.md`, "A value whose fields are valid"). No
-    //   code of `$name` relies on what its bytes are: `from_bytes` makes one of any bytes.
+    //   to be valid. The Rust Reference requires the field to be valid [2]. `puns` relies on this
+    //   being all, which no documentation states (`docs/rust.md`, "A value whose fields are
+    //   valid"). No code of `$name` relies on what its bytes are: `from_bytes` makes one of any
+    //   bytes.
     // - `$name` holds no `UnsafeCell`.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi:

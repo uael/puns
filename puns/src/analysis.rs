@@ -26,8 +26,8 @@
 //! [Layouts that Rust leaves to the compiler](#layouts-that-rust-leaves-to-the-compiler)).
 //!
 //! The errors of the analysis are panics of `const { .. }` blocks in the generic functions of the
-//! crate, evaluated after monomorphization ([Compile-time errors](crate::reference::errors) says when
-//! a build reports them).
+//! crate, evaluated after monomorphization ([Compile-time errors](crate::reference::errors) says
+//! when a build reports them).
 //!
 //! # Cost
 //!
@@ -64,7 +64,8 @@
 //! [`PLACES`] places of fields, a budget of boxes of a scalar, a budget of runs under a pattern and
 //! of steps of its automaton over bytes of any value, [`KNOWN`] ranges of the values of a tag, and
 //! [`CUT_ELEMENTS`] elements of an array looked at one by one. These limits keep the analysis
-//! within the bound of const evaluation ([Limits of Rust](crate::reference::limits#limits-of-rust)).
+//! within the bound of const evaluation ([Limits of
+//! Rust](crate::reference::limits#limits-of-rust)).
 //!
 //! # Enums and unions
 //!
@@ -256,8 +257,8 @@
 //!
 //! A check must not read a byte of the source that, in another layout that Rust allows, holds
 //! another field ([`reads_moved`]). The analysis counts the bytes that a check reads as "What a
-//! check may read" in the [reference](crate::reference::layouts#what-a-check-may-read) says. Under an
-//! array whose elements the source does not match, it counts every byte, including bytes that no
+//! check may read" in the [reference](crate::reference::layouts#what-a-check-may-read) says. Under
+//! an array whose elements the source does not match, it counts every byte, including bytes that no
 //! check reads.
 //!
 //! The analysis looks for nothing inside a part of the source that is not fixed, at the place where
@@ -1436,14 +1437,13 @@ const PLACES: usize = 1024;
 /// proven everywhere it may be.
 ///
 /// A struct is valid if each of its fields is valid at its place ([A value whose fields are
-/// valid](crate::reference::rust#a-value-whose-fields-are-valid)). So the source proves the struct in
-/// every order of its fields if, and only if, it proves each field at each offset that
-/// the field has in some order. This is exact, and no order is tried. The offsets taken are all
-/// those that the field may have, the multiples of its alignment where it fits. Where no order
-/// needs padding, because every size is a multiple of every alignment, they are the multiples of
-/// the greatest common divisor of the sizes, since every sum of sizes is one. Some of these offsets
-/// are in no order, such as the second byte of a `(bool, [u8; 3])`. More is then required, never
-/// less.
+/// valid](crate::reference::rust#a-value-whose-fields-are-valid)). So the source proves the struct
+/// in every order of its fields if, and only if, it proves each field at each offset that the field
+/// has in some order. This is exact, and no order is tried. The offsets taken are all those that
+/// the field may have, the multiples of its alignment where it fits. Where no order needs padding,
+/// because every size is a multiple of every alignment, they are the multiples of the greatest
+/// common divisor of the sizes, since every sum of sizes is one. Some of these offsets are in no
+/// order, such as the second byte of a `(bool, [u8; 3])`. More is then required, never less.
 ///
 /// Nothing is left to check at run time, since a check would read where the compiler may not have
 /// put the field. A field that the source does not prove somewhere fails the relation. So does a
@@ -2986,8 +2986,8 @@ pub enum Exact {
   Never(&'static str),
 }
 
-/// How the [extent](crate::reference::concepts#layouts-and-rules) of a source maps to the extent of a
-/// target.
+/// How the [extent](crate::reference::concepts#layouts-and-rules) of a source maps to the extent of
+/// a target.
 ///
 /// The extent of an unsized value is the offset of its slice tail plus the size of that slice.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

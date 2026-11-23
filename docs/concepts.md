@@ -16,14 +16,14 @@ type, the *target* `D`, through a function of `puns`. The two types are the pun'
 about their bytes, never by what their constructors check ([What deriving `Pun`
 means][soundness#what-deriving-pun-means]).
 
-The layout that `puns` reads holds more than the [layout that the Rust Reference defines][type-layout].
-Besides the size, the alignment and the offset of each field, it holds the values that each scalar
-may hold, and the rules of each struct. A byte that may be uninitialized, such as a byte of a struct
-that no field covers, is *padding*. The type's implementation of [`Pun`] gives this layout as a
-`const` value, `Pun::LAYOUT`. The analysis is ordinary `const fn` code that compares the two layouts
-of a pair *part* by part. A part is a scalar, an element of an array, a field, a variant or a
-trailing slice. The compiler runs the analysis once for each pair that a function of `puns` is used
-with.
+The layout that `puns` reads holds more than the [layout that the Rust Reference
+defines][type-layout]. Besides the size, the alignment and the offset of each field, it holds the
+values that each scalar may hold, and the rules of each struct. A byte that may be uninitialized,
+such as a byte of a struct that no field covers, is *padding*. The type's implementation of [`Pun`]
+gives this layout as a `const` value, `Pun::LAYOUT`. The analysis is ordinary `const fn` code that
+compares the two layouts of a pair *part* by part. A part is a scalar, an element of an array, a
+field, a variant or a trailing slice. The compiler runs the analysis once for each pair that a
+function of `puns` is used with.
 
 A struct that derives `Pun` may state *[rules][rules]*: expressions on its fields and its
 bytes that its values must meet. A rule is an assertion, the size of a value, the length of its
@@ -34,10 +34,10 @@ the last field of a struct. A rule gives its size, and a method of the same name
 
 ## What is a valid value?
 
-A *valid* value of a type is [valid] in the sense of the Rust Reference, and meets the invariants that
-its type *guarantees*, whatever code does. A `str` is UTF-8, a [`u8in<MIN, MAX>`][num::u8in] holds a
-value from `MIN` to `MAX`, and a [`u16bec<V>`][num::u16bec] holds `V`. The types of [`num`] keep
-their fields private, and their constructors check these invariants.
+A *valid* value of a type is [valid] in the sense of the Rust Reference, and meets the invariants
+that its type *guarantees*, whatever code does. A `str` is UTF-8, a [`u8in<MIN, MAX>`][num::u8in]
+holds a value from `MIN` to `MAX`, and a [`u16bec<V>`][num::u16bec] holds `V`. The types of [`num`]
+keep their fields private, and their constructors check these invariants.
 
 ## Requirements
 
@@ -163,9 +163,9 @@ assert_eq!(text, "hi");
 
 ## Unspecified layouts
 
-A part of a type has an *unspecified layout* where Rust leaves its layout to the compiler, which
-may choose differently in its next version, or at random under `-Zrandomize-layout`. Only what the
-Rust Reference lists is guaranteed ([`r-layout.guarantees`]). [Unspecified layouts and the `unstable`
+A part of a type has an *unspecified layout* where Rust leaves its layout to the compiler, which may
+choose differently in its next version, or at random under `-Zrandomize-layout`. Only what the Rust
+Reference lists is guaranteed ([`r-layout.guarantees`]). [Unspecified layouts and the `unstable`
 feature][layouts] lists these choices, and what `puns` does about them.
 
 ## Opaque scalars

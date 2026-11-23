@@ -62,8 +62,9 @@
 //! # What the experiments rely on
 //!
 //! The experiments rely on facts of the compiler that no documentation states, and on one fact of
-//! this crate. The chapter [What `puns` relies on](crate::reference::rust) of the reference states each
-//! fact of the compiler, with what checks it, under the section that each heading below links to.
+//! this crate. The chapter [What `puns` relies on](crate::reference::rust) of the reference states
+//! each fact of the compiler, with what checks it, under the section that each heading below links
+//! to.
 //!
 //! ## The layout is that of the target
 //!
@@ -81,8 +82,8 @@
 //!
 //! ## The variant is read from the tag
 //!
-//! [The variant read from the tag](crate::reference::rust#the-variant-read-from-the-tag). [`try_tag`]
-//! relies on it.
+//! [The variant read from the tag](crate::reference::rust#the-variant-read-from-the-tag).
+//! [`try_tag`] relies on it.
 //!
 //! ## The discriminant is the index
 //!
@@ -136,8 +137,8 @@ use core::mem::{self, MaybeUninit};
 
 use crate::layout::{Endian, Field, Kind, Layout, Spec, Valid, load, max_value};
 
-/// Returns a `T` that is valid in the sense of the Rust Reference, whose rules may not hold, in which
-/// every scalar is the least of its values and padding is uninitialized.
+/// Returns a `T` that is valid in the sense of the Rust Reference, whose rules may not hold, in
+/// which every scalar is the least of its values and padding is uninitialized.
 ///
 /// Of an enum, the sample is its first variant that has values.
 ///
@@ -310,8 +311,8 @@ const unsafe fn variant<E>(ptr: *const E) -> usize {
   // - It points to a valid `E` at run time, by contract on the caller. At compile time, this is not
   //   established: the bytes at `ptr` may be no `E`, which is valid only if its tag is the tag of a
   //   variant and the fields of that variant are valid [2]. The call then relies on two behaviors
-  //   of `rustc` that the Rust Reference does not promise, and that the reference discloses
-  //   (`docs/rust.md`, "Errors of const evaluation" and "The variant read from the tag"). `rustc`
+  //   of `rustc` that the Rust Reference does not promise, and that `docs/rust.md` discloses
+  //   ("Errors of const evaluation" and "The variant read from the tag"). `rustc`
   //   reports an error if the tag is uninitialized or not the tag of a variant that has values,
   //   and otherwise reads the variant from the tag alone, without reading the fields.
   //
@@ -611,8 +612,8 @@ pub const unsafe fn read<E>(sample: &MaybeUninit<E>, offset: usize, len: usize) 
   // above. So `add(offset)` stays within `sample`, and the `len` bytes from there are valid for
   // reads. `load` also requires them to be initialized, which is not established. By contract on
   // the caller, the call is evaluated at compile time, where `rustc` reports an error instead of
-  // reading an uninitialized byte. No documentation promises this behavior, which the reference
-  // discloses (`docs/rust.md`, "Errors of const evaluation").
+  // reading an uninitialized byte. No documentation promises this behavior, which `docs/rust.md`
+  // discloses ("Errors of const evaluation").
   unsafe { load(sample.as_ptr().cast::<u8>().add(offset), len, Endian::NATIVE) }
 }
 

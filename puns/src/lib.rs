@@ -1,5 +1,5 @@
-// The README is the crate page. Its links to the reference are relative, for GitHub, and rustdoc keeps
-// the first definition of a link, so these, before it, make them intra-doc.
+// The README is the crate page. Its links to the reference are relative, for GitHub, and rustdoc
+// keeps the first definition of a link, so these, before it, make them intra-doc.
 //! [valid]: reference::concepts#what-is-a-valid-value
 //! [kinds]: reference::concepts#proven-checked-and-refused
 //! [pairs]: reference::concepts#why-the-pair-decides
@@ -68,10 +68,10 @@ pub use layout::{crc32, sum16};
 /// the `Pun` implementations of its fields and from its attributes. [Describing a
 /// format](crate::reference::formats) teaches the attributes from examples, and [The language of
 /// rules](crate::reference::rules) specifies the expressions that they take. [What the derive
-/// trusts](crate::reference::trust) says how the derive finds the layout of a type, so that it depends
-/// on no path that the deriving crate can redefine, and [How a part with an unspecified layout is
-/// proven](crate::reference::layouts#how-a-part-with-an-unspecified-layout-is-proven) what a pun of a
-/// type of the `Rust` representation relies on.
+/// trusts](crate::reference::trust) says how the derive finds the layout of a type, so that it
+/// depends on no path that the deriving crate can redefine, and [How a part with an unspecified
+/// layout is proven](crate::reference::layouts#how-a-part-with-an-unspecified-layout-is-proven)
+/// what a pun of a type of the `Rust` representation relies on.
 ///
 /// The derive compiles, and its implementation of `Pun` evaluates, only if the type meets the
 /// conditions of its section below, of its attributes, and of [Compile-time
@@ -137,8 +137,8 @@ pub use layout::{crc32, sum16};
 ///   scalar], since `puns` cannot make one.
 /// - With the `Rust` representation, `rustc` must give the variant of a value by a tag of 1, 2, 4,
 ///   8 or 16 bytes before the fields of every variant, or by a
-///   [niche](crate::reference::rust#the-tag-of-an-enum-of-the-rust-representation) in a scalar among
-///   the fields of one variant. Any other layout is refused as unsupported.
+///   [niche](crate::reference::rust#the-tag-of-an-enum-of-the-rust-representation) in a scalar
+///   among the fields of one variant. Any other layout is refused as unsupported.
 /// - With a primitive or `C` representation, the derive cannot make the least value of a variant
 ///   that holds an opaque scalar, or a union none of whose fields has values, and reads its tag
 ///   from its discriminant alone. If a value of such a variant may exist, its discriminant must be
@@ -187,8 +187,8 @@ pub use layout::{crc32, sum16};
 /// value of both, such as `Frame<Ipv4>` after two kinds of IPv4 packet, computes the rule once, and
 /// shares what succeeds.
 ///
-/// [Build time](crate::reference::performance#build-time) measures how the build time of a view grows
-/// with its number of variants.
+/// [Build time](crate::reference::performance#build-time) measures how the build time of a view
+/// grows with its number of variants.
 ///
 /// [`ethernet.rs`]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/ethernet.rs
 ///
@@ -211,9 +211,9 @@ pub use layout::{crc32, sum16};
 ///
 /// ## `size`
 ///
-/// `#[pun(size = EXPR)]`, on a struct: the [extent](crate::reference::concepts#layouts-and-rules) of a
-/// value is `EXPR` bytes, which [`from_head`] reads to take the value from the front of bytes ([a
-/// header with options](crate::reference::formats#a-header-with-options)).
+/// `#[pun(size = EXPR)]`, on a struct: the [extent](crate::reference::concepts#layouts-and-rules)
+/// of a value is `EXPR` bytes, which [`from_head`] reads to take the value from the front of bytes
+/// ([a header with options](crate::reference::formats#a-header-with-options)).
 ///
 /// ## `assert`
 ///
@@ -231,11 +231,11 @@ pub use layout::{crc32, sum16};
 /// ## `regions`
 ///
 /// `#[pun(regions(first = EXPR, second = EXPR, last))]`, on the last field of a struct: the bytes
-/// of the field are consecutive [regions](crate::reference::concepts#layouts-and-rules) of `EXPR` bytes
-/// each. The last region may omit its size, and then takes whatever remains. A method with the name
-/// of each region, as visible as the field, returns the bytes of the region as a `&[u8]`. With a
-/// type (`first: Type = EXPR`, `last: Type`), the method returns `Result<&Type, Error>` instead:
-/// the region as a `&Type`, if its bytes are one ([a typed
+/// of the field are consecutive [regions](crate::reference::concepts#layouts-and-rules) of `EXPR`
+/// bytes each. The last region may omit its size, and then takes whatever remains. A method with
+/// the name of each region, as visible as the field, returns the bytes of the region as a `&[u8]`.
+/// With a type (`first: Type = EXPR`, `last: Type`), the method returns `Result<&Type, Error>`
+/// instead: the region as a `&Type`, if its bytes are one ([a typed
 /// region](crate::reference::formats#a-region-with-a-type)).
 ///
 /// The derive compiles `regions` only if only the last region omits its size ("only the last
@@ -253,13 +253,13 @@ pub use layout::{crc32, sum16};
 ///
 /// ## `valid`
 ///
-/// `#[pun(valid(0x45..=0x4f, 0x60))]`, on a field of a struct, of an enum with fields that is not
-/// a view, or of a union: the field has one of these values, its bits read as an unsigned integer
-/// in its byte order, so `0xff` is `-1i8`. Each item is a value or a range of unsigned integer
+/// `#[pun(valid(0x45..=0x4f, 0x60))]`, on a field of a struct, of an enum with fields that is not a
+/// view, or of a union: the field has one of these values, its bits read as an unsigned integer in
+/// its byte order, so `0xff` is `-1i8`. Each item is a value or a range of unsigned integer
 /// literals, or of constants of an unsigned integer type. A range may omit either bound: the start
 /// is then 0, and the end the greatest unsigned integer of the size of the field. Like a rule,
-/// `valid` is a
-/// [requirement](crate::reference::concepts#requirements): safe code can write any value to the field.
+/// `valid` is a [requirement](crate::reference::concepts#requirements): safe code can write any
+/// value to the field.
 ///
 /// The derive compiles `valid` only if it meets these conditions:
 ///
@@ -1090,10 +1090,10 @@ unsafe impl<T: Scalar> Pun for T {
 
 // SAFETY: `Layout::array(&T::LAYOUT, N)` is `N` elements of the layout of `T`, the size of `T`
 // apart, with the alignment of `T`: the layout of `[T; N]` [1]. An array is valid if, and only if,
-// each of its elements is a valid `T`. The Rust Reference states the "only if" [2]. `puns` relies on the
-// "if", which no documentation states (`docs/rust.md`, "A value whose fields are valid"). A valid
-// `T` is what `T::LAYOUT` describes, by the `# Safety` of `Pun` for `T`. `Elem` is `T`, and the
-// other lists are `()`. Its bytes are those of its elements, none of which is inside an
+// each of its elements is a valid `T`. The Rust Reference states the "only if" [2]. `puns` relies
+// on the "if", which no documentation states (`docs/rust.md`, "A value whose fields are valid"). A
+// valid `T` is what `T::LAYOUT` describes, by the `# Safety` of `Pun` for `T`. `Elem` is `T`, and
+// the other lists are `()`. Its bytes are those of its elements, none of which is inside an
 // `UnsafeCell`, since `T: Pun`.
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#array-layout:
@@ -1278,13 +1278,13 @@ macro_rules! tuple {
     // `offset_of!` gives, each with the layout of its type. `Layout::structure` takes the size and
     // the alignment of the tuple from the compiler, and asserts that no two fields overlap and that
     // each is within the size. A tuple is valid if, and only if, each of its elements is valid, and
-    // every byte that no element covers is padding. The Rust Reference states the "only if" [1]. `puns`
-    // relies on the "if", which no documentation states (`docs/rust.md`, "A value whose fields are
-    // valid"). So the layout is that of the tuple, by the `# Safety` of `Pun` for each element.
-    // `rust` and `identified` change neither the size, the alignment, the offsets nor the values.
-    // `Fields` lists the elements in order (see `TupleField`). The other lists are `()`. No byte of
-    // an element is in an `UnsafeCell`, since each is `Pun`, and a byte of padding belongs to no
-    // element.
+    // every byte that no element covers is padding. The Rust Reference states the "only if" [1].
+    // `puns` relies on the "if", which no documentation states (`docs/rust.md`, "A value whose
+    // fields are valid"). So the layout is that of the tuple, by the `# Safety` of `Pun` for each
+    // element. `rust` and `identified` change neither the size, the alignment, the offsets nor the
+    // values. `Fields` lists the elements in order (see `TupleField`). The other lists are `()`. No
+    // byte of an element is in an `UnsafeCell`, since each is `Pun`, and a byte of padding belongs
+    // to no element.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.struct:
     //
@@ -1923,8 +1923,8 @@ impl Message {
 /// assert_eq!(puns::pun::<[bool; 2], u16>([true, true]), 0x0101);
 /// ```
 ///
-/// [Reinterpreting a value](crate::reference::functions#reinterpreting-a-value) shows a real use: the
-/// bits of an `f32`.
+/// [Reinterpreting a value](crate::reference::functions#reinterpreting-a-value) shows a real use:
+/// the bits of an `f32`.
 ///
 /// A pun that needs a check is refused, since `pun` checks nothing ([its message and fix][check
 /// message]):
@@ -2488,8 +2488,8 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 /// assert_eq!(words, [0x0102, 7, 8]);
 /// ```
 ///
-/// [Writing through `&mut`](crate::reference::functions#writing-through-mut) shows a real use: the text
-/// of a note, without its flag.
+/// [Writing through `&mut`](crate::reference::functions#writing-through-mut) shows a real use: the
+/// text of a note, without its flag.
 ///
 /// A `&mut` that overlaps a struct with a rule is refused ([its message and fix][write message]):
 ///
@@ -2784,8 +2784,8 @@ pub const fn int<T: Pun>(value: &T) -> u128 {
 /// assert_eq!(puns::as_bytes(&[1u16.to_be(), 2u16.to_be()]), &[0, 1, 0, 2]);
 /// ```
 ///
-/// [Reading again after a write](crate::reference::formats#reading-again-after-a-write) shows a real
-/// use: checking a value again from its bytes.
+/// [Reading again after a write](crate::reference::formats#reading-again-after-a-write) shows a
+/// real use: checking a value again from its bytes.
 ///
 /// A value with a byte of padding is refused ([its message and fix][padding message]):
 ///
@@ -3061,8 +3061,8 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
   /// Returns the `D` at the start of the `n` bytes at `addr`, and its size, as [`Plan::front`]
   /// does, but checks what `C` marks rather than everything that bytes do not prove.
   ///
-  /// A `D` whose [extent](crate::reference::concepts#layouts-and-rules) is not `extent` is not valid,
-  /// unless `extent` is `usize::MAX`, which allows any extent.
+  /// A `D` whose [extent](crate::reference::concepts#layouts-and-rules) is not `extent` is not
+  /// valid, unless `extent` is `usize::MAX`, which allows any extent.
   ///
   /// # Safety
   ///

@@ -57,11 +57,11 @@ and the documentation of `MaybeUninit` and `UnsafeCell` says that such layouts v
 
 ### A value whose fields are valid
 
-The Rust Reference states what validity requires of a struct, a tuple, an array and an enum (the rows
-above), and warns that its list of undefined behavior "is not exhaustive; it may grow or shrink"
-([`r-undefined`][undefined]). `puns` takes these conditions to be all that validity requires. A
-struct, a tuple, an array or a slice is valid if its fields or its elements are, whatever its
-padding holds, and an enum if its tag is that of a variant whose fields are valid.
+The Rust Reference states what validity requires of a struct, a tuple, an array and an enum (the
+rows above), and warns that its list of undefined behavior "is not exhaustive; it may grow or
+shrink" ([`r-undefined`][undefined]). `puns` takes these conditions to be all that validity
+requires. A struct, a tuple, an array or a slice is valid if its fields or its elements are,
+whatever its padding holds, and an enum if its tag is that of a variant whose fields are valid.
 
 This does not hold of every type of `core`. `NonZero` restricts the values of its field with an
 attribute that stable Rust does not accept, so `puns` describes it by its documentation (the

@@ -17,11 +17,10 @@ is an [opaque scalar](puns/src/lib.rs) that its own crate declares and proves. S
 on `puns`, not the reverse.
 
 The design is in the rustdoc: the crate page (the README), the chapters of the reference
-(`puns::reference`), and the module docs of each part, private modules included
-(`cargo doc --document-private-items`). `puns/CLAUDE.md` says where each part is written, the
-invariants that cross modules and what is not done yet included. Read it, and the module docs of
-what you change, before changing the library. Keep them, the reference and the README consistent with
-the code.
+(`puns::reference`), and the module docs of each part, private modules included (`cargo doc
+--document-private-items`). `puns/CLAUDE.md` says where each part is written, the invariants that
+cross modules and what is not done yet included. Read it, and the module docs of what you change,
+before changing the library. Keep them, the reference and the README consistent with the code.
 
 ## Toolchain
 
@@ -87,13 +86,14 @@ code do not hold ([`puns/CLAUDE.md`](puns/CLAUDE.md#tests)).
 
 ## The documentation
 
-The chapters of the reference are the files `docs/<chapter>.md`, which `puns/src/reference/<chapter>.rs`
-includes, so they are read on GitHub and on docs.rs. [`xtask/src/links.rs`](xtask/src/links.rs)
-states how their links and those of the README are written. In CI, `cargo xtask links --check`
-checks that each of these links names the version where it must, and that its target exists if it
-is a file or a heading of the repository, or a page or a section of the documentation of `puns`.
-It checks no link to another site, and no link of a `CLAUDE.md` file or of a comment. `cargo doc`
-with `-D warnings` checks the intra-doc links. The links are written so:
+The chapters of the reference are the files `docs/<chapter>.md`, which
+`puns/src/reference/<chapter>.rs` includes, so they are read on GitHub and on docs.rs.
+[`xtask/src/links.rs`](xtask/src/links.rs) states how their links and those of the README are
+written. In CI, `cargo xtask links --check` checks that each of these links names the version where
+it must, and that its target exists if it is a file or a heading of the repository, or a page or a
+section of the documentation of `puns`. It checks no link to another site, and no link of a
+`CLAUDE.md` file or of a comment. `cargo doc` with `-D warnings` checks the intra-doc links. The
+links are written so:
 
 - Every link to docs.rs, crates.io or a file of the repository names the version of `puns` or its
   tag, so that it leads to the same version on GitHub, crates.io and docs.rs. A link to the `wip`

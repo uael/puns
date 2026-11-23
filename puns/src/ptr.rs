@@ -111,7 +111,7 @@ pub const unsafe fn verify<T: ?Sized>(probe: *const T) {
   // have the same size, which is asserted above, and the assertions below check the rest of the
   // representation. If a byte of `*const T` were not initialized, the read would be undefined
   // behavior. In the evaluation of a `LAYOUT` constant, which calls `verify`, `rustc` reports such
-  // a read as an error, which the reference discloses (`docs/rust.md`, "Errors of const evaluation").
+  // a read as an error, which `docs/rust.md` discloses ("Errors of const evaluation").
   // Rust does not promise that a pointer has no uninitialized byte, so a call at run
   // time relies on the representation that `rustc` gives pointers, which has none.
   unsafe {
@@ -259,9 +259,9 @@ pub const fn is_aligned(addr: *const u8, align: usize) -> bool {
   // bytes of `addr`, which are initialized, are a `usize` of the same size (see `Cast`). This
   // reinterprets a pointer as an integer, which `core` says to avoid at run time [1], since its
   // semantics are not settled. The quoted text does not make it undefined behavior there, but no
-  // documentation promises that it reads the address either, so `puns` relies on it, as the reference
-  // discloses (`docs/rust.md`, "The address read as an integer"). The integer is never made into
-  // a pointer again. In const evaluation, `core` requires the pointer to have been made from an
+  // documentation promises that it reads the address either, so `puns` relies on it, as
+  // `docs/rust.md` discloses ("The address read as an integer"). The integer is never made into a
+  // pointer again. In const evaluation, `core` requires the pointer to have been made from an
   // integer [1], which is not established. `core` also says that using the integer stops the
   // evaluation [1], so such a call evaluated at compile time does not compile.
   //

@@ -7,14 +7,14 @@
 //! newest stable release, and `blob/main` is the code after it. The one exception is a branch of
 //! [`BRANCHES`], which holds what no release contains, and is linked as it is.
 //!
-//! The chapters of the reference are files of `docs/`, which rustdoc includes as the reference's modules,
-//! as it includes the README as the crate page. A link between them is relative, so that GitHub
-//! stays in the revision being read. rustdoc does not resolve such a link, so the `.rs` file that
-//! includes a Markdown file defines the same label before the include, as an intra-doc link: of
-//! two definitions of a label, the first counts. A relative link of an included file is therefore
-//! a definition (`[label]: target`), and the `.rs` file must define its label. crates.io resolves
-//! a relative link of the README in the directory of the package on the default branch, where
-//! `docs/` is not, so these links lead nowhere there.
+//! The chapters of the reference are files of `docs/`, which rustdoc includes as the reference's
+//! modules, as it includes the README as the crate page. A link between them is relative, so that
+//! GitHub stays in the revision being read. rustdoc does not resolve such a link, so the `.rs` file
+//! that includes a Markdown file defines the same label before the include, as an intra-doc link:
+//! of two definitions of a label, the first counts. A relative link of an included file is
+//! therefore a definition (`[label]: target`), and the `.rs` file must define its label. crates.io
+//! resolves a relative link of the README in the directory of the package on the default branch,
+//! where `docs/` is not, so these links lead nowhere there.
 //!
 //! GitHub highlights a block of code only if its info string starts with a language, while
 //! rustdoc takes a block with none for Rust. So each block of these files names its language:
@@ -22,8 +22,8 @@
 //!
 //! GitHub and rustdoc make the same anchor from a heading, except where rustdoc already uses that
 //! `id` on the page (`fields`, `implementations` and others): it then adds `-1`, and a link that
-//! works on GitHub lands at the top of the page on docs.rs. So each heading of an included file must
-//! have its anchor as an `id` of the page that rustdoc wrote.
+//! works on GitHub lands at the top of the page on docs.rs. So each heading of an included file
+//! must have its anchor as an `id` of the page that rustdoc wrote.
 //!
 //! `cargo xtask links` writes the version into the links. A release PR changes the version, and
 //! the workflow `release-plz.yml` runs it on the branch of the PR. With `--check`, it fails if a

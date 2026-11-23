@@ -273,8 +273,8 @@ and then makes the reference.
 - [`Error`][error-type] says which check failed: the alignment, the size, or the values.
 - [`num`][num] has numbers of a fixed byte order, and integers restricted to some values.
 - [`layout`][layout] has the types that describe a layout, and the checksums.
-- The [reference] explains how `puns` decides, teaches the attributes and the rules from examples, and
-  says what its soundness rests on.
+- The [reference] explains how `puns` decides, teaches the attributes and the rules from examples,
+  and says what its soundness rests on.
 
 The tests and the [examples] of the repository show more uses. The examples read parts of more
 than 40 formats, from TLS and DNS to ELF and SQLite, and each one says which parts of its format it

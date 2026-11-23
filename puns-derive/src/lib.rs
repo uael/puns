@@ -1509,9 +1509,9 @@ fn home(this: &TokenStream, name: &Ident, ty: &Type) -> TokenStream {
 /// `rustc` compiled it.
 ///
 /// The derive reads the tokens of the item, which can name other types than the item that `rustc`
-/// compiles: the reference of `puns`, chapter What the derive trusts, says how ("The generated code"
-/// and "Attribute macros below the derive"). So the type of each field is written once, as the
-/// associated type `name` of `__PunTypes`, in an implementation for the type, where `Self` is the
+/// compiles: `docs/trust.md` says how ("The generated code" and "Attribute macros below the
+/// derive"). So the type of each field is written once, as the associated type `name` of
+/// `__PunTypes`, in an implementation for the type, where `Self` is the
 /// type as in its declaration. Every other place names it through [`home`], so they all name one
 /// type.
 ///
@@ -2034,7 +2034,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         // `as` casts, cast again to `*const Self`. The size of the struct with 8 elements in its
         // tail must fit in an `isize`, which is not established. The derive relies on `rustc` to
         // report an error in const evaluation where it does not fit. No documentation promises this
-        // behavior, which the reference discloses (`docs/rust.md`, "Errors of const evaluation").
+        // behavior, which `docs/rust.md` discloses ("Errors of const evaluation").
         const LAYOUT: #root::layout::Layout = unsafe {
           #root::layout::Layout::structure::<Self>(
             Self::PROBE,
@@ -2256,8 +2256,8 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     // initialized, which is not established: `align` may add padding after the discriminant, and
     // with the `Rust` representation, Rust does not say how the discriminant is stored. The call
     // is evaluated in the constant `SPEC`, where `rustc` reports an error instead of reading an
-    // uninitialized byte. No documentation promises this behavior, which the reference discloses
-    // (`docs/rust.md`, "Errors of const evaluation").
+    // uninitialized byte. No documentation promises this behavior, which `docs/rust.md` discloses
+    // ("Errors of const evaluation").
     variants.push(quote!(unsafe { #root::layout::Spec::bits_of(Self::#variant) }));
   }
   let count = variants.len();
@@ -2706,7 +2706,7 @@ fn derive_tagged(
           // the sample may be among these bytes. These are the requirements of `declared_tags`,
           // except that one. The constant is evaluated at compile time, where `rustc` reports an
           // error instead of reading an uninitialized byte. No documentation promises this
-          // behavior, which the reference discloses (`docs/rust.md`, "Errors of const evaluation").
+          // behavior, which `docs/rust.md` discloses ("Errors of const evaluation").
           //
           // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.adt:
           //
@@ -2760,7 +2760,7 @@ fn derive_tagged(
                 // sample whose byte `after` may have been changed, so it may be no `Self`. This
                 // constant is evaluated at compile time, where the `match`, which reads the
                 // variant, relies on the behaviors of `rustc` that `discover` relies on, and that
-                // the reference discloses (`docs/rust.md`, "Errors of const evaluation" and "The
+                // `docs/rust.md` discloses ("Errors of const evaluation" and "The
                 // variant read from the tag"): `rustc` reports an error if the tag is not the tag
                 // of a variant, and otherwise reads the variant from the tag alone, without
                 // reading the fields.

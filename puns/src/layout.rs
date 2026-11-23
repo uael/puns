@@ -803,8 +803,8 @@ impl Stable {
 /// The identity of a type, which tells two types apart where their layouts are the same.
 ///
 /// Without the `unstable` feature, a layout that Rust leaves to the compiler proves only the same
-/// type, at the same place, and [The same type](crate::reference::layouts#the-same-type) says why, and
-/// which types have an identity. An identity is a name, together with the identities of the
+/// type, at the same place, and [The same type](crate::reference::layouts#the-same-type) says why,
+/// and which types have an identity. An identity is a name, together with the identities of the
 /// parameters that make up the type. `__site!` names a type that derives `Pun` by where it is
 /// declared, and this crate names the types of `core` that it supports. Two identities are equal
 /// only if both are known, with the same name, length and parameters.
@@ -1696,8 +1696,8 @@ fn pin<T>(_: T) {}
 
 /// Whether the `unstable` feature is enabled.
 ///
-/// [Unspecified layouts and the `unstable` feature](crate::reference::layouts) says what the feature
-/// changes.
+/// [Unspecified layouts and the `unstable` feature](crate::reference::layouts) says what the
+/// feature changes.
 pub const UNSTABLE: bool = cfg!(feature = "unstable");
 
 impl Layout {
@@ -1865,8 +1865,8 @@ impl Layout {
     );
   }
 
-  /// Returns a `T` that is valid in the sense of the Rust Reference, whose rules may not hold, made from
-  /// its layout alone, for the samples of the variants of an enum of the `Rust` representation
+  /// Returns a `T` that is valid in the sense of the Rust Reference, whose rules may not hold, made
+  /// from its layout alone, for the samples of the variants of an enum of the `Rust` representation
   /// (`Layout::discover`).
   ///
   /// Every scalar holds the least of its values, and padding is uninitialized.
@@ -3344,7 +3344,8 @@ impl Layout {
   /// Only `Enum::union` makes a `layout` that this function accepts.
   ///
   /// The language has not settled the validity of unions, and this layout takes what is sound under
-  /// each of the proposals being considered, as [Unions](crate::reference::soundness#unions) describes.
+  /// each of the proposals being considered, as [Unions](crate::reference::soundness#unions)
+  /// describes.
   ///
   /// # Panics
   ///
