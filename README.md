@@ -8,7 +8,8 @@
 Type punning proven at compile time: a safe alternative to `transmute` and to hand-written parsing
 of bytes.
 
-## Contents
+> **Note:** `puns` is written using AI. See [How `puns` is written](#how-puns-is-written). The first
+> release came out in November 2026: expect the API to change before 1.0.
 
 - [Overview](#overview)
   - [Reading a packet](#reading-a-packet)
@@ -38,9 +39,6 @@ of bytes.
   - [License](#license)
 
 ## Overview
-
-> **Note:** `puns` is written using AI. See [How `puns` is written](#how-puns-is-written). The first
-> release came out in November 2026: expect the API to change before 1.0.
 
 `puns` lets you reinterpret a value of one type, the *source*, as a value of another type, the
 *target*, or bytes as a typed value, without writing `unsafe`. `puns` is `no_std`, never allocates,
