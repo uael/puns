@@ -478,8 +478,8 @@ where
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
-/// These conditions are checked after monomorphization, as [the crate
-/// documentation](crate#compile-time-errors) explains.
+/// These conditions are checked after monomorphization, as [the guide](crate::guide::errors)
+/// explains.
 #[inline(always)]
 pub const fn decide<'a, V: ?Sized + Views, I: Index, const N: usize, const HEAD: bool>(
   known: &mut Known<'a, V, N, HEAD>,

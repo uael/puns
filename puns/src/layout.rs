@@ -45,7 +45,7 @@
 //!   and it holds the tag in its fields. A variant that holds a type without values has no tag,
 //!   since no value of it exists.
 //! - A **union** (`repr(C)`) is an enum without a tag whose variants are its fields, each at offset
-//!   0. A value of it must be one of its fields ([Unions](crate#unions)).
+//!   0. A value of it must be one of its fields ([Unions](crate::guide::soundness#unions)).
 //! - A type **without values** is an enum without variants ([`Layout::uninhabited`]), such as
 //!   `Infallible`. No value has its layout ([`Layout::is_inhabited`]), so as a source, a variant of
 //!   an enum without values needs no proof where the variants of two enums are related.
@@ -147,10 +147,10 @@ pub(crate) enum Valid {
 /// every value of the type guarantees, whatever safe code does, so a source proves these values,
 /// and no others. Both sets are the same, with three exceptions. A field restricted by
 /// `#[pun(valid(..))]` ([`Layout::restricted`]) accepts fewer values than it is known to hold
-/// ([Guarantees and requirements](crate#guarantees-and-requirements)). A scalar that may be
-/// uninitialized ([`Spec::maybe_uninit`]) accepts some values, but is known to hold anything,
-/// padding included. A scalar that a pun never makes ([`Spec::never`]) accepts no value, but is
-/// known to hold initialized bytes.
+/// ([Guarantees and requirements](crate::guide::soundness#guarantees-and-requirements)). A scalar
+/// that may be uninitialized ([`Spec::maybe_uninit`]) accepts some values, but is known to hold
+/// anything, padding included. A scalar that a pun never makes ([`Spec::never`]) accepts no value,
+/// but is known to hold initialized bytes.
 ///
 /// # Examples
 ///
@@ -222,7 +222,7 @@ impl Spec {
   /// A rule cannot name it as a field, since it is not a number, though a rule that reads bytes at
   /// an offset reads its bytes as any others. An `Option` of it is such a scalar too, if the
   /// `Option` has the size of the scalar ([Scalars that a pun never
-  /// makes](crate#scalars-that-a-pun-never-makes)).
+  /// makes](crate::guide::never_made)).
   ///
   /// # Panics
   ///
@@ -770,7 +770,7 @@ pub(crate) enum Uniform {
 ///
 /// Rust leaves part of some layouts to the compiler, which may choose differently in its next
 /// version, or at random under `-Zrandomize-layout`, as [The `unstable`
-/// feature](crate#the-unstable-feature) lists. A `Stable` says which facts about a layout hold
+/// feature](crate::guide::unstable) lists. A `Stable` says which facts about a layout hold
 /// under every choice. It is computed from the layouts of its parts.
 ///
 /// Without the `unstable` feature, the analysis does not look into a layout that is not `fixed`
@@ -1775,7 +1775,7 @@ fn pin<T>(_: T) {}
 ///
 /// Rust leaves part of some layouts to the compiler, which may choose differently in its next
 /// version, or at random under `-Zrandomize-layout`, as [The `unstable`
-/// feature](crate#the-unstable-feature) lists.
+/// feature](crate::guide::unstable) lists.
 ///
 /// Without the `unstable` feature, nothing that `puns` does depends on a layout that Rust leaves to
 /// the compiler, so whether a pun compiles, what it checks, and which values it accepts are the
@@ -1784,7 +1784,7 @@ fn pin<T>(_: T) {}
 /// With the `unstable` feature, `puns` uses the layout that `rustc` chose for the build, as it is,
 /// and a pun is still sound for the build that compiles it. Everything that compiles without the
 /// feature also compiles with it and does the same, and more compiles. See [The `unstable`
-/// feature](crate#the-unstable-feature).
+/// feature](crate::guide::unstable).
 pub const UNSTABLE: bool = cfg!(feature = "unstable");
 
 impl Layout {
@@ -2782,7 +2782,7 @@ impl Layout {
   }
 
   // -----------------------------------------------------------------------------------------------
-  // What every layout that Rust allows has (see "The `unstable` feature" in the crate docs)
+  // What every layout that Rust allows has (see the chapter "The `unstable` feature" of the guide)
 
   /// Returns the same layout, of the type whose identity is `id`.
   #[doc(hidden)]
@@ -3395,7 +3395,7 @@ impl Layout {
   /// Only `Enum::union` makes a `layout` that this function accepts.
   ///
   /// The language has not settled the validity of unions, and this layout takes what is sound under
-  /// each of the rules being considered, as [Unions](crate#unions) describes.
+  /// each of the rules being considered, as [Unions](crate::guide::soundness#unions) describes.
   ///
   /// # Panics
   ///

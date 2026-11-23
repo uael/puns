@@ -30,1054 +30,18 @@
 //! generates. Only the implementations of standard traits, such as `From` and `Display`, are not,
 //! since stable Rust cannot call a trait method in `const`.
 //!
-//! - The functions in the first row are proven, except for [`try_pun`], [`try_pun_ref`] and
-//!   [`try_pun_mut`], which are checked.
-//! - The functions that take a value, [`pun`], [`try_pun`], [`head`] and [`tail`], require both
-//!   types to be `Copy`.
-//! - The front or the back is the first or last `size_of::<D>()` bytes. If the target of
-//!   [`head_ref`] or [`head_mut`] is a slice, it holds as many elements as fit. [`tail`],
-//!   [`tail_ref`] and [`tail_mut`] require a sized source.
-//! - The functions in the second row are checked, and each makes its checks in the order below.
-//!   [`from_bytes`] and [`from_bytes_mut`] check the address, then the size. [`from_head`] and
-//!   [`from_head_mut`] check that the bytes hold the sized part of the target, then the address,
-//!   then the extent that its rules give. [`from_tail`] and [`from_tail_mut`] check the size first,
-//!   since it decides where the last bytes start, then the address. All of them then check whatever
-//!   the bytes do not prove about the target.
-//! - [`from_bytes`], [`from_bytes_mut`] and [`as_bytes`] behave like `try_pun_ref::<[u8], D>`,
-//!   `try_pun_mut::<[u8], D>` and `pun_ref::<S, [u8]>`. Because they fix one side to bytes, they
-//!   take a single type parameter, which also keeps an array of unsuffixed integer literals from
-//!   being inferred as an `[i32; N]`.
-//! - [`from_head`] and [`from_head_mut`] take as many bytes as the `size` or `len` rule of the
-//!   target says, or else as many elements as fit. [`from_tail`] and [`from_tail_mut`] require a
-//!   sized target, because the extent of an unsized target cannot be found from its end.
-//! - A view enum is an enum whose variants each hold a reference. [The derive](macro@Pun) gives it
-//!   `from_bytes` and `from_head`, which return the first variant that the bytes match.
-//!
-//! None of these functions makes a value that holds a scalar that a pun never makes, such as the
-//! offset of a self-relative pointer ([Scalars that a pun never
-//! makes](#scalars-that-a-pun-never-makes)), but they read such a value as plain data.
-//!
 //! [`num`] has numbers of a fixed byte order, and integers restricted to some values. [`macro@Pun`]
 //! documents the options of the derive. [`layout`] has the types that describe a layout, and the
 //! checksums. The tests and the examples of the repository show more uses. Each example of a format
 //! says which parts of the format it does not cover, and why.
 //!
-//! ## Using the functions
+//! # Guide
 //!
-//! These examples apply the functions of the table to a few kinds of values:
+//! The [`guide`] explains the rest as a book: how each function checks what it checks, the errors
+//! of a pun that does not compile, soundness, the `unstable` feature, the minimum Rust version,
+//! portability, and the limitations of `puns`.
 //!
-//! ```
-//! use puns::{
-//!   Pun,
-//!   num::{u8in, u16be, u32be, u32le},
-//! };
-//!
-//! // Reinterpret an `f32` as its bits. A `u32` is a `char` only if it is a Unicode scalar value.
-//! assert_eq!(puns::pun::<f32, u32>(1.0), 0x3f80_0000);
-//! assert_eq!(puns::try_pun::<u32, char>(0xe9), Ok('é'));
-//! assert_eq!(puns::try_pun::<u32, char>(0xd800), Err(puns::Error::Validity));
-//!
-//! // The low half of a big-endian number is its last two bytes.
-//! assert_eq!(puns::tail::<u32be, u16be>(0x1234_5678.into()).get(), 0x5678);
-//! assert_eq!(puns::head::<u32le, u8>(0x1234_5678.into()), 0x78);
-//!
-//! /// A pixel. Its first three bytes are its color.
-//! #[derive(Pun, Debug, PartialEq)]
-//! #[repr(C)]
-//! struct Rgba {
-//!   red: u8,
-//!   green: u8,
-//!   blue: u8,
-//!   alpha: u8,
-//! }
-//!
-//! // Turn RGBA into BGRA in place, through a `&mut` to the color alone.
-//! let mut pixel = Rgba { red: 255, green: 128, blue: 0, alpha: 200 };
-//! puns::head_mut::<_, [u8; 3]>(&mut pixel).reverse();
-//! assert_eq!(pixel, Rgba { red: 0, green: 128, blue: 255, alpha: 200 });
-//!
-//! /// A string of UTF-8, after its length in one byte.
-//! #[derive(Pun)]
-//! #[repr(C)]
-//! #[pun(size = 1 + length)]
-//! struct Text {
-//!   length: u8,
-//!   text: str,
-//! }
-//!
-//! // Read strings from the front of a stream. `from_head` returns each one and the bytes after it.
-//! let mut stream: &[u8] = b"\x05hello\x00\x05world\xff";
-//! let mut words = vec![];
-//! while let Ok((word, rest)) = puns::from_head::<Text>(stream) {
-//!   words.push(&word.text);
-//!   stream = rest;
-//! }
-//! assert_eq!((words, stream), (vec!["hello", "", "world"], &[0xff][..]));
-//!
-//! // Read a checksum from the back of a file.
-//! let file = [b'd', b'a', b't', b'a', 0x78, 0x56, 0x34, 0x12];
-//! let (data, checksum) = puns::from_tail::<u32le>(&file).unwrap();
-//! assert_eq!((data, checksum.get()), (&b"data"[..], 0x1234_5678));
-//!
-//! // Reinterpreting bytes as ASCII is checked. Reinterpreting ASCII as a `str` is proven.
-//! let ascii: &[u8in<0, 0x7f>] = puns::from_bytes(b"hello").unwrap();
-//! let text: &str = puns::pun_ref(ascii);
-//! assert_eq!(text, "hello");
-//! ```
-//!
-//! Since every function is a `const fn`, bytes in a constant are checked while the program
-//! compiles:
-//!
-//! ```
-//! use puns::{
-//!   Pun,
-//!   num::{u16le, u32bec},
-//! };
-//!
-//! #[derive(Pun)]
-//! #[repr(C)]
-//! #[pun(assert(hp <= level * 10))]
-//! struct Save {
-//!   magic: u32bec<0x5341_5645>,
-//!   version: u8,
-//!   #[pun(valid(1..=99))]
-//!   level: u8,
-//!   hp: u16le,
-//!   bag: [u8],
-//! }
-//!
-//! // A new game starts from a save in the binary. With 11 hp at level 1, the build fails.
-//! const NEW_GAME: &Save = match puns::from_bytes(b"SAVE\x02\x01\x0a\x00") {
-//!   Ok(save) => save,
-//!   Err(_) => panic!("the built-in save is invalid"),
-//! };
-//! assert_eq!((NEW_GAME.level, NEW_GAME.hp.get()), (1, 10));
-//! ```
-//!
-//! # Soundness
-//!
-//! A pun only ever produces a `D` from bytes that are a valid `D`, and only produces a reference to
-//! a `D` at an address that is [properly aligned] for `D`. Here, a *valid* `D` is a value that is
-//! [valid] for `D` in the sense of the Reference and that also meets the invariants `puns` knows
-//! about: a `str` is UTF-8, a type from [`num`] holds one of its values, and a type that derives
-//! `Pun` meets what the derive was told (the values of fields marked `#[pun(valid(..))]`, and its
-//! rules). The analysis either proves this at compile time, or the function checks it at run time
-//! and returns an [`Error`] if the check fails. A pun with a part that can be neither proven nor
-//! checked, such as a byte that may be padding, does not compile.
-//!
-//! What the derive is told is a requirement, which the type does not enforce ([Guarantees and
-//! requirements](#guarantees-and-requirements)). Where the source has the same requirement at the
-//! same place, `puns` takes it as met and does not check it again. If the source does not meet it,
-//! because safe code wrote its fields or [`zeroed`] made it, the target does not meet it either.
-//! Unsafe code may rely on what a type guarantees, but not on what it requires of a value that it
-//! did not check itself.
-//!
-//! The analysis reads the layout of each type from its implementation of [`Pun`]: its size, its
-//! alignment, the offset of each field, the values each scalar may hold, and its rules.
-//! `#[derive(Pun)]` takes sizes and alignments from the compiler. It computes offsets as the type's
-//! `repr` specifies them, or measures them on a value when the compiler chooses them. A layout
-//! never depends on a path that the deriving crate could redefine (see [What the derive
-//! trusts](macro@Pun#what-the-derive-trusts)). For the types of `core` that it supports, `puns`
-//! implements `Pun` itself.
-//!
-//! `puns` relies on the layouts that the [Reference] specifies: `repr(C)`, `repr(transparent)`, the
-//! primitive representations of enums, `packed` and `align`. It also relies on the layouts of
-//! `Option` and `Result` that `core` documents. [What Rust documents](#what-rust-documents) lists
-//! each of these guarantees with its source. Where Rust leaves a layout to the compiler, `puns`
-//! reads the one that `rustc` chose for the build. It measures field offsets on a value, and finds
-//! the tag of an enum of the `Rust` representation by experimenting on a value of each variant. An
-//! experiment that fails stops the build, so no wrong layout is used. Beyond that, `puns` relies on
-//! three behaviors of `rustc` that no documentation states:
-//!
-//! - A pointer to an unsized type has the representation of a pointer to a slice. This is checked
-//!   at compile time for each unsized type, against a pointer made with an `as` cast.
-//! - Const evaluation reports an error when it reads an uninitialized byte, when it reads the
-//!   variant of a value whose tag is not the tag of a variant, and when it computes the size of a
-//!   slice that is larger than an object can be. The experiments that find the layout of an enum of
-//!   the `Rust` representation rely on the first two, and only run at compile time. The derive
-//!   relies on the first to refuse an enum without fields that has padding, and on the third for an
-//!   unsized struct whose tail is so large that 8 elements overflow an `isize`. An `Option` of a
-//!   scalar that a pun never makes relies on the first to refuse a `None` with an uninitialized
-//!   byte. Compile-fail tests check each of the three errors.
-//! - Const evaluation reads the variant of a value whose tag is the tag of a variant from the tag
-//!   alone, without reading or checking its other bytes, though `mem::discriminant` takes a
-//!   reference to the whole value and the Reference requires a reference to point to a valid value.
-//!   The experiments rely on it when they move the tag of one variant into a value of another. The
-//!   model check compares the layouts that they find with oracles that do not use them.
-//!
-//! To check the alignment of an address at run time, `puns` reinterprets the address as an integer,
-//! through a union, since no stable `const fn` gives it on Rust 1.99. At run time, `core` does not
-//! call this undefined behavior, but it advises against it because its semantics are not settled.
-//! No documentation promises that the integer is the address either. In const evaluation, `core`
-//! calls it undefined behavior and says that using the integer stops the evaluation, so a check of
-//! an address does not compile in a constant. The integer is never made into a pointer again, and
-//! the tests run it under Miri with `-Zmiri-strict-provenance`.
-//!
-//! Without the `unstable` feature, whether a pun compiles, what it checks and which values a check
-//! accepts do not depend on a layout that Rust leaves to the compiler: the order of the fields of a
-//! struct or tuple of the `Rust` representation, the tag of an enum of that representation, or
-//! niches. One exception is whether an `Option` of a scalar that a pun never makes compiles
-//! ([Scalars that a pun never makes](#scalars-that-a-pun-never-makes)). With the feature, `puns`
-//! also uses the layout that `rustc` chose. [The `unstable` feature](#the-unstable-feature) states
-//! the rule and [what it relies on](#what-this-relies-on).
-//!
-//! The tests run under [Miri], on the targets that [Portability](#portability) names. The analysis
-//! itself is checked against oracles that do not use it, both with and without the `unstable`
-//! feature.
-//!
-//! ## Guarantees and requirements
-//!
-//! The analysis relies only on what a type *guarantees*, no matter what safe code does: the valid
-//! values of `bool`, `char`, enums with or without fields, and `NonZero`, the UTF-8 of `str`, and
-//! the invariants of the types in [`num`], such as [`u16bec<V>`](num::u16bec) and [`u8in<MIN,
-//! MAX>`](num::u8in), whose fields are private and whose constructors check them.
-//!
-//! A struct that derives `Pun` can only *require* values of its fields. `#[pun(valid(..))]` on a
-//! field is a requirement, and so is a rule, because safe code can write any value to a `pub
-//! version: u8`. `puns` proves or checks a requirement whenever it makes a value of the type,
-//! though [`zeroed`] does not check rules. A requirement never proves what another type guarantees.
-//! For example, a slice of a struct whose only field has `#[pun(valid(..=0x7f))]` is checked when
-//! it is reinterpreted as a `str`, while a `[u8in<0, 0x7f>]` is proven to be one. For the same
-//! reason, the accessors of regions truncate a region rather than trust the fields that give its
-//! size. Two types have the same layout only if they require and guarantee the same values, so a
-//! field `#[pun(valid(0..=1))] u8` is not a `bool`.
-//!
-//! A requirement that the source has too proves the same requirement of the target, but a check
-//! of it may still fail on a value of the source. Where a union is proven by a field through a
-//! requirement and checked all the same, its later fields may be tried, and what they read counts
-//! as read (see [Unions](#unions)).
-//!
-//! ## Padding and `MaybeUninit`
-//!
-//! A pun is refused if a byte that the target requires to be initialized may be padding in the
-//! source.
-//!
-//! `MaybeUninit<T>` is padding with the size and alignment of `T`, and it is only `Pun` if `T` is,
-//! so that it never holds an `UnsafeCell`. As a target, it accepts anything. As a source, it proves
-//! nothing except a target that accepts anything. So a `&mut MaybeUninit<T>` can only be made from
-//! a source that may hold anything there, since whatever is written through it may be
-//! uninitialized. A `&mut T` is made from a `MaybeUninit<T>` only if `T` requires no byte to be
-//! initialized, since a byte that `T` requires would be read from padding.
-//!
-//! A rule that reads the bytes of its value by offset (`le`, `be`, a variable-length integer, a
-//! checksum, a CRC, `matches`, or a `walk` whose expressions do) reads its padding as well. Such a
-//! rule is checked when the source does not prove it. It is also checked with what it shares a
-//! check with: in a variant of an enum that is checked as a whole, in an element of an array of
-//! which another element is checked, and where every part of the target is checked. Its struct
-//! must then have no byte that may be padding in the source.
-//!
-//! ## Unions
-//!
-//! The language has not settled the validity of unions ([`r-undefined.validity.union`][union
-//! validity]). Some of the rules under discussion let a union hold any bytes, while others require
-//! its bytes to be one of its fields, and safe code may write one field over another. So `puns`
-//! accepts only what is sound under every one of these rules:
-//!
-//! - As a target, bytes are a union if they are one of its fields. This requires more than some of
-//!   the rules do, and never less. A union is proven by any one field that the source proves, and
-//!   otherwise it is checked field by field at run time.
-//! - As a source, nothing is known about a union, not even that its bytes are initialized. Only the
-//!   same union proves a union. A union may then hold a value even if none of its fields has one,
-//!   so a value that holds it may exist, though no value of it can be made.
-//!
-//! A field is only checked if no byte it reads may be padding in the source. If some field might
-//! read padding and no field is proven, the pun is refused. Checking only the other fields would be
-//! sound, but `puns` does not do it yet (see [Limitations](#limitations)).
-//!
-//! A union that is proven is not read. Some parts are checked together: the elements of an array,
-//! and the fields of a variant of an enum that is checked as a whole. A union that is proven there
-//! would be checked with the others, its fields tried in order. If that would read a byte that may
-//! be padding in the source, or a byte of the same union, of which nothing is known, the pun is
-//! refused. A byte that a field reads is one that it checks, a byte that a rule of a struct in it
-//! loads, or any byte of a struct whose rule reads bytes by offset.
-//!
-//! ## Types without values
-//!
-//! `Infallible` and an enum without variants are types without values. No value of a type that has
-//! values can be one of them, so such a pun is refused as never valid, and a variant or struct that
-//! holds one has no value either. A slice of a type without values has one value, the empty one: a
-//! pun that may give it an element is refused, unless the source ends with a slice of the same
-//! elements at the same place. As a source, a variant without values needs no proof where an
-//! enum is related to a target enum variant by variant, since no value is that variant. Against any
-//! other target, the tag of the enum is read as a scalar that may hold the tag of that variant too,
-//! and a struct that holds a type without values is related field by field, as any struct is.
-//! Without the first rule, a variant of a `repr(u8)` enum whose field has no value would be proven
-//! from a variant whose field does, because no byte of a zero-sized type is ever compared.
-//!
-//! No bytes are a variant without values of a target enum, or a field without values of a target
-//! union. The analysis does not look at it, and a check reads nothing of it: bytes whose tag is
-//! that variant's are refused, whatever its other fields would hold.
-//!
-//! A union none of whose fields has values is not a type without values as a source: a value of
-//! it may exist ([Unions](#unions)), and so may a variant or a struct that holds it. An enum of the
-//! `Rust` representation with such a variant is refused, since no sample of the variant can be made
-//! to find its tag.
-//!
-//! ## What deriving `Pun` means
-//!
-//! `puns` knows a type by its layout and by what the type system enforces about its bytes, and
-//! nothing more. This has two consequences, both by design.
-//!
-//! `PhantomData<T>` is a scalar with no bytes, for any `T`. Types that differ only in phantom
-//! parameters or lifetimes have the same layout, and convert to each other freely. A type must not
-//! derive `Pun` if its parameters mark something about its values: a unit, an invariant lifetime
-//! that ties a value to a scope, or a marker of what a value was checked against.
-//!
-//! ```
-//! use core::marker::PhantomData;
-//!
-//! #[derive(Clone, Copy)]
-//! struct Meters;
-//! #[derive(Clone, Copy)]
-//! struct Feet;
-//!
-//! #[derive(puns::Pun, Clone, Copy)]
-//! #[repr(C)]
-//! struct Length<U> {
-//!   value: u32,
-//!   unit: PhantomData<U>,
-//! }
-//!
-//! // Not what a unit is for: 3 meters are 3 feet.
-//! let feet: Length<Feet> = puns::pun(Length::<Meters> { value: 3, unit: PhantomData });
-//! assert_eq!(feet.value, 3);
-//! ```
-//!
-//! Deriving `Pun` also makes every field as accessible as if it were public. A value can be made
-//! from anything whose bytes are valid for its fields and rules, reinterpreted as anything its
-//! bytes are, and written through a `&mut` to another type. The functions check what the derive was
-//! told, and nothing that a constructor checks, so a type whose private fields keep an invariant
-//! the derive does not know about must not derive `Pun`.
-//!
-//! ```
-//! mod even {
-//!   /// Only even numbers, says `new`.
-//!   #[derive(puns::Pun, Clone, Copy)]
-//!   #[repr(transparent)]
-//!   pub struct Even(u32);
-//!
-//!   impl Even {
-//!     pub const fn new(value: u32) -> Option<Self> {
-//!       if value % 2 == 0 { Some(Self(value)) } else { None }
-//!     }
-//!
-//!     pub const fn get(self) -> u32 {
-//!       self.0
-//!     }
-//!   }
-//! }
-//!
-//! assert!(even::Even::new(3).is_none());
-//! // What `new` refuses, `pun` makes.
-//! let odd: even::Even = puns::pun(3u32);
-//! assert_eq!(odd.get(), 3);
-//! ```
-//!
-//! # Compile-time errors
-//!
-//! Most refusals are panics in `const` blocks inside the generic functions of `puns` (error E0080).
-//! Because such a block depends on the type parameters, `rustc` only evaluates it when it generates
-//! code for an instance of the function, after monomorphization. `cargo check` does not generate
-//! code, so it does not report these errors, while `cargo build` does. For the same reason, a
-//! generic function that calls into `puns` compiles fine until it is instantiated with types that
-//! violate the conditions. Each function lists its conditions under "Compile-time errors". They
-//! would be trait bounds if stable Rust had const traits.
-//!
-//! ## Reading an error
-//!
-//! A common mistake with `transmute` is reinterpreting a struct with padding as bytes. `puns`
-//! refuses it, and the first lines of the error say why:
-//!
-//! ```compile_fail,E0080
-//! #[derive(puns::Pun)]
-//! #[repr(C)]
-//! struct Header {
-//!   kind: u8,
-//!   length: u32,
-//! }
-//!
-//! let bytes: &[u8; 8] = puns::pun_ref(&Header { kind: 1, length: 2 });
-//! ```
-//!
-//! ```text
-//! error[E0080]: evaluation panicked:
-//!               cannot pun: a byte that the target requires to be initialized is padding in the source.
-//!               This is at byte 1 of the target.
-//! ...
-//! note: the above error was encountered while instantiating `fn pun_ref::<Header, [u8; 8]>`
-//!  --> src/main.rs:9:25
-//!   |
-//! 9 |   let bytes: &[u8; 8] = puns::pun_ref(&Header { kind: 1, length: 2 });
-//!   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-//! ```
-//!
-//! Byte 1 is the first of the three bytes of padding after `kind`. The last note gives the line of
-//! your call. Each function in the table evaluates its constant itself, so the note names your call
-//! rather than one inside `puns`. Between the first lines and that note, `rustc` prints about
-//! thirty lines locating the failed constant inside `puns`, which you can skip.
-//!
-//! An optimized build may inline the function into yours before it evaluates the constant, and
-//! `rustc` then prints no last note. The error still names the two types, as in
-//! `Plan::<Header, [u8; 8]>`, but not the line of your code. A debug build, such as the one
-//! `cargo build` makes, does name it.
-//!
-//! To fix this pun, declare the padding as a field, so that it is initialized:
-//!
-//! ```
-//! #[derive(puns::Pun)]
-//! #[repr(C)]
-//! struct Header {
-//!   kind: u8,
-//!   reserved: [u8; 3],
-//!   length: u32,
-//! }
-//!
-//! let bytes: &[u8; 8] = puns::pun_ref(&Header { kind: 1, reserved: [0; 3], length: 2 });
-//! assert_eq!(bytes[..4], [1, 0, 0, 0]);
-//! ```
-//!
-//! ## Messages
-//!
-//! Every refusal prints a message that says why the pun is refused, and names the byte of the
-//! target where the problem is, when there is one. Here are the most common messages, each with
-//! code that compiles where the pun can be fixed.
-//!
-//! **The pun depends on a layout that Rust leaves to the compiler.** The fields of a struct of the
-//! `Rust` representation may be in any order, so `puns` cannot tell which byte is the `bool`:
-//!
-#![cfg_attr(not(feature = "unstable"), doc = "```compile_fail,E0080")]
-#![cfg_attr(feature = "unstable", doc = "```")]
-//! #[derive(puns::Pun)]
-//! struct Flagged {
-//!   value: u8,
-//!   flag: bool,
-//! }
-//!
-//! let flagged: &Flagged = puns::from_bytes(&[1u8, 1]).unwrap();
-//! ```
-//!
-//! ```text
-//! cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
-//! Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
-//! This is at byte 0 of the target.
-//! ```
-//!
-//! With `#[repr(C)]`, the fields are in declaration order:
-//!
-//! ```
-//! #[derive(puns::Pun)]
-//! #[repr(C)]
-//! struct Flagged {
-//!   value: u8,
-//!   flag: bool,
-//! }
-//!
-//! let flagged: &Flagged = puns::from_bytes(&[7u8, 1]).unwrap();
-//! assert!(flagged.flag);
-//! ```
-//!
-//! **The sizes differ.**
-//!
-//! ```compile_fail,E0080
-//! let n: u32 = puns::pun([1u8, 2, 3]);
-//! ```
-//!
-//! ```text
-//! cannot pun: the source is smaller than the target.
-//! ```
-//!
-//! A source larger than the target gives "the source is larger than the target", and the message
-//! suggests [`head`] and [`tail`], which take just a part of the source:
-//!
-//! ```
-//! assert_eq!(puns::head::<[u8; 3], [u8; 2]>([1, 2, 3]), [1, 2]);
-//! ```
-//!
-//! **The target needs a greater alignment than the source.** A `[u8; 4]` can be at any address,
-//! but a `u32` cannot:
-//!
-//! ```compile_fail,E0080
-//! let n: &u32 = puns::pun_ref(&[0u8; 4]);
-//! ```
-//!
-//! ```text
-//! cannot pun: the target has a greater alignment than the source.
-//! Use `try_pun_ref` or `try_pun_mut` to check the address at run time.
-//! ```
-//!
-//! [`pun`] takes the value, not a reference to it, so the address does not matter: it copies the
-//! bytes into a `u32`. A [`num::u32le`] has an alignment of 1, so a reference to four bytes can be
-//! reinterpreted as one. Otherwise, [`try_pun_ref`] checks the address at run time:
-//!
-//! ```
-//! use puns::num::u32le;
-//!
-//! assert_eq!(puns::pun::<[u8; 4], u32>([1, 0, 0, 0]), u32::from_ne_bytes([1, 0, 0, 0]));
-//! assert_eq!(puns::pun_ref::<[u8; 4], u32le>(&[1, 0, 0, 0]).get(), 1);
-//! let n: Result<&u32, puns::Error> = puns::try_pun_ref(&[0u8; 4]);
-//! assert!(n == Ok(&0) || n == Err(puns::Error::Alignment));
-//! ```
-//!
-//! **Some values of the source are not valid for the target, and the function checks nothing.**
-//!
-//! ```compile_fail,E0080
-//! let text: &str = puns::pun_ref(&[0xffu8; 4]);
-//! ```
-//!
-//! ```text
-//! cannot pun: some values of the source are not valid for the target, or do not prove one of its rules.
-//! Use a `try_*` function to check them at run time.
-//! This is at byte 0 of the target.
-//! ```
-//!
-//! ```
-//! assert_eq!(puns::try_pun_ref::<[u8; 4], str>(b"text"), Ok("text"));
-//! assert_eq!(puns::try_pun_ref::<[u8; 4], str>(&[0xff; 4]), Err(puns::Error::Validity));
-//! ```
-//!
-//! **A value that is not valid for the source could be written through a `&mut`.** Here, that value
-//! would be bytes that are not UTF-8:
-//!
-//! ```compile_fail,E0080
-//! let mut text = String::from("text");
-//! let bytes: &mut [u8] = puns::pun_mut(text.as_mut_str());
-//! ```
-//!
-//! ```text
-//! cannot pun: some values of the target are not valid for the source (or are padding where the source is not), and could be written through the `&mut`.
-//! ```
-//!
-//! Nothing is written through a shared reference, and every `str` is bytes:
-//!
-//! ```
-//! let text = String::from("text");
-//! let bytes: &[u8] = puns::pun_ref(text.as_str());
-//! assert_eq!(bytes, b"text");
-//! ```
-//!
-//! **No value of the source is valid for the target.** A byte that is always 2 is never a `bool`.
-//! No function can make this pun, so the code that asks for it is a mistake:
-//!
-//! ```compile_fail,E0080
-//! let never = puns::try_pun::<puns::num::u8c<2>, bool>(Default::default());
-//! ```
-//!
-//! ```text
-//! cannot pun: no value of the source is valid for the target.
-//! This is at byte 0 of the target.
-//! ```
-//!
-//! A byte that is padding in the source but must be initialized in the target is refused as well.
-//! [Reading an error](#reading-an-error) shows its message, and
-//! [Enums: what is refused](#enums-what-is-refused) shows it for an enum.
-//!
-//! ## Enums: what is refused
-//!
-//! A `Shape` is not a `[u8; 4]`, because the byte after the tag of a `Circle` is padding, and
-//! nothing tells a `Circle` from a `Rect` at compile time:
-//!
-//! ```compile_fail,E0080
-//! # use puns::Pun;
-//! # #[derive(Pun, Clone, Copy)] #[repr(u8)] enum Shape { Circle { radius: u16 }, Rect(u8, bool) }
-//! let _: [u8; 4] = puns::pun(Shape::Rect(3, true));
-//! ```
-//!
-//! A `&mut Shape` is not a `&mut Drawing` either, since a `Drawing` written through it could be a
-//! `Nothing`, or a `Rect` whose second field is not a `bool`:
-//!
-//! ```compile_fail,E0080
-//! # use puns::Pun;
-//! # #[derive(Pun, Clone, Copy)] #[repr(u8)] enum Shape { Circle { radius: u16 }, Rect(u8, bool) }
-//! # #[derive(Pun, Clone, Copy)] #[repr(u8)]
-//! # enum Drawing { Circle { radius: u16 }, Rect(u8, u8), Nothing }
-//! let mut shape = Shape::Rect(3, true);
-//! let _: &mut Drawing = puns::pun_mut(&mut shape);
-//! ```
-//!
-//! # Scalars that a pun never makes
-//!
-//! Some scalars are valid for reasons that are not in their bytes. The offset of a self-relative
-//! pointer, like the ones in the regions of [`nearest`](https://docs.rs/nearest), is valid only at
-//! its place in a buffer, and only if what it aims at is there. A handle or an index into a table
-//! is another such scalar. A crate declares such a scalar as a [`Scalar`] whose `SPEC` is
-//! [`Spec::never`](layout::Spec::never): it accepts no value, and its bytes are known to be
-//! initialized.
-//!
-//! A pun reads such a scalar as initialized bytes, and never makes one, not even from a value of
-//! the same type. Nothing proves a part of the target that holds one, so a pun or a check that
-//! would make one does not compile, nor does a `&mut` through which one could be written. An enum
-//! with a variant that holds one is the exception: a check never accepts that variant, so a pun to
-//! the enum compiles if the source has no value of that variant, and a check refuses its tag at run
-//! time. The crate that declares the scalar makes the values that hold it, and proves them. To
-//! read such a value from bytes, it checks the bytes with [`validate_but_never`], which checks
-//! every other part of the value, rules included. It then proves its scalars as only it can, and
-//! makes the reference.
-//!
-//! An `Option` of such a scalar is one too, if it has the size of the scalar and every byte of
-//! `None` is initialized. Neither `None` nor `Some` is checked. Otherwise, the `Option` does not
-//! compile. `core` documents the size where the scalar is a `NonZero` integer or a
-//! `repr(transparent)` struct around one ([`Option` representation][option representation]), and
-//! `None` is then zero. For another scalar, such as a `repr(packed)` struct around a `NonZero`, the
-//! size depends on the niche that `rustc` gives it, which no documentation promises. That decides
-//! only whether the `Option` compiles, never what a pun checks or accepts, since nothing of it is
-//! checked.
-//!
-//! # Cargo features
-//!
-//! ## The `unstable` feature
-//!
-//! Rust leaves parts of the layout of some types to the compiler
-//! ([`r-layout.guarantees`][layout guarantees],
-//! [`r-layout.repr.rust.unspecified`][rust unspecified]), which may choose differently in its next
-//! version, or at random under [`-Zrandomize-layout`]. These parts are:
-//!
-//! - The order of the fields of a struct or tuple of the `Rust` representation, and therefore its
-//!   size, so `(u8, u16, u8)` is 4 or 6 bytes.
-//! - The position and the values of the tag, for an enum of the `Rust` representation.
-//! - The niches of `Option` and `Result`, except where `core` documents them.
-//!
-//! `puns` reads what the compiler chose, so a pun is sound for the build that compiles it, whatever
-//! the choice was. The `unstable` feature decides whether a pun must also behave the same under any
-//! other choice. [`layout::UNSTABLE`] is `true` if the feature is enabled.
-//!
-//! ### The rule
-//!
-//! Without the `unstable` feature, a pun compiles only if `-Zrandomize-layout` cannot change what
-//! it does (whether it compiles, what it checks, and which values a check accepts). The message of
-//! a refusal is not part of this, and may name what the compiler chose. For example, reinterpreting
-//! `(u8, u16, u8)` as `[u8; 4]` is refused because of its layout, or because of its size when it is
-//! 6 bytes.
-//!
-//! With the feature, `puns` uses the layout that `rustc` chose. Within one build, a pun that
-//! compiles without the feature also compiles with it, and does the same thing.
-//!
-//! The rule applies to a pun, not to a type. Reinterpreting `(bool, u8)` as bytes is proven
-//! whichever byte holds the `bool`, but reinterpreting bytes as `(bool, u8)` would need a check of
-//! one byte or the other, so that pun is refused.
-//!
-//! ### What a check may read
-//!
-//! A check never reads a byte of the source that holds a different field in another layout that
-//! Rust allows. Such a check would read a different part of the same value, and could give a
-//! different answer, so a check that reads a byte of a struct whose fields Rust may reorder is
-//! refused. Only the bytes that a check reads count, as follows:
-//!
-//! - The check of an enum reads its tag, then the fields of the variant that the tag selects. A
-//!   byte under a variant therefore counts only for the values of the source whose tag is that
-//!   variant's. This holds where the source has an enum whose tag is at the same place, with the
-//!   same size and byte order.
-//! - The elements of an array share their checks. Where the source has elements of the same size at
-//!   the same places, the check of every element reads the same bytes of its element as the check
-//!   of the first one. Otherwise, every byte under the array counts.
-//! - A checked rule may read any byte of its struct, so every byte of that struct counts.
-//!
-//! Which field a byte holds is not part of what a pun does. `pun::<[u8; 2], (u8, u8)>([1, 2])` is
-//! `(1, 2)` or `(2, 1)`. Either is a valid value, and a pun promises a valid value and nothing
-//! more, as `transmute` does. Which bytes a value of a struct of the `Rust` representation has is
-//! the compiler's choice, with or without `puns`. But `puns` decides the result of a check on given
-//! bytes, so that result is the same in every layout. For example, whether `try_pun::<(u8, u8),
-//! F>((0, 2))` is `Ok`, for `F` a `repr(C)` struct of a `bool` and a `u8`, must not depend on which
-//! byte holds the `0`.
-//!
-//! ### Puns without the feature
-//!
-//! | Pun, without `unstable` | | Why |
-//! |---|---|---|
-//! | `[u8; 2]` as `(u8, u8)`, and back | proven | bytes of any value, in either order |
-//! | `[u8; 2]` as `(bool, bool)` | checked | both bytes are a `bool`, in either order |
-//! | `(bool, u8)` as `[u8; 2]`, `as_bytes` | proven | both bytes are initialized, in either order |
-//! | `[u8; 4]` as `(u8, u16)` | proven | it only requires initialized bytes, wherever its padding is |
-//! | a `repr(C)` struct that holds a `(bool, u8)` as itself, or its first bytes as the `(bool, u8)` | proven | the same type at the same place |
-//! | an enum of the `Rust` representation as itself | proven | a type has one layout in a program |
-//! | `[bool; 2]` as `(bool, u8)` | proven | the `bool` may be either byte, and both bytes are a `bool` |
-//! | `[u8; 2]` as `(bool, u8)` | refused | the byte that must be 0 or 1 is either byte |
-//! | `(u8, u8)` as `[bool; 2]` | refused | the check of each element reads a byte that, in another layout, holds the other field |
-//! | the first two bytes of `(u8, u16)` | refused | the second byte is padding in one layout and not in another |
-//! | bytes as a `struct P { a: u8, b: u8 }` with the rule `a < b` | refused | the rule reads `a`, which is either byte |
-//! | `(u8, u8)` as a `repr(C)` struct of a `bool` and a `u8` | refused | the check reads one field or the other, and `(0, 2)` passes in one order only |
-//! | `(u8, u8)` as `NonZero<u16>` | refused | the check reads both bytes, and each may hold either field |
-//! | a pun from `(u8, u16, u8)` or to it, other than to itself | refused | it is 4 or 6 bytes |
-//! | bytes as an enum of the `Rust` representation, or as `Option<bool>` | refused | nothing documents where its tag is, nor its values |
-//! | `validate_but_never::<(bool, u8)>` | refused | the byte that it checks is either byte |
-//!
-//! A struct or tuple of the `Rust` representation whose size is the same in every layout, and that
-//! has no rule and no scalar that a pun never makes, is proven field by field. Since a field may be
-//! anywhere, it must be proven at every place where it may be. So two `bool`s prove a `(bool, u8)`,
-//! four initialized bytes prove a `(u8, u16)`, and two `NonZero<u16>` prove a `(NonZero<u16>,
-//! u16)`. A struct with a rule, which names fields, is proven only by itself, as an enum is. A part
-//! that holds a scalar that a pun never makes is not proven at all. No check replaces a proof in a
-//! part whose layout Rust leaves to the compiler, because the check would read where the compiler
-//! may not have put the field, so whatever is not proven there does not compile. Such a part is
-//! still read by the check of a union that a later field proves, or of an enum whose variant holds
-//! a scalar that a pun never makes. The answer is then the same in every layout, and the pun
-//! compiles only if every byte under the part is initialized in the source.
-//!
-//! ### The same type
-//!
-//! Without the feature, a part whose layout Rust leaves to the compiler, unless it is proven field
-//! by field as above, is proven only by the same type at the same place. A type has one layout in a
-//! program, but two types, however alike, may each be arranged differently ([`offset_of!`, "Layout
-//! is subject to change"][offset_of layout]). `-Zrandomize-layout`, for example, arranges
-//! `Wrapper<u8, u8>` and `Wrapper<u8, i8>` differently. Stable Rust cannot compare types in
-//! `const`, since `TypeId` cannot be compared there and `type_name` is not a `const fn`.
-//!
-//! So `puns` identifies a type by a name, together with the identities of the types it is made of.
-//! The primitive types, the types of [`num`], arrays, slices, tuples, `Option`, `Result` and
-//! `MaybeUninit` have identities, and `ManuallyDrop<T>` is `T`. A type that derives `Pun` is named
-//! by where it is declared (the module, file, line and column), by its name, and by the number of
-//! its derive in its crate. A generic type that derives `Pun`, a `PhantomData`, and a [`Scalar`]
-//! implemented by hand have no identity. A part whose layout Rust leaves to the compiler and that
-//! holds one of them therefore proves itself only with the feature, unless it is proven field by
-//! field. A type whose every part has the same layout in every build, such as a generic `repr(C)`
-//! struct of a `u8` and a `PhantomData<T>`, needs no identity. An identity can only refuse a pun,
-//! because the layouts are compared as well, so two types that happened to share a name would still
-//! be told apart by their layouts.
-//!
-//! ### What this relies on
-//!
-//! `rustc` places the fields of a struct of the `Rust` representation one after another, each at
-//! the first offset its alignment allows, in an order of its choosing. The sizes it may give are
-//! therefore the sizes of the possible orders of the fields. `puns` tries them all for a struct of
-//! up to 6 fields that have a size or an alignment greater than 1. With more such fields, it
-//! assumes that the size depends on the order, unless the fields need no padding in any order.
-//! `-Zrandomize-layout` draws the order at random and does nothing else. No documentation states
-//! that `rustc` places fields this way. Rust only bounds the offsets
-//! ([`r-layout.repr.rust.layout`][rust layout]), and a compiler could put padding where no
-//! alignment needs it. In that case the size that `puns` reads would differ from the size that
-//! every order gives. The struct would no longer count as the same in every layout, so the pun
-//! would fail to compile rather than change what it does.
-//!
-//! The alignment of a type is read, not assumed. Rust gives the alignment of each primitive per
-//! platform, and makes a struct at least as aligned as its fields. `-Zrandomize-layout` does not
-//! change alignment.
-//!
-//! ### What Rust documents
-//!
-//! The table lists each guarantee that `puns` relies on, and where Rust states it. "R" is the
-//! [Reference][reference root], and "C" the documentation of [`core`].
-//!
-//! | Guarantee | Where |
-//! |---|---|
-//! | Layout may change with each compilation, and only what is listed is guaranteed | R [`r-layout.guarantees`][layout guarantees] |
-//! | A size is a multiple of the alignment, and the stride of an array | R [`r-layout.properties.size`][size] |
-//! | The sizes of `bool`, integers, floats and `char`, and of `usize` and `isize` | R [`r-layout.primitive.size`][primitive size], [`r-layout.primitive.size-align`][primitive size-align] |
-//! | The alignment of a primitive is that of the platform, read and not assumed | R [`r-layout.primitive.platform-specific-alignment`][primitive align] |
-//! | Any initialized bytes are an integer or a float | R [`r-type.numeric.validity`][numeric validity] |
-//! | `bool` is one byte, 0 or 1 | R [`r-type.bool.layout`][bool layout], [`r-type.bool.repr`][bool repr] |
-//! | `char` is a `u32` that is a Unicode scalar value | R [`r-type.char.value`][char value], [`r-type.char.layout`][char layout] |
-//! | `[T; N]` is `N` elements one after the other, `[T]` is laid out as the array, and `str` as `[u8]` | R [`r-layout.array`][array], [`r-layout.slice`][slice], [`r-layout.str`][str] |
-//! | `()` has size 0 and alignment 1. `!` has the same, and no value | R [`r-layout.tuple.unit`][unit], [`r-type.never.layout`][never layout] (nightly Reference) |
-//! | A value is valid if its fields, or its elements, are. Padding may be uninitialized | R [`r-undefined.validity.struct`][validity struct], [`r-undefined.validity.undef`][validity undef] |
-//! | An enum has a valid discriminant, and the fields of its variant are valid | R [`r-undefined.validity.enum`][validity enum] |
-//! | A `repr(C)` struct has its fields in order, each at the next offset that its alignment allows | R [`r-layout.repr.c.struct`][c struct] |
-//! | A `repr(C)` union has every field at 0 | R [`r-layout.repr.c.union.size-align`][c union] |
-//! | The validity of a union is not decided, so a target is one of its fields, and a source proves nothing | R [`r-undefined.validity.union`][union validity] |
-//! | An enum without fields, `repr(C)` or of a primitive representation, is that integer, which holds the discriminant | R [`r-layout.repr.c.enum`][c enum], [`r-layout.repr.primitive.enum`][primitive enum], [`r-items.enum.discriminant.access-memory`][discriminant memory] |
-//! | An enum with fields, `repr(C)`, of a primitive representation, or both ([RFC 2195]) | R [`r-layout.repr.c.adt`][c adt], [`r-layout.repr.primitive.adt`][primitive adt], [`r-layout.repr.primitive-c`][primitive c] |
-//! | `repr(transparent)` has the layout of its field | R [`r-layout.repr.transparent.layout-abi`][transparent] |
-//! | `packed(N)` and `align(N)` | R [`r-layout.repr.alignment`][alignment] |
-//! | The `Rust` representation puts each field at a multiple of its alignment, and the type is at least as aligned as its fields | R [`r-layout.repr.rust.layout`][rust layout] |
-//! | The fields of a struct of the `Rust` representation do not overlap, in an order that is not specified | R [`r-layout.repr.rust.struct`][rust struct] |
-//! | A struct of the `Rust` representation whose fields have a size of 0 has none. So does an enum without variants, or of one variant whose fields have no size | R [`r-layout.repr.rust.struct-zst`][struct zst], [`r-layout.repr.rust.enum-empty-zst`][enum empty], [`r-layout.repr.rust.enum-struct-like-zst`][enum struct-like] |
-//! | The `Rust` representation guarantees nothing else | R [`r-layout.repr.rust.unspecified`][rust unspecified] |
-//! | A tuple has the `Rust` representation | R [`r-layout.tuple.def`][tuple] |
-//! | The representation of a type does not change the layout of its fields | R [`r-layout.repr.inter-field`][inter-field] |
-//! | A type has one layout in a program, and a similar type may have another | C [`offset_of!`, "Layout is subject to change"][offset_of layout], R [`r-type.struct.layout`][struct layout] |
-//! | Where and how the discriminant of an enum of the `Rust` representation is stored is not defined | R [`r-items.enum.discriminant.type`][discriminant type], C [`mem::discriminant`] |
-//! | The fields of a union of the `Rust` representation need not be at 0, so such a union is refused | R [`r-type.union.layout`][union layout] |
-//! | `NonZero<T>` is `T`, except zero | C [`NonZero`, "Layout"][nonzero layout] |
-//! | `Option<T>` is `T`, and `None` is zeros, for a `NonZero` and a `repr(transparent)` struct around one | C [`option`, "Representation"][option representation] |
-//! | `Result<T, E>` has the size of `T`, and `Ok(t)` the bytes of `t`, when `T` is such a type and `E` has size 0 and alignment 1, or the reverse | C [`result`, "Representation"][result representation] |
-//! | `ManuallyDrop<T>` has the layout and the valid values of `T` | C [`ManuallyDrop`] |
-//! | `MaybeUninit<T>` has the size and the alignment of `T`, and any bytes are a value | C [`MaybeUninit`, "Layout"][maybe-uninit layout], [`MaybeUninit`, "Validity"][maybe-uninit validity] |
-//! | `PhantomData<T>` has size 0 and alignment 1 | C [`PhantomData`, "Layout"][phantom layout] |
-//!
-//! Rust documents more than `puns` uses yet. `UnsafeCell`, `Cell`, `Wrapping`, `Saturating` and the
-//! atomics have the layout of what they hold, but `puns` implements `Pun` for none of them. An enum
-//! with two variants, one holding a type that `Option` is documented for and one with no sized
-//! field, is ["ABI-compatible"][abi compatibility] with that type. That gives its size, but not
-//! which bytes its other variant is.
-//!
-//! Niches are not guaranteed beyond the rows for `Option` and `Result` above. `Option<bool>` is one
-//! byte with `None` at 2, but only because that is how `rustc` does it today, and the documentation
-//! of `MaybeUninit` and `UnsafeCell` says that such optimizations vary. So `Option<bool>` needs the
-//! `unstable` feature. Niches that Rust documents only as "ABI-compatible" are not used either, so
-//! an enum of the `Rust` representation with a variant that holds a `NonZero` and a variant without
-//! fields, such as `enum Ticket { Free, Paid(NonZero<u32>) }`, needs the feature, even though
-//! `rustc` lays it out like the corresponding `Option`.
-//!
-//! ### How it is tested
-//!
-//! The tests of `puns` run both without the feature and with it.
-//!
-//! - Without it, a test records the verdict of every function on every pair of 33 types. These are
-//!   the types of the table in [Puns without the feature](#puns-without-the-feature), along with
-//!   what holds them: an enum and a union of a specified representation, a struct with a rule,
-//!   arrays, and a scalar that a pun never makes. The record covers each pair whole, and in part
-//!   (by `&mut` and from the end). It also records which byte patterns each type accepts from
-//!   bytes, but not the message of a refusal, which may name what `rustc` chose. A rule and an enum
-//!   checked as a whole each have a type in the record. CI compares the record with the one in the
-//!   repository, without `-Zrandomize-layout` and with it under three seeds, and it must be the
-//!   same each time.
-//! - Compile-fail tests check each refusal without the feature, along with its message, and
-//!   compile-pass tests check what compiles. Other compile-fail tests run with the feature, and the
-//!   rest are the same both ways.
-//! - With the feature, the tests that need it run as well: enums of the `Rust` representation,
-//!   `Option` and `Result`, and the tests of the layout that `rustc` chose. CI also builds the
-//!   example `codegen`, which needs it. The benchmark needs it too, and is run by hand.
-//!
-//! # Minimum Rust version
-//!
-//! The design depends on what stable Rust can do in `const`. This table lists what such a design
-//! can use, and the first stable release that provides it. `puns` is built without the first three
-//! rows, which no stable release provides.
-//!
-//! | Feature                                                    | Stable                               |
-//! |------------------------------------------------------------|--------------------------------------|
-//! | [`TransmuteFrom`], [`ptr::metadata`]                       | no                                   |
-//! | [const traits], [`generic_const_exprs`]                    | no                                   |
-//! | reflection, [`offset_of!` on enums and slices][offset_of]  | no                                   |
-//! | [`offset_of!`][offset_of] on sized fields                  | [1.77][1.77], also in unsized structs |
-//! | inline `const { .. }` in generic code                      | [1.79][1.79]                         |
-//! | `&mut` in a `const fn`, with loops and raw pointers        | [1.83][1.83]                         |
-//! | [`size_of_val_raw`] and [`align_of_val_raw`] in `const`    | 1.99                                 |
-//!
-//! The last row sets the minimum version to 1.99. `puns` reads the layout of an unsized type (a
-//! struct that ends with a slice or a `str`) in `const`, from a raw pointer with an arbitrary
-//! length. `size_of_val` cannot do this, because it needs a reference, and a reference needs a
-//! valid value. On 1.98, `puns` does not build, because `layout_for_ptr` and its use in `const` are
-//! unstable there. CI builds the crate and its examples on 1.99.
-//!
-//! Const evaluation is bounded, since the deny-by-default lint [`long_running_const_eval`] stops it
-//! after 2,000,000 basic blocks ([`LINT_TERMINATOR_LIMIT`] in `rustc`). The analysis therefore
-//! cannot take a step for each byte of a type, nor a step or an instance for each element of an
-//! array. Its cost grows with the number of fields, variants, ranges of values and states of
-//! automata of the types, and where it would grow with their size, a search stops at a limit
-//! ([Limits](#limits)).
-//!
-//! # Portability
-//!
-//! `puns` builds for every width of `usize` that Rust supports, including 16 bits, and CI builds it
-//! for `msp430-none-elf`, a 16-bit target. Miri cannot run a 16-bit target, so what must hold there
-//! is asserted at compile time. The code assumes the following about `usize`:
-//!
-//! - A value is at most `isize::MAX` bytes, as Rust guarantees. So a size plus a small constant
-//!   does not overflow, and an offset that a rule reads at is at most `isize::MAX` too. A `const`
-//!   assertion checks that `isize::MAX` plus 16 does not overflow a `usize`.
-//! - An offset, a length or a range that a rule reads is compared with the size of the value as a
-//!   `u128`, on every target, before it becomes a `usize`.
-//! - The tables of a [`layout::Crc`] fit in a value. They take 32 KiB, or a single table of 2 KiB
-//!   where `usize` is 16 bits, and a `const` assertion checks that they are at most `isize::MAX`
-//!   bytes. The CRCs are the same either way, and tests compare them with reference values. The
-//!   table of [`crc32`], 16 KiB, fits on every width, since `isize::MAX` is 32 KiB minus 1 on 16
-//!   bits.
-//! - [`sum16`] folds its sum before it can overflow a `u64`. It folds every 2^20 blocks, or only at
-//!   the end where `usize` cannot count that far. A `const` assertion checks that the blocks
-//!   between two folds cannot overflow.
-//! - An operation of a rule is computed in a register where its values fit one, and on 128 bits
-//!   otherwise. The register has 64 bits where `usize` has 64 bits, and 32 bits otherwise. Every
-//!   width computes the same values, so the choice only changes speed, and tests check both.
-//!
-//! What `unsafe` code assumes about the target (the alignment of a primitive, the width of `usize`,
-//! the byte order) is asserted where it is used, or derived from the target. The tests run under
-//! Miri on `i686-unknown-linux-gnu`, where `usize` is 32 bits and a `u64` is aligned to 4, and on
-//! `s390x-unknown-linux-gnu`, which is big-endian.
-//!
-//! # Limitations
-//!
-//! ## Limits
-//!
-//! - The derive bounds its implementation by "the type of each field that depends on a parameter is
-//!   `Pun`", except for the fields that name the type itself. Such a bound would make the type
-//!   `Pun` if its field is, and the field `Pun` if the type is, and the compiler does not resolve
-//!   that cycle. So a parameter of a recursive type is declared with whatever its fields need. Two
-//!   generic types that hold each other would have their bounds found in a cycle (`overflow
-//!   evaluating the requirement`). When the bounds that the types declare are enough, write
-//!   `#[pun(bound())]` on both.
-//! - The types of the fields of a struct must be at least as visible as the struct, because the
-//!   list of fields is an associated type, and the privacy rules of Rust do not let it name a less
-//!   visible type.
-//! - A struct with more than about a hundred fields may need a higher `#![recursion_limit]` in the
-//!   crate that validates it, and so may an enum with fields and more than about 120 variants,
-//!   because validation recurses over the list of variants.
-//! - The analysis follows arrays, slices and structs nested at most 32 deep, and refuses a pun of a
-//!   type nested deeper ("type is nested too deeply").
-//! - Some proofs search a bounded number of cases. Past the bound, what is not proven is checked at
-//!   run time, or the pun is refused where it cannot be checked, and nothing is proven wrongly. A
-//!   struct of the `Rust` representation is proven by another source only if its fields have at
-//!   most 1,024 offsets in all, counting each offset that a field may have in some order. Otherwise
-//!   only the same struct proves it. The values of a scalar made of parts of the source are
-//!   compared in at most 16,384 steps, and a pattern over at most 4,096 runs of the source. A
-//!   `&mut` to a part of an array whose elements have rules looks at no more than 64 elements, and
-//!   is refused past them.
-//! - A packed struct whose unsized field has trailing padding of its own is refused.
-//! - The build time of a view enum whose variants overlap grows with the square of the number of
-//!   variants, or faster.
-//! - `PhantomData<T>` is a [`Scalar`] for any `T`, and deriving `Pun` exposes private fields. [What
-//!   deriving `Pun` means](#what-deriving-pun-means) says which types must not derive `Pun`.
-//! - The evaluator of rules has a stack of 16 values and 8 variables. An expression has at most 256
-//!   operations and at most 4 nested walks, and the derive says when an expression needs more, and
-//!   how much more. A walk takes at most `8 * size + 128` steps, where `size` is the size of the
-//!   value, or, for a `size` or `len` rule, the number of bytes from the start of the value to the
-//!   end of the input.
-//! - Unions must be `repr(C)`, since the fields of other unions are not known to be at 0. A union
-//!   must not hold a scalar that a pun never makes, and as a source nothing is known about it (see
-//!   [Unions](#unions)).
-//! - An enum of the `Rust` representation is refused if the sample of one of its variants needs a
-//!   value of a scalar that a pun never makes, since `puns` cannot make one. A sample holds the
-//!   least value of each field, and of an enum its first variant that has values. The direct tag of
-//!   such an enum, which is all the bytes before the first field of any variant, must be 1, 2, 4, 8
-//!   or 16 bytes, since `rustc` makes no other size, or the enum is refused. If `rustc` places the
-//!   fields of a variant without values before the fields of the other variants, the build fails,
-//!   because `puns` cannot observe where those fields are and does not guess.
-//! - In an enum with fields and a primitive or `C` representation, a variant that holds a scalar
-//!   that a pun never makes, or a union none of whose fields has values, has no sample from which
-//!   `puns` reads its tag. Its discriminant must hold no macro and no attribute, or it must have
-//!   none after a variant whose tag is known, or the enum is refused ([What the derive
-//!   trusts](macro@Pun#what-the-derive-trusts)).
-//!
-//! ## Not done yet
-//!
-//! - **Precise mutable parts.** [`head_mut`] and [`tail_mut`] refuse any source in which a struct
-//!   that has a rule overlaps the part, unless the target has the same struct with the same rules
-//!   there, even if the rule reads other fields. They also refuse any enum that the part covers
-//!   only partly, even one whose variants all accept what is written. A [`pun_mut`] of a whole
-//!   value does not require this of rules, so a `&mut Plain` made from a `&mut S`, where `S` has a
-//!   rule that `Plain` does not, can write a value that does not meet that rule, just as the fields
-//!   of `S` can, since a rule is a [requirement](#guarantees-and-requirements).
-//! - **Ranges from conditions.** A counter that only a comparison bounds, such as `i` in the walk
-//!   condition `|i| i < count`, is computed on 128 bits, unless the expression also reads the value
-//!   at that offset (`be(i, 1)`). The state of a walk inside two other walks is given no range.
-//! - **Rules implied by other rules.** A rule is proven by the same rule, not by other rules that
-//!   imply it. For example, `v % 6 == 0` implies `v % 3 == 0`, but does not prove it. Nor is a rule
-//!   proven by the same rule in a struct of another extent, even when the rule does not read the
-//!   extent, such as `a != b` in a struct of 2 bytes and in one of 3. The pun is then checked.
-//! - **A rule that two variants of a view share, where neither variant accepts every value of the
-//!   other.** For bytes that fail the rule, each variant computes it. A variant declared after them
-//!   that accepts every value of both computes it once, and shares what succeeds as well.
-//!   `Frame<Ipv4>` after two kinds of IPv4 packet is such a variant.
-//! - **Checked parts of a typed value** (`try_head` and so on). A part is either proven or refused.
-//!   For bytes, there are [`from_head`] and [`from_tail`].
-//! - **Precise checks of an enum whose source is another type.** When only some of its variants are
-//!   proven, or some values of the source are not a tag, the whole enum is checked at run time, its
-//!   tag first, then the fields of its variant.
-//! - **A checked pun from an enum to a type that is not an enum.** Take `try_pun` from the `Shape`
-//!   of [Enums: what is refused](#enums-what-is-refused) to a struct that requires an initialized
-//!   byte where one variant of `Shape` has padding. It is refused because of that padding byte,
-//!   even if the check of the tag would exclude that variant, because as a source an enum is known
-//!   by the bytes that every variant initializes, not variant by variant.
-//! - **Checking some fields of a union.** When the check of one field would read a byte that may be
-//!   padding, and no field is proven, the pun is refused.
-//! - **Checking only what is not proven, among parts that are checked together.** The elements of
-//!   an array share their check, and an enum is checked as a whole. A source that ends with a `str`
-//!   where the target does not has every part of the target checked. The parts to check of a target
-//!   past its first 1,024 are checked all together. A part that is proven there without being read
-//!   (a union, an enum that holds one, a struct whose rule reads its padding) is then checked too.
-//!   If that check would read a byte that may be uninitialized, the pun is refused, though the part
-//!   needs no check.
-//! - **Patterns other than `str` as types.** The engine accepts any automaton of at most 64 states
-//!   as a type that guarantees it, but no such type can come from the derive, since safe code can
-//!   write the fields of a type that derives `Pun`. A struct can require a pattern of its bytes
-//!   with the rule `matches(DFA, start, end)`, which, like any rule, is proven only by the same
-//!   rule.
-//! - **A byte order that a value gives**, such as `EI_DATA` of ELF or the byte order mark of TIFF.
-//!   A type has a byte order of its own (`u32be`, `i16le`, `f64be`, and so on), so no type reads
-//!   its fields in the byte order that a value gives. A view enum chooses between a type of each
-//!   byte order instead.
-//! - **`default()`.** No function builds a value from the defaults of its fields (literals, sizes).
-//! - **Fields of fields in rules.** A rule names the integer fields of its struct, not a field of a
-//!   field (`header.length`) or an element of an array (`magic[0]`), which it reads with `be` or
-//!   `le` at their offsets instead.
-//! - **Signed and floating-point fields in rules.** Rules compute on unsigned integers. A signed or
-//!   floating-point field is refused, and is read as bits with `le` or `be` instead. A getter reads
-//!   fields, not bytes, and a value that only the bytes hold, such as a variable-length integer, is
-//!   decoded by the user's code.
-//! - **A size that is not in the value**, such as "to the end of whatever holds it" (an MP4 box of
-//!   size 0).
-//! - **Sums of types in sequences, and recursion**, such as `OPTIONAL` and `CHOICE` of ASN.1, and
-//!   the containers of CBOR and MessagePack. A chain of types (`Then<A, B>`) is one sequence of
-//!   types.
-//! - **An arbitrary function in a rule.** A getter may call any `const fn`, but a rule may not. The
-//!   validator is `const fn` code, generic over the type it validates, and on stable Rust 1.100
-//!   such code cannot call a function that the type chooses. A call through a function pointer is
-//!   refused ("function pointer calls are not allowed in constant functions"), and so is a call of
-//!   a trait method (E0015, "cannot call non-const associated function"). Const traits are unstable
-//!   (E0658). A user function could only be called if the validator stopped being `const`, or
-//!   behind a check that runs only outside of `const`, which stable Rust cannot express. So what a
-//!   rule computes is built in, and described by data where it varies: walks, variable-length
-//!   integers, CRCs by their parameters, and sums. The analysis does not reason about that data,
-//!   since a rule is proven only by the same rule, and a checksum only makes a check stricter.
-//!
-//! [properly aligned]: core::ptr#alignment
 //! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
-//! [Reference]: https://doc.rust-lang.org/reference/type-layout.html
-//! [reference root]: https://doc.rust-lang.org/reference/
-//! [`core`]: https://doc.rust-lang.org/core/
-//! [Miri]: https://github.com/rust-lang/miri
-//! [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
-//! [`-Zrandomize-layout`]: https://doc.rust-lang.org/nightly/unstable-book/compiler-flags/randomize-layout.html
-//! [`TransmuteFrom`]: https://doc.rust-lang.org/core/mem/trait.TransmuteFrom.html
-//! [`ptr::metadata`]: https://doc.rust-lang.org/core/ptr/fn.metadata.html
-//! [const traits]: https://doc.rust-lang.org/nightly/unstable-book/language-features/const-trait-impl.html
-//! [`generic_const_exprs`]: https://doc.rust-lang.org/nightly/unstable-book/language-features/generic-const-exprs.html
-//! [offset_of]: https://doc.rust-lang.org/core/mem/macro.offset_of.html
-//! [offset_of layout]: https://doc.rust-lang.org/core/mem/macro.offset_of.html#layout-is-subject-to-change
-//! [1.77]: https://blog.rust-lang.org/2024/03/21/Rust-1.77.0/
-//! [1.79]: https://blog.rust-lang.org/2024/06/13/Rust-1.79.0/
-//! [1.83]: https://blog.rust-lang.org/2024/11/28/Rust-1.83.0/
-//! [`size_of_val_raw`]: https://doc.rust-lang.org/core/mem/fn.size_of_val_raw.html
-//! [`align_of_val_raw`]: https://doc.rust-lang.org/core/mem/fn.align_of_val_raw.html
-//! [`long_running_const_eval`]: https://doc.rust-lang.org/rustc/lints/listing/deny-by-default.html#long-running-const-eval
-//! [`LINT_TERMINATOR_LIMIT`]: https://github.com/rust-lang/rust/blob/main/compiler/rustc_const_eval/src/const_eval/machine.rs
-//! [`mem::discriminant`]: https://doc.rust-lang.org/core/mem/fn.discriminant.html
-//! [layout guarantees]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.guarantees
-//! [size]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.properties.size
-//! [primitive size]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.primitive.size
-//! [primitive size-align]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.primitive.size-align
-//! [primitive align]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.primitive.platform-specific-alignment
-//! [numeric validity]: https://doc.rust-lang.org/reference/types/numeric.html#r-type.numeric.validity
-//! [bool layout]: https://doc.rust-lang.org/reference/types/boolean.html#r-type.bool.layout
-//! [bool repr]: https://doc.rust-lang.org/reference/types/boolean.html#r-type.bool.repr
-//! [char value]: https://doc.rust-lang.org/reference/types/char.html#r-type.char.value
-//! [char layout]: https://doc.rust-lang.org/reference/types/char.html#r-type.char.layout
-//! [array]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.array
-//! [slice]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.slice
-//! [str]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.str
-//! [unit]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.tuple.unit
-//! [never layout]: https://doc.rust-lang.org/nightly/reference/types/never.html#r-type.never.layout
-//! [validity struct]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity.struct
-//! [validity undef]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity.undef
-//! [validity enum]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity.enum
-//! [union validity]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity.union
-//! [c struct]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.c.struct
-//! [c union]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.c.union.size-align
-//! [c enum]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.c.enum
-//! [primitive enum]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.primitive.enum
-//! [discriminant memory]: https://doc.rust-lang.org/reference/items/enumerations.html#r-items.enum.discriminant.access-memory
-//! [c adt]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.c.adt
-//! [primitive adt]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.primitive.adt
-//! [primitive c]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.primitive-c
-//! [transparent]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.transparent.layout-abi
-//! [alignment]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.alignment
-//! [rust layout]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.rust.layout
-//! [rust struct]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.rust.struct
-//! [struct zst]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.rust.struct-zst
-//! [enum empty]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.rust.enum-empty-zst
-//! [enum struct-like]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.rust.enum-struct-like-zst
-//! [rust unspecified]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.rust.unspecified
-//! [tuple]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.tuple.def
-//! [inter-field]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.inter-field
-//! [struct layout]: https://doc.rust-lang.org/reference/types/struct.html#r-type.struct.layout
-//! [discriminant type]: https://doc.rust-lang.org/reference/items/enumerations.html#r-items.enum.discriminant.type
-//! [union layout]: https://doc.rust-lang.org/reference/types/union.html#r-type.union.layout
-//! [nonzero layout]: https://doc.rust-lang.org/core/num/struct.NonZero.html#layout-1
-//! [option representation]: https://doc.rust-lang.org/core/option/index.html#representation
-//! [result representation]: https://doc.rust-lang.org/core/result/index.html#representation
-//! [`ManuallyDrop`]: https://doc.rust-lang.org/core/mem/struct.ManuallyDrop.html
-//! [maybe-uninit layout]: https://doc.rust-lang.org/core/mem/union.MaybeUninit.html#layout-1
-//! [maybe-uninit validity]: https://doc.rust-lang.org/core/mem/union.MaybeUninit.html#validity
-//! [phantom layout]: https://doc.rust-lang.org/core/marker/struct.PhantomData.html#layout-1
-//! [abi compatibility]: https://doc.rust-lang.org/core/primitive.fn.html#abi-compatibility
 #![cfg_attr(not(test), no_std)]
 // Every public item has documentation, as docs.rs counts it. CI checks that each item that rustdoc
 // counts has an example.
@@ -1085,6 +49,7 @@
 
 mod analysis;
 mod discover;
+pub mod guide;
 #[cfg(feature = "verdict")]
 #[doc(hidden)]
 pub mod hook;
@@ -1127,8 +92,8 @@ pub use layout::{crc32, sum16};
 /// more. As a target, a struct whose size is the same in every order, without rules or a scalar
 /// that a pun never makes, is proven field by field, each field at every place where it may be, and
 /// any other is proven only by the same type ([Puns without the
-/// feature](crate#puns-without-the-feature)). A struct may also have rules, which its attributes
-/// state (see "Attributes").
+/// feature](crate::guide::unstable#puns-without-the-feature)). A struct may also have rules, which
+/// its attributes state (see "Attributes").
 ///
 /// **Enums without fields.** An enum without fields may have any representation, but no padding.
 /// Its valid values are its discriminants, as the compiler stores them. Rust does not specify how
@@ -1170,8 +135,8 @@ pub use layout::{crc32, sum16};
 /// square of that number, or faster in a release build, when the values of each variant are also
 /// values of the next.
 ///
-/// **Unions.** A union must be `repr(C)` and not packed. [Unions](crate#unions) says what a union
-/// accepts as a target and what it proves as a source.
+/// **Unions.** A union must be `repr(C)` and not packed. [Unions](crate::guide::soundness#unions)
+/// says what a union accepts as a target and what it proves as a source.
 ///
 /// **Byte order.** A field has the byte order of its type, and `u32be`, `i16le` and `f64be` from
 /// [`num`] are numbers with a fixed byte order. A format whose values give their own byte order
@@ -1428,18 +393,19 @@ pub use layout::{crc32, sum16};
 /// derive meets it, since the analysis may change.*
 ///
 /// A pun only gives a value of a type from bytes that are a valid value of it, in the sense that
-/// [Soundness](crate#soundness) defines.
+/// [Soundness](crate::guide::soundness) defines.
 ///
 /// Deriving `Pun` makes every field as accessible as if it were public, and lets two types that
 /// differ only in phantom parameters or lifetimes convert to each other. So a type whose private
 /// fields keep an invariant, or whose parameters mark something about its values, must not derive
-/// `Pun`, as [What deriving `Pun` means](crate#what-deriving-pun-means) shows. `#[pun(valid(..))]`
-/// and rules are [requirements](crate#guarantees-and-requirements), which safe code can break, so
-/// they never prove what another type guarantees.
+/// `Pun`, as [What deriving `Pun` means](crate::guide::soundness#what-deriving-pun-means) shows.
+/// `#[pun(valid(..))]` and rules are
+/// [requirements](crate::guide::soundness#guarantees-and-requirements), which safe code can break,
+/// so they never prove what another type guarantees.
 ///
 /// Without the `unstable` feature, nothing that a pun does depends on a layout that Rust leaves to
 /// the compiler, and with it, a pun uses the layout that `rustc` chose for this build ([The
-/// `unstable` feature](crate#the-unstable-feature)).
+/// `unstable` feature](crate::guide::unstable)).
 ///
 /// ## What the derive trusts
 ///
@@ -1537,7 +503,7 @@ pub use layout::{crc32, sum16};
 ///   variant of an enum none of whose variants has a sample, of which no tag width is checked.
 /// - The derive takes from the `repr` that it read whether Rust specifies the layout, on which,
 ///   without the `unstable` feature, a verdict may rely ([The `unstable`
-///   feature](crate#the-unstable-feature)). A struct or a union whose `repr(C)` such an attribute
+///   feature](crate::guide::unstable)). A struct or a union whose `repr(C)` such an attribute
 ///   removes has the offsets of this compilation, but is taken to have them in every compilation,
 ///   which Rust does not promise.
 ///
@@ -1722,7 +688,7 @@ pub use core as __core;
 /// that `SPEC` accepts, and takes the bytes of every `T` to be bytes that `SPEC` accepts, unless
 /// `SPEC` is made with [`Spec::maybe_uninit`] or [`Spec::uninit`]. It then takes them to be any
 /// bytes, uninitialized ones included. With [`Spec::never`], it takes them to be initialized bytes,
-/// and makes no `T` ([Scalars that a pun never makes](crate#scalars-that-a-pun-never-makes)).
+/// and makes no `T` ([Scalars that a pun never makes](crate::guide::never_made)).
 ///
 /// # Examples
 ///
@@ -2511,7 +1477,7 @@ impl_bits!(i8 i16 i32 i64 i128 isize f32 f64);
 // SAFETY: `PhantomData<T>` has a size of 0 [1], and so does `Spec::any::<Self>()`. A value of
 // size 0 has no byte to hold or to accept, and `PhantomData<T>` has no invariant. It holds no
 // `UnsafeCell`. What `T` marks is not an invariant of the bytes: a type that relies on it must not
-// implement `Pun` (see the crate documentation, "Soundness").
+// implement `Pun` (see the chapter "Soundness" of the guide).
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/core/marker/struct.PhantomData.html:
 //
@@ -3041,12 +2007,12 @@ impl Message {
 ///   that the pun covers, except in a variant of an enum, which a check never accepts.
 /// - `size_of::<S>() == size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
-/// - Every value of `S` is a [valid](crate#soundness) `D`.
+/// - Every value of `S` is a [valid](crate::guide::soundness) `D`.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3083,12 +2049,13 @@ pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// - `size_of::<S>() >= size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in the first
 ///   `size_of::<D>()` bytes of every value of `S`.
-/// - The first `size_of::<D>()` bytes of every value of `S` are a [valid](crate#soundness) `D`.
+/// - The first `size_of::<D>()` bytes of every value of `S` are a [valid](crate::guide::soundness)
+///   `D`.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3126,12 +2093,13 @@ pub const fn head<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// - `size_of::<S>() >= size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in the last `size_of::<D>()`
 ///   bytes of every value of `S`.
-/// - The last `size_of::<D>()` bytes of every value of `S` are a [valid](crate#soundness) `D`.
+/// - The last `size_of::<D>()` bytes of every value of `S` are a [valid](crate::guide::soundness)
+///   `D`.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3187,7 +2155,8 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 ///
 /// # Errors
 ///
-/// Returns [`Error::Validity`] if the bytes of `value` are not a [valid](crate#soundness) `D`.
+/// Returns [`Error::Validity`] if the bytes of `value` are not a [valid](crate::guide::soundness)
+/// `D`.
 ///
 /// # Compile-time errors
 ///
@@ -3204,7 +2173,7 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3286,12 +2255,12 @@ const unsafe fn pun_unchecked<S: Copy, D: Copy>(value: S) -> D {
 /// - `D` needs no greater alignment than `S`. Use [`try_pun_ref`] to check the address at run
 ///   time.
 /// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
-/// - Every value of `S` is a [valid](crate#soundness) `D`.
+/// - Every value of `S` is a [valid](crate::guide::soundness) `D`.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3350,16 +2319,16 @@ pub const fn pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 /// - `D` needs no greater alignment than `S`. Use [`try_pun_mut`] to check the address at run
 ///   time.
 /// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
-/// - Every value of `S` is a [valid](crate#soundness) `D`.
+/// - Every value of `S` is a [valid](crate::guide::soundness) `D`.
 /// - Every value of `D` is a valid `S`, apart from the rules of `S`. A write through the returned
 ///   reference may break a rule of `S`, as a write to a field of `S` may, since a rule is a
-///   [requirement](crate#guarantees-and-requirements). In particular, every byte that `S` requires
-///   to be initialized is initialized in every value of `D`.
+///   [requirement](crate::guide::soundness#guarantees-and-requirements). In particular, every byte
+///   that `S` requires to be initialized is initialized in every value of `D`.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3405,12 +2374,12 @@ pub const fn pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D 
 /// - `D` needs no greater alignment than `S`.
 /// - Every byte that `D` requires to be initialized is initialized in the bytes that it covers
 ///   in every value of `S`.
-/// - The bytes that `D` covers in every value of `S` are a [valid](crate#soundness) `D`.
+/// - The bytes that `D` covers in every value of `S` are a [valid](crate::guide::soundness) `D`.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3461,12 +2430,13 @@ pub const fn head_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 ///   alignment of `D`.
 /// - Every byte that `D` requires to be initialized is initialized in the last `size_of::<D>()`
 ///   bytes of every value of `S`.
-/// - The last `size_of::<D>()` bytes of every value of `S` are a [valid](crate#soundness) `D`.
+/// - The last `size_of::<D>()` bytes of every value of `S` are a [valid](crate::guide::soundness)
+///   `D`.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3520,7 +2490,7 @@ pub const fn tail_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 /// - `D` needs no greater alignment than `S`.
 /// - Every byte that `D` requires to be initialized is initialized in the bytes that it covers
 ///   in every value of `S`.
-/// - The bytes that `D` covers in every value of `S` are a [valid](crate#soundness) `D`.
+/// - The bytes that `D` covers in every value of `S` are a [valid](crate::guide::soundness) `D`.
 /// - Every value of `D`, written over the bytes that it covers, leaves a valid `S`, whatever the
 ///   other bytes of `S` hold.
 /// - No struct of `S` that has a rule (a `size`, a `len`, an `assert` or a region) overlaps the
@@ -3533,7 +2503,7 @@ pub const fn tail_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3596,7 +2566,8 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 /// - `align_of::<D>() <= align_of::<S>()`.
 /// - Every byte that `D` requires to be initialized is initialized in the last `size_of::<D>()`
 ///   bytes of every value of `S`.
-/// - The last `size_of::<D>()` bytes of every value of `S` are a [valid](crate#soundness) `D`.
+/// - The last `size_of::<D>()` bytes of every value of `S` are a [valid](crate::guide::soundness)
+///   `D`.
 /// - Every value of `D`, written over the bytes that it covers, leaves a valid `S`, whatever the
 ///   other bytes of `S` hold.
 /// - No struct of `S` that has a rule (a `size`, a `len`, an `assert` or a region) overlaps the
@@ -3607,7 +2578,7 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3656,9 +2627,9 @@ pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 ///
 /// Returns [`Error::Alignment`] if `value` is not aligned for `D`, [`Error::Size`] if no `D` has
 /// the extent of `value` (its size without the padding that may follow its slice) or if that `D` is
-/// larger than `value`, and [`Error::Validity`] if the bytes are not a [valid](crate#soundness)
-/// `D`. The checks are made in this order, so a value that fails two of them gives the error of the
-/// first.
+/// larger than `value`, and [`Error::Validity`] if the bytes are not a
+/// [valid](crate::guide::soundness) `D`. The checks are made in this order, so a value that fails
+/// two of them gives the error of the first.
 ///
 /// # Compile-time errors
 ///
@@ -3676,7 +2647,7 @@ pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3732,9 +2703,9 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
 ///
 /// Returns [`Error::Alignment`] if `value` is not aligned for `D`, [`Error::Size`] if no `D` has
 /// the extent of `value` (its size without the padding that may follow its slice) or if that `D` is
-/// larger than `value`, and [`Error::Validity`] if the bytes are not a [valid](crate#soundness)
-/// `D`. The checks are made in this order, so a value that fails two of them gives the error of the
-/// first.
+/// larger than `value`, and [`Error::Validity`] if the bytes are not a
+/// [valid](crate::guide::soundness) `D`. The checks are made in this order, so a value that fails
+/// two of them gives the error of the first.
 ///
 /// # Compile-time errors
 ///
@@ -3751,13 +2722,13 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
 ///   [inhabited] if `S` is.
 /// - Every value of `D` is a valid `S`, apart from the rules of `S`. A write through the returned
 ///   reference may break a rule of `S`, as a write to a field of `S` may, since a rule is a
-///   [requirement](crate#guarantees-and-requirements). In particular, every byte that `S` requires
-///   to be initialized is initialized in every value of `D`.
+///   [requirement](crate::guide::soundness#guarantees-and-requirements). In particular, every byte
+///   that `S` requires to be initialized is initialized in every value of `D`.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3806,12 +2777,13 @@ pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Res
 ///
 /// - `T` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
 ///   that the pun covers, except in a variant of an enum, which a check never accepts.
-/// - A `T` whose bytes are all zero is a [valid](crate#soundness) `T`, apart from its rules.
+/// - A `T` whose bytes are all zero is a [valid](crate::guide::soundness) `T`, apart from its
+///   rules.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3847,7 +2819,7 @@ pub const fn zeroed<T: Pun + Copy>() -> T {
 ///
 /// A call compiles only if `T` is an unsigned integer of 1 to 16 bytes, in any byte order, or a
 /// sized struct whose only field of nonzero size is such an integer and covers the struct. This
-/// is checked after monomorphization, as [the crate documentation](crate#compile-time-errors)
+/// is checked after monomorphization, as [the guide](crate::guide::errors)
 /// explains.
 #[doc(hidden)]
 #[inline(always)]
@@ -3885,7 +2857,7 @@ pub const fn int<T: Pun>(value: &T) -> u128 {
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -3924,7 +2896,7 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 ///
 /// Returns [`Error::Alignment`] if `bytes` is not aligned for `D`, [`Error::Size`] if the length
 /// of `bytes` is not a size that `D` can have, and [`Error::Validity`] if the bytes are not a
-/// [valid](crate#soundness) `D`.
+/// [valid](crate::guide::soundness) `D`.
 ///
 /// # Compile-time errors
 ///
@@ -3937,7 +2909,7 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -4088,7 +3060,7 @@ pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Err
 ///
 /// Returns [`Error::Alignment`] if `bytes` is not aligned for `D`, [`Error::Size`] if the length
 /// of `bytes` is not a size that `D` can have, and [`Error::Validity`] if the bytes are not a
-/// [valid](crate#soundness) `D`.
+/// [valid](crate::guide::soundness) `D`.
 ///
 /// # Compile-time errors
 ///
@@ -4102,7 +3074,7 @@ pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Err
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -4286,7 +3258,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
 /// Returns [`Error::Size`] if `bytes` is shorter than what the `D` takes, [`Error::Alignment`] if
 /// `bytes` is not aligned for `D`, and [`Error::Validity`] if the `size` or `len` rule of `D`
 /// cannot be computed or gives a size that `D` cannot have, or if the bytes taken are not a
-/// [valid](crate#soundness) `D`.
+/// [valid](crate::guide::soundness) `D`.
 ///
 /// # Compile-time errors
 ///
@@ -4299,7 +3271,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -4379,7 +3351,7 @@ pub const fn rejects<D: ?Sized + Pun>(bytes: &[u8]) -> bool {
 ///
 /// Returns [`Error::Size`] if `bytes` is shorter than `size_of::<D>()`, [`Error::Alignment`] if
 /// the last `size_of::<D>()` bytes are not aligned for `D`, and [`Error::Validity`] if they are
-/// not a [valid](crate#soundness) `D`.
+/// not a [valid](crate::guide::soundness) `D`.
 ///
 /// # Compile-time errors
 ///
@@ -4394,7 +3366,7 @@ pub const fn rejects<D: ?Sized + Pun>(bytes: &[u8]) -> bool {
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -4452,7 +3424,7 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&[u8], &D), Err
 /// Returns [`Error::Size`] if `bytes` is shorter than what the `D` takes, [`Error::Alignment`] if
 /// `bytes` is not aligned for `D`, and [`Error::Validity`] if the `size` or `len` rule of `D`
 /// cannot be computed or gives a size that `D` cannot have, or if the bytes taken are not a
-/// [valid](crate#soundness) `D`.
+/// [valid](crate::guide::soundness) `D`.
 ///
 /// # Compile-time errors
 ///
@@ -4466,7 +3438,7 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&[u8], &D), Err
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -4523,7 +3495,7 @@ pub const fn from_head_mut<D: ?Sized + Pun>(
 ///
 /// Returns [`Error::Size`] if `bytes` is shorter than `size_of::<D>()`, [`Error::Alignment`] if
 /// the last `size_of::<D>()` bytes are not aligned for `D`, and [`Error::Validity`] if they are
-/// not a [valid](crate#soundness) `D`.
+/// not a [valid](crate::guide::soundness) `D`.
 ///
 /// # Compile-time errors
 ///
@@ -4538,7 +3510,7 @@ pub const fn from_head_mut<D: ?Sized + Pun>(
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
 ///
 /// These conditions are checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 ///
 /// # Examples
 ///
@@ -4595,7 +3567,7 @@ pub const fn from_tail_mut<D: ?Sized + Pun>(
 /// A call compiles only if every byte of every value of `S`, up to the end of its slice, is
 /// initialized and, without the `unstable` feature, this does not depend on a layout that Rust
 /// leaves to the compiler. This is checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// [the guide](crate::guide::errors) explains.
 #[doc(hidden)]
 #[inline(always)]
 pub const fn region<S: ?Sized + Pun>(value: &S, index: usize) -> &[u8] {

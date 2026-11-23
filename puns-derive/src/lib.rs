@@ -2030,7 +2030,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         // `as` casts, cast again to `*const Self`. The size of the struct with 8 elements in its
         // tail must fit in an `isize`, which is not established. The derive relies on `rustc` to
         // report an error in const evaluation where it does not fit. No documentation promises this
-        // behavior, which the crate documentation discloses (section Soundness).
+        // behavior, which the guide of `puns` discloses (chapter Soundness).
         const LAYOUT: #root::layout::Layout = unsafe {
           #root::layout::Layout::structure::<Self>(
             Self::PROBE,
@@ -2244,8 +2244,8 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     // initialized, which is not established: `align` may add padding after the discriminant, and
     // with the `Rust` representation, Rust does not say how the discriminant is stored. The call
     // is evaluated in the constant `SPEC`, where `rustc` reports an error instead of reading an
-    // uninitialized byte. No documentation promises this behavior, which the crate documentation
-    // discloses (section Soundness).
+    // uninitialized byte. No documentation promises this behavior, which the guide of `puns`
+    // discloses (chapter Soundness).
     variants.push(quote!(unsafe { #root::layout::Spec::bits_of(Self::#variant) }));
   }
   let count = variants.len();
@@ -2679,7 +2679,7 @@ fn derive_tagged(
           let tags =
           // SAFETY (of the generated code): `#tag` is an enum without fields, `repr(C)` or of a
           // primitive representation, without `align`. Such an enum is an integer that holds its
-          // discriminant (the crate documentation, "What Rust documents"), so every byte of it is
+          // discriminant (the guide of `puns`, "What Rust documents"), so every byte of it is
           // initialized. Each sample is a value of a variant of the enum, which starts with its
           // tag, the enum with all fields removed [1] [2]. With an integer, the tag is that
           // integer, as `#tag` is. With `repr(C)` alone, the discriminants are implicit [3] [4], so
@@ -2739,7 +2739,7 @@ fn derive_tagged(
                 // sample whose byte `after` may have been changed, so it may be no `Self`. This
                 // constant is evaluated at compile time, where the `match`, which reads the
                 // variant, relies on the behaviors of `rustc` that `discover` relies on, and that
-                // the crate documentation discloses (section Soundness): `rustc` reports an error
+                // the guide of `puns` discloses (chapter Soundness): `rustc` reports an error
                 // if the tag is not the tag of a variant, and otherwise reads the variant from the
                 // tag alone, without reading the fields.
                 let read = match unsafe { &*changed.as_ptr() } {

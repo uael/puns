@@ -7,16 +7,19 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 
 ## What `puns` promises
 
-- The crate documentation ([`src/lib.rs`](src/lib.rs), after the README) is the public design:
-  the table of functions ("Reference"), what a valid value is and what the analysis relies on
-  ("Soundness"), the `unstable` feature, the minimum Rust version, portability, and
-  "Limitations".
+- The crate documentation ([`src/lib.rs`](src/lib.rs), after the README) has the table of
+  functions ("Reference"). The guide ([`src/guide/`](src/guide), the module `puns::guide`) is the
+  public design, a chapter per module: what each function checks (`functions`), compile-time
+  errors (`errors`), what a valid value is and what the analysis relies on (`soundness`), scalars
+  that a pun never makes (`never_made`), the `unstable` feature (`unstable`), the minimum Rust
+  version (`msrv`), portability (`portability`), and limitations (`limitations`). Its chapters
+  are only documentation, and import the crate under `#[cfg(doc)]` for their links.
 - The documentation of `#[derive(Pun)]` (on `pub use puns_derive::Pun` in
   [`src/lib.rs`](src/lib.rs)) says what a rule means, what it reads, and what the derive trusts
   ("What the derive trusts").
 - [`Scalar`](src/lib.rs) states the contract of a scalar declared by hand, a scalar that a pun
-  never makes (`Spec::never`) included, and the crate documentation ("Scalars that a pun never
-  makes") what `puns` guarantees its crate in return.
+  never makes (`Spec::never`) included, and the guide ("Scalars that a pun never makes") what
+  `puns` guarantees its crate in return.
 
 ## How it works
 
@@ -74,7 +77,7 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 
 ## Not done yet
 
-The limits that users of the crate face are in "Limitations" of the crate documentation. This
+The limits that users of the crate face are in the chapter "Limitations" of the guide. This
 section lists changes that could lift some of them, and what each would cost.
 
 - **Precise mutable parts.** The operations of a rule show which fields and bytes it reads, so

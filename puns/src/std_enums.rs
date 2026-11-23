@@ -108,10 +108,10 @@ macro_rules! variant {
 /// there is no other byte for a tag. Both are checked here: the size by an assertion, and the bytes
 /// of `None` by reading each of them in const evaluation, which reports an error on an
 /// uninitialized byte. That error is a behavior of `rustc` that no documentation states, and the
-/// crate documentation discloses it (section Soundness). `None` has no field, so its bytes are
-/// what `rustc` writes for it, at compile time as at run time. `core` promises the size where `T`
-/// is a `NonZero` integer, or a `repr(transparent)` struct around one ("Representation" in
-/// `core::option`). For another `T`, the size depends on the niche that `rustc` gives it.
+/// guide discloses it (chapter [Soundness](crate::guide::soundness)). `None` has no field, so its
+/// bytes are what `rustc` writes for it, at compile time as at run time. `core` promises the size
+/// where `T` is a `NonZero` integer, or a `repr(transparent)` struct around one ("Representation"
+/// in `core::option`). For another `T`, the size depends on the niche that `rustc` gives it.
 ///
 /// # Panics
 ///
@@ -145,7 +145,7 @@ const fn discovered<T: Pun>() -> Layout {
     .identified(Id::new("Option", &[T::LAYOUT.id]));
   // Where `core` documents it (a `NonZero`, a `repr(transparent)` struct around one), what is
   // found is what it documents: a niche at zero, which is `None`. Else Rust specifies nothing of
-  // it (see "The `unstable` feature" in the crate documentation).
+  // it (see the chapter "The `unstable` feature" of the guide).
   if T::NULL_OPTIMIZED { layout } else { layout.unspecified() }
 }
 

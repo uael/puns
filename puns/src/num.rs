@@ -313,7 +313,7 @@ macro_rules! ints {
     #[doc = narrower!($raw $size, concat!(
       "# Compile-time errors\n\nA pun of a type that holds this type compiles only if `V` fits ",
       "in ", stringify!($size), " bytes. This is checked after monomorphization, as ",
-      "[the crate documentation](crate#compile-time-errors) explains.\n"
+      "[the guide](crate::guide::errors) explains.\n"
     ))]
     ///
     /// # Examples
@@ -768,8 +768,7 @@ impl<const V: u8> fmt::Debug for u8c<V> {
 /// # Compile-time errors
 ///
 /// A pun of a type that holds this type compiles only if `MIN` is not greater than `MAX`. This is
-/// checked after monomorphization, as [the crate documentation](crate#compile-time-errors)
-/// explains.
+/// checked after monomorphization, as [the guide](crate::guide::errors) explains.
 ///
 /// ```compile_fail,E0080
 /// use puns::num::u8in;

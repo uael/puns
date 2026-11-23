@@ -59,8 +59,8 @@
 //! states of automata of the types. Where it would grow with their size, a search stops at a limit:
 //! [`PLACES`] places of fields, a budget of boxes of a scalar, a budget of runs under a pattern,
 //! and [`CUT_ELEMENTS`] elements of an array looked at one by one. These limits keep the analysis
-//! within the bound of const evaluation (see "Minimum Rust version" in the [crate
-//! documentation](crate#minimum-rust-version)).
+//! within the bound of const evaluation (see the chapter [Minimum Rust version](crate::guide::msrv)
+//! of the guide).
 //!
 //! # Enums and unions
 //!
@@ -253,9 +253,9 @@
 //!
 //! A check must not read a byte of the source that, in another layout that Rust allows, holds
 //! another field ([`reads_moved`]). The analysis counts the bytes that a check reads as "What a
-//! check may read" in the [crate documentation](crate#what-a-check-may-read) says. Under an array
-//! whose elements the source does not match, it counts every byte, including bytes that no check
-//! reads.
+//! check may read" in the [guide](crate::guide::unstable#what-a-check-may-read) says. Under an
+//! array whose elements the source does not match, it counts every byte, including bytes that no
+//! check reads.
 //!
 //! The analysis looks for nothing inside a part of the source that is not fixed, at the place where
 //! `rustc` put it. A rule is proven by the same rule of the same struct at the same place, which

@@ -61,9 +61,16 @@ came out in November 2026, so expect the API to change before 1.0.
 
 ## Reading a packet
 
-Binary formats usually store the length of their data and a checksum of it. With `puns`, you write
-those relations on the struct as *rules*, and `from_bytes` and the other `from_` functions check
-them along with the fields:
+Binary formats fix the byte order of their integers, while a `u16` has the byte order of the
+machine. So [`puns::num`][num] has a type for each byte order: `u16be` is a big-endian `u16`,
+`u16le` a little-endian one, and the same goes for integers of 24 to 128 bits, signed integers and
+floats (`i32le`, `f64be`). Each one is a byte array, so it has an alignment of 1, and a struct of
+them has no padding and can be at any address in a buffer. `get` returns the value, and `new` makes
+one from a value.
+
+Binary formats also usually store the length of their data and a checksum of it. With `puns`, you
+write those relations on the struct as *rules*, and `from_bytes` and the other `from_` functions
+check them along with the fields:
 
 ```rust
 use puns::{Pun, num::{u16be, u32be}};
@@ -110,23 +117,70 @@ packet.ttl -= 1;
 assert_eq!(buffer[1], 63);
 ```
 
-`u16be` and `u32be` are big-endian integers with an alignment of 1, which is why `Packet` has no
-padding and can be at any address in a buffer. Rules can also compute other checksums, read
-variable-length integers and `walk` a chain of headers. Other attributes cover bit fields,
-restricted values and regions, and the [derive's documentation][derive] lists them all.
+Rules can also compute other checksums, read variable-length integers and `walk` a chain of
+headers. Other attributes cover bit fields, restricted values and regions, and the [derive's
+documentation][derive] lists them all.
 
-A rule describes the format, and Rust knows nothing of it. It's checked when the bytes are read, and
-nothing keeps it true afterwards. If the router had set `length` to 10, the payload would still have
-3 bytes, and a later pun to a type with the same rule would trust the old check. `puns` doesn't
-build new values of an unsized type like `Packet`, so to send one, you write its bytes yourself.
-`as_bytes` gives you the bytes of any value.
+A rule is a [requirement][requirements] of the format, not a guarantee of the type. `puns` checks it
+when it reads the bytes, but the fields stay writable, so the rule can stop holding afterwards. If
+the router set `length` to 10, `payload` would still have 3 bytes. `puns` never relies on a rule
+for memory safety, so a rule that no longer holds gives wrong values, never undefined behavior. A
+later pun to a type with the same rule takes it as met, and doesn't check it again. To check a value
+again, pass its bytes, which `as_bytes` gives you, to `from_bytes`.
 
-When the data can be one of several types, derive `Pun` on an enum of references, which `puns` calls
-a *view*. Its `from_bytes` returns the first variant that the bytes match, and [`link.rs`][link]
-reads Bluetooth HCI packets this way.
+`puns` doesn't build new values of an unsized type like `Packet`, so to send one, you write its
+bytes yourself.
 
 Every function of `puns` is a `const fn`, and so are the ones that the derive generates, so you can
 check bytes at compile time. `unwrap` isn't `const`, so [match on the result][const] there instead.
+
+## Reading one of several types
+
+When the data can be one of several types, derive `Pun` on an enum of references, which `puns` calls
+a *view*. Its `from_bytes` and `from_head` return the first variant that the bytes match:
+
+```rust
+use puns::{Pun, num::{u8c, u16le}};
+
+// A move: tag 1, then two coordinates.
+#[derive(Pun)]
+#[repr(C)]
+struct Move {
+  tag: u8c<1>,
+  x: u16le,
+  y: u16le,
+}
+
+// A chat line: tag 2, a length, then that many bytes of text.
+#[derive(Pun)]
+#[repr(C)]
+#[pun(size = 2 + length)]
+struct Say {
+  tag: u8c<2>,
+  length: u8,
+  text: str,
+}
+
+#[derive(Pun)]
+enum Message<'a> {
+  Move(&'a Move),
+  Say(&'a Say),
+}
+
+// A move to (2, 3), then "hi".
+let stream = [1, 2, 0, 3, 0, 2, 2, b'h', b'i'];
+let (first, rest) = Message::from_head(&stream).unwrap();
+assert!(matches!(first, Message::Move(m) if (m.x.get(), m.y.get()) == (2, 3)));
+let (second, rest) = Message::from_head(rest).unwrap();
+assert!(matches!(second, Message::Say(s) if &s.text == "hi"));
+assert!(rest.is_empty());
+
+// Tag 3 is neither.
+assert!(Message::from_bytes(&[3]).is_err());
+```
+
+`u8c<1>` is a byte whose only valid value is 1, so `puns` skips a variant as soon as its tag
+doesn't match. [`link.rs`][link] reads Bluetooth HCI packets this way.
 
 ## Reading an old version of a format
 
@@ -171,18 +225,22 @@ compile and reinterpret the old potion as a key, so keep the tags of existing va
 ## Compared with other crates
 
 `puns` takes many ideas and implementation details from [`zerocopy`][zerocopy] and
-[`bytemuck`][bytemuck]. Their traits describe what each type accepts on its own. A `bool` doesn't
-accept every byte, so with them, reinterpreting a `&[Switch]` as a `&[bool]` checks every byte and
-returns a `Result`. With `puns`, it's free ([code and machine code][comparison]). Both can check
-conditions like a checksum at run time, but neither uses the rules of one type to prove those of
-another.
+[`bytemuck`][bytemuck]. Their traits describe what each type accepts on its own, while `puns`
+compares the two types of each conversion:
 
-They also do things that `puns` doesn't: `bytemuck` casts a `Vec`, `zerocopy` handles atomics, and
-their errors are mostly trait bounds that your editor reports right away. Use them for these, for an
-older Rust, or when you need a crate that has been reviewed for years. To decode data into owned
-values, [`binrw`][binrw], [`deku`][deku] or [`nom`][nom] are a better fit. Rust's own [Safe
-Transmute][safe transmute] project compares the two types as well, inside the compiler, but it's
-only on nightly.
+| | `puns` | `zerocopy` and `bytemuck` |
+|---|---|---|
+| `&[Switch]` as `&[bool]` | free ([code and machine code][comparison]) | checks every byte, and returns a `Result` |
+| Conditions such as a checksum | checked at run time | checked at run time |
+| The rules of one type prove those of another | yes | no |
+| Errors | reported by `cargo build`, mostly not by your editor | mostly trait bounds, which your editor reports right away |
+| `Vec` and atomics | no | `bytemuck` casts a `Vec`, `zerocopy` handles atomics |
+| Rust | 1.99 or later | older versions too |
+
+Use them for what `puns` doesn't do, for an older Rust, or when you need a crate that has been
+reviewed for years. To decode data into owned values, [`binrw`][binrw], [`deku`][deku] or
+[`nom`][nom] are a better fit. Rust's own [Safe Transmute][safe transmute] project compares the two
+types as well, inside the compiler, but it's only on nightly.
 
 ## Caveats
 
@@ -216,9 +274,9 @@ in a debug build, and up to 25 s in release for a view of 64 overlapping variant
 ## Safety and testing
 
 `puns` is built on `unsafe` code so that yours doesn't have to be: crates that use it, derive
-included, can keep `#![forbid(unsafe_code)]`. The [Soundness] section lists everything that code
-relies on, including three behaviors of `rustc` that no documentation guarantees, and how each
-is checked.
+included, can keep `#![forbid(unsafe_code)]`. The [Soundness] chapter of the guide lists everything
+that code relies on, including three behaviors of `rustc` that no documentation guarantees, and how
+each is checked.
 
 On every pair of test types of the same size, the analysis is compared with oracles that don't use
 it, and the tests run under Miri, on 32-bit and big-endian targets as well. More than 70 programs
@@ -227,10 +285,11 @@ soundness bug, please [open an issue][issues].
 
 ## Learn more
 
-The [reference][api] has a table of every function, and [Limitations] lists what `puns` can't do
-yet. The [examples] read parts of more than 40 formats, from TLS and DNS to ELF and SQLite. The
-shortest one, [`media.rs`][media], reads WAVE files and MP4 boxes. Run it with
-`cargo run --example media` from a clone of the repository.
+The [reference][api] has a table of every function, and the [guide] goes through the rest as a book,
+from [compile-time errors][Compile-time errors] to [Soundness] and [Limitations]. The [examples]
+read parts of more than 40 formats, from TLS and DNS to ELF and SQLite. The shortest one,
+[`media.rs`][media], reads WAVE files and MP4 boxes. Run it with `cargo run --example media` from a
+clone of the repository.
 
 ## History
 
@@ -277,17 +336,19 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 `puns` by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
 additional terms or conditions.
 
-[msrv]: https://docs.rs/puns/0.2.3/puns/#minimum-rust-version
+[msrv]: https://docs.rs/puns/0.2.3/puns/guide/msrv/index.html
 [api]: https://docs.rs/puns/0.2.3/puns/#reference
-[Limitations]: https://docs.rs/puns/0.2.3/puns/#limitations
+[guide]: https://docs.rs/puns/0.2.3/puns/guide/index.html
+[Limitations]: https://docs.rs/puns/0.2.3/puns/guide/limitations/index.html
 [num]: https://docs.rs/puns/0.2.3/puns/num/index.html
 [error-type]: https://docs.rs/puns/0.2.3/puns/enum.Error.html
 [derive]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html
-[Soundness]: https://docs.rs/puns/0.2.3/puns/#soundness
-[deriving]: https://docs.rs/puns/0.2.3/puns/#what-deriving-pun-means
-[Compile-time errors]: https://docs.rs/puns/0.2.3/puns/#compile-time-errors
-[const]: https://docs.rs/puns/0.2.3/puns/#using-the-functions
-[unstable]: https://docs.rs/puns/0.2.3/puns/#the-unstable-feature
+[Soundness]: https://docs.rs/puns/0.2.3/puns/guide/soundness/index.html
+[requirements]: https://docs.rs/puns/0.2.3/puns/guide/soundness/index.html#guarantees-and-requirements
+[deriving]: https://docs.rs/puns/0.2.3/puns/guide/soundness/index.html#what-deriving-pun-means
+[Compile-time errors]: https://docs.rs/puns/0.2.3/puns/guide/errors/index.html
+[const]: https://docs.rs/puns/0.2.3/puns/guide/functions/index.html#in-a-constant
+[unstable]: https://docs.rs/puns/0.2.3/puns/guide/unstable/index.html
 [performance]: https://github.com/uael/puns/blob/v0.2.3/docs/performance.md
 [comparison]: https://github.com/uael/puns/blob/v0.2.3/docs/performance.md#compared-with-zerocopy-and-bytemuck
 [costs]: https://github.com/uael/puns/blob/v0.2.3/docs/performance.md#costs

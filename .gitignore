@@ -39,6 +39,7 @@
 !puns/benches/
 !puns/examples/
 !puns/src/
+!puns/src/guide/
 !puns/tests/
 !puns/tests/compile-fail/
 !puns/tests/compile-fail/*.stderr

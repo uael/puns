@@ -328,8 +328,8 @@ const unsafe fn variant<E>(ptr: *const E) -> usize {
   // - It points to a valid `E` at run time, by contract on the caller. At compile time, this is not
   //   established: the bytes at `ptr` may be no `E`, which is valid only if its tag is the tag of a
   //   variant and the fields of that variant are valid [2]. The call then relies on two behaviors
-  //   of `rustc` that the Reference does not promise, and that the crate documentation discloses
-  //   (section Soundness). `rustc` reports an error if the tag is uninitialized or not the tag of a
+  //   of `rustc` that the Reference does not promise, and that the guide discloses
+  //   (chapter Soundness). `rustc` reports an error if the tag is uninitialized or not the tag of a
   //   variant that has values, and otherwise reads the variant from the tag alone, without reading
   //   the fields (`discover`, module documentation).
   //
