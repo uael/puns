@@ -1448,12 +1448,14 @@ pub use layout::{crc32, sum16};
 /// crate, and `extern crate other as core;` makes `::core` another crate. So what a layout is made
 /// of does not depend on any path, in the following ways:
 ///
-/// - The functions that the generated code calls are associated functions of the types that the
-///   implemented traits name ([`layout::Layout`], [`layout::Spec`], [`layout::Field`]), or
-///   associated functions of [`layout::Rule`], [`layout::Op`], [`layout::Field`], [`layout::Enum`]
-///   and [`layout::Variant`], which a hidden constant of `Layout` fixes with `fn(T)` types that no
-///   path can replace. The generated code also calls `new` of [`layout::Crc`] and of the identity
-///   of a type, whose results go to these functions, so only the real types compile.
+/// - The functions that the generated code calls to make a layout are associated functions of
+///   [`layout::Layout`], [`layout::Spec`], [`layout::Rule`], [`layout::Op`], [`layout::Field`],
+///   [`layout::Enum`], [`layout::Variant`], [`layout::Crc`], [`layout::Checksum`],
+///   [`layout::Varint`] and the identity of a type, and methods of the values that they return. A
+///   hidden constant of `Layout` fixes these types with `fn(T)` types that no path can replace, so
+///   a path that names a module or another type for one of them does not compile. The description
+///   of an enum of the `Rust` representation, whose type the generated code names, is what a
+///   function of `Layout` returns, so only the real type compiles.
 /// - The offsets of the fields do not come from `offset_of!`, which is a macro named by a path.
 ///   They are measured on the type as compiled, by projecting a pointer to it (`&raw const
 ///   (*p).field`) and `byte_offset_from`, which cost nothing in const evaluation. For a struct of
@@ -1501,6 +1503,13 @@ pub use layout::{crc32, sum16};
 /// layouts count as the same type only if they are also equal, so this cannot make a wrong layout.
 /// It can make a verdict depend on how `rustc` arranged the two types in this compilation, which
 /// without the `unstable` feature no verdict otherwise does.
+///
+/// Nothing else that the derive names through the path of `puns` makes a layout. A trait that it
+/// implements through the path is the trait of `puns`: otherwise the type does not implement that
+/// trait of `puns`, or the implementation of `Pun` does not compile. The lists of fields and of rules that it writes as types are checked against the layout. The
+/// functions of a view, the accessors of the regions and the getters call functions named through
+/// the path, in code that holds no `unsafe` block. A path that names other functions there changes
+/// what they return, but whatever it is, it is a valid value of its type.
 ///
 /// The rest of `::core` that the derive names (`Option`, `PhantomData`, `usize`, and so on) is
 /// checked by the types of the traits it implements. `::core::ptr::null()` is the probe of a sized

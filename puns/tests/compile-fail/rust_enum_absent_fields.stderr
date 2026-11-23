@@ -1,12 +1,17 @@
-error[E0080]: reading memory at alloc258[0x0..0x10], but memory is uninitialized at [0x1..0x2], and this operation requires initialized memory
- --> src/layout.rs
+error[E0080]: reading memory at alloc263[0x0..0x10], but memory is uninitialized at [0x1..0x2], and this operation requires initialized memory
+ --> tests/compile-fail/rust_enum_absent_fields.rs:7:10
   |
-  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
-  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Shape as puns::layout::Discover<2>>::DESC` failed inside this call
+7 | #[derive(puns::Pun, Clone, Copy)]
+  |          ^^^^^^^^^ evaluation of `<Shape as _::__PunDiscover>::DESC` failed inside this call
   |
   = note: the raw bytes of the constant (size: 16, align: 16) {
                  01 __ 00 00 00 00 00 00 00 00 00 00 00 00 00 00 │ .░..............
              }
+note: inside `puns::layout::Layout::discover::<Shape, 2>`
+ --> src/layout.rs
+  |
+  |     unsafe { crate::discover::discover(samples, fields) }
+  |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::discover::discover::<Shape, 2>`
  --> src/discover.rs
   |
@@ -33,7 +38,7 @@ note: inside `core::num::<impl u128>::from_le_bytes`
  ::: $RUST/core/src/num/mod.rs
   |
   = note: in this macro invocation
-  = note: this error originates in the macro `uint_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+  = note: this error originates in the derive macro `puns::Pun` which comes from the expansion of the macro `uint_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 note: erroneous constant encountered
  --> tests/compile-fail/rust_enum_absent_fields.rs:7:10

@@ -6,7 +6,7 @@ use core::mem::MaybeUninit;
 
 use puns::{
   Pun,
-  layout::{Discover, Field},
+  layout::{Desc, Field, Layout},
 };
 
 const BYTE: Field = Field::new(1, &<u8 as Pun>::LAYOUT);
@@ -17,10 +17,12 @@ enum Swapped {
   B(u8),
 }
 
-impl Discover<2> for Swapped {
+impl Swapped {
   const FIELDS: [&'static [Field]; 2] = [&[BYTE], &[BYTE]];
   const SAMPLES: [MaybeUninit<Self>; 2] =
     [MaybeUninit::new(Self::B(0)), MaybeUninit::new(Self::A(0))];
+  // SAFETY: An associated constant is evaluated at compile time, as `discover` requires.
+  const DESC: Desc<2> = unsafe { Layout::discover(&Self::SAMPLES, &Self::FIELDS) };
 }
 
 #[derive(Clone, Copy)]
@@ -30,10 +32,12 @@ enum Specified {
   B(u8),
 }
 
-impl Discover<2> for Specified {
+impl Specified {
   const FIELDS: [&'static [Field]; 2] = [&[BYTE], &[BYTE]];
   const SAMPLES: [MaybeUninit<Self>; 2] =
     [MaybeUninit::new(Self::A(0)), MaybeUninit::new(Self::B(0))];
+  // SAFETY: An associated constant is evaluated at compile time, as `discover` requires.
+  const DESC: Desc<2> = unsafe { Layout::discover(&Self::SAMPLES, &Self::FIELDS) };
 }
 
 #[derive(Clone, Copy)]
@@ -42,10 +46,12 @@ enum Outside {
   B(u8),
 }
 
-impl Discover<2> for Outside {
+impl Outside {
   const FIELDS: [&'static [Field]; 2] = [&[Field::new(2, &<u8 as Pun>::LAYOUT)], &[BYTE]];
   const SAMPLES: [MaybeUninit<Self>; 2] =
     [MaybeUninit::new(Self::A(0)), MaybeUninit::new(Self::B(0))];
+  // SAFETY: An associated constant is evaluated at compile time, as `discover` requires.
+  const DESC: Desc<2> = unsafe { Layout::discover(&Self::SAMPLES, &Self::FIELDS) };
 }
 
 #[derive(Clone, Copy)]
@@ -54,15 +60,17 @@ enum Twice {
   B(u8),
 }
 
-impl Discover<2> for Twice {
+impl Twice {
   const FIELDS: [&'static [Field]; 2] = [&[BYTE, BYTE], &[BYTE]];
   const SAMPLES: [MaybeUninit<Self>; 2] =
     [MaybeUninit::new(Self::A(0)), MaybeUninit::new(Self::B(0))];
+  // SAFETY: An associated constant is evaluated at compile time, as `discover` requires.
+  const DESC: Desc<2> = unsafe { Layout::discover(&Self::SAMPLES, &Self::FIELDS) };
 }
 
 fn main() {
-  let _ = <Swapped as Discover<2>>::DESC;
-  let _ = <Specified as Discover<2>>::DESC;
-  let _ = <Outside as Discover<2>>::DESC;
-  let _ = <Twice as Discover<2>>::DESC;
+  let _ = Swapped::DESC;
+  let _ = Specified::DESC;
+  let _ = Outside::DESC;
+  let _ = Twice::DESC;
 }
