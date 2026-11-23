@@ -4047,7 +4047,54 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
 ///
 /// # Examples
 ///
-/// See [`Validate`].
+/// An entry of a table, which a byte alone does not prove. [`Validate`] has another example.
+///
+/// ```
+/// use core::num::NonZero;
+///
+/// use puns::{
+///   Deferred, Error, Scalar, Validate,
+///   layout::{Endian, Spec},
+/// };
+///
+/// /// The number of an entry of a table, from 1, valid only if the table has that entry.
+/// #[derive(Clone, Copy, Debug, PartialEq)]
+/// #[repr(transparent)]
+/// struct Entry(NonZero<u8>);
+///
+/// // SAFETY: `Entry` is `repr(transparent)` over a `NonZero<u8>`: its values are the bytes from 1
+/// // to 255, each a valid `Entry`, and whether the table has the entry is not in its byte. It
+/// // holds no `UnsafeCell`.
+/// unsafe impl Scalar for Entry {
+///   const SPEC: Spec = Spec::ranges::<Entry>(Endian::NATIVE, &[(1, 255)]).opaque();
+/// }
+///
+/// /// The number of entries of the table, 4 by default.
+/// struct Entries(u8);
+///
+/// impl Default for Entries {
+///   fn default() -> Self {
+///     Self(4)
+///   }
+/// }
+///
+/// // SAFETY: `validate` returns `Ok` only if the table has the entry.
+/// unsafe impl Validate for Entry {
+///   type Context<'a> = Entries;
+///   type Error = u8;
+///
+///   fn validate(&self, cx: &mut Entries) -> Result<(), u8> {
+///     if self.0.get() <= cx.0 { Ok(()) } else { Err(self.0.get()) }
+///   }
+/// }
+///
+/// // `puns` checks the values of the byte: zero is no `Entry`.
+/// assert_eq!(puns::from_bytes::<Deferred<Entry>>(&[0]).err(), Some(Error::ValidityAt(0)));
+/// let entry = puns::from_bytes::<Deferred<Entry>>(&[3]).unwrap();
+/// // `Validate` proves its place: a table of 4 entries has it, one of 2 does not.
+/// assert_eq!(entry.validated().map(|entry| entry.0.get()), Ok(3));
+/// assert_eq!(entry.validated_with(&mut Entries(2)).err(), Some(3));
+/// ```
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct Deferred<T: ?Sized>(T);
@@ -4065,7 +4112,48 @@ impl<T: ?Sized + Validate> Deferred<T> {
   ///
   /// # Examples
   ///
-  /// See [`Validate`].
+  /// ```
+  /// # use core::num::NonZero;
+  /// #
+  /// # use puns::{
+  /// #   Deferred, Error, Scalar, Validate,
+  /// #   layout::{Endian, Spec},
+  /// # };
+  /// #
+  /// # /// The number of an entry of a table, from 1, valid only if the table has that entry.
+  /// # #[derive(Clone, Copy, Debug, PartialEq)]
+  /// # #[repr(transparent)]
+  /// # struct Entry(NonZero<u8>);
+  /// #
+  /// # // SAFETY: `Entry` is `repr(transparent)` over a `NonZero<u8>`: its values are the bytes from 1
+  /// # // to 255, each a valid `Entry`, and whether the table has the entry is not in its byte. It
+  /// # // holds no `UnsafeCell`.
+  /// # unsafe impl Scalar for Entry {
+  /// #   const SPEC: Spec = Spec::ranges::<Entry>(Endian::NATIVE, &[(1, 255)]).opaque();
+  /// # }
+  /// #
+  /// # /// The number of entries of the table, 4 by default.
+  /// # struct Entries(u8);
+  /// #
+  /// # impl Default for Entries {
+  /// #   fn default() -> Self {
+  /// #     Self(4)
+  /// #   }
+  /// # }
+  /// #
+  /// # // SAFETY: `validate` returns `Ok` only if the table has the entry.
+  /// # unsafe impl Validate for Entry {
+  /// #   type Context<'a> = Entries;
+  /// #   type Error = u8;
+  /// #
+  /// #   fn validate(&self, cx: &mut Entries) -> Result<(), u8> {
+  /// #     if self.0.get() <= cx.0 { Ok(()) } else { Err(self.0.get()) }
+  /// #   }
+  /// # }
+  /// let entry = puns::from_bytes::<Deferred<Entry>>(&[3]).unwrap();
+  /// assert!(entry.validated_with(&mut Entries(3)).is_ok());
+  /// assert_eq!(entry.validated_with(&mut Entries(2)).err(), Some(3));
+  /// ```
   #[inline]
   pub fn validated_with(&self, cx: &mut T::Context<'_>) -> Result<&T, T::Error> {
     match self.0.validate(cx) {
@@ -4083,7 +4171,50 @@ impl<T: ?Sized + Validate> Deferred<T> {
   ///
   /// # Examples
   ///
-  /// See [`Validate`].
+  /// ```
+  /// # use core::num::NonZero;
+  /// #
+  /// # use puns::{
+  /// #   Deferred, Error, Scalar, Validate,
+  /// #   layout::{Endian, Spec},
+  /// # };
+  /// #
+  /// # /// The number of an entry of a table, from 1, valid only if the table has that entry.
+  /// # #[derive(Clone, Copy, Debug, PartialEq)]
+  /// # #[repr(transparent)]
+  /// # struct Entry(NonZero<u8>);
+  /// #
+  /// # // SAFETY: `Entry` is `repr(transparent)` over a `NonZero<u8>`: its values are the bytes from 1
+  /// # // to 255, each a valid `Entry`, and whether the table has the entry is not in its byte. It
+  /// # // holds no `UnsafeCell`.
+  /// # unsafe impl Scalar for Entry {
+  /// #   const SPEC: Spec = Spec::ranges::<Entry>(Endian::NATIVE, &[(1, 255)]).opaque();
+  /// # }
+  /// #
+  /// # /// The number of entries of the table, 4 by default.
+  /// # struct Entries(u8);
+  /// #
+  /// # impl Default for Entries {
+  /// #   fn default() -> Self {
+  /// #     Self(4)
+  /// #   }
+  /// # }
+  /// #
+  /// # // SAFETY: `validate` returns `Ok` only if the table has the entry.
+  /// # unsafe impl Validate for Entry {
+  /// #   type Context<'a> = Entries;
+  /// #   type Error = u8;
+  /// #
+  /// #   fn validate(&self, cx: &mut Entries) -> Result<(), u8> {
+  /// #     if self.0.get() <= cx.0 { Ok(()) } else { Err(self.0.get()) }
+  /// #   }
+  /// # }
+  /// // The default table has 4 entries.
+  /// let third = puns::from_bytes::<Deferred<Entry>>(&[3]).unwrap();
+  /// assert!(third.validated().is_ok());
+  /// let fifth = puns::from_bytes::<Deferred<Entry>>(&[5]).unwrap();
+  /// assert_eq!(fifth.validated().err(), Some(5));
+  /// ```
   #[inline]
   pub fn validated(&self) -> Result<&T, T::Error>
   where
@@ -4217,6 +4348,52 @@ pub unsafe trait Validate: Pun {
   ///
   /// Returns an error if an opaque scalar of `self` is not valid at its place, or if `validate`
   /// cannot tell.
+  ///
+  /// # Examples
+  ///
+  /// [`Deferred::validated_with`] calls it, and only gives the value if it returns `Ok`:
+  ///
+  /// ```
+  /// # use core::num::NonZero;
+  /// #
+  /// # use puns::{
+  /// #   Deferred, Error, Scalar, Validate,
+  /// #   layout::{Endian, Spec},
+  /// # };
+  /// #
+  /// # /// The number of an entry of a table, from 1, valid only if the table has that entry.
+  /// # #[derive(Clone, Copy, Debug, PartialEq)]
+  /// # #[repr(transparent)]
+  /// # struct Entry(NonZero<u8>);
+  /// #
+  /// # // SAFETY: `Entry` is `repr(transparent)` over a `NonZero<u8>`: its values are the bytes from 1
+  /// # // to 255, each a valid `Entry`, and whether the table has the entry is not in its byte. It
+  /// # // holds no `UnsafeCell`.
+  /// # unsafe impl Scalar for Entry {
+  /// #   const SPEC: Spec = Spec::ranges::<Entry>(Endian::NATIVE, &[(1, 255)]).opaque();
+  /// # }
+  /// #
+  /// # /// The number of entries of the table, 4 by default.
+  /// # struct Entries(u8);
+  /// #
+  /// # impl Default for Entries {
+  /// #   fn default() -> Self {
+  /// #     Self(4)
+  /// #   }
+  /// # }
+  /// #
+  /// # // SAFETY: `validate` returns `Ok` only if the table has the entry.
+  /// # unsafe impl Validate for Entry {
+  /// #   type Context<'a> = Entries;
+  /// #   type Error = u8;
+  /// #
+  /// #   fn validate(&self, cx: &mut Entries) -> Result<(), u8> {
+  /// #     if self.0.get() <= cx.0 { Ok(()) } else { Err(self.0.get()) }
+  /// #   }
+  /// # }
+  /// let entry = puns::from_bytes::<Deferred<Entry>>(&[3]).unwrap();
+  /// assert_eq!(entry.validated_with(&mut Entries(2)), Err(3));
+  /// ```
   fn validate(&self, cx: &mut Self::Context<'_>) -> Result<(), Self::Error>;
 }
 
