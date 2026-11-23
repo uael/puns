@@ -1,5 +1,5 @@
 error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
               This is at byte 0 of the target.
 
@@ -42,7 +42,7 @@ note: the above error was encountered while instantiating `fn puns::from_bytes::
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
               This is at byte 0 of the target.
 
@@ -85,7 +85,7 @@ note: the above error was encountered while instantiating `fn try_pun::<[u8; 2],
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
               This is at byte 0 of the target.
 
@@ -158,7 +158,7 @@ note: the above error was encountered while instantiating `fn head::<(u8, u16), 
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
               This is at byte 0 of the target.
 
@@ -201,7 +201,7 @@ note: the above error was encountered while instantiating `fn puns::as_bytes::<(
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
               This is at byte 0 of the target.
 
@@ -244,7 +244,7 @@ note: the above error was encountered while instantiating `fn pun::<Ticket, u32>
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
               This is at byte 0 of the target.
 
@@ -275,7 +275,7 @@ note: the above error was encountered while instantiating `fn try_pun::<u8, Opti
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
-              cannot pun: what may be written through the `&mut` is a valid source in the layout that `rustc` chose, not in every layout that Rust allows: the source has a part whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation).
+              cannot pun: what may be written through the `&mut` must leave a valid source, which has a part with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation): the analysis does not tell what a write leaves there.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
 
     --> src/lib.rs
@@ -312,7 +312,7 @@ note: the above error was encountered while instantiating `fn pun_mut::<(bool, u
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
-              cannot pun: the type has a part whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation), and something to check in it, which would be at another place with another compiler.
+              cannot pun: the type has a part with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation), and something to check in it, which would be at another place with another compiler.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
 
     --> src/lib.rs

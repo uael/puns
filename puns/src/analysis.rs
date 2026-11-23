@@ -3165,12 +3165,11 @@ pub const MUTABLE: &str = "some values of the target are not valid for the sourc
                            where the source is not), and could be written through the `&mut`";
 /// Why a `&mut` to a part is refused when it covers a part of the source whose layout Rust leaves
 /// to the compiler, without being of the same type.
-pub const PART_UNSPECIFIED: &str = "the `&mut` covers a part of the source whose layout Rust \
-                                    leaves to the compiler (a struct, a tuple or an enum of the \
-                                    `Rust` representation), which only a `&mut` \
-                                    to the same type may write.\nAdd `#[repr(C)]` (or \
-                                    `#[repr(u8)]` to an enum), or enable the `unstable` feature \
-                                    of `puns`";
+pub const PART_UNSPECIFIED: &str = "the `&mut` covers a part of the source with an unspecified \
+                                    layout (a struct, a tuple or an enum of the `Rust` \
+                                    representation), which only a `&mut` to the same type may \
+                                    write.\nAdd `#[repr(C)]` (or `#[repr(u8)]` to an enum), or \
+                                    enable the `unstable` feature of `puns`";
 /// Why a `&mut` to a part is refused when a struct of the source that has a rule overlaps it.
 pub const PART_RULE: &str = "a struct of the source that has a rule (a size, a length, an \
                              assertion, a region) overlaps the bytes that the `&mut` covers, and \

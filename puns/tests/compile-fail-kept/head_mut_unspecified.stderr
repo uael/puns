@@ -1,5 +1,5 @@
 error[E0080]: evaluation panicked:
-              cannot pun: the `&mut` covers a part of the source whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation), which only a `&mut` to the same type may write.
+              cannot pun: the `&mut` covers a part of the source with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation), which only a `&mut` to the same type may write.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
 
     --> src/lib.rs
