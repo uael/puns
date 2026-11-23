@@ -166,11 +166,10 @@
 //! | `MaybeUninit<T>` has the size and the alignment of `T`, and any bytes are a value | C [`MaybeUninit`, "Layout"][maybe-uninit layout], [`MaybeUninit`, "Validity"][maybe-uninit validity] |
 //! | `PhantomData<T>` has size 0 and alignment 1 | C [`PhantomData`, "Layout"][phantom layout] |
 //!
-//! Rust documents more than `puns` uses yet. `UnsafeCell`, `Cell`, `Wrapping`, `Saturating` and the
-//! atomics have the layout of what they hold, but `puns` implements `Pun` for none of them. An enum
-//! with two variants, one holding a type that `Option` is documented for and one with no sized
-//! field, is [ABI-compatible][abi compatibility] with that type. That gives its size, but not
-//! which bytes its other variant is.
+//! Rust also documents that an enum with two variants, one holding a type that `Option` is
+//! documented for and one with no sized field, is [ABI-compatible][abi compatibility] with that
+//! type. `puns` does not use it: it gives the size of the enum, but not which bytes its other
+//! variant is.
 //!
 //! Niches are not guaranteed beyond the rows for `Option` and `Result` above. `Option<bool>` is one
 //! byte with `None` at 2, but only because that is how `rustc` does it today, and the documentation

@@ -1,47 +1,4 @@
 #![doc = include_str!("../README.md")]
-//!
-//! # Reference
-//!
-//! A *pun* reinterprets the bytes of a value of one type, the *source* `S`, as a value of another
-//! type, the *target* `D`. At compile time, `puns` puts each pun in one of three kinds:
-//!
-//! - **Proven**: every value of the source is a [valid] value of the target. The pun compiles to no
-//!   check, though it may still compute an address or a length.
-//! - **Checked**: only some values of the source are valid values of the target. A `try_` or
-//!   `from_` function checks at run time what could not be proven.
-//! - **Refused**: the pun can never be valid, or some part of it can be neither proven nor checked.
-//!   It does not compile.
-//!
-//! `puns` works with plain data: structs and enums of any representation, `repr(C)` unions, tuples,
-//! arrays, slices, structs that end with a slice, `str`, `MaybeUninit`, and types without values.
-//! For an enum of the `Rust` representation, `puns` finds the layout that `rustc` chose.
-//! `#[derive(Pun)]` also describes what the bytes of a value say about it: its size, the length of
-//! its trailing slice, and conditions such as a checksum.
-//!
-//! |               | Whole                                  | Front                     | Back                      |
-//! |---------------|----------------------------------------|---------------------------|---------------------------|
-//! | a typed value | [`pun`], [`pun_ref`], [`pun_mut`], [`as_bytes`] (and [`try_pun`], [`try_pun_ref`], [`try_pun_mut`]) | [`head`], [`head_ref`], [`head_mut`] | [`tail`], [`tail_ref`], [`tail_mut`] |
-//! | bytes         | [`from_bytes`], [`from_bytes_mut`] | [`from_head`], [`from_head_mut`] | [`from_tail`], [`from_tail_mut`] |
-//!
-//! Each row says what is read, a typed value or bytes, and each column says how much of it: the
-//! whole, the front, or the back.
-//!
-//! Every function of `puns` is a `const fn`, and so is every function that [the derive](macro@Pun)
-//! generates. Only the implementations of standard traits, such as `From` and `Display`, are not,
-//! since stable Rust cannot call a trait method in `const`.
-//!
-//! [`num`] has numbers of a fixed byte order, and integers restricted to some values. [`macro@Pun`]
-//! documents the options of the derive. [`layout`] has the types that describe a layout, and the
-//! checksums. The tests and the examples of the repository show more uses. Each example of a format
-//! says which parts of the format it does not cover, and why.
-//!
-//! # Guide
-//!
-//! The [`guide`] explains the rest as a book: how each function checks what it checks, the errors
-//! of a pun that does not compile, soundness, the `unstable` feature, the minimum Rust version,
-//! portability, and the limitations of `puns`.
-//!
-//! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
 #![cfg_attr(not(test), no_std)]
 // Every public item has documentation, as docs.rs counts it. CI checks that each item that rustdoc
 // counts has an example.

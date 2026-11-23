@@ -26,6 +26,9 @@
 //!   `&mut` to a part of an array whose elements have rules looks at no more than 64 elements, and
 //!   is refused past them.
 //! - A packed struct whose unsized field has trailing padding of its own is refused.
+//! - No function returns a new value of an unsized type, such as a struct that ends with a slice,
+//!   because Rust cannot return an unsized value by value, and `puns` never allocates. To send
+//!   such a value, write its bytes.
 //! - The build time of a view enum whose variants overlap grows with the square of the number of
 //!   variants, or faster.
 //! - `PhantomData<T>` is a [`Scalar`] for any `T`, and deriving `Pun` exposes private fields. [What
@@ -54,6 +57,12 @@
 //!
 //! ## Not done yet
 //!
+//! - **`Vec`, `String` and maps, through their contents.** A pun could reinterpret what they hold,
+//!   as it reinterprets a slice, and keep the structure that holds it. The structure itself is not
+//!   data: its bytes are a pointer and lengths, so reading it as bytes would not read the contents,
+//!   and bytes made into one would hold a pointer to no allocation.
+//! - **Atomics, `Cell`, `UnsafeCell`, `Wrapping` and `Saturating`.** They have the layout of what
+//!   they hold, but `puns` implements `Pun` for none of them.
 //! - **Precise mutable parts.** [`head_mut`] and [`tail_mut`] refuse any source in which a struct
 //!   that has a rule overlaps the part, unless the target has the same struct with the same rules
 //!   there, even if the rule reads other fields. They also refuse any enum that the part covers
