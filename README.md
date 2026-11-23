@@ -306,10 +306,11 @@ errors] what to expect of the messages.
 
 ### Performance
 
-Checked puns take from 0.038 to 1.52 times as long as the same checks written by hand, and from 0.55
-to 1.13 times for packets, and what you pay for is mostly build time. The chart shows the time of
-each check relative to the same check written by hand, measured on 2026-11-21 at commit `4176671`.
-[Performance][performance] has the method, the machine code and the build times.
+For packets, checked puns take from 0.55 to 1.13 times as long as the same checks written by hand.
+Over all 33 cases, CRCs included, they take from 0.038 to 1.52 times as long. What you pay for is
+mostly build time. The chart shows the time of each check relative to the same check written by
+hand, measured on 2026-11-21 at commit `4176671`. [Performance][performance] has the method, the
+machine code and the build times.
 
 [![Time of each check by puns, relative to the same check written by hand](https://raw.githubusercontent.com/uael/puns/v0.2.4/docs/charts/checks.svg)][performance]
 

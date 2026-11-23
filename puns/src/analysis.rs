@@ -270,8 +270,8 @@
 //! Rust does not specify compiles only if both sides are the same type ([`sizes_kept`]).
 //! [`validate_but_never`](crate::validate_but_never) compiles only if nothing that Rust does not
 //! specify has something to check ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does not
-//! accept zeros that make a part whose representation Rust does not specify, other than a struct
-//! (`Stable::specified`).
+//! accept zeros that make a part whose representation Rust does not specify, other than a struct or
+//! a tuple (`Stable::specified`).
 //!
 //! [valid]: crate::reference::concepts#what-is-a-valid-value
 

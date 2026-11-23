@@ -2007,7 +2007,11 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       // - The offset of each field is that of the compiler, measured on the struct as compiled:
       //   the offset of a place projected from a pointer to the struct, in the memory of
       //   `Layout::offsets` for `repr(C)` and `repr(transparent)`, which holds the struct
-      //   whatever its size, and to an uninitialized value otherwise.
+      //   whatever its size, and to an uninitialized value otherwise. The offsets are measured in
+      //   const evaluation and used at run time, as by the loads of rules. For the `Rust`
+      //   representation, that the layout is the same in both is not established: `puns` relies
+      //   on `rustc` computing both with the same code (`docs/rust.md`, "The layout in const
+      //   evaluation").
       // - The type of each field is its home in `__PunTypes`, which `item` requires to be the type
       //   of the field of that name in the struct as compiled, and the struct to have no other
       //   field. Each field has the layout of its type (`Pun`, section Safety), or a restriction
@@ -2719,8 +2723,8 @@ fn derive_tagged(
           // enum as compiled has the representation that the derive read. This is not established:
           // an attribute macro below the derive can change it (`docs/trust.md`, "Attribute macros
           // below the derive"), and with a narrower tag, a byte of padding of the sample may be
-          // among these bytes. These are the requirements of `declared_tags`, except, with
-          // `repr(C)` alone, both of them, and in every case the second. The constant is evaluated
+          // among these bytes. Of the two requirements of `declared_tags`, the second is not
+          // established in any case, and with `repr(C)` alone neither is. The constant is evaluated
           // at compile time, where `rustc` reports an error instead of reading an uninitialized
           // byte. No documentation promises this behavior, which `docs/rust.md` discloses ("Errors
           // of const evaluation").

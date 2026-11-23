@@ -400,7 +400,7 @@ impl Spec {
   ///
   /// // A rule reads a `u16`, but not an `I16be`.
   /// let _ = Op::load::<u16>(0);
-  /// let _ = Op::load::<I16be>(0);
+  /// let _ = Op::load::<I16be>(0); // Panics: not a number.
   /// ```
   #[must_use]
   pub const fn not_a_number(self) -> Self {
@@ -3952,10 +3952,10 @@ impl Layout {
   /// `valid(..)` ranges.
   ///
   /// If `strict`, this is `false` where zero bytes make a part whose representation Rust does not
-  /// specify ([`Stable::specified`]), other than a struct: the tags of an enum of the `Rust`
-  /// representation, and of `Option` and `Result` of most types, are not specified. The fields of a
-  /// struct are zeros in every order, and a part that zero bytes do not make, such as another field
-  /// of a union or another variant of an enum, does not count.
+  /// specify ([`Stable::specified`]), other than a struct or a tuple: the tags of an enum of the
+  /// `Rust` representation, and of `Option` and `Result` of most types, are not specified. The
+  /// fields of a struct are zeros in every order, and a part that zero bytes do not make, such as
+  /// another field of a union or another variant of an enum, does not count.
   pub(crate) const fn zeroable(&self, strict: bool) -> bool {
     if strict && !self.stable.specified && !matches!(self.kind, Kind::Struct(..)) {
       return false;
@@ -4124,7 +4124,7 @@ impl Layout {
 
 /// The offsets of the `C` fields of a struct, measured on the struct as compiled in `N` bytes of
 /// uninitialized memory, for `#[derive(Pun)]`, which implements it for every `N` with
-/// [`Layout::measure_base`]. [`Layout::offsets`] evaluates it for one `N`.
+/// [`Layout::measure_base`]. `Layout::offsets` evaluates it for one `N`.
 ///
 /// # Safety
 ///
@@ -4136,7 +4136,7 @@ pub unsafe trait Offsets<const N: usize, const C: usize> {
   const OFFSETS: [usize; C];
 }
 
-/// Returns the number of bytes of memory of class `k` in which [`Layout::offsets`] measures: 2 to
+/// Returns the number of bytes of memory of class `k` in which `Layout::offsets` measures: 2 to
 /// the power `k`, or `isize::MAX` if that is larger, which no type is.
 const fn class(k: u32) -> usize {
   if k < usize::BITS - 1 { 1 << k } else { usize::MAX >> 1 }
@@ -4149,7 +4149,7 @@ const fn offsets_in<T: ?Sized + Offsets<N, C>, const N: usize, const C: usize>()
   T::OFFSETS
 }
 
-/// Declares [`Layout::offsets`] for the classes `$k` of [`class`], then the class `$last`, which
+/// Declares `Layout::offsets` for the classes `$k` of [`class`], then the class `$last`, which
 /// holds every type.
 macro_rules! offsets {
   ($($k:literal)*; $last:literal) => {
@@ -4773,7 +4773,7 @@ pub trait Unsigned: Copy + seal::Unsigned {}
 
 /// The seal of [`Unsigned`], which only this crate implements.
 mod seal {
-  /// The supertrait of [`Unsigned`](super::Unsigned), which no other crate can name.
+  /// The supertrait of `Unsigned`, which no other crate can name.
   pub trait Unsigned {}
 }
 

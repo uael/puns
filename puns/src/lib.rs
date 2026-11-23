@@ -2690,8 +2690,8 @@ pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Res
 /// - A `T` whose bytes are all zero is a [valid] `T` and meets its `valid(..)` ranges. Its rules
 ///   are not checked.
 /// - Without the `unstable` feature, the zero bytes make no part whose representation Rust leaves
-///   to the compiler, other than a struct: an enum of the `Rust` representation, or `Option` or
-///   `Result` of most types ([layout independence]).
+///   to the compiler, other than a struct or a tuple: an enum of the `Rust` representation, or
+///   `Option` or `Result` of most types ([layout independence]).
 /// - `T` holds no [opaque scalar] where the zero bytes would make one, since `puns` never makes
 ///   one.
 ///
