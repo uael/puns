@@ -2006,8 +2006,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   of it (`Layout::restricted`), which guarantees the same values and accepts fewer. A
       //   struct is valid if, and only if, each of its fields is valid, and a byte that no field
       //   covers is padding. The Reference states the "only if" [1]. The derive relies on the
-      //   "if", which no documentation states (the guide of `puns`, chapter What `puns` relies
-      //   on, "A value whose fields are valid").
+      //   "if", which no documentation states (`docs/rust.md`, "A value whose fields are valid").
       //   Rules are requirements of `puns`, never of the language.
       // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules that
       //   have an expression, which `validate::check_rules` asserts against the layout. The other
@@ -2015,9 +2014,9 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   every layout that Rust allows.
       // - Each field is `Pun`, so no byte is inside an `UnsafeCell`.
       // The functions called are those of the types that `Layout::PIN` fixes, which no path can
-      // replace. A struct whose private fields keep an invariant must not derive `Pun` (the chapter
-      // Soundness of the guide): the layout describes only what the language requires of
-      // its fields.
+      // replace. A struct whose private fields keep an invariant must not derive `Pun`
+      // (`docs/soundness.md`, "What deriving `Pun` means"): the layout describes only what the
+      // language requires of its fields.
       //
       // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.struct:
       //
@@ -2035,7 +2034,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         // `as` casts, cast again to `*const Self`. The size of the struct with 8 elements in its
         // tail must fit in an `isize`, which is not established. The derive relies on `rustc` to
         // report an error in const evaluation where it does not fit. No documentation promises this
-        // behavior, which the guide of `puns` discloses (chapter What `puns` relies on).
+        // behavior, which the guide discloses (`docs/rust.md`, "Errors of const evaluation").
         const LAYOUT: #root::layout::Layout = unsafe {
           #root::layout::Layout::structure::<Self>(
             Self::PROBE,
@@ -2257,8 +2256,8 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     // initialized, which is not established: `align` may add padding after the discriminant, and
     // with the `Rust` representation, Rust does not say how the discriminant is stored. The call
     // is evaluated in the constant `SPEC`, where `rustc` reports an error instead of reading an
-    // uninitialized byte. No documentation promises this behavior, which the guide of `puns`
-    // discloses (chapter What `puns` relies on).
+    // uninitialized byte. No documentation promises this behavior, which the guide discloses
+    // (`docs/rust.md`, "Errors of const evaluation").
     variants.push(quote!(unsafe { #root::layout::Spec::bits_of(Self::#variant) }));
   }
   let count = variants.len();
@@ -2277,10 +2276,10 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     //   bytes of each variant, read from a value of it, as an unsigned integer in the byte order
     //   of the target. `item` requires the enum as compiled to have no other variant. An enum of
     //   size 0 has one variant, and no byte.
-    // - Each value that `SPEC` accepts is the bytes of a variant, so a valid `Self`: the
-    //   derive relies on a valid discriminant being all that such an enum requires, which no
-    //   documentation states (the guide of `puns`, chapter What `puns` relies on, "A value whose
-    //   fields are valid"). The derive is told of no other invariant.
+    // - Each value that `SPEC` accepts is the bytes of a variant, so a valid `Self`: the derive
+    //   relies on a valid discriminant being all that such an enum requires, which no documentation
+    //   states (`docs/rust.md`, "A value whose fields are valid"). The derive is told of no other
+    //   invariant.
     // - An enum without fields holds no `UnsafeCell`.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.enum:
@@ -2695,13 +2694,19 @@ fn derive_tagged(
           let tags =
           // SAFETY (of the generated code): `#tag` is an enum without fields, `repr(C)` or of a
           // primitive representation, without `align`. Such an enum is an integer that holds its
-          // discriminant (the guide of `puns`, "What Rust documents"), so every byte of it is
+          // discriminant (`docs/rust.md`, "What Rust documents"), so every byte of it is
           // initialized. Each sample is a value of a variant of the enum, which starts with its
           // tag, the enum with all fields removed [1] [2]. With an integer, the tag is that
           // integer, as `#tag` is. With `repr(C)` alone, the discriminants are implicit [3] [4], so
           // the tag and `#tag` are the same enum without fields. Either way, the first
-          // `size_of::<#tag>()` bytes of a sample are its tag, an integer, so initialized. These
-          // are the requirements of `declared_tags`.
+          // `size_of::<#tag>()` bytes of a sample are its tag, an integer, so initialized, if the
+          // enum as compiled has the representation that the derive read. This is not
+          // established: an attribute macro below the derive can change it (`docs/trust.md`,
+          // "Attribute macros below the derive"), and with a narrower tag, a byte of padding of
+          // the sample may be among these bytes. These are the requirements of `declared_tags`,
+          // except that one. The constant is evaluated at compile time, where `rustc` reports an
+          // error instead of reading an uninitialized byte. No documentation promises this
+          // behavior, which the guide discloses (`docs/rust.md`, "Errors of const evaluation").
           //
           // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.adt:
           //
@@ -2755,9 +2760,10 @@ fn derive_tagged(
                 // sample whose byte `after` may have been changed, so it may be no `Self`. This
                 // constant is evaluated at compile time, where the `match`, which reads the
                 // variant, relies on the behaviors of `rustc` that `discover` relies on, and that
-                // the guide of `puns` discloses (chapter What `puns` relies on): `rustc` reports
-                // an error if the tag is not the tag of a variant, and otherwise reads the variant
-                // from the tag alone, without reading the fields.
+                // the guide discloses (`docs/rust.md`, "Errors of const evaluation" and "The
+                // variant read from the tag"): `rustc` reports an error if the tag is not the tag
+                // of a variant, and otherwise reads the variant from the tag alone, without
+                // reading the fields.
                 let read = match unsafe { &*changed.as_ptr() } {
                   #(Self::#names { .. } => #variant_indices,)*
                 };
@@ -2789,8 +2795,8 @@ fn derive_tagged(
       //   variant and no other field. Each field has the layout of its type, or a restriction of
       //   it. An enum is valid if, and only if, its tag is that of a variant and the fields of
       //   that variant are valid, which is what the layout accepts. The Reference states the
-      //   "only if" [3]. The derive relies on the "if", which no documentation states (the guide
-      //   of `puns`, chapter What `puns` relies on, "A value whose fields are valid").
+      //   "only if" [3]. The derive relies on the "if", which no documentation states
+      //   (`docs/rust.md`, "A value whose fields are valid").
       // - `Variants` lists the variants in order, each with its fields (see the markers above).
       //   The other lists are `()`.
       // - Each field is `Pun`, and the tag is an integer, so no byte is in an `UnsafeCell`.
@@ -3075,8 +3081,8 @@ fn derive_discovered(
       // its home in `__PunTypes`, which `item` requires to be the type of that field in the enum
       // as compiled, and the enum to have no other variant and no other field. The layout
       // accepts a value whose tag is that of a variant whose fields are valid. The derive relies
-      // on such a value being valid, which no documentation states (the guide of `puns`, chapter
-      // What `puns` relies on, "A value whose fields are valid").
+      // on such a value being valid, which no documentation states
+      // (`docs/rust.md`, "A value whose fields are valid").
       // `Variants` lists the variants in order, each with its fields. The other lists are `()`.
       // Each field is `Pun`, so no byte is in an `UnsafeCell`.
       unsafe impl #impl_generics #root::Pun for #this #where_clause {

@@ -14,12 +14,13 @@
 //!
 //! A value is known as two intervals, one for each half of a `u128` ([`Range`]). For example,
 //! `(kind << 64) + start` is a kind of `0..=255` in the high half and an offset in the low half. A
-//! field, a read of `n` bytes and a checksum may be any value of their width. A literal is itself,
-//! and a comparison is `0..=1`. `size_of_val(self)` is at most `isize::MAX` ([`SIZE_MAX`]). A QUIC
-//! integer is 62 bits, and the other integers of variable length may be anything. Each operation
-//! makes the range of its result from those of its operands, and tells whether it may fail. A sum
-//! whose bounds do not overflow cannot fail. Nor can a difference whose left side is never less
-//! than its right side.
+//! field, a read of `n` bytes, a CRC-32, an Adler-32, a Fletcher-16 and `sum16` may be any value of
+//! their width. A [`Crc`](layout::Crc) of any width is taken to be any value of 64 bits, and a sum
+//! of bytes is at most 255 times `isize::MAX`. A literal is itself, and a comparison is `0..=1`.
+//! `size_of_val(self)` is at most `isize::MAX` ([`SIZE_MAX`]). A QUIC integer is 62 bits, and the
+//! other integers of variable length may be anything. Each operation makes the range of its result
+//! from those of its operands, and tells whether it may fail. A sum whose bounds do not overflow
+//! cannot fail. Nor can a difference whose left side is never less than its right side.
 //!
 //! A read that succeeds tells that its offsets are in the value. Examples are `be(at, 1)` and a
 //! checksum over `start..end`. After the read, a variable that was read at is at most `isize::MAX`
@@ -32,10 +33,10 @@
 //!
 //! The state of a walk is a fixed point. It is what the walk starts as, joined twice with what a
 //! step makes of it. Then each bound that still moves goes as far as it can, in at most four more
-//! steps. The number of steps of a walk, at most `8 * size + 128`, bounds nothing. On 64 bits it is
-//! more than `2^64` for a value of `isize::MAX` bytes. The state of a walk three deep or more,
-//! inside two others, may be anything, so that the analysis stays a few times the length of the
-//! expression.
+//! steps. The limit on the steps of a walk ([Walks](crate::guide::rules#walks)) bounds nothing
+//! here: on 64 bits, it is `usize::MAX` steps for a value of `isize::MAX` bytes, so a state that
+//! grows at each step could pass `2^64`. The state of a walk three deep or more, inside two others,
+//! may be anything, so that the analysis stays a few times the length of the expression.
 //!
 //! # How an operation is computed
 //!
@@ -63,8 +64,9 @@
 //! bits, so the bounds of what it reads were tested again. For the UDP packet behind 3 headers,
 //! that was 217 instructions against 209. A remainder in 32 bits after a sum in 64 bits was worse
 //! than either, 243 instructions against 241 for IPv4. These counts are of
-//! `valgrind --tool=callgrind` on `benches/checks.rs`. The bounds of a read are one comparison of
-//! the offset with `size - n`, which does not change in a walk.
+//! `valgrind --tool=callgrind` on `benches/checks.rs`, taken when this module was written (commit
+//! a1090c5, 2026-11-18), on a machine that was not recorded. The bounds of a read are one
+//! comparison of the offset with `size - n`, which does not change in a walk.
 //!
 //! # Tests
 //!
@@ -83,8 +85,8 @@
 //! `tests/rules_are_rust.rs` compares rules at the limits of the widths, and walks, with Rust. The
 //! tests catch an analysis that does not test a carry, that takes no fixed point, or that does not
 //! join what follows a part. They also catch an analysis that is wrong about the range of a
-//! product, a remainder or a shift. Each of these faults was tried. The tests cannot catch a bound
-//! of `isize::MAX` taken too small, because no value of the tests is large enough to tell.
+//! product, a remainder or a shift. The tests cannot catch a bound of `isize::MAX` taken too small,
+//! because no value of the tests is large enough to tell.
 
 use crate::{
   layout::{self, MAX_OPS, Op, STACK, VARIABLES, Varint},

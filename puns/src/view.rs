@@ -26,9 +26,9 @@
 //!   and no state remains at run time.
 //! - For `from_head`, a base must also take the same bytes as the variant (`same_extent`). Both
 //!   must tell their extent (a size, or a `size` or `len` rule, which a valid value meets). Or
-//!   neither does, and both take as many elements as fit in the same way: the same alignment and
-//!   element, and a head of the same remainder. The variant then takes the extent of its base,
-//!   without trailing padding, which each adds on its own.
+//!   neither does, and both take as many elements as fit in the same way: the same alignment, the
+//!   same size of element, and a head of the same remainder. The variant then takes the extent of
+//!   its base, without trailing padding, which each adds on its own.
 //!
 //! # Why the answer is that of trying each variant in turn
 //!
@@ -506,7 +506,8 @@ where
   // SAFETY: `find` returned `target`, a value of the type at `I` at the address of `known.bytes`,
   // of size at most their length. The reference is valid, as in `from_head` and `try_pun_ref`:
   // - It is not null, because `known.bytes` is a reference at the same address.
-  // - It is aligned, because `Plan::front_by` and `Plan::try_cast_by` checked the address.
+  // - It is aligned. `Plan::front_by` and `Plan::try_cast_by` checked the address where the type
+  //   at `I` is aligned to more than 1, and any address is aligned to 1.
   // - It is not dangling, because it is within `known.bytes`.
   // - It points to a valid value of the type at `I`, as `find` returns. `validate` found every part
   //   that `Choice<V, I>` marks to be valid, and the base of `I`, or bytes, prove the others.

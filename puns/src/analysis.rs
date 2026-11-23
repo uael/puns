@@ -4,12 +4,15 @@
 //! value of `S` is a [valid] value of `D`. It walks both layouts together, as the product of two
 //! automata, and answers the following questions:
 //!
-//! - **Fit** ([`Fit`]): how the size of a source maps to the size of a target. The sizes fit
-//!   always, for some lengths of a slice, or never, or the source is truncated to the size of the
-//!   target. It accounts for the trailing padding of unsized structs, and is checked against
+//! - **Fit** ([`Fit`]): how the [extent](crate::guide::concepts#layouts-and-rules) of a source
+//!   maps to the extent of a target. The extents are the same always, for some lengths of a slice,
+//!   or never, or the source is truncated to the extent of the target. The trailing padding of an
+//!   unsized target is not part of its extent: where the target is more aligned than the source,
+//!   `Plan::check_by` checks that the source has room for it. [`Layout::structure`] checks the
+//!   size that the layout gives an unsized struct, trailing padding included, against
 //!   `size_of_val_raw`.
-//! - **Uninitialized bytes**: whether a byte that the target requires to be initialized would be
-//!   read from padding. This is always an error.
+//! - **Uninitialized bytes**: whether a byte that the target requires to be initialized may be
+//!   padding in the source ([`Relation`], `uninit`). This is always an error.
 //! - **Validity** ([`Relation`]): whether the pun is infallible, fallible, or never valid. Each
 //!   constrained scalar of the target must accept every value that the source may hold under it.
 //! - **Marks** ([`Marks`]): which scalars, patterns, enums, unions and rules of the target the
@@ -23,8 +26,8 @@
 //! [Layouts that Rust leaves to the compiler](#layouts-that-rust-leaves-to-the-compiler)).
 //!
 //! The errors of the analysis are panics of `const { .. }` blocks in the generic functions of the
-//! crate, evaluated after monomorphization ([Compile-time errors](crate::guide::errors) says what
-//! this means for a user).
+//! crate, evaluated after monomorphization ([Compile-time errors](crate::guide::errors) says when
+//! a build reports them).
 //!
 //! # Cost
 //!
@@ -140,8 +143,8 @@
 //! that reads the bytes of its struct reads what the source has under every part of the struct, a
 //! part that is proven without being read included. A rule that loads a field reads the bytes of
 //! that field, though they are of any value and no other check reads them ([`unreadable_rules`]).
-//! A leaf that is both marked and unreadable is refused, as a byte read from padding is
-//! ([`Relation::settle`]).
+//! A leaf that is both marked and unreadable is refused, as a byte that the target requires to be
+//! initialized and that may be padding in the source is ([`Relation::settle`]).
 //!
 //! # Shifted relations
 //!
@@ -196,7 +199,7 @@
 //! Rules are checked when a value is made from something else, and tell `from_head` how long a
 //! value is. A rule is proven only by the same rules, at the same place of the source, in a struct
 //! of the same extent ([`proves_rules`]), as [Why the pair
-//! decides](crate::guide::concepts#why-the-pair-decides) states for users. [`Layout::same_rules`]
+//! decides](crate::guide::concepts#why-the-pair-decides) states. [`Layout::same_rules`]
 //! says why such a struct computes the same rules over the same bytes, whatever its fields, which
 //! are related to the target as any others. This is how `Frame<Ipv4<Udp>>` proves the rules of
 //! `Frame<Ipv4>`, since the payload of `Ipv4` is a typed region of its bytes, not a field of
@@ -213,10 +216,11 @@
 //! # Layouts that Rust leaves to the compiler
 //!
 //! Without the `unstable` feature ([`STRICT`]), the analysis does not look into a node that is not
-//! `fixed` ([`Layout::is_opaque`], [`Stable`](crate::layout::Stable)), and the cursor makes it one
-//! run ([`RunKind::Opaque`]). The exception is a node whose size is the same in every layout, that
-//! has no rule, and whose bytes are all of any value or all padding, since what such bytes are does
-//! not depend on where its fields are.
+//! `fixed` ([`Stable`](crate::layout::Stable)), and the cursor makes it one run
+//! ([`RunKind::Opaque`]). The exception is a node whose size is the same in every layout, that has
+//! no rule, and whose bytes are all of any value or all padding, since what such bytes are does not
+//! depend on where its fields are. A node that the analysis does not look into is *opaque* in this
+//! module ([`Layout::is_opaque`]), and so are its run and the part of a layout that it is.
 //!
 //! - **As a source**, an opaque node is what every layout of it is (all initialized bytes if it is
 //!   `init`, and otherwise all bytes that may be padding). That the first byte of a `(u8, u16)` is
@@ -836,7 +840,8 @@ impl Relation {
     }
   }
 
-  /// Records `pos` as a byte read from padding, if none is recorded yet.
+  /// Records `pos` as a byte that the target requires to be initialized and that may be padding
+  /// in the source, if none is recorded yet.
   const fn uninit(&mut self, pos: usize) {
     if self.uninit.is_none() {
       self.uninit = Some(pos);
@@ -860,7 +865,7 @@ impl Relation {
     }
   }
 
-  /// Records a byte read from padding if a leaf that is marked must not be read.
+  /// Records the first unreadable byte as `uninit` if a leaf that is marked must not be read.
   ///
   /// This is the last step of an analysis whose marks tell the validation what to check. Before
   /// it, a leaf may still be marked.

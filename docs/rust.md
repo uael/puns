@@ -126,6 +126,10 @@ relies on them runs only at compile time:
   pointer that is not initialized fails the build.
 - The derive relies on the first to refuse an enum without fields whose `align` gives it padding,
   since it reads each variant from all of its bytes.
+- The derive relies on the first where it compares the tags of an enum of a primitive or `C`
+  representation with the first bytes of the samples. An attribute macro below the derive that
+  narrows the tag leaves padding among these bytes, which fails the build ([Attribute macros below
+  the derive][trust#attribute-macros-below-the-derive]).
 - An `Option` of an [opaque scalar] relies on the first to refuse a `None` with an uninitialized
   byte.
 - The derive relies on the third for an unsized struct whose trailing slice has elements so large

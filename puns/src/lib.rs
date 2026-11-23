@@ -1091,10 +1091,10 @@ unsafe impl<T: Scalar> Pun for T {
 // SAFETY: `Layout::array(&T::LAYOUT, N)` is `N` elements of the layout of `T`, the size of `T`
 // apart, with the alignment of `T`: the layout of `[T; N]` [1]. An array is valid if, and only if,
 // each of its elements is a valid `T`. The Reference states the "only if" [2]. `puns` relies on the
-// "if", which no documentation states (the guide, chapter What `puns` relies on, "A value whose
-// fields are valid"). A valid `T` is what `T::LAYOUT` describes, by the `# Safety` of `Pun` for
-// `T`. `Elem` is `T`, and the other lists are `()`. Its bytes are those of its elements, none of
-// which is inside an `UnsafeCell`, since `T: Pun`.
+// "if", which no documentation states (`docs/rust.md`, "A value whose fields are valid"). A valid
+// `T` is what `T::LAYOUT` describes, by the `# Safety` of `Pun` for `T`. `Elem` is `T`, and the
+// other lists are `()`. Its bytes are those of its elements, none of which is inside an
+// `UnsafeCell`, since `T: Pun`.
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#array-layout:
 //
@@ -1119,10 +1119,10 @@ unsafe impl<T: Pun, const N: usize> Pun for [T; N] {
 // SAFETY: `Layout::slice` is the layout of elements that have the layout of `T`, the size of `T`
 // apart, with the alignment of `T`, as many as the length of the slice: the layout of `[T]` [1]. A
 // slice is valid if, and only if, each of its elements is a valid `T`, as an array is. No
-// documentation states the "if", on which `puns` relies (the guide, chapter What `puns` relies on,
-// "A value whose fields are valid"). A valid `T` is what `T::LAYOUT` describes, by the `# Safety`
-// of `Pun` for `T`. `Elem` is `T`, and the other lists are `()`. Its
-// bytes are those of its elements, none of which is inside an `UnsafeCell`, since `T: Pun`.
+// documentation states the "if", on which `puns` relies (`docs/rust.md`, "A value whose fields are
+// valid"). A valid `T` is what `T::LAYOUT` describes, by the `# Safety` of `Pun` for `T`. `Elem` is
+// `T`, and the other lists are `()`. Its bytes are those of its elements, none of which is inside
+// an `UnsafeCell`, since `T: Pun`.
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#slice-layout:
 //
@@ -1277,14 +1277,14 @@ macro_rules! tuple {
     // SAFETY: The layout is `Layout::structure` of the elements of the tuple, at the offsets that
     // `offset_of!` gives, each with the layout of its type. `Layout::structure` takes the size and
     // the alignment of the tuple from the compiler, and asserts that no two fields overlap and that
-    // each is within the size. A tuple is valid if, and only if, each of its elements is valid,
-    // and every byte that no element covers is padding. The Reference states the "only if" [1].
-    // `puns` relies on the "if", which no documentation states (the guide, chapter What `puns`
-    // relies on, "A value whose fields are valid"). So the layout is that of the tuple, by the
-    // `# Safety` of `Pun` for each element. `rust` and `identified` change neither the size, the
-    // alignment, the offsets nor the values. `Fields` lists the elements in order (see
-    // `TupleField`). The other lists are `()`. No byte of an element is in an `UnsafeCell`, since
-    // each is `Pun`, and a byte of padding belongs to no element.
+    // each is within the size. A tuple is valid if, and only if, each of its elements is valid, and
+    // every byte that no element covers is padding. The Reference states the "only if" [1]. `puns`
+    // relies on the "if", which no documentation states (`docs/rust.md`, "A value whose fields are
+    // valid"). So the layout is that of the tuple, by the `# Safety` of `Pun` for each element.
+    // `rust` and `identified` change neither the size, the alignment, the offsets nor the values.
+    // `Fields` lists the elements in order (see `TupleField`). The other lists are `()`. No byte of
+    // an element is in an `UnsafeCell`, since each is `Pun`, and a byte of padding belongs to no
+    // element.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.struct:
     //
@@ -1374,7 +1374,7 @@ impl_bits!(i8 i16 i32 i64 i128 isize f32 f64);
 // SAFETY: `PhantomData<T>` has a size of 0 [1], and so does `Spec::any::<Self>()`. A value of
 // size 0 has no byte to hold or to accept, and `PhantomData<T>` has no invariant. It holds no
 // `UnsafeCell`. What `T` marks is not an invariant of the bytes: a type that relies on it must not
-// implement `Pun` (see the chapter "Soundness" of the guide).
+// implement `Pun` (`docs/soundness.md`, "What deriving `Pun` means").
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/core/marker/struct.PhantomData.html:
 //
@@ -1795,8 +1795,9 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
   /// not be valid for. [`Plan`] itself is such a `C` if `source` is a valid `S` and
   /// `Plan::<S, D>::TRY_REF` compiles: an analysis that refuses the pun may stop before it marks
   /// every part. Otherwise `C` is the marks of the analysis of a source type as `D` that records no
-  /// byte read from padding, no disjoint part and nothing that Rust leaves to the compiler, and the
-  /// bytes are a valid value of that source type, with the extent of `source`.
+  /// byte that `D` requires to be initialized and that may be padding, no disjoint part and nothing
+  /// that Rust leaves to the compiler, and the bytes are a valid value of that source type, with
+  /// the extent of `source`.
   #[inline(always)]
   const unsafe fn try_cast_by<C: Checks>(source: *const S) -> Result<*const D, Error> {
     if const { !Self::ANALYSIS.aligned } && !ptr::is_aligned(source.cast(), D::LAYOUT.align()) {
@@ -2595,7 +2596,8 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
     //   size of `value`.
     // - It points to a valid `D`. `validate` found every part that the analysis marked to be
     //   valid. Every other part is valid in every value of `S`, since the relation records no
-    //   byte read from padding, no disjoint part, and nothing that Rust leaves to the compiler.
+    //   byte that `D` requires to be initialized and that may be padding, no disjoint part, and
+    //   nothing that Rust leaves to the compiler.
     // The reference has the lifetime of the shared borrow `value`, and neither type holds an
     // `UnsafeCell` (`Pun`, section Safety).
     Ok(target) => Ok(unsafe { &*target }),
@@ -3068,12 +3070,12 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
   ///
   /// - `addr` is valid for reads of `n` initialized bytes.
   ///
-  /// The returned pointer is a valid `D` only if `C` marks every part of `D` that the bytes may
-  /// not be valid for. It does if `C` is [`Plan`] itself and `Plan::<[u8], D>::TRY_REF` compiles,
-  /// since the marks are then those of any bytes as a `D`. It also does if `C` holds the marks of
-  /// an analysis of a source `S` as a `D` that records no byte read from padding, no disjoint part
-  /// and nothing that Rust leaves to the compiler, and the first `extent` bytes at `addr` are a
-  /// valid `S`.
+  /// The returned pointer is a valid `D` only if `C` marks every part of `D` that the bytes may not
+  /// be valid for. It does if `C` is [`Plan`] itself and `Plan::<[u8], D>::TRY_REF` compiles, since
+  /// the marks are then those of any bytes as a `D`. It also does if `C` holds the marks of an
+  /// analysis of a source `S` as a `D` that records no byte that `D` requires to be initialized and
+  /// that may be padding, no disjoint part and nothing that Rust leaves to the compiler, and the
+  /// first `extent` bytes at `addr` are a valid `S`.
   #[inline(always)]
   const unsafe fn front_by<C: Checks>(
     addr: *const u8,
@@ -3178,9 +3180,9 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
 /// Reinterprets the start of `bytes` as a `D`, and returns it with the bytes that follow it.
 ///
 /// A sized `D` takes `size_of::<D>()` bytes. A `D` that ends with a slice and has a `size` or `len`
-/// rule (see [`macro@Pun`]) takes its [extent], which the rule gives, rounded up to the alignment of
-/// `D`: the bytes must also hold the padding that follows its slice. Without such a rule, it takes
-/// as many elements as fit, trailing padding included, or none if they have size 0.
+/// rule (see [`macro@Pun`]) takes its [extent], which the rule gives, rounded up to the alignment
+/// of `D`: the bytes must also hold the padding that follows its slice. Without such a rule, it
+/// takes as many elements as fit, trailing padding included, or none if they have size 0.
 ///
 /// # Errors
 ///

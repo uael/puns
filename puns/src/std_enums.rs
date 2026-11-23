@@ -146,7 +146,7 @@ const fn discovered<T: Pun>() -> Layout {
     .identified(Id::new("Option", &[T::LAYOUT.id]));
   // Where `core` documents it (a `NonZero`, a `repr(transparent)` struct around one), what is
   // found is what it documents: a niche at zero, which is `None`. Else Rust specifies nothing of
-  // it (see the chapter "Unspecified layouts" of the guide).
+  // it (`docs/layouts.md`, "Layout independence").
   if T::NULL_OPTIMIZED { layout } else { layout.unspecified() }
 }
 
@@ -273,8 +273,8 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
 // offset observed on a sample, and the lists of variants and fields are those of this layout (see
 // `OptionNone`, `OptionSome` and `OptionSomeField`). The layout accepts a value whose tag is that
 // of a variant whose fields are valid. `puns` relies on such a value being valid, which no
-// documentation states (the guide, chapter What `puns` relies on, "A value whose fields are
-// valid"). Where `T` is a scalar that a pun never makes,
+// documentation states (`docs/rust.md`, "A value whose fields are valid").
+// Where `T` is a scalar that a pun never makes,
 // the layout is that of `never_option`, whose shape is checked there: a scalar, whose lists `puns`
 // does not read, so they may be anything (`Pun`, section Safety). `Option<T>` holds a `T` or
 // nothing, and a tag, so no `UnsafeCell`, since `T: Pun`.

@@ -32,8 +32,9 @@
 //! every operation of each, and with a walk exactly where the expression has one. The functions
 //! name every part of the tree whatever its kind. Where a part is not a walk, they name the
 //! expression that it is in again, which adds nothing new.
-//! [`Machine::apply`](layout::Machine::apply) never sees a walk. `from_head` also finds a `size`
-//! rule of the last field through the types (`Fields::Last`), and checks that it is the layout's.
+//! [`Machine::apply`](layout::Machine::apply) never sees a walk. `from_head` also finds a `size` or
+//! `len` rule of the last field through the types (`Fields::Last`), and checks that it is the
+//! layout's.
 //!
 //! # The machine
 //!
@@ -108,9 +109,11 @@ impl Checks for All {
 /// - `ptr` is valid for reads of a `T`. It need not be aligned.
 /// - Every byte that a check marked by `C` reads is initialized. A marked scalar reads its own
 ///   bytes, unless it is one that a pun never makes, which is never read: `C::NEVER` accepts it,
-///   and otherwise it is refused. A marked pattern reads its tail. An enum or a union with a marked
-///   leaf reads its tag and what the checks of its variants read, which check every part. Nothing
-///   is read of a variant, or of a field of a union, that has no value. A struct whose rules are
+///   and otherwise it is refused. A marked pattern reads its tail. An enum with a marked leaf reads
+///   its tag and what the checks of the fields of the variant of that tag read, which check every
+///   part. A union with a marked leaf reads what the checks of its fields read, which check every
+///   part, for each field in order up to the first that accepts the value. Nothing is read of a
+///   variant, or of a field of a union, that has no value. A struct whose rules are
 ///   marked reads the fields that its rules load and, if one of its rules reads bytes by offset
 ///   ([`Layout::rules_read_bytes`]), all of its bytes, padding included.
 ///
@@ -134,10 +137,11 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
   //   initialized, as `check_rules` requires.
   // - A pattern is its tail of `ptr::metadata(ptr)` bytes, which are marked, so initialized, as
   //   `Dfa::matches_utf8` and `Dfa::matches` require.
-  // - An enum or a union has a marked leaf, so its tag and what the checks of its variants read
-  //   are initialized, by contract on the caller. These are the requirements of `validate_enum`,
-  //   with `layout` the layout of `T`, and of `validate_union`, with `T::Variants` the list of
-  //   its variants.
+  // - An enum or a union has a marked leaf, so what its check reads is initialized, by contract on
+  //   the caller: for an enum, its tag and what the checks of the fields of its variant read, and
+  //   for a union, what the checks of its fields read up to the first that accepts the value.
+  //   These are the requirements of `validate_enum`, with `layout` the layout of `T`, and of
+  //   `validate_union`, with `T::Variants` the list of its variants.
   unsafe {
     match const { T::LAYOUT.shape() } {
       Shape::Scalar(spec) => (const { C::NEVER } && spec.is_never()) || spec.matches(ptr.cast()),
@@ -180,9 +184,12 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
 #[inline(always)]
 const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout: &Enum) -> bool {
   let Kind::Scalar(spec) = layout.tag.layout.kind else { panic!() };
-  // SAFETY: `Layout::enumeration` asserts that the tag is a scalar that `Spec::is_integer`
-  // accepts, so of at most 16 bytes, at `layout.tag.offset` within the size of `T`. So `add`
-  // stays within the `T` at `ptr`, and the tag is valid for reads. The tag is initialized, and so
+  // SAFETY: `layout` is that of an enum, not of a union, so `Layout::enumeration` or
+  // `Layout::uninhabited` made it. `Layout::enumeration` asserts that the tag is a scalar that
+  // `Spec::is_integer` accepts, so of at most 16 bytes, at `layout.tag.offset` within the size of
+  // `T`. `Layout::uninhabited` gives `Enum::NEVER`, whose tag is a scalar of size 0 at offset 0,
+  // which `Spec::is_integer` accepts. So `add` stays within the `T` at `ptr`, and the tag is valid
+  // for reads. The tag is initialized, and so
   // is what the checks of the fields of its variant read, by contract on the caller. These are
   // the requirements of `load` and of `validate_variants`, with `T::Variants` the list of the
   // variants of `T`.
@@ -272,18 +279,21 @@ const unsafe fn every<C: Checks, T: ?Sized + Pun, F: Fields>(ptr: *const T) -> b
 ///
 /// - `ptr` is valid for reads of a `T`. It need not be aligned.
 /// - `V` is `T::Variants`, or a list that `Variants::Next` reaches from it.
-/// - Every byte that the checks of `V` or of a field after it read, which check every part, is
-///   initialized, for the fields that have values. The analysis refuses a union of which such a
-///   field would read a byte that may be padding in the source.
+/// - Every byte that the checks of `V` and of the fields after it read, which check every part,
+///   is initialized, for the fields that have values, up to the first field that accepts the
+///   value at `ptr`. The analysis establishes it for the fields up to the first that the source
+///   proves whatever safe code writes, which accepts every value of the source, or for every field
+///   if none does ([Enums and unions](crate::analysis#enums-and-unions)).
 const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(ptr: *const T) -> bool {
   if const { V::TAG.is_none() } {
     return false;
   }
   // SAFETY: `V` is in the list of the variants of `T`, by contract on the caller, so `V::Fields` is
   // the one field of a variant in the layout of the union, at offset 0 (`Variants`, section
-  // Safety). Every byte that its checks read is initialized, by contract on the caller, as
-  // `validate_fields` requires. The requirements of the call for the next fields are those of this
-  // call. Nothing is read of a field that has no value, which no bytes are, as in
+  // Safety). No field before `V` accepted the value, so every byte that the checks of `V` read is
+  // initialized, by contract on the caller, as `validate_fields` requires. The next fields are
+  // checked only if `V` does not accept the value, so the requirements of that call are those of
+  // this call. Nothing is read of a field that has no value, which no bytes are, as in
   // `validate_variants`.
   unsafe {
     (const { inhabited::<V::Fields>() } && every::<C, T, V::Fields>(ptr))
@@ -293,8 +303,9 @@ const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(ptr: *co
 
 /// Returns whether the parts that `C` marks of the `len` elements at `ptr` are valid.
 ///
-/// Elements whose checks are a few comparisons are checked in blocks of about 64 bytes, without a
-/// branch within a block. The result is the same as one element at a time.
+/// Elements whose checks are a few comparisons are checked in blocks of as many elements as fit in
+/// 64 bytes ([`Layout::block`](layout::Layout::block)), without a branch within a block. The result
+/// is the same as one element at a time.
 ///
 /// # Safety
 ///
@@ -417,9 +428,9 @@ const fn rules_marked<C: Checks, P: Path, T: ?Sized + Pun>() -> bool {
 pub const unsafe fn check_rules<T: ?Sized + Pun>(ptr: *const T) -> bool {
   const { assert!(listed::<T, T::Rules>(0), "not the rules of the struct") };
   let (len, tail, size) = tail_of(ptr);
-  // SAFETY: `tail_of` returns `size`, the size of the `T` at `ptr`. That `T` is valid for reads,
-  // and the bytes that its rules read are initialized, by contract on the caller, as
-  // `check_listed` requires.
+  // SAFETY: `tail_of` returns `size`, the extent of the `T` at `ptr`, which is at most its size.
+  // That `T` is valid for reads, so its first `size` bytes are, and the bytes that its rules read
+  // are initialized, by contract on the caller, as `check_listed` requires.
   unsafe { check_listed::<T, T::Rules>(ptr.cast(), size, tail, len, 0) }
 }
 

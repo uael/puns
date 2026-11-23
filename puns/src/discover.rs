@@ -310,10 +310,10 @@ const unsafe fn variant<E>(ptr: *const E) -> usize {
   // - It points to a valid `E` at run time, by contract on the caller. At compile time, this is not
   //   established: the bytes at `ptr` may be no `E`, which is valid only if its tag is the tag of a
   //   variant and the fields of that variant are valid [2]. The call then relies on two behaviors
-  //   of `rustc` that the Reference does not promise, and that the guide discloses (chapter What
-  //   `puns` relies on). `rustc` reports an error if the tag is uninitialized or not the tag of a
-  //   variant that has values, and otherwise reads the variant from the tag alone, without reading
-  //   the fields (`discover`, module documentation).
+  //   of `rustc` that the Reference does not promise, and that the guide discloses
+  //   (`docs/rust.md`, "Errors of const evaluation" and "The variant read from the tag"). `rustc`
+  //   reports an error if the tag is uninitialized or not the tag of a variant that has values,
+  //   and otherwise reads the variant from the tag alone, without reading the fields.
   //
   // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.reference-box:
   //
@@ -612,7 +612,7 @@ pub const unsafe fn read<E>(sample: &MaybeUninit<E>, offset: usize, len: usize) 
   // reads. `load` also requires them to be initialized, which is not established. By contract on
   // the caller, the call is evaluated at compile time, where `rustc` reports an error instead of
   // reading an uninitialized byte. No documentation promises this behavior, which the guide
-  // discloses (chapter What `puns` relies on).
+  // discloses (`docs/rust.md`, "Errors of const evaluation").
   unsafe { load(sample.as_ptr().cast::<u8>().add(offset), len, Endian::NATIVE) }
 }
 

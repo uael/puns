@@ -179,6 +179,8 @@ macro_rules! ints {
       concat!("A ", endian!($endian, "little", "big"), "-endian `", stringify!($raw), "`.")
     )]
     ///
+    /// # Examples
+    ///
     /// ```
     #[doc = concat!("use puns::num::", stringify!($name), ";")]
     ///
@@ -197,6 +199,8 @@ macro_rules! ints {
 
     impl $name {
       /// The greatest value.
+      ///
+      /// # Examples
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -217,7 +221,7 @@ macro_rules! ints {
       #[doc = narrower!($raw $size, concat!(
         "# Panics\n\nPanics if `value` does not fit in ", stringify!($size), " bytes.\n\n",
         "# Examples\n"
-      ), "")]
+      ), "# Examples\n")]
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -240,6 +244,8 @@ macro_rules! ints {
 
       /// Returns the value.
       ///
+      /// # Examples
+      ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
       ///
@@ -260,6 +266,8 @@ macro_rules! ints {
 
       /// Returns its bytes.
       ///
+      /// # Examples
+      ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
       ///
@@ -274,6 +282,8 @@ macro_rules! ints {
       }
 
       /// Creates a value from its bytes.
+      ///
+      /// # Examples
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -296,11 +306,10 @@ macro_rules! ints {
     // SAFETY: `$name` is `repr(transparent)` over `[u8; $size]`, so it has its layout [1], and
     // `SPEC` has its size. The items of the `# Safety` of `Scalar` hold:
     // - Every value of `$name` is initialized bytes, all of which `Spec::any` accepts.
-    // - Every initialized `[u8; $size]` is a valid `$name`, whose one field is all that it
-    //   requires to be valid. The Reference requires the field to be valid [2]. `puns` relies on
-    //   this being all, which no documentation states (the guide, chapter What `puns` relies on,
-    //   "A value whose fields are valid"). No code of `$name` relies on what its bytes are:
-    //   `from_bytes` makes one of any bytes.
+    // - Every initialized `[u8; $size]` is a valid `$name`, whose one field is all that it requires
+    //   to be valid. The Reference requires the field to be valid [2]. `puns` relies on this being
+    //   all, which no documentation states (`docs/rust.md`, "A value whose fields are valid"). No
+    //   code of `$name` relies on what its bytes are: `from_bytes` makes one of any bytes.
     // - `$name` holds no `UnsafeCell`.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi:
@@ -365,7 +374,7 @@ macro_rules! ints {
       "// One more than the greatest value of ", stringify!($size), " bytes.\n",
       "let _ = puns::from_bytes::<", stringify!($literal), "<{ 1 << (8 * ", stringify!($size),
       ") }>>(&[0; ", stringify!($size), "]);\n```\n\n# Examples\n"
-    ), "")]
+    ), "# Examples\n")]
     ///
     /// ```
     #[doc = concat!("use puns::num::{", stringify!($name), ", ", stringify!($literal), "};")]
@@ -392,7 +401,7 @@ macro_rules! ints {
       #[doc = narrower!($raw $size, concat!(
         "# Panics\n\nPanics if `V` does not fit in ", stringify!($size), " bytes.\n\n",
         "# Examples\n"
-      ), "")]
+      ), "# Examples\n")]
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($literal), ";")]
@@ -408,6 +417,8 @@ macro_rules! ints {
       }
 
       /// Returns `V`.
+      ///
+      /// # Examples
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($literal), ";")]
@@ -465,8 +476,8 @@ macro_rules! ints {
 
 /// Implements `From<$raw>` for each `$name: $raw`, by `$name::new`.
 ///
-/// `u24le`, `u24be`, `u48le` and `u48be` have none, since `new` panics on the values of their `$raw`
-/// that do not fit.
+/// `u24le`, `u24be`, `u48le` and `u48be` have none, since `new` panics on the values of their
+/// `$raw` that do not fit.
 macro_rules! from {
   ($($name:ident: $raw:ident;)+) => {$(
     impl From<$raw> for $name {
@@ -504,6 +515,8 @@ macro_rules! numbers {
   ($($name:ident: $raw:ident[$size:literal] $endian:ident = $value:literal;)+) => {$(
     #[doc = concat!("A ", endian!($endian, "little", "big"), "-endian `", stringify!($raw), "`.")]
     ///
+    /// # Examples
+    ///
     /// ```
     #[doc = concat!("use puns::num::", stringify!($name), ";")]
     ///
@@ -523,6 +536,8 @@ macro_rules! numbers {
     impl $name {
       /// Creates `value`.
       ///
+      /// # Examples
+      ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
       ///
@@ -539,6 +554,8 @@ macro_rules! numbers {
       }
 
       /// Returns the value.
+      ///
+      /// # Examples
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -558,6 +575,8 @@ macro_rules! numbers {
 
       /// Returns its bytes.
       ///
+      /// # Examples
+      ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
       ///
@@ -573,6 +592,8 @@ macro_rules! numbers {
       }
 
       /// Creates a value from its bytes.
+      ///
+      /// # Examples
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -595,11 +616,10 @@ macro_rules! numbers {
     // SAFETY: `$name` is `repr(transparent)` over `[u8; $size]`, so it has its layout [1], and
     // `SPEC` has its size. The items of the `# Safety` of `Scalar` hold:
     // - Every value of `$name` is initialized bytes, all of which `Spec::any` accepts.
-    // - Every initialized `[u8; $size]` is a valid `$name`, whose one field is all that it
-    //   requires to be valid. The Reference requires the field to be valid [2]. `puns` relies on
-    //   this being all, which no documentation states (the guide, chapter What `puns` relies on,
-    //   "A value whose fields are valid"). No code of `$name` relies on what its bytes are:
-    //   `from_bytes` makes one of any bytes.
+    // - Every initialized `[u8; $size]` is a valid `$name`, whose one field is all that it requires
+    //   to be valid. The Reference requires the field to be valid [2]. `puns` relies on this being
+    //   all, which no documentation states (`docs/rust.md`, "A value whose fields are valid"). No
+    //   code of `$name` relies on what its bytes are: `from_bytes` makes one of any bytes.
     // - `$name` holds no `UnsafeCell`.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi:
@@ -685,6 +705,8 @@ ordered!(i16le i16be i32le i32be i64le i64be i128le i128be);
 
 /// A `u8` whose only valid value is `V`.
 ///
+/// # Examples
+///
 /// ```
 /// use puns::num::u8c;
 ///
@@ -704,6 +726,8 @@ pub struct u8c<const V: u8>(u8);
 impl<const V: u8> u8c<V> {
   /// Creates `V`.
   ///
+  /// # Examples
+  ///
   /// ```
   /// use puns::num::u8c;
   ///
@@ -716,6 +740,8 @@ impl<const V: u8> u8c<V> {
   }
 
   /// Returns `V`.
+  ///
+  /// # Examples
   ///
   /// ```
   /// use puns::num::u8c;
@@ -795,6 +821,8 @@ pub struct u8in<const MIN: u8, const MAX: u8>(u8);
 impl<const MIN: u8, const MAX: u8> u8in<MIN, MAX> {
   /// Returns `value` as a `u8in`, or `None` if it is not from `MIN` to `MAX`.
   ///
+  /// # Examples
+  ///
   /// ```
   /// use puns::num::u8in;
   ///
@@ -810,6 +838,8 @@ impl<const MIN: u8, const MAX: u8> u8in<MIN, MAX> {
   }
 
   /// Returns the value, which is from `MIN` to `MAX`.
+  ///
+  /// # Examples
   ///
   /// ```
   /// use puns::num::u8in;

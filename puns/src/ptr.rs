@@ -111,8 +111,8 @@ pub const unsafe fn verify<T: ?Sized>(probe: *const T) {
   // have the same size, which is asserted above, and the assertions below check the rest of the
   // representation. If a byte of `*const T` were not initialized, the read would be undefined
   // behavior. In the evaluation of a `LAYOUT` constant, which calls `verify`, `rustc` reports such
-  // a read as an error, which the guide discloses (chapter What `puns` relies on, "Errors of const
-  // evaluation"). Rust does not promise that a pointer has no uninitialized byte, so a call at run
+  // a read as an error, which the guide discloses (`docs/rust.md`, "Errors of const evaluation").
+  // Rust does not promise that a pointer has no uninitialized byte, so a call at run
   // time relies on the representation that `rustc` gives pointers, which has none.
   unsafe {
     assert!(raw_len(probe) == PROBE_LEN, "{}", MESSAGE);
@@ -229,10 +229,9 @@ pub const unsafe fn with_empty_tail<T: ?Sized>(addr: *const u8, probe: *const T)
 /// The caller must ensure the requirements of [`with_empty_tail`].
 pub const unsafe fn head_size<T: ?Sized>(probe: *const T) -> usize {
   // SAFETY: The caller ensures the requirements of `with_empty_tail`. `size_of_val_raw` is always
-  // safe to call if `T` is `Sized` [1]. Otherwise `T` is slice-tailed, and a `T` whose tail has no
-  // element is not larger than one with `PROBE_LEN` elements, which fits in an `isize` by contract
-  // on the caller of `verify`, as `size_of_val_raw` requires [1]. It reads no memory, so the
-  // address of the pointer does not matter.
+  // safe to call if `T` is `Sized` [1]. Otherwise `T` is slice-tailed, and `with_empty_tail`
+  // returns a pointer whose tail has no element, for which it is safe to call too [1]. It reads no
+  // memory, so the address of the pointer does not matter.
   //
   // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/fn.size_of_val_raw.html:
   //
@@ -241,6 +240,8 @@ pub const unsafe fn head_size<T: ?Sized>(probe: *const T) -> usize {
   //     If the unsized tail of `T` is: a slice `[U]`, `str`, or a trait object
   //     `dyn Trait`, then the size of the entire value (dynamic tail length + statically
   //     sized prefix) must fit in `isize`.
+  //     For the special case where the dynamic tail length is 0, this function
+  //     is safe to call.
   unsafe { core::mem::size_of_val_raw(with_empty_tail(core::ptr::null(), probe)) }
 }
 
@@ -258,11 +259,11 @@ pub const fn is_aligned(addr: *const u8, align: usize) -> bool {
   // bytes of `addr`, which are initialized, are a `usize` of the same size (see `Cast`). This
   // reinterprets a pointer as an integer, which `core` says to avoid at run time [1], since its
   // semantics are not settled. The quoted text does not make it undefined behavior there, but no
-  // documentation promises that it reads the address either, so `puns` relies on it, as the chapter
-  // What `puns` relies on of the guide discloses. The integer is never made into a pointer again.
-  // In const evaluation, `core` requires the pointer to have been made from an integer [1], which
-  // is not established. `core` also says that using the integer stops the evaluation [1], so such a
-  // call evaluated at compile time does not compile.
+  // documentation promises that it reads the address either, so `puns` relies on it, as the guide
+  // discloses (`docs/rust.md`, "The address read as an integer"). The integer is never made into
+  // a pointer again. In const evaluation, `core` requires the pointer to have been made from an
+  // integer [1], which is not established. `core` also says that using the integer stops the
+  // evaluation [1], so such a call evaluated at compile time does not compile.
   //
   // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/fn.transmute.html#transmutation-between-pointers-and-integers:
   //
