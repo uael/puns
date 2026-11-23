@@ -72,9 +72,8 @@ pub use layout::{crc32, sum16};
 /// # Structs
 ///
 /// A struct may have any representation, and may have [rules](crate::guide::rules), which its
-/// attributes state. Without the `unstable` feature, a pun of a struct of the `Rust`
-/// representation relies only on what every order of its fields has in common ([How the derive
-/// reads a type](#how-the-derive-reads-a-type)).
+/// attributes state. The order of the fields of a struct of the `Rust` representation is an
+/// [unspecified layout](crate::guide::layouts).
 ///
 /// The derive compiles a struct only if it meets these conditions:
 ///
@@ -89,8 +88,8 @@ pub use layout::{crc32, sum16};
 /// # Enums without fields
 ///
 /// An enum without fields is a [`Scalar`], whose valid values are its discriminants as the compiler
-/// stores them, whatever its representation. Rust does not specify how they are stored with the
-/// `Rust` representation, so without the `unstable` feature, such an enum is known only as itself.
+/// stores them, whatever its representation. With the `Rust` representation, how they are stored
+/// is an [unspecified layout](crate::guide::layouts).
 ///
 /// The derive compiles an enum without fields only if it meets these conditions:
 ///
@@ -109,8 +108,8 @@ pub use layout::{crc32, sum16};
 /// representation. With `repr(C)` or an integer, its layout is the one that [RFC 2195] specifies.
 /// With the `Rust` representation, it is the one that `rustc` chose. A value of such an enum is
 /// known by its tag, so making one from another type checks the tag, then what the fields of its
-/// variant require. With the `Rust` representation and without the `unstable` feature, the enum
-/// proves only the same type, and only the same type proves it.
+/// variant require. With the `Rust` representation, the tag is an [unspecified
+/// layout](crate::guide::layouts).
 ///
 /// The derive finds where the fields of a variant are, and its tag, on the *least value* of the
 /// variant. That value holds the least value of each field. The least value of an enum is that of
@@ -448,14 +447,9 @@ pub use layout::{crc32, sum16};
 /// *This section is for a reader who wants to know what a pun of a derived type relies on, and
 /// what the view functions check.*
 ///
-/// With the `Rust` representation, Rust lets the compiler choose the order of the fields of a
-/// struct, so without the `unstable` feature, a pun relies only on what every order has in common
-/// (see [`layout::UNSTABLE`]). If every order makes the same bytes, as for `(u8, [u8; 3])` or
-/// `(bool, bool)`, a pun may rely on every byte of the struct. Otherwise, as a source, the struct
-/// is known to hold initialized bytes if it does in every order, and nothing more. As a target, a
-/// struct whose size is the same in every order, without rules or an opaque scalar, is proven
-/// field by field, each field at every place where it may be, and any other is proven only by the
-/// same type ([Puns without the feature](crate::guide::layouts#puns-without-the-feature)).
+/// What a pun of a type of the `Rust` representation relies on is in [How a part with an
+/// unspecified layout is
+/// proven](crate::guide::layouts#how-a-part-with-an-unspecified-layout-is-proven).
 ///
 /// For an enum with fields of the `Rust` representation, the derive finds the layout that `rustc`
 /// chose by experimenting in const evaluation on a value of each variant. An experiment that fails
@@ -497,9 +491,8 @@ pub use layout::{crc32, sum16};
 /// [requirements](crate::guide::soundness#guarantees-and-requirements), which safe code can break,
 /// so they never prove what another type guarantees.
 ///
-/// Without the `unstable` feature, nothing that a pun does depends on a layout that Rust leaves to
-/// the compiler, and with it, a pun uses the layout that `rustc` chose for this build ([The
-/// `unstable` feature](crate::guide::layouts#the-unstable-feature)).
+/// Where Rust leaves a layout to the compiler, what a pun may depend on is in [Unspecified
+/// layouts and the `unstable` feature](crate::guide::layouts).
 ///
 /// ## What the derive trusts
 ///
@@ -723,9 +716,8 @@ pub unsafe trait Scalar {
 /// Every function of this crate takes `Pun` types. These are the integer and floating-point types,
 /// `bool`, `char`, `NonZero`, `()`, `PhantomData`, arrays, slices, `str`, tuples of up to 4
 /// elements, `Option` and `Result` of `Pun` types, `MaybeUninit`, `ManuallyDrop`, `Infallible`, the
-/// types of [`num`], every [`Scalar`], and the types that derive it. For a tuple, struct or enum of
-/// the `Rust` representation, a pun without the `unstable` feature relies only on what every layout
-/// that Rust allows has in common ([`layout::UNSTABLE`]).
+/// types of [`num`], every [`Scalar`], and the types that derive it. A tuple, struct or enum of the
+/// `Rust` representation has an [unspecified layout](crate::guide::layouts).
 ///
 /// # Safety
 ///

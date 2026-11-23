@@ -20,11 +20,9 @@ length. `size_of_val` cannot do this, because it needs a reference, and a refere
 valid value. On 1.98, `puns` does not build, because `layout_for_ptr` and its use in `const` are
 unstable there. CI builds the crate and its examples on 1.99.
 
-Const evaluation is bounded, since the deny-by-default lint [`long_running_const_eval`] stops it
-after 2,000,000 basic blocks ([`LINT_TERMINATOR_LIMIT`] in `rustc`). The analysis therefore
-cannot take a step for each byte of a type, nor a step or an instance for each element of an
-array. Its cost grows with the number of fields, variants, ranges of values and states of
-automata of the types, and where it would grow with their size, a search stops at a limit
+Const evaluation is bounded ([Limits of Rust][limits#limits-of-rust]), so the cost of the
+analysis grows with the number of fields, variants, ranges of values and states of automata of
+the types, and where it would grow with their size, a search stops at a limit
 ([Bounds of the analysis][limits#bounds-of-the-analysis]).
 
 [`TransmuteFrom`]: https://doc.rust-lang.org/core/mem/trait.TransmuteFrom.html
@@ -38,7 +36,6 @@ automata of the types, and where it would grow with their size, a search stops a
 [1.99]: https://blog.rust-lang.org/2026/10/01/Rust-1.99.0/
 [`size_of_val_raw`]: https://doc.rust-lang.org/core/mem/fn.size_of_val_raw.html
 [`align_of_val_raw`]: https://doc.rust-lang.org/core/mem/fn.align_of_val_raw.html
-[`long_running_const_eval`]: https://doc.rust-lang.org/rustc/lints/listing/deny-by-default.html#long-running-const-eval
-[`LINT_TERMINATOR_LIMIT`]: https://github.com/rust-lang/rust/blob/main/compiler/rustc_const_eval/src/const_eval/machine.rs
 
 [limits#bounds-of-the-analysis]: limits.md#bounds-of-the-analysis
+[limits#limits-of-rust]: limits.md#limits-of-rust

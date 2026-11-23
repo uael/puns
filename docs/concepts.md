@@ -83,7 +83,7 @@ The same pair can therefore be refused by [`pun_ref`], which checks nothing, and
 A proven pun compiles to no check, but not always to no code, since it may still compute an
 address or a length:
 
-```
+```rust
 // Proven, since every `u16` is two initialized bytes. The length of the result is computed.
 let bytes: &[u8] = puns::pun_ref(&[1u16, 2, 3][..]);
 assert_eq!(bytes.len(), 6);
@@ -103,7 +103,7 @@ proves `#[pun(valid(0..=1))]`. The rules of a struct are proven only by the rule
 the two structs must have at least one rule, the same rules in the same order, the same sized
 part and the same trailing slice. The names of their fields do not matter:
 
-```
+```rust
 use puns::Pun;
 
 #[derive(Pun)]
@@ -136,7 +136,7 @@ A requirement of the source proves no guarantee of the target. Bytes that a stru
 be ASCII are not a `str`, because code may have written 0xff to one of them since they were
 checked:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 use puns::Pun;
 
 #[derive(Pun)]
@@ -155,7 +155,7 @@ This is at byte 0 of the target.
 
 To fix this pun, check it at run time, or read the bytes as a type that guarantees ASCII:
 
-```
+```rust
 use puns::{Pun, num::u8in};
 
 #[derive(Pun)]

@@ -13,7 +13,7 @@ A record of this format is a kind from 1 to 3, a big-endian length of at most 64
 bytes. [`valid`][macro@Pun#valid] restricts the kind to its values, [`len`][macro@Pun#len]
 gives the length of the trailing slice, and [`assert`][macro@Pun#assert] states the bound:
 
-```
+```rust
 use puns::{Pun, num::u16be};
 
 #[derive(Pun)]
@@ -48,7 +48,7 @@ the [crate page][crate#reading-a-packet] does.
 
 `len` counts elements, not bytes. Two numbers of two bytes each are four bytes:
 
-```
+```rust
 use puns::{Pun, num::u16be};
 
 #[derive(Pun)]
@@ -72,7 +72,7 @@ Where the size of a value is not the length of its slice, [`size`][macro@Pun#siz
 The low half of the first byte of this header is its length in words of 4 bytes, and what
 follows the two fixed bytes is options:
 
-```
+```rust
 use puns::Pun;
 
 #[derive(Pun)]
@@ -96,7 +96,7 @@ from expressions on the fields. A field that holds several parts is split into
 [regions][rules#regions] by [`regions`][macro@Pun#regions], whose methods return the
 bytes of each part:
 
-```
+```rust
 use puns::Pun;
 
 #[derive(Pun)]
@@ -118,7 +118,7 @@ assert_eq!((packet.header(), packet.body()), (&[7, 7][..], &[1, 2, 3][..]));
 
 A region with a type returns the region as a value of that type, if its bytes are one:
 
-```
+```rust
 use puns::{Pun, num::u16be};
 
 #[derive(Pun)]
@@ -152,7 +152,7 @@ A field has the byte order of its type, and the numbers of [`num`] have a fixed 
 and TIFF in its first two bytes. Such a format has one type for each byte order, and a
 [view][concepts#layouts-and-rules] chooses between them:
 
-```
+```rust
 use puns::{Pun, num::{u16bec, u16lec, u32be, u32le}};
 
 #[derive(Pun)]
@@ -187,7 +187,7 @@ A message often starts with a kind, which selects the type of what follows. Make
 generic over its payload, with a kind of type `P::Tag`, and give each payload the values of the
 kind that select it with [`tag`][macro@Pun#tag]. A view then reads a message of any kind:
 
-```
+```rust
 use puns::{Pun, Tag, num::{u8c, u16be}};
 
 /// The kind of a message, when its payload is not known.
@@ -229,7 +229,7 @@ The attributes describe the bytes that `puns` reads. They are
 value that [`as_bytes`] returns may fail the check of [`from_bytes`] for the same type, once a
 write has broken a requirement:
 
-```
+```rust
 use puns::{Pun, num::u16be};
 
 #[derive(Pun)]

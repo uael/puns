@@ -19,7 +19,7 @@ and return values, and require both types to be `Copy`. Where [`pun`] or [`pun_r
 because some values of the source are not valid targets, [`try_pun`] or [`try_pun_ref`] checks
 them at run time:
 
-```
+```rust
 // Reinterpret an `f32` as its bits. A `u32` is a `char` only if it is a Unicode scalar value.
 assert_eq!(puns::pun::<f32, u32>(1.0), 0x3f80_0000);
 assert_eq!(puns::try_pun::<u32, char>(0xe9), Ok('é'));
@@ -39,7 +39,7 @@ because an integer literal without a suffix is an `i32` unless something says ot
 [`from_head`] and [`from_head_mut`] take as many bytes as the `size` or `len` rule of the target
 says, or else as many elements as fit, and return the bytes that follow:
 
-```
+```rust
 use puns::Pun;
 
 /// A string of UTF-8, after its length in one byte.
@@ -65,7 +65,7 @@ assert_eq!((words, stream), (vec!["hello", "", "world"], &[0xff][..]));
 before it. They require a sized target, because the extent of an unsized target cannot be found
 from its end:
 
-```
+```rust
 use puns::num::u32le;
 
 // Read a checksum from the back of a file.
@@ -91,7 +91,7 @@ or last `size_of::<D>()` bytes. If the target of [`head_ref`] or [`head_mut`] is
 holds as many elements as fit. The functions of the back require a sized source, because where
 the last bytes of an unsized value start is known only at run time.
 
-```
+```rust
 use puns::num::{u16be, u32be, u32le};
 
 // The low half of a big-endian number is its last two bytes.
@@ -124,7 +124,7 @@ Where [`pun_mut`] is refused because some values of the source are not valid tar
 invalid source, as when `D` is an enum with more variants than the source, take a `&mut` to only
 the bytes that are written, with [`head_mut`] or [`tail_mut`]:
 
-```
+```rust
 use puns::Pun;
 
 /// A pixel. Its first three bytes are its color.
@@ -169,7 +169,7 @@ function therefore compiles in a constant only where it checks no address:
 
 The save of a game, whose target has an alignment of 1, is read in a constant:
 
-```
+```rust
 use puns::{
   Pun,
   num::{u16le, u32bec},
@@ -197,7 +197,7 @@ assert_eq!((NEW_GAME.level, NEW_GAME.hp.get()), (1, 10));
 
 With 11 hp at level 1, the rule does not hold, and the build fails:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 use puns::{Pun, num::{u16le, u32bec}};
 #[derive(Pun)]
 #[repr(C)]

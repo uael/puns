@@ -1,9 +1,15 @@
 // The chapter is docs/layouts.md, read on GitHub as well. Rustdoc keeps the first
 // definition of a link, so these, before it, make its links to items and chapters intra-doc.
+//! [`as_bytes`]: as_bytes
 //! [`layout::UNSTABLE`]: layout::UNSTABLE
 //! [`num`]: num
 //! [`Scalar`]: Scalar
+//! [`Spec::maybe_uninit`]: layout::Spec::maybe_uninit
 //! [`transmute`]: core::mem::transmute
+//! [`validate_but_never`]: validate_but_never
+//! [errors#unspecified-layouts]: super::errors#unspecified-layouts
+//! [kinds]: super::concepts#proven-checked-and-refused
+//! [never_made]: super::never_made
 //! [opaque scalar]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 //! [part]: super::concepts#layouts-and-rules
 //! [rule]: super::concepts#layouts-and-rules

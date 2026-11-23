@@ -1,24 +1,39 @@
 // The chapter is docs/limits.md, read on GitHub as well. Rustdoc keeps the first
 // definition of a link, so these, before it, make its links to items and chapters intra-doc.
+//! [`Error`]: Error
+//! [`from_bytes`]: from_bytes
 //! [`from_head`]: from_head
 //! [`from_tail`]: from_tail
 //! [`head_mut`]: head_mut
-//! [`Layout::pattern`]: layout::Layout::pattern
+//! [`head`]: head
+//! [`num`]: num
+//! [`Pun`]: trait@Pun#safety
 //! [`pun_mut`]: pun_mut
-//! [`Spec::maybe_uninit`]: layout::Spec::maybe_uninit
+//! [`pun_ref`]: pun_ref
+//! [`Scalar`]: Scalar
 //! [`tail_mut`]: tail_mut
+//! [`tail`]: tail
+//! [concepts#why-the-pair-decides]: super::concepts#why-the-pair-decides
 //! [errors]: super::errors
+//! [errors#unspecified-layouts]: super::errors#unspecified-layouts
 //! [errors#values-and-padding]: super::errors#values-and-padding
-//! [layouts#puns-without-the-feature]: super::layouts#puns-without-the-feature
+//! [functions#writing-through-mut]: super::functions#writing-through-mut
+//! [kinds]: super::concepts#proven-checked-and-refused
 //! [layouts#the-same-type]: super::layouts#the-same-type
 //! [layouts#what-a-check-may-read]: super::layouts#what-a-check-may-read
 //! [macro@Pun]: macro@Pun
 //! [macro@Pun#enums-with-fields]: macro@Pun#enums-with-fields
+//! [macro@Pun#get]: macro@Pun#get
 //! [macro@Pun#how-the-derive-reads-a-type]: macro@Pun#how-the-derive-reads-a-type
+//! [macro@Pun#views]: macro@Pun#views
+//! [opaque scalar]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 //! [rules]: super::rules
+//! [rules#extent]: super::rules#extent
 //! [rules#fields]: super::rules#fields
 //! [rules#functions]: super::rules#functions
 //! [rules#limits-of-the-evaluator]: super::rules#limits-of-the-evaluator
+//! [rules#walks]: super::rules#walks
+//! [soundness#unions]: super::soundness#unions
 #![doc = include_str!("../../docs/limits.md")]
 
 // The items of the crate, which the links of this chapter name. Only rustdoc reads them.

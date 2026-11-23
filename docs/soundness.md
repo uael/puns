@@ -58,13 +58,9 @@ calls it undefined behavior and says that using the integer stops the evaluation
 an address does not compile in a constant. The integer is never made into a pointer again, and
 the tests run it under Miri with `-Zmiri-strict-provenance`.
 
-Without the `unstable` feature, whether a pun compiles, what it checks and which values a check
-accepts do not depend on a layout that Rust leaves to the compiler: the order of the fields of a
-struct or tuple of the `Rust` representation, the tag of an enum of that representation, or
-niches. One exception is whether an `Option` of a scalar that a pun never makes compiles
-([Scalars that a pun never makes][never_made]). With the feature, `puns`
-also uses the layout that `rustc` chose. [The `unstable` feature][unstable] states
-the rule and [what it relies on][unstable-rest#what-this-relies-on].
+What a pun may depend on where Rust leaves a layout to the compiler, with and without the
+`unstable` feature, is in [Unspecified layouts and the `unstable` feature][unstable], and what
+that relies on in [What this relies on][unstable-rest#what-this-relies-on].
 
 The tests run under [Miri], on the targets that [Portability][portability] names. The
 analysis itself is checked against oracles that do not use it, both with and without the
@@ -168,7 +164,7 @@ parameters or lifetimes have the same layout, and convert to each other freely. 
 derive `Pun` if its parameters mark something about its values: a unit, an invariant lifetime
 that ties a value to a scope, or a marker of what a value was checked against.
 
-```
+```rust
 use core::marker::PhantomData;
 
 #[derive(Clone, Copy)]
@@ -194,7 +190,7 @@ bytes are, and written through a `&mut` to another type. The functions check wha
 told, and nothing that a constructor checks, so a type whose private fields keep an invariant
 the derive does not know about must not derive `Pun`.
 
-```
+```rust
 mod even {
   /// Only even numbers, says `new`.
   #[derive(puns::Pun, Clone, Copy)]
@@ -229,7 +225,6 @@ assert_eq!(odd.get(), 3);
 [`zeroed`]: https://docs.rs/puns/0.2.3/puns/fn.zeroed.html
 [limits#not-yet]: limits.md#not-yet
 [macro@Pun#what-the-derive-trusts]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#what-the-derive-trusts
-[never_made]: never_made.md
 [num::u16bec]: https://docs.rs/puns/0.2.3/puns/num/struct.u16bec.html
 [num::u8in]: https://docs.rs/puns/0.2.3/puns/num/struct.u8in.html
 [portability]: portability.md

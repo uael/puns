@@ -6,7 +6,6 @@
 //! [`zeroed`]: zeroed
 //! [limits#not-yet]: super::limits#not-yet
 //! [macro@Pun#what-the-derive-trusts]: macro@Pun#what-the-derive-trusts
-//! [never_made]: super::never_made
 //! [num::u16bec]: num::u16bec
 //! [num::u8in]: num::u8in
 //! [portability]: super::portability

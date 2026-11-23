@@ -15,7 +15,7 @@ constant expression, as `generic_const_exprs` does on nightly ([Minimum Rust ver
 Reinterpreting a struct with padding as bytes is a common mistake with `transmute`. `puns`
 refuses it, and the first lines of the error say why:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 #[derive(puns::Pun)]
 #[repr(C)]
 struct Header {
@@ -48,7 +48,7 @@ the line of the call. A debug build, such as the one `cargo build` makes, names 
 
 To fix this pun, declare the padding as a field, so that it is initialized:
 
-```
+```rust
 #[derive(puns::Pun)]
 #[repr(C)]
 struct Header {
@@ -74,7 +74,7 @@ code that causes it and its fix, or the reason why there is none.
 
 A pun of a whole value needs a target of the same size:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let n: u32 = puns::pun([1u8, 2, 3]);
 ```
 
@@ -84,7 +84,7 @@ cannot pun: the source is smaller than the target.
 
 For a larger source, the message suggests the functions that take the first or last bytes of it:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let pair: [u8; 2] = puns::pun([1u8, 2, 3]);
 ```
 
@@ -93,13 +93,13 @@ cannot pun: the source is larger than the target.
 Use `head` or `tail` (or their `_ref` and `_mut` forms) to take the first or last bytes of the source.
 ```
 
-```
+```rust
 assert_eq!(puns::head::<[u8; 3], [u8; 2]>([1, 2, 3]), [1, 2]);
 ```
 
 A target that ends with a slice must reach the size of the source with whole elements:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let pairs: &[[u8; 2]] = puns::pun_ref(&[1u8, 2, 3]);
 ```
 
@@ -108,14 +108,14 @@ cannot pun: the size of the source cannot be reached with elements of the traili
 Use `head` or `tail` (or their `_ref` and `_mut` forms) to take the first or last bytes of the source.
 ```
 
-```
+```rust
 let pairs: &[[u8; 2]] = puns::head_ref(&[1u8, 2, 3]);
 assert_eq!(pairs, &[[1, 2]]);
 ```
 
 A source that ends with a slice may have a length that gives no size of the target:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let bytes: &[u8] = &[1, 2];
 let pair: &[u8; 2] = puns::pun_ref(bytes);
 ```
@@ -125,14 +125,14 @@ cannot pun: the size of the source may not be a size of the target, depending on
 Use `try_pun_ref` or `try_pun_mut` to check it at run time.
 ```
 
-```
+```rust
 assert_eq!(puns::try_pun_ref::<[u8], [u8; 2]>(&[1, 2]), Ok(&[1, 2]));
 ```
 
 [`head_ref`] and [`head_mut`] need every source to be at least as large as the target. To check
 the length at run time, read bytes with [`from_head`]:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let first: &u8 = puns::head_ref::<[u8], u8>(&[1, 2]);
 ```
 
@@ -140,7 +140,7 @@ let first: &u8 = puns::head_ref::<[u8], u8>(&[1, 2]);
 cannot pun: the source can be smaller than the target (if it has a slice, it may be empty).
 ```
 
-```
+```rust
 assert_eq!(puns::from_head::<u8>(&[1, 2]), Ok((&1, &[2][..])));
 ```
 
@@ -150,7 +150,7 @@ The fields of a struct of the `Rust` representation have an [unspecified layout]
 any order, so without the `unstable` feature, `puns` cannot tell which byte is the `bool`. This
 pun is then refused:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 // This example is about the default build, without the `unstable` feature.
 const _: () = assert!(!puns::layout::UNSTABLE);
 
@@ -172,7 +172,7 @@ This is at byte 0 of the target.
 With the feature, it compiles. With `#[repr(C)]`, the fields are in declaration order, and it
 compiles without the feature:
 
-```
+```rust
 #[derive(puns::Pun)]
 #[repr(C)]
 struct Flagged {
@@ -187,7 +187,7 @@ assert!(flagged.flag);
 [`validate_but_never`] checks every part of its target, and gives its own message for the same
 struct, with the same fix:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 // This example is about the default build, without the `unstable` feature.
 const _: () = assert!(!puns::layout::UNSTABLE);
 
@@ -208,7 +208,7 @@ Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature
 A `&mut` is refused when what is written through it would have to leave a valid source in a
 part with an unspecified layout:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let _: &mut [u8; 2] = puns::pun_mut(&mut (true, 1u8));
 ```
 
@@ -222,7 +222,7 @@ the pun is still refused, with the message of [Writing through `&mut`](#writing-
 since a `u8` written over the `bool` may be 2. No function gives this `&mut`. Reading the bytes
 needs no `&mut`:
 
-```
+```rust
 let bytes: &[u8; 2] = puns::pun_ref(&(true, 1u8));
 assert_eq!(bytes, &[1, 1]);
 ```
@@ -230,7 +230,7 @@ assert_eq!(bytes, &[1, 1]);
 A `&mut` to the first or last bytes of the source can cover a part with an unspecified layout
 only if the target has the same type at the same place:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 use core::mem::MaybeUninit;
 
 #[derive(puns::Pun)]
@@ -251,7 +251,7 @@ Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature
 With the feature, this pun is still refused, since uninitialized bytes written over the tuple
 would not be a valid `(u8, u16)`. Take the tuple as itself:
 
-```
+```rust
 #[derive(puns::Pun)]
 #[repr(C)]
 struct Record {
@@ -271,7 +271,7 @@ assert_eq!(record.pair, (1, 7));
 source. An enum gives it too: the byte after the tag of a `Circle` is padding, and nothing tells
 a `Circle` from a `Rect` at compile time:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 #[derive(puns::Pun, Clone, Copy)]
 #[repr(u8)]
 enum Shape {
@@ -289,7 +289,7 @@ This is at byte 1 of the target.
 
 To fix it, declare the padding of each variant as a field:
 
-```
+```rust
 #[derive(puns::Pun, Clone, Copy)]
 #[repr(u8)]
 enum Shape {
@@ -304,7 +304,7 @@ assert_eq!(bytes, [1, 3, 1, 0]);
 When no value of the source is a valid target, no function can make the pun, and the code that
 asks for it is a mistake. A byte that is always 2 is never a `bool`:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let never = puns::try_pun::<puns::num::u8c<2>, bool>(Default::default());
 ```
 
@@ -320,7 +320,7 @@ declares the scalar makes the value.
 
 A function that checks nothing refuses a pun that needs a check:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let text: &str = puns::pun_ref(&[0xffu8; 4]);
 ```
 
@@ -330,7 +330,7 @@ Use a `try_*` function to check them at run time.
 This is at byte 0 of the target.
 ```
 
-```
+```rust
 assert_eq!(puns::try_pun_ref::<[u8; 4], str>(b"text"), Ok("text"));
 assert_eq!(puns::try_pun_ref::<[u8; 4], str>(&[0xff; 4]), Err(puns::Error::Validity));
 ```
@@ -342,7 +342,7 @@ prove gives it too, since both are [requirements][concepts#requirements].
 
 A `[u8; 4]` can be at any address, but a `u32` cannot:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let n: &u32 = puns::pun_ref(&[0u8; 4]);
 ```
 
@@ -355,7 +355,7 @@ Use `try_pun_ref` or `try_pun_mut` to check the address at run time.
 bytes into a `u32`. A [`num::u32le`] has an alignment of 1, so a reference to four bytes can be
 reinterpreted as one. Otherwise, [`try_pun_ref`] checks the address at run time:
 
-```
+```rust
 use puns::num::u32le;
 
 assert_eq!(puns::pun::<[u8; 4], u32>([1, 0, 0, 0]), u32::from_ne_bytes([1, 0, 0, 0]));
@@ -374,7 +374,7 @@ assert_eq!(puns::try_pun_ref::<[u8; 4], u32>(shifted), Err(puns::Error::Alignmen
 value and needs no aligned address, and [`from_tail`], which checks the address of bytes at run
 time:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let n: &u16 = puns::tail_ref(&[0u8; 4]);
 ```
 
@@ -383,7 +383,7 @@ cannot pun: the target has a greater alignment than the source.
 Use `tail` to copy it, or `from_tail` to take it from bytes, whose address is checked at run time.
 ```
 
-```
+```rust
 assert_eq!(puns::tail::<[u8; 4], u16>([0, 0, 1, 0]), u16::from_ne_bytes([1, 0]));
 ```
 
@@ -392,7 +392,7 @@ assert_eq!(puns::tail::<[u8; 4], u16>([0, 0, 1, 0]), u16::from_ne_bytes([1, 0]))
 Where the last bytes of an unsized source start depends on its length, which is only known at
 run time:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let last: &u8 = puns::tail_ref::<[u8], u8>(&[1, 2]);
 ```
 
@@ -401,13 +401,13 @@ cannot pun: the source is unsized: where its last bytes start depends on its len
 Use `from_tail` to take a value from the end of bytes.
 ```
 
-```
+```rust
 assert_eq!(puns::from_tail::<u8>(&[1, 2]), Ok((&[1][..], &2)));
 ```
 
 An unsized target has no size to count from the end. Name its size, as an array:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let last: &[u8] = puns::tail_ref::<[u8; 4], [u8]>(&[1, 2, 3, 4]);
 ```
 
@@ -415,14 +415,14 @@ let last: &[u8] = puns::tail_ref::<[u8; 4], [u8]>(&[1, 2, 3, 4]);
 cannot pun: the target is unsized: its extent cannot be found from the end of the source.
 ```
 
-```
+```rust
 let last: &[u8; 2] = puns::tail_ref(&[1u8, 2, 3, 4]);
 assert_eq!(last, &[3, 4]);
 ```
 
 [`from_tail`] gives its own message, which names [`from_head`] and [`from_bytes`]:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let _ = puns::from_tail::<[u16]>(&[0; 4]);
 ```
 
@@ -436,7 +436,7 @@ Use `from_head` or `from_bytes`.
 Any value of the target may be written through a `&mut`, so every value of the target must be a
 valid source. Here, it could be bytes that are not UTF-8:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let mut text = String::from("text");
 let bytes: &mut [u8] = puns::pun_mut(text.as_mut_str());
 ```
@@ -447,7 +447,7 @@ cannot pun: some values of the target are not valid for the source (or are paddi
 
 Nothing is written through a shared reference, and every `str` is bytes:
 
-```
+```rust
 let text = String::from("text");
 let bytes: &[u8] = puns::pun_ref(text.as_str());
 assert_eq!(bytes, b"text");
@@ -458,7 +458,7 @@ must stay in such a range ([Writing through `&mut`][functions#writing-through-mu
 gives it as well: a value written through the `&mut Drawing` made from a `&mut Shape` could be a
 `Nothing`, or a `Rect` whose second field is not a `bool`. A shared reference reads it:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 #[derive(puns::Pun, Clone, Copy)]
 #[repr(u8)]
 enum Shape {
@@ -478,7 +478,7 @@ let mut shape = Shape::Rect(3, true);
 let _: &mut Drawing = puns::pun_mut(&mut shape);
 ```
 
-```
+```rust
 #[derive(puns::Pun, Clone, Copy)]
 #[repr(u8)]
 enum Shape {
@@ -503,7 +503,7 @@ the same struct there. A `&mut` to the whole struct, from [`pun_mut`], is allowe
 through it may break the rule ([Writing through `&mut`][functions#writing-through-mut]). Telling
 which fields a rule reads, so as to allow the first case too, is [not yet][limits#not-yet] done:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 #[derive(puns::Pun)]
 #[repr(C)]
 #[pun(assert(a < b))]
@@ -522,7 +522,7 @@ cannot pun: a struct of the source that has a rule (a size, a length, an asserti
 A `&mut` to the first or last bytes takes an enum whole or not at all, since its tag tells what
 its other bytes may hold:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 #[derive(puns::Pun, Clone, Copy)]
 #[repr(u8)]
 enum Shape {
@@ -539,7 +539,7 @@ cannot pun: an enum of the source is only partly covered by the `&mut`: what its
 
 To fix it, take whole enums:
 
-```
+```rust
 #[derive(puns::Pun, Clone, Copy, Debug, PartialEq)]
 #[repr(u8)]
 enum Shape {
@@ -556,7 +556,7 @@ assert_eq!(shapes[0], Shape::Circle { radius: 5 });
 end within an enum, a union or a `str` of the source, though the message names only an enum. For
 a `str`, there is no fix: a write of other bytes could leave bytes that are not UTF-8.
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let text: &mut str = String::from("text").leak();
 let _: &mut [[u8; 2]] = puns::head_mut(text);
 ```
@@ -565,7 +565,7 @@ let _: &mut [[u8; 2]] = puns::head_mut(text);
 
 [`zeroed`] makes no pun, and its message does not start with `cannot pun:`:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 let _ = puns::zeroed::<core::num::NonZero<u8>>();
 ```
 
@@ -573,7 +573,7 @@ let _ = puns::zeroed::<core::num::NonZero<u8>>();
 error[E0080]: evaluation panicked: zero is not a valid value of this type
 ```
 
-```
+```rust
 assert_eq!(puns::zeroed::<Option<core::num::NonZero<u8>>>(), None);
 ```
 
@@ -586,7 +586,7 @@ integer is refused, and [Fields][rules#fields] shows its message and its fix. A 
 `#[pun(get(..))]` that reads such a field is refused where it is called, which `cargo check` does
 not report:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 #[derive(puns::Pun)]
 #[repr(C)]
 #[pun(get(negative: bool = level >> 7 == 1))]
@@ -604,7 +604,7 @@ error[E0080]: evaluation panicked: a getter reads the unsigned integer fields of
 
 To fix it, write the method by hand:
 
-```
+```rust
 #[derive(puns::Pun)]
 #[repr(C)]
 struct Level {

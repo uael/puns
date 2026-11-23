@@ -15,6 +15,10 @@
 //! a definition (`[label]: target`), and the `.rs` file must define its label. crates.io resolves
 //! a relative link of the README to the default branch of the repository.
 //!
+//! GitHub highlights a block of code only if its info string starts with a language, while
+//! rustdoc takes a block with none for Rust. So each block of these files names its language:
+//! `rust,compile_fail` rather than `compile_fail`, which rustdoc reads the same way.
+//!
 //! `cargo xtask links` writes the version into the links. A release PR changes the version, and
 //! the workflow `release-plz.yml` runs it on the branch of the PR. With `--check`, it fails if a
 //! link is not pinned, or if its target is not there: a file of the repository, a heading of a
@@ -82,6 +86,13 @@ pub fn run(root: &Path, check: bool) -> Result<()> {
         ));
       }
       targets(root, file, &text, &version, &mut faults)?;
+      for line in unnamed_blocks(&text) {
+        faults.push(format!(
+          "{}:{line}: a block of code names no language, so GitHub does not highlight it: \
+           write `rust`, or `rust,` before what rustdoc reads (`rust,compile_fail`)",
+          file.display()
+        ));
+      }
     } else if pinned != text {
       fs::write(root.join(file), pinned)?;
       println!("wrote {}", file.display());
@@ -316,6 +327,25 @@ fn links(text: &str) -> Vec<(Option<String>, String)> {
   out
 }
 
+/// Returns the lines (from 1) of the blocks of code of a Markdown text whose info string does not
+/// start with a language: none, or what only rustdoc reads, such as `compile_fail`.
+fn unnamed_blocks(text: &str) -> Vec<usize> {
+  const RUSTDOC: [&str; 6] = ["compile_fail", "ignore", "no_run", "should_panic", "edition", "E0"];
+  let mut out = vec![];
+  let mut code = false;
+  for (at, line) in text.lines().enumerate() {
+    let Some(info) = line.trim_start().strip_prefix("```") else { continue };
+    if !code {
+      let first = info.split(',').next().unwrap_or_default().trim();
+      if first.is_empty() || RUSTDOC.iter().any(|word| first.starts_with(word)) {
+        out.push(at + 1);
+      }
+    }
+    code = !code;
+  }
+  out
+}
+
 /// Returns the anchors of the headings of a Markdown text, as GitHub makes them: lowercase,
 /// without punctuation, a space made a `-`. rustdoc makes the same from the same heading.
 fn headings(text: &str) -> BTreeSet<String> {
@@ -342,7 +372,14 @@ fn headings(text: &str) -> BTreeSet<String> {
 
 #[cfg(test)]
 mod tests {
-  use super::pin;
+  use super::{pin, unnamed_blocks};
+
+  #[test]
+  fn finds_blocks_without_a_language() {
+    let text = "```rust\nlet a = 1;\n```\n\n```\nlet b = 2;\n```\n\n```compile_fail,E0080\n\
+                x\n```\n\n```text\nan error\n```\n\n```rust,compile_fail\ny\n```\n";
+    assert_eq!(unnamed_blocks(text), [5, 9]);
+  }
 
   #[test]
   fn pins_each_form() {
