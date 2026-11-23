@@ -1,5 +1,5 @@
-//! Views: enums whose variants each hold a reference, for the `from_bytes` and `from_head` that
-//! `#[derive(Pun)]` writes for them.
+//! [Views](macro@crate::Pun#views), for the `from_bytes` and `from_head` that `#[derive(Pun)]`
+//! writes for them.
 //!
 //! Both functions return the first variant, in order, that the bytes are (or start with, for
 //! `from_head`). The order of the variants is the order of preference. They answer what trying each
@@ -7,7 +7,7 @@
 //! already known of it.
 //!
 //! - A variant is passed over on its first constrained scalar alone, before anything else of it is
-//!   computed, if the bytes do not have a value that this scalar accepts ([`crate::rejects`]).
+//!   computed, if the bytes do not have a value that this scalar accepts (`crate::rejects`).
 //!   Examples of such scalars are an EtherType and a version. These comparisons of the same bytes,
 //!   one for each variant, become one decision of the optimizer. A VLAN frame meets the EtherTypes
 //!   of IPv4 and of ARP as in a `match`.

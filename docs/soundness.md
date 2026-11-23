@@ -169,5 +169,5 @@ assert_eq!(odd.get(), 3);
 [rust#errors-of-const-evaluation]: rust.md#errors-of-const-evaluation
 [testing]: testing.md
 [trust]: trust.md
-[uninhabited]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
+[uninhabited]: concepts.md#uninhabited-types
 [valid]: concepts.md#what-is-a-valid-value

@@ -13,7 +13,7 @@
 //! [`Varint`]: layout::Varint
 //! [`Variant`]: layout::Variant
 //! [independence]: super::layouts#layout-independence
-//! [opaque scalar]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+//! [opaque scalar]: super::concepts#opaque-scalars
 //! [rust#the-tag-of-an-enum-of-the-rust-representation]: super::rust#the-tag-of-an-enum-of-the-rust-representation
 //! [rust#the-variant-read-from-the-tag]: super::rust#the-variant-read-from-the-tag
 //! [same]: super::layouts#the-same-type

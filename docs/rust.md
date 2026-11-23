@@ -208,7 +208,7 @@ future.
 
 [functions#in-a-constant]: functions.md#in-a-constant
 [limits#bounds-of-the-analysis]: limits.md#bounds-of-the-analysis
-[opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
+[opaque scalar]: concepts.md#opaque-scalars
 [soundness#unions]: soundness.md#unions
 [testing#compile-fail-tests]: testing.md#compile-fail-tests
 [testing#miri]: testing.md#miri

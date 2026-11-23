@@ -4,10 +4,12 @@
 //! associated types: the element of an array, the list of the fields of a struct. Each call is an
 //! instance of its own, in which the layout of the type and the marks of the analysis are
 //! constants. Each check sits behind an `if const { .. }` on the marks. A check that is not marked
-//! is not compiled, so what the analysis proved never reaches code generation. A marked check of a
-//! scalar is a load and a comparison. A marked check of a pattern, an enum or a rule runs the
-//! automaton, reads the tag, or computes the rule, with its checksums and walks.
-//! `examples/codegen.rs` records the machine code that this gives.
+//! is not compiled, so a part that the analysis proved reaches code generation only where it
+//! shares a check with a part that it did not prove ([What a check
+//! reads](crate::analysis#what-a-check-reads)). A marked check of a scalar is a load and a
+//! comparison. A marked check of a pattern, an enum or a rule runs the automaton, reads the tag, or
+//! computes the rule, with its checksums and walks. `examples/codegen.rs` records the machine code
+//! that this gives.
 //!
 //! `from_head` turns the value of a `size` or `len` rule into a number of elements in a `usize`.
 //! There, the optimizer knows that the value of a field fits a `usize`.
@@ -837,9 +839,9 @@ const unsafe fn walk<X: Ops, W: Steps>(
 /// Returns the length of the tail of the struct at `ptr`, the size of that tail in bytes, and the
 /// extent of the struct.
 ///
-/// The tail of a `Sized` struct is its last field, and its extent is its size. The extent of an
-/// unsized struct ends with its slice, without the padding that may follow it, which
-/// `size_of_val` counts.
+/// The tail of a `Sized` struct is its last field, and its
+/// [extent](crate::guide::concepts#layouts-and-rules) is its size. The extent of an unsized struct
+/// is the offset of its slice plus the size of that slice.
 #[inline(always)]
 pub const fn tail_of<T: ?Sized + Pun>(ptr: *const T) -> (usize, usize, usize) {
   let (layout, shape) = const { (T::LAYOUT, T::LAYOUT.tail_shape()) };

@@ -98,9 +98,9 @@ evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions].
 - **Rules implied by other rules.** A rule of the target is proven only by the same rules
   ([Why the pair decides][concepts#why-the-pair-decides]), and is otherwise checked: `v % 6 == 0`
   does not prove `v % 3 == 0`, and `a != b` in a struct of 2 bytes does not prove it in a struct
-  of 3, though it does not read the [extent][rules#extent]. Nor does the analysis reason about the
-  data that describes a walk, a variable-length integer, a CRC or a sum, since a checksum only
-  makes a check stricter. Planned: proving a rule from rules that imply it.
+  of 3, though it does not read the [extent][concepts#layouts-and-rules]. Nor does the analysis
+  reason about the data that describes a walk, a variable-length integer, a CRC or a sum, since a
+  checksum only makes a check stricter. Planned: proving a rule from rules that imply it.
 - **A rule that two variants of a [view][macro@Pun#views] share, where neither accepts every
   value of the other.** For bytes that fail the rule, each variant computes it, unless a later
   variant computes it once for both ([How the derive reads a
@@ -179,7 +179,7 @@ evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions].
 [macro@Pun#how-the-derive-reads-a-type]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#how-the-derive-reads-a-type
 [macro@Pun#views]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#views
 [rules]: rules.md
-[rules#extent]: rules.md#extent
+[concepts#layouts-and-rules]: concepts.md#layouts-and-rules
 [rules#fields-in-a-rule]: rules.md#fields-in-a-rule
 [rules#functions]: rules.md#functions
 [rules#limits-of-the-evaluator]: rules.md#limits-of-the-evaluator

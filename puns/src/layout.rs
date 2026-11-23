@@ -120,7 +120,7 @@ pub(crate) enum Valid {
 /// - an [opaque scalar] ([`Spec::never`]) accepts no value, but is known to hold initialized bytes.
 ///
 /// [requirement]: crate::guide::concepts#requirements
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [opaque scalar]: crate::guide::concepts#opaque-scalars
 ///
 /// # Examples
 ///
@@ -929,7 +929,7 @@ pub(crate) enum Kind {
 /// A target union is one of its fields, while a source union may hold any bytes
 /// ([Unions](crate::guide::soundness#unions)).
 ///
-/// [uninhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [uninhabited]: crate::guide::concepts#uninhabited-types
 ///
 /// # Examples
 ///
@@ -1616,8 +1616,7 @@ impl Field {
 /// The layout of a type is the one that `rustc` chose for the build, since the size, the alignment
 /// and the offsets come from the compiler. Each layout also records which of its parts are the
 /// same in every layout that Rust allows for the type, and the identity of the type. Without the
-/// `unstable` feature ([`UNSTABLE`]), the analysis relies only on those. Two layouts are the same
-/// only if they require and guarantee the same values.
+/// `unstable` feature ([`UNSTABLE`]), the analysis relies only on those.
 ///
 /// # Examples
 ///
@@ -3244,7 +3243,7 @@ impl Layout {
   /// Returns the layout of `T`, an enum without variants such as `Infallible`, which is
   /// [uninhabited] and has size 0. No value has this layout.
   ///
-  /// [uninhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+  /// [uninhabited]: crate::guide::concepts#uninhabited-types
   ///
   /// # Examples
   ///
@@ -4501,8 +4500,8 @@ pub enum Op {
     /// Whether the integer is big-endian.
     big: bool,
   },
-  /// Pushes the [extent](crate::guide::rules#extent) of the value in bytes, `size_of_val(self)` in
-  /// a rule.
+  /// Pushes the [extent](crate::guide::concepts#layouts-and-rules) of the value in bytes,
+  /// `size_of_val(self)` in a rule.
   Size,
   /// Replaces an offset with the unsigned integer of `size` bytes at that offset in the value.
   /// Fails if these bytes are not all within the value.
@@ -5391,7 +5390,8 @@ pub(crate) const fn same_ops(a: &[Op], b: &[Op]) -> bool {
 /// ```
 #[derive(Copy, Clone, Debug)]
 pub enum Rule {
-  /// The [extent](crate::guide::rules#extent) of the value is the value of the expression.
+  /// The [extent](crate::guide::concepts#layouts-and-rules) of the value is the value of the
+  /// expression.
   Size(&'static [Op]),
   /// The length of the tail of the value, an array, a slice or a `str`, is the value of the
   /// expression.
@@ -5522,14 +5522,14 @@ pub(crate) const fn op_at(ops: &[Op], index: usize) -> Option<Op> {
 /// the size of the value. A field that the expression loads must be within the first `head` bytes
 /// of the struct.
 ///
-/// What an [`Op::Shortcut`], an [`Op::Then`] or an [`Op::Else`] may leave out is a *part*, the
-/// right side of a `&&` or a `||`, or a branch of an `if`. A part must end with what it is a part
-/// of (the `Both`, `Either`, `Else` or `Select`), lie within the part that holds it, and push one
-/// value without taking any value from below it. The stack is then as deep after a part whether or
-/// not the part was computed, since the evaluator pushes a placeholder for a branch that is not
-/// computed. What a part defines is not defined after it. Every `&&`, `||` and `if` has its parts,
-/// so what is computed is what Rust computes, and no failure is left out of the value of the
-/// expression.
+/// What an [`Op::Shortcut`], an [`Op::Then`] or an [`Op::Else`] may leave out is a *branch*: the
+/// right side of a `&&` or a `||`, or a branch of an `if`. A branch must end with what it is a
+/// branch of (the `Both`, `Either`, `Else` or `Select`), lie within the branch that holds it, and
+/// push one value without taking any value from below it. The stack is then as deep after a branch
+/// whether or not the branch was computed, since the evaluator pushes a placeholder for a branch
+/// that is not computed. What a branch defines is not defined after it. Every `&&`, `||` and `if`
+/// has its branches, so what is computed is what Rust computes, and no failure is left out of the
+/// value of the expression.
 ///
 /// # Panics
 ///
@@ -5540,13 +5540,14 @@ pub(crate) const fn op_at(ops: &[Op], index: usize) -> Option<Op> {
 ///   defined.
 /// - A load is not within the first `head` bytes, a read of the value is not of 1 to 16 bytes, or a
 ///   size or a length reads the size of the value.
-/// - The parts are not as above, or the expression does not leave exactly one value.
+/// - The branches are not as above, or the expression does not leave exactly one value.
 pub(crate) const fn check_ops(ops: &[Op], head: usize, sizes: bool, mut defined: u8, walks: usize) {
   assert!(ops.len() <= MAX_OPS, "an expression is too long");
   let (mut depth, mut i) = (0usize, 0);
-  // The parts that are open, innermost last: the index of the operation that ends each, the depth
-  // of the stack before it, the variables defined before it, and the operation that opened it.
-  let (mut parts, mut open) = ([(0usize, 0usize, 0u8, Op::Size); STACK], 0);
+  // The branches that are open, innermost last: the index of the operation that ends each, the
+  // depth of the stack before it, the variables defined before it, and the operation that opened
+  // it.
+  let (mut branches, mut open) = ([(0usize, 0usize, 0u8, Op::Size); STACK], 0);
   while i < ops.len() {
     let op = ops[i];
     // An automaton written without `Op::matches` is checked here, before a validation runs it.
@@ -5557,10 +5558,10 @@ pub(crate) const fn check_ops(ops: &[Op], head: usize, sizes: bool, mut defined:
       !(sizes && matches!(op, Op::Size)),
       "a size or a length cannot be computed from `size_of_val(self)`, which it defines"
     );
-    // The part that this operation ends, if any, and what it must be.
-    let ends = open > 0 && parts[open - 1].0 == i;
+    // The branch that this operation ends, if any, and what it must be.
+    let ends = open > 0 && branches[open - 1].0 == i;
     if ends {
-      let (_, floor, before, opener) = parts[open - 1];
+      let (_, floor, before, opener) = branches[open - 1];
       assert!(depth == floor + 1, "malformed expression");
       let fits = match (opener, op) {
         (Op::Shortcut { either, .. }, Op::Both) => !either,
@@ -5578,15 +5579,16 @@ pub(crate) const fn check_ops(ops: &[Op], head: usize, sizes: bool, mut defined:
     }
     let (pops, pushes) = effect(op);
     assert!(depth >= pops, "malformed expression");
-    assert!(open == 0 || depth - pops >= parts[open - 1].1, "malformed expression");
-    // A part that starts after this operation, and the operation that ends it: the one after it,
-    // except for the part of an `Else`, which is followed by the `Select` (which it does not skip).
+    assert!(open == 0 || depth - pops >= branches[open - 1].1, "malformed expression");
+    // A branch that starts after this operation, and the operation that ends it: the one after
+    // it, except for the branch of an `Else`, which is followed by the `Select` (which it does not
+    // skip).
     if let Op::Shortcut { len, .. } | Op::Then(len) | Op::Else(len) = op {
       let end = i + len as usize + matches!(op, Op::Else(_)) as usize;
       assert!(depth >= 1 && len >= 1 && end < ops.len(), "malformed expression");
-      assert!(open == 0 || end < parts[open - 1].0, "malformed expression");
+      assert!(open == 0 || end < branches[open - 1].0, "malformed expression");
       assert!(open < STACK, "expression is too deep");
-      parts[open] = (end, depth, defined, op);
+      branches[open] = (end, depth, defined, op);
       open += 1;
     }
     match op {
@@ -5678,8 +5680,8 @@ pub(crate) struct Machine {
   variables: Variables,
   /// The number of values on the stack.
   depth: usize,
-  /// The operations before this index are not computed. They are the part that an [`Op::Shortcut`],
-  /// an [`Op::Then`] or an [`Op::Else`] leaves out.
+  /// The operations before this index are not computed. They are the branch that an
+  /// [`Op::Shortcut`], an [`Op::Then`] or an [`Op::Else`] leaves out.
   skip: usize,
 }
 

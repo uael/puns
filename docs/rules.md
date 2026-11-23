@@ -2,10 +2,10 @@
 
 The [rules][concepts#layouts-and-rules] of a struct are the expressions of its
 [`size`][macro@Pun#size] and [`assert`][macro@Pun#assert] attributes, and of [`len`][macro@Pun#len]
-and [`regions`][macro@Pun#regions] on its last field. They give the [extent](#extent) of a value,
-the length of its trailing slice, the size of a [region](#regions), or a condition such as a
-checksum, the relations that binary formats store in their headers. [Describing a format][formats]
-shows them in use.
+and [`regions`][macro@Pun#regions] on its last field. They give the
+[extent][concepts#layouts-and-rules] of a value, the length of its trailing slice, the size of a
+[region](#regions), or a condition such as a checksum, the relations that binary formats store in
+their headers. [Describing a format][formats] shows them in use.
 
 A rule is a [requirement][concepts#requirements]. It is checked when a value of the
 struct is made from another type, as by [`try_pun`] or [`from_head`], unless the source proves
@@ -18,13 +18,6 @@ rule computes is built in, and described by data where it varies (walks, variabl
 integers, CRCs, sums), so a rule calls no function by its name alone but [those
 below](#functions), and no method. A path to a `const fn`, as `self::f(3)`, is a
 [constant](#literals-constants-and-operators).
-
-## Extent
-
-Unlike the [extent][concepts#layouts-and-rules] of a value, [`size_of_val`] counts the padding that
-may follow its trailing slice. When a function returns a reference to the bytes of its argument, and
-the target ends with a slice, the length of that slice is chosen so that the result covers the
-extent of the argument.
 
 ## Regions
 
@@ -50,7 +43,7 @@ with `le` and `be`.
 
 A signed or floating-point number, a `bool`, a `char` or an enum is refused, since its bits are
 not its value as an unsigned integer, and so is an [opaque
-scalar][concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types], which is not
+scalar][concepts#opaque-scalars], which is not
 a number:
 
 ```rust,compile_fail,E0080
@@ -297,11 +290,10 @@ numbers. A walk takes at most `8 * size + 128` steps ([Walks](#walks)).
 [`layout::Crc`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Crc.html
 [`layout::Dfa`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Dfa.html
 [`layout::Op`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Op.html
-[`size_of_val`]: https://doc.rust-lang.org/1.100.0/core/mem/fn.size_of_val.html
 [`try_pun`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
 [concepts#layouts-and-rules]: concepts.md#layouts-and-rules
 [concepts#requirements]: concepts.md#requirements
-[concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
+[concepts#opaque-scalars]: concepts.md#opaque-scalars
 [concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
 [fn@crc32]: https://docs.rs/puns/0.2.4/puns/layout/fn.crc32.html
 [fn@sum16]: https://docs.rs/puns/0.2.4/puns/layout/fn.sum16.html

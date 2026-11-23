@@ -1,6 +1,19 @@
 // The guide's page is docs/README.md, read on GitHub as well. Rustdoc keeps the first definition
-// of a link, so this one, before it, makes its link to the crate page intra-doc.
+// of a link, so these, before it, make its links to the crate page and the chapters intra-doc.
 //! [crate]: crate
+//! [concepts]: concepts
+//! [functions]: functions
+//! [formats]: formats
+//! [Compile-time errors]: errors
+//! [layouts]: layouts
+//! [rules]: rules
+//! [limits]: limits
+//! [performance]: performance
+//! [Soundness]: soundness
+//! [trust]: trust
+//! [rust]: rust
+//! [Testing]: testing
+//! [target]: target
 #![doc = include_str!("../docs/README.md")]
 
 pub mod concepts;

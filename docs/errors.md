@@ -491,9 +491,8 @@ let drawing: &Drawing = puns::pun_ref(&Shape::Rect(3, true));
 assert!(matches!(drawing, Drawing::Rect(3, 1)));
 ```
 
-A `&mut` to the first or last bytes cannot cover a struct that has a rule unless the target has the
-same struct with the same rules there ([Writes leave a valid
-source][functions#writes-leave-a-valid-source]):
+A `&mut` to the first or last bytes is refused where it overlaps a struct that has a rule, except
+where [Writes leave a valid source][functions#writes-leave-a-valid-source] allows it:
 
 ```rust,compile_fail,E0080
 #[derive(puns::Pun)]
@@ -627,8 +626,8 @@ assert!(level.negative());
 [functions#writes-leave-a-valid-source]: functions.md#writes-leave-a-valid-source
 [functions#writing-through-mut]: functions.md#writing-through-mut
 [macro@Pun#compile-time-errors]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#compile-time-errors
-[opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
+[opaque scalar]: concepts.md#opaque-scalars
 [rules#fields-in-a-rule]: rules.md#fields-in-a-rule
-[uninhabited]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
-[unspecified layout]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
+[uninhabited]: concepts.md#uninhabited-types
+[unspecified layout]: concepts.md#unspecified-layouts
 [msrv]: target.md#minimum-rust-version

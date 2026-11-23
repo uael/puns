@@ -14,7 +14,7 @@
 //! [rust#errors-of-const-evaluation]: super::rust#errors-of-const-evaluation
 //! [testing]: super::testing
 //! [trust]: super::trust
-//! [uninhabited]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+//! [uninhabited]: super::concepts#uninhabited-types
 //! [valid]: super::concepts#what-is-a-valid-value
 #![doc = include_str!("../../docs/soundness.md")]
 

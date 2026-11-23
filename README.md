@@ -11,6 +11,12 @@ of bytes.
 > **Notes:** `puns` is written using AI, see [How `puns` is written](#how-puns-is-written). And
 > the first release came out in November 2026: expect the API to change before 1.0.
 
+Use `puns` to read binary formats in place, or to reinterpret plain data as another type, when you
+want the compiler to prove what it can. Use [`zerocopy`][zerocopy] or [`bytemuck`][bytemuck] for
+what `puns` doesn't do ([compared below](#compared-with-other-crates)), for an older Rust, or when
+you need a crate that has been reviewed for years. To decode data into owned values,
+[`binrw`][binrw], [`deku`][deku] or [`nom`][nom] are a better fit.
+
 - [Overview](#overview)
   - [Reading a packet](#reading-a-packet)
   - [Reading one of several types](#reading-one-of-several-types)
@@ -22,19 +28,6 @@ of bytes.
   - [Performance](#performance)
   - [Safety and testing](#safety-and-testing)
 - [The guide][guide]
-  - [How `puns` decides][concepts]
-  - [Choosing a function][functions]
-  - [Describing a format][formats]
-  - [Compile-time errors]
-  - [Unspecified layouts and the `unstable` feature][unstable]
-  - [The language of rules][rules]
-  - [Limits, and what is not done yet][limits]
-  - [Measured performance][performance]
-  - [Soundness]
-  - [Testing][testing]
-  - [What the derive trusts][trust]
-  - [What `puns` relies on][rust]
-  - [Rust version and targets][target]
 - [About](#about)
   - [History](#history)
   - [How `puns` is written](#how-puns-is-written) (using AI)
@@ -44,9 +37,9 @@ of bytes.
 
 `puns` lets you reinterpret a value of one type, the *source*, as a value of another type, the
 *target*, or bytes as a typed value, without writing `unsafe`. `puns` is `no_std`, never allocates,
-and needs Rust 1.99 or later (see [Minimum Rust version][msrv]). It compares the [layouts] of the
-two types, which include their [valid][valid] values, while your code compiles, and whatever it can
-prove, it doesn't check at run time:
+and needs Rust 1.99 or later (see [Minimum Rust version][msrv]). While your code compiles, it
+compares the [layouts] of the two types, which include their [valid][valid] values. When it can
+prove the whole conversion, nothing is left to check at run time:
 
 ```rust
 use puns::Pun;
@@ -82,9 +75,8 @@ This is at byte 0 of the target.
 `try_pun_ref` would check the same conversion at run time instead. [Compile-time errors] explains
 each message.
 
-`cargo build` reports refusals, but `cargo check`, and therefore your editor, doesn't: `puns`
-decides while the compiler generates code, which `cargo check` skips. Both report the errors of the
-derive and of types.
+`cargo build` reports refusals, but `cargo check`, and therefore your editor, doesn't
+([Compile-time errors] says why). Both report the errors of the derive and of types.
 
 The three examples below show what `puns` is for. Going further, after them, lists the functions,
 traits and modules.
@@ -153,7 +145,7 @@ regions, and the [derive's documentation][derive] lists them all.
 A rule is a [requirement][requirements] of the format, not a guarantee of the type: it holds when
 `puns` reads the bytes, but the fields stay writable. If the router set `length` to 10, `payload`
 would still have 3 bytes. `puns` never relies on a rule for memory safety: a rule that no longer
-holds gives wrong values, never undefined behavior.
+holds gives wrong values or a panic, never undefined behavior ([Soundness]).
 
 `puns` [can't build][unsized] a new value of an unsized type like `Packet`. To send one, you write
 its bytes yourself.
@@ -161,7 +153,7 @@ its bytes yourself.
 ### Reading one of several types
 
 When the data can be one of several types, derive `Pun` on an enum of references, which `puns` calls
-a *view*. Its `from_bytes` and `from_head` return the first variant that the bytes match:
+a [*view*][view]. Its `from_bytes` and `from_head` return the first variant that the bytes match:
 
 ```rust
 use puns::{Pun, num::{u8c, u16le}};
@@ -208,9 +200,9 @@ doesn't match. [`link.rs`][link] reads Bluetooth HCI packets this way.
 
 ### Reading an old version of a format
 
-If every value of an old version of a format is also a valid value of the new one, `puns` can
-prove it, and you can reinterpret old data as the new version without any check. Nothing is moved or
-converted, which means that whatever the two versions share must keep the same layout:
+Here, every value of the old version of a format is also a valid value of the new one, and `puns`
+proves it, so you can reinterpret old data as the new version without any check. Nothing is moved
+or converted, which means that whatever the two versions share must keep the same layout:
 
 ```rust
 use puns::{Pun, num::u16le};
@@ -263,9 +255,9 @@ Two functions make no pun. [`zeroed`][zeroed] returns a value whose fields are a
 scalars][opaque], but makes no reference: the crate that declares these scalars proves them itself,
 and then makes the reference.
 
-- [`Pun`][trait-pun] is the trait of the types that `puns` works with, which are plain data: structs
-  and enums of any representation, `repr(C)` unions, tuples of up to 4 elements, arrays, slices,
-  structs that end with a slice, `str`, `MaybeUninit`, and [uninhabited][opaque] types.
+- [`Pun`][trait-pun] is the trait of the types that `puns` works with: numbers and other scalars,
+  arrays, slices, `str`, tuples and other types of `core`, and the types that derive it. Its page
+  has the full list.
 - [`#[derive(Pun)]`][derive] implements `Pun`, and also describes what the bytes of a value say
   about it: its size, the length of its trailing slice, and conditions such as a checksum.
 - [`Scalar`][Scalar] is the trait of a type that is one scalar value, such as a number whose
@@ -274,8 +266,8 @@ and then makes the reference.
 - [`Error`][error-type] says which check failed: the alignment, the size, or the values.
 - [`num`][num] has numbers of a fixed byte order, and integers restricted to some values.
 - [`layout`][layout] has the types that describe a layout, and the checksums.
-- The [guide] explains the rest as a book, in the chapters that the [contents](#puns) at the top of
-  this page list.
+- The [guide] explains how `puns` decides, teaches the attributes and the rules from examples, and
+  says what its soundness rests on.
 
 The tests and the [examples] of the repository show more uses. The examples read parts of more
 than 40 formats, from TLS and DNS to ELF and SQLite, and each one says which parts of its format it
@@ -284,18 +276,13 @@ with `cargo run --example media` from a clone of the repository.
 
 ## When to use `puns`
 
-Use `puns` to read binary formats in place, or to reinterpret plain data as another type, when you
-want the compiler to prove what it can. Use [`zerocopy`][zerocopy] or [`bytemuck`][bytemuck] for
-what `puns` doesn't do ([compared below](#compared-with-other-crates)), for an older Rust, or when
-you need a crate that has been reviewed for years. To decode data into owned values,
-[`binrw`][binrw], [`deku`][deku] or [`nom`][nom] are a better fit.
-
 ### Compared with other crates
 
 `puns` takes many ideas and implementation details from [`zerocopy`][zerocopy] and
 [`bytemuck`][bytemuck]. Their traits describe what each type accepts on its own, while `puns`
 compares the two types of each conversion. Read on 2026-11-23, with `zerocopy` 0.8.64 and
-`bytemuck` 1.25.2:
+`bytemuck` 1.25.2, except the machine code of the first row, which was compiled with `zerocopy`
+0.8.63:
 
 | | `puns` | `zerocopy` and `bytemuck` |
 |---|---|---|
@@ -330,9 +317,10 @@ compiler, but it's only on nightly.
 ### Performance
 
 Checked puns take about as long as the same checks written by hand, and what you pay for is
-mostly build time. [Performance][performance] in the guide has the measures, made on 2026-11-21 at
-commit `4176671`, with the machine code, the method and the build times, and the chart below shows
-the time of each check relative to the same check written by hand.
+mostly build time. The times of the checks and of the builds in [Performance][performance] were
+measured on 2026-11-21 at commit `4176671`, and the chapter also shows the machine code and how
+each was measured. The chart below shows the time of each check relative to the same check written
+by hand.
 
 [![Time of each check by puns, relative to the same check written by hand](https://raw.githubusercontent.com/uael/puns/v0.2.4/docs/charts/checks.svg)][performance]
 
@@ -394,32 +382,27 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 `puns` by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
 additional terms or conditions.
 
-[valid]: docs/concepts.md#what-is-a-valid-value
-[kinds]: docs/concepts.md#proven-checked-and-refused
-[pairs]: docs/concepts.md#why-the-pair-decides
-[requirements]: docs/concepts.md#requirements
-[opaque]: docs/concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
-[layouts]: docs/concepts.md#layouts-and-rules
-[unsized]: docs/limits.md#limits-of-rust
-[msrv]: docs/target.md#minimum-rust-version
-[concepts]: docs/concepts.md
-[functions]: docs/functions.md
-[formats]: docs/formats.md
-[rules]: docs/rules.md
-[limits]: docs/limits.md
-[performance]: docs/performance.md
-[comparison]: docs/performance.md#compared-with-zerocopy-and-bytemuck
-[costs]: docs/performance.md#costs
-[rust]: docs/rust.md
-[target]: docs/target.md
-[guide]: docs/README.md
-[not-yet]: docs/limits.md#not-yet
-[Compile-time errors]: docs/errors.md
-[Soundness]: docs/soundness.md
-[testing]: docs/testing.md
-[trust]: docs/trust.md
-[deriving]: docs/soundness.md#what-deriving-pun-means
-[unstable]: docs/layouts.md
+[valid]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#what-is-a-valid-value
+[kinds]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#proven-checked-and-refused
+[pairs]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#why-the-pair-decides
+[requirements]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#requirements
+[opaque]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#opaque-scalars
+[layouts]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#layouts-and-rules
+[unsized]: https://github.com/uael/puns/blob/v0.2.4/docs/limits.md#limits-of-rust
+[msrv]: https://github.com/uael/puns/blob/v0.2.4/docs/target.md#minimum-rust-version
+[rules]: https://github.com/uael/puns/blob/v0.2.4/docs/rules.md
+[performance]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md
+[comparison]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md#compared-with-zerocopy-and-bytemuck
+[costs]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md#costs
+[rust]: https://github.com/uael/puns/blob/v0.2.4/docs/rust.md
+[guide]: https://github.com/uael/puns/blob/v0.2.4/docs/README.md
+[not-yet]: https://github.com/uael/puns/blob/v0.2.4/docs/limits.md#not-yet
+[Compile-time errors]: https://github.com/uael/puns/blob/v0.2.4/docs/errors.md
+[Soundness]: https://github.com/uael/puns/blob/v0.2.4/docs/soundness.md
+[testing]: https://github.com/uael/puns/blob/v0.2.4/docs/testing.md
+[deriving]: https://github.com/uael/puns/blob/v0.2.4/docs/soundness.md#what-deriving-pun-means
+[view]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#views
+[unstable]: https://github.com/uael/puns/blob/v0.2.4/docs/layouts.md
 [num]: https://docs.rs/puns/0.2.4/puns/num/index.html
 [layout]: https://docs.rs/puns/0.2.4/puns/layout/index.html
 [derive]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html

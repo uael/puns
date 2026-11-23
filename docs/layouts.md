@@ -174,9 +174,9 @@ as well ([The identity of a type and the compiler][trust-identity]).
 [errors#unspecified-layouts]: errors.md#unspecified-layouts
 [kinds]: concepts.md#proven-checked-and-refused
 [opaque-scalars]: https://docs.rs/puns/0.2.4/puns/trait.Scalar.html#opaque-scalars
-[opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
+[opaque scalar]: concepts.md#opaque-scalars
 [part]: concepts.md#layouts-and-rules
 [rule]: concepts.md#layouts-and-rules
 [rust#what-rust-documents]: rust.md#what-rust-documents
 [trust-identity]: trust.md#the-identity-of-a-type-and-the-compiler
-[unspecified layout]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
+[unspecified layout]: concepts.md#unspecified-layouts

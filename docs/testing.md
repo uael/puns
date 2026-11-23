@@ -79,7 +79,7 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-
 [sample]: https://github.com/uael/puns/blob/v0.2.4/puns-model/tests/miri_sample.rs
 
 [layouts]: layouts.md
-[opaque]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
+[opaque]: concepts.md#opaque-scalars
 [rust#errors-of-const-evaluation]: rust.md#errors-of-const-evaluation
 [rust#the-tag-of-an-enum-of-the-rust-representation]: rust.md#the-tag-of-an-enum-of-the-rust-representation
 [soundness]: soundness.md

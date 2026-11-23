@@ -62,7 +62,7 @@ only the real type compiles.
 Nothing else that the derive names through the path of `puns` makes a layout. A trait that it
 implements through the path is the trait of `puns`: otherwise the type does not implement that
 trait of `puns`, or the implementation of `Pun` does not compile. The lists of fields and of rules
-that it writes as types are checked against the layout. The functions of a view, the accessors of
+that it writes as types are checked against the layout. The functions of a view, the methods of
 the regions and the getters call functions named through the path, in code that holds no `unsafe`
 block. A path that names other functions there changes what they return, but whatever it is, it is
 a valid value of its type.
@@ -95,7 +95,7 @@ The derive names no other item of `::core` than these:
   calls.
 - `PhantomData`, only as the field of the types that the derive declares as markers, whose bytes
   nothing reads.
-- `Result`, only in the signatures of safe functions, the accessors of regions and the functions of
+- `Result`, only in the signatures of safe functions, the methods of regions and the functions of
   a view. A fake one changes only these signatures.
 - `Sized`, only as a bound. An unsized type still fails to build where the generated code passes it
   to a function of `puns` that needs the real `Sized`.
@@ -144,7 +144,7 @@ What such an attribute can still change without failing the build:
 [`Varint`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Varint.html
 [`Variant`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Variant.html
 [independence]: layouts.md#layout-independence
-[opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
+[opaque scalar]: concepts.md#opaque-scalars
 [rust#the-tag-of-an-enum-of-the-rust-representation]: rust.md#the-tag-of-an-enum-of-the-rust-representation
 [rust#the-variant-read-from-the-tag]: rust.md#the-variant-read-from-the-tag
 [same]: layouts.md#the-same-type

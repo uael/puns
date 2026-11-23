@@ -1,10 +1,11 @@
 # Choosing a function
 
-A function of `puns` is chosen by what it reads and by how much of it ([the table of
-functions][crate#going-further]). The choice also decides whether a check at run time is possible.
-[`pun`], [`pun_ref`], [`pun_mut`], [`as_bytes`] and the functions of the front and the back check
-nothing, and refuse a pair that needs a check. The `try_` and `from_` functions check what the
-analysis could not prove ([Proven, checked and refused][concepts#proven-checked-and-refused]).
+Choose a function by what it reads, a typed value or bytes, and by how much of it: the whole, the
+front or the back ([the table of functions][crate#going-further]). The choice also decides whether
+a check at run time is possible. [`pun`], [`pun_ref`], [`pun_mut`], [`as_bytes`], [`head`],
+[`tail`] and their `_ref` and `_mut` forms check nothing, and refuse a pair that needs a check. The
+`try_` and `from_` functions check at run time what the analysis leaves to them ([Proven, checked
+and refused][concepts#proven-checked-and-refused]).
 
 ## Reinterpreting a value
 
@@ -22,15 +23,17 @@ assert_eq!(puns::try_pun::<u32, char>(0xd800), Err(puns::Error::Validity));
 
 ## Reading bytes
 
-Bytes from outside the program, such as a file or a packet, are read with the `from_` functions.
-Bytes that already have a type that proves the target are read with [`pun_ref`] instead.
+Read bytes from outside the program, such as a file or a packet, with the `from_` functions. Read
+bytes that already have a type that proves the target with [`pun_ref`] instead.
 
 [`from_bytes`], [`from_bytes_mut`] and [`as_bytes`] are `try_pun_ref::<[u8], D>`,
 `try_pun_mut::<[u8], D>` and `pun_ref::<S, [u8]>` with a single type parameter. Prefer them to
-the `try_` functions for bytes: `try_pun_ref(&[1, 0])` infers its source as an `[i32; 2]`,
-because an integer literal without a suffix is an `i32` unless something says otherwise.
-[`from_head`] and [`from_head_mut`] take as many bytes as the `size` or `len` rule of the target
-says, or else as many elements as fit, and return the bytes that follow:
+the `try_` functions when you read bytes: `try_pun_ref(&[1, 0])` infers its source as an
+`[i32; 2]`, because an integer literal without a suffix is an `i32` unless something says
+otherwise.
+[`from_head`] and [`from_head_mut`] take a value from the front of the bytes, whose length the
+`size` or `len` rule of the target gives ([`from_head`] says how many bytes it takes), and return
+the bytes that follow:
 
 ```rust
 use puns::Pun;
@@ -54,9 +57,8 @@ while let Ok((word, rest)) = puns::from_head::<Text>(stream) {
 assert_eq!((words, stream), (vec!["hello", "", "world"], &[0xff][..]));
 ```
 
-[`from_tail`] and [`from_tail_mut`] take a value from the end of bytes, and return the bytes
-before it. They require a sized target, because the extent of an unsized target cannot be found
-from its end:
+[`from_tail`] and [`from_tail_mut`] take a sized value from the end of bytes, and return the bytes
+before it:
 
 ```rust
 use puns::num::u32le;
@@ -80,8 +82,8 @@ and a `from_head` of its own ([Reading one of several types][crate#reading-one-o
 [`head`], [`head_ref`] and [`head_mut`] take the front of a typed value, and [`tail`],
 [`tail_ref`] and [`tail_mut`] its back. For a sized target, the front or the back is the first
 or last `size_of::<D>()` bytes. If the target of [`head_ref`] or [`head_mut`] is a slice, it
-holds as many elements as fit. The functions of the back require a sized source, because where
-the last bytes of an unsized value start is known only at run time.
+holds as many elements as fit. The functions of the back need a [sized source and
+target](#sizes). Each byte order keeps the low half of a number at one end:
 
 ```rust
 use puns::num::{u16be, u32be, u32le};
@@ -91,50 +93,69 @@ assert_eq!(puns::tail::<u32be, u16be>(0x1234_5678.into()).get(), 0x5678);
 assert_eq!(puns::head::<u32le, u8>(0x1234_5678.into()), 0x78);
 ```
 
-Where the size of the front is read from the bytes, or the front needs a check, read the bytes with
+If you read the size of the front from the bytes, or the front needs a check, read the bytes with
 [`from_head`] instead of [`head_ref`].
 
 ## Writing through `&mut`
 
-A function that returns a `&mut D` must also hold the other way, since what is written through it
-must leave a valid source ([Writes leave a valid source](#writes-leave-a-valid-source)).
+A function that returns a `&mut D` also needs the pun to hold in the other direction: every `D`
+that may be written through the reference must leave a valid source ([Writes leave a valid
+source](#writes-leave-a-valid-source)).
 
 The analysis compares what may be written with the source scalar by scalar. A `#[pun(valid(..))]`
 range is part of the layout of its scalar, so it is compared like any value, and a write must stay
 in it. A rule is an expression on the whole struct, which this comparison does not read. So
 [`pun_mut`] and [`try_pun_mut`] let a write break a rule of the source, as a write to a field may,
 since a rule is a [requirement][concepts#requirements]. To check the value again, pass its bytes,
-from [`as_bytes`], to [`from_bytes`]. [`head_mut`] and [`tail_mut`] are stricter: they refuse a source in
-which a struct that has a rule overlaps the bytes that they cover, unless the target has the same
-struct with the same rules there ([Writes leave a valid source](#writes-leave-a-valid-source)). A more precise analysis is [not done yet][limits#not-yet].
+from [`as_bytes`], to [`from_bytes`]. [`head_mut`] and [`tail_mut`] are stricter about rules
+([Writes leave a valid source](#writes-leave-a-valid-source)). A more precise analysis is [not
+done yet][limits#not-yet].
 
-Where [`pun_mut`] is refused because a `D` written through it could be an invalid source, as when
-`D` is an enum with more variants than the source, take a `&mut` to only the bytes that are written,
-with [`head_mut`] or [`tail_mut`]:
+Where [`pun_mut`] is refused because a `D` written through it could leave an invalid source, take
+a `&mut` to only the bytes that you write, with [`head_mut`] or [`tail_mut`]. A `&mut [u8; 4]` to
+this note could write a 2 over its `bool`:
+
+```rust,compile_fail,E0080
+use puns::Pun;
+
+/// A note: whether it is urgent, then three bytes of text.
+#[derive(Pun)]
+#[repr(C)]
+struct Note {
+  urgent: bool,
+  text: [u8; 3],
+}
+
+let mut note = Note { urgent: true, text: *b"abc" };
+let bytes: &mut [u8; 4] = puns::pun_mut(&mut note); // Refused.
+```
+
+```text
+cannot pun: some values of the target are not valid for the source (or are padding where the source is not), and could be written through the `&mut`.
+```
+
+A `&mut` to the last three bytes leaves the `bool` as it is:
 
 ```rust
 use puns::Pun;
 
-/// A pixel. Its first three bytes are its color.
-#[derive(Pun, Debug, PartialEq)]
+/// A note: whether it is urgent, then three bytes of text.
+#[derive(Pun)]
 #[repr(C)]
-struct Rgba {
-  red: u8,
-  green: u8,
-  blue: u8,
-  alpha: u8,
+struct Note {
+  urgent: bool,
+  text: [u8; 3],
 }
 
-// Turn RGBA into BGRA in place, through a `&mut` to the color alone.
-let mut pixel = Rgba { red: 255, green: 128, blue: 0, alpha: 200 };
-puns::head_mut::<_, [u8; 3]>(&mut pixel).reverse();
-assert_eq!(pixel, Rgba { red: 0, green: 128, blue: 255, alpha: 200 });
+let mut note = Note { urgent: true, text: *b"abc" };
+puns::tail_mut::<_, [u8; 3]>(&mut note).make_ascii_uppercase();
+assert_eq!((note.urgent, &note.text), (true, b"ABC"));
 ```
 
 ## In a constant
 
-Every function of `puns` is a `const fn`, and so is every function that the derive generates:
-bytes in a constant can be checked while the program compiles. Only the implementations of
+Every function of `puns` is a `const fn`, and so is every function that the derive generates, so
+you can check bytes in a constant while the program compiles. Only the implementations of
 standard traits, such as `From` and `Display`, are not, since stable Rust cannot call a trait
 method in `const`. `unwrap` is not `const` either: match on the result instead.
 
@@ -214,13 +235,18 @@ last bytes for [`head`], [`tail`] and their `_ref` and `_mut` forms, as each pag
 
 ### Sizes
 
-- *Same size*: whatever the length of its slice, every value of `S` has a size that `D` can
-  have. For sized types, `size_of::<S>() == size_of::<D>()`.
-- *A size in common*: some length of the slice of `S` gives it a size that `D` can have, and the
-  check at run time tells whether the value has it. For sized types,
+- *Same extent*: whatever the length of its slice, every value of `S` has an
+  [extent][concepts#layouts-and-rules] that a `D` can have. For sized types,
   `size_of::<S>() == size_of::<D>()`.
-- *Room for the target*: every value of `S` is at least as large as the smallest `D`. For sized
-  types, `size_of::<S>() >= size_of::<D>()`.
+- *An extent in common*: some length of the slice of `S` gives it an extent that a `D` can have.
+  The check at run time tells whether the value has such an extent, and whether the `D` of that
+  extent, with the padding that may follow its slice, fits in the value. For sized types,
+  `size_of::<S>() == size_of::<D>()`.
+- *Room for the target*: every value of `S` has an extent at least as large as that of the
+  smallest `D`. For sized types, `size_of::<S>() >= size_of::<D>()`.
+- *Sized source and target*: `S` and `D` are sized, because where the last bytes of an unsized
+  value start is known only at run time, and an unsized target has no size to count from the end
+  of `S`. [`from_tail`] takes a value from the end of bytes.
 
 ### Alignment
 
@@ -268,7 +294,7 @@ meets the `valid(..)` ranges of the source, though not always its rules ([Writin
 
 ### No opaque scalar
 
-`D` holds no [opaque scalar][concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types],
+`D` holds no [opaque scalar][concepts#opaque-scalars],
 since no function makes one. A variant of an enum that holds one is allowed, and a check never
 accepts it. For a `&mut`, the covered bytes of `S` hold none either, since a write would make one.
 
@@ -294,7 +320,7 @@ accepts it. For a `&mut`, the covered bytes of `S` hold none either, since a wri
 [concepts#layouts-and-rules]: concepts.md#layouts-and-rules
 [concepts#proven-checked-and-refused]: concepts.md#proven-checked-and-refused
 [concepts#requirements]: concepts.md#requirements
-[concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
+[concepts#opaque-scalars]: concepts.md#opaque-scalars
 [concepts#what-is-a-valid-value]: concepts.md#what-is-a-valid-value
 [concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
 [core::mem::transmute#transmutation-between-pointers-and-integers]: https://doc.rust-lang.org/1.99.0/core/mem/fn.transmute.html#transmutation-between-pointers-and-integers

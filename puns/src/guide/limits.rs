@@ -27,7 +27,7 @@
 //! [macro@Pun#how-the-derive-reads-a-type]: macro@Pun#how-the-derive-reads-a-type
 //! [macro@Pun#views]: macro@Pun#views
 //! [rules]: super::rules
-//! [rules#extent]: super::rules#extent
+//! [concepts#layouts-and-rules]: super::concepts#layouts-and-rules
 //! [rules#fields-in-a-rule]: super::rules#fields-in-a-rule
 //! [rules#functions]: super::rules#functions
 //! [rules#limits-of-the-evaluator]: super::rules#limits-of-the-evaluator

@@ -1,30 +1,26 @@
-// The README is the crate page. Its links to the guide are relative, for GitHub, and rustdoc keeps
-// the first definition of a link, so these, before it, make them intra-doc.
+// The README is the crate page. Its links to the guide name files of the repository at the tag of
+// the release, which GitHub and crates.io both resolve, and rustdoc keeps the first definition of a
+// link, so these, before it, make them intra-doc.
 //! [valid]: guide::concepts#what-is-a-valid-value
 //! [kinds]: guide::concepts#proven-checked-and-refused
 //! [pairs]: guide::concepts#why-the-pair-decides
 //! [requirements]: guide::concepts#requirements
-//! [opaque]: guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+//! [opaque]: guide::concepts#opaque-scalars
 //! [layouts]: guide::concepts#layouts-and-rules
 //! [unsized]: guide::limits#limits-of-rust
 //! [msrv]: guide::target#minimum-rust-version
-//! [concepts]: guide::concepts
-//! [functions]: guide::functions
-//! [formats]: guide::formats
 //! [rules]: guide::rules
-//! [limits]: guide::limits
 //! [performance]: guide::performance
 //! [comparison]: guide::performance#compared-with-zerocopy-and-bytemuck
 //! [costs]: guide::performance#costs
 //! [rust]: guide::rust
-//! [target]: guide::target
 //! [guide]: guide
 //! [not-yet]: guide::limits#not-yet
 //! [Compile-time errors]: guide::errors
 //! [Soundness]: guide::soundness
 //! [testing]: guide::testing
-//! [trust]: guide::trust
 //! [deriving]: guide::soundness#what-deriving-pun-means
+//! [view]: macro@Pun#views
 //! [unstable]: guide::layouts
 #![doc = include_str!("../README.md")]
 #![cfg_attr(not(test), no_std)]
@@ -77,8 +73,9 @@ pub use layout::{crc32, sum16};
 /// # Structs
 ///
 /// A struct may have any representation, and may have [rules](crate::guide::rules), which its
-/// attributes state. The order of the fields of a struct of the `Rust` representation is an
-/// [unspecified layout](crate::guide::layouts).
+/// attributes state. A struct of the `Rust` representation has an [unspecified
+/// layout](crate::guide::concepts#unspecified-layouts): the compiler chooses the order of its
+/// fields.
 ///
 /// The derive compiles a struct only if it meets these conditions:
 ///
@@ -93,8 +90,9 @@ pub use layout::{crc32, sum16};
 /// # Enums without fields
 ///
 /// An enum without fields is a [`Scalar`], whose valid values are its discriminants as the compiler
-/// stores them, whatever its representation. With the `Rust` representation, how they are stored
-/// is an [unspecified layout](crate::guide::layouts).
+/// stores them, whatever its representation. With the `Rust` representation, the compiler chooses
+/// how they are stored, so the enum has an [unspecified
+/// layout](crate::guide::concepts#unspecified-layouts).
 ///
 /// The derive compiles an enum without fields only if it meets these conditions:
 ///
@@ -105,7 +103,7 @@ pub use layout::{crc32, sum16};
 ///
 /// An enum without variants is [uninhabited], so no pun makes one.
 ///
-/// [uninhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [uninhabited]: crate::guide::concepts#uninhabited-types
 ///
 /// # Enums with fields
 ///
@@ -113,8 +111,8 @@ pub use layout::{crc32, sum16};
 /// representation. With `repr(C)` or an integer, its layout is the one that [RFC 2195] specifies.
 /// With the `Rust` representation, it is the one that `rustc` chose. A value of such an enum is
 /// known by its tag, so making one from another type checks the tag, then what the fields of its
-/// variant require. With the `Rust` representation, the tag is an [unspecified
-/// layout](crate::guide::layouts).
+/// variant require. With the `Rust` representation, the compiler chooses the tag, so the enum has
+/// an [unspecified layout](crate::guide::concepts#unspecified-layouts).
 ///
 /// The derive finds where the fields of a variant are, and its tag, on the *least value* of the
 /// variant. That value holds the least value of each field. The least value of an enum is that of
@@ -137,13 +135,14 @@ pub use layout::{crc32, sum16};
 /// as reading them.
 ///
 /// [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [opaque scalar]: crate::guide::concepts#opaque-scalars
 ///
 /// # Views
 ///
-/// An enum whose variants each hold one shared reference is a
-/// [view](crate::guide::concepts#layouts-and-rules), such as the `Message` of the examples below.
-/// For a view, the derive implements no `Pun`, but two `const fn`s, as visible as the enum:
+/// A *view* is an enum each of whose variants is a tuple variant that holds one shared reference,
+/// `&'a T`, such as the `Message` of the examples below. It reads data that may be one of several
+/// types. An enum with a variant of another form, such as `A { r: &'a T }`, is not a view. For a
+/// view, the derive implements no `Pun`, but two `const fn`s, as visible as the enum:
 ///
 /// - `from_head(bytes: &[u8]) -> Result<(Self, &[u8]), Error>` returns the first variant that
 ///   `bytes` start with, and the bytes that follow it.
@@ -180,8 +179,8 @@ pub use layout::{crc32, sum16};
 /// ## `size`
 ///
 /// `#[pun(size = EXPR)]`, on a struct: the [extent](crate::guide::concepts#layouts-and-rules) of a
-/// value is `EXPR` bytes. [`from_head`] takes that many bytes, rounded up to the alignment of the
-/// struct ([a header with options](crate::guide::formats#a-header-with-options)).
+/// value is `EXPR` bytes, which [`from_head`] reads to take the value from the front of bytes ([a
+/// header with options](crate::guide::formats#a-header-with-options)).
 ///
 /// ## `assert`
 ///
@@ -1878,7 +1877,7 @@ impl Message {
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only under the conditions [same size], [initialized bytes], [proven target],
+/// A call [compiles] only under the conditions [same extent], [initialized bytes], [proven target],
 /// [no opaque scalar] and [layout independence].
 ///
 /// # Examples
@@ -1893,7 +1892,7 @@ impl Message {
 /// ```
 ///
 /// [compiles]: crate::guide::errors
-/// [same size]: crate::guide::functions#sizes
+/// [same extent]: crate::guide::functions#sizes
 /// [initialized bytes]: crate::guide::functions#initialized-bytes
 /// [proven target]: crate::guide::functions#proven-target
 /// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
@@ -2024,7 +2023,7 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only under the conditions [same size], [initialized bytes], [accepted by a
+/// A call [compiles] only under the conditions [same extent], [initialized bytes], [accepted by a
 /// check], [no opaque scalar] and [layout independence].
 ///
 /// # Examples
@@ -2043,7 +2042,7 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// [requirements]: crate::guide::concepts#requirements
 /// [the analysis]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
-/// [same size]: crate::guide::functions#sizes
+/// [same extent]: crate::guide::functions#sizes
 /// [initialized bytes]: crate::guide::functions#initialized-bytes
 /// [accepted by a check]: crate::guide::functions#accepted-by-a-check
 /// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
@@ -2107,7 +2106,7 @@ const unsafe fn pun_unchecked<S: Copy, D: Copy>(value: S) -> D {
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only under the conditions [same size], [alignment], [initialized bytes],
+/// A call [compiles] only under the conditions [same extent], [alignment], [initialized bytes],
 /// [proven target], [no opaque scalar] and [layout independence].
 ///
 /// # Examples
@@ -2125,7 +2124,7 @@ const unsafe fn pun_unchecked<S: Copy, D: Copy>(value: S) -> D {
 /// ```
 ///
 /// [compiles]: crate::guide::errors
-/// [same size]: crate::guide::functions#sizes
+/// [same extent]: crate::guide::functions#sizes
 /// [alignment]: crate::guide::functions#alignment
 /// [initialized bytes]: crate::guide::functions#initialized-bytes
 /// [proven target]: crate::guide::functions#proven-target
@@ -2165,7 +2164,7 @@ pub const fn pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only under the conditions [same size], [alignment], [initialized bytes],
+/// A call [compiles] only under the conditions [same extent], [alignment], [initialized bytes],
 /// [proven target], [writes leave a valid source], [no opaque scalar] and [layout independence].
 ///
 /// # Examples
@@ -2185,7 +2184,7 @@ pub const fn pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 /// ```
 ///
 /// [compiles]: crate::guide::errors
-/// [same size]: crate::guide::functions#sizes
+/// [same extent]: crate::guide::functions#sizes
 /// [alignment]: crate::guide::functions#alignment
 /// [initialized bytes]: crate::guide::functions#initialized-bytes
 /// [proven target]: crate::guide::functions#proven-target
@@ -2265,12 +2264,9 @@ pub const fn head_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only under the conditions [room for the target], [alignment], [initialized
-/// bytes], [proven target], [no opaque scalar] and [layout independence], and if:
-///
-/// - `S` is sized, because where the last bytes of an unsized value start is known only at run
-///   time. [`from_tail`] takes a value from the end of bytes.
-/// - `D` is sized, since an unsized target has no size to count from the end of `S`.
+/// A call [compiles] only under the conditions [room for the target], [sized source and target],
+/// [alignment], [initialized bytes], [proven target], [no opaque scalar] and [layout
+/// independence].
 ///
 /// # Examples
 ///
@@ -2293,6 +2289,7 @@ pub const fn head_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 ///
 /// [compiles]: crate::guide::errors
 /// [room for the target]: crate::guide::functions#sizes
+/// [sized source and target]: crate::guide::functions#sizes
 /// [alignment]: crate::guide::functions#alignment
 /// [initialized bytes]: crate::guide::functions#initialized-bytes
 /// [proven target]: crate::guide::functions#proven-target
@@ -2384,13 +2381,9 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only under the conditions [room for the target], [alignment], [initialized
-/// bytes], [proven target], [writes leave a valid source], [no opaque scalar] and [layout
-/// independence], and if:
-///
-/// - `S` is sized, because where the last bytes of an unsized value start is known only at run
-///   time. [`from_tail_mut`] takes a value from the end of bytes.
-/// - `D` is sized, since an unsized target has no size to count from the end of `S`.
+/// A call [compiles] only under the conditions [room for the target], [sized source and target],
+/// [alignment], [initialized bytes], [proven target], [writes leave a valid source], [no opaque
+/// scalar] and [layout independence].
 ///
 /// # Examples
 ///
@@ -2415,6 +2408,7 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 ///
 /// [compiles]: crate::guide::errors
 /// [room for the target]: crate::guide::functions#sizes
+/// [sized source and target]: crate::guide::functions#sizes
 /// [alignment]: crate::guide::functions#alignment
 /// [initialized bytes]: crate::guide::functions#initialized-bytes
 /// [proven target]: crate::guide::functions#proven-target
@@ -2450,7 +2444,7 @@ pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only under the conditions [a size in common], [no address check in a
+/// A call [compiles] only under the conditions [an extent in common], [no address check in a
 /// constant], [initialized bytes], [accepted by a check], [no opaque scalar] and [layout
 /// independence].
 ///
@@ -2471,7 +2465,7 @@ pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 /// [the analysis]: crate::guide::concepts#layouts-and-rules
 /// [extent]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
-/// [a size in common]: crate::guide::functions#sizes
+/// [an extent in common]: crate::guide::functions#sizes
 /// [initialized bytes]: crate::guide::functions#initialized-bytes
 /// [accepted by a check]: crate::guide::functions#accepted-by-a-check
 /// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
@@ -2517,7 +2511,7 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only under the conditions [a size in common], [no address check in a
+/// A call [compiles] only under the conditions [an extent in common], [no address check in a
 /// constant], [initialized bytes], [accepted by a check], [writes leave a valid source], [no opaque
 /// scalar] and [layout independence].
 ///
@@ -2540,7 +2534,7 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
 ///
 /// [the analysis]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
-/// [a size in common]: crate::guide::functions#sizes
+/// [an extent in common]: crate::guide::functions#sizes
 /// [initialized bytes]: crate::guide::functions#initialized-bytes
 /// [accepted by a check]: crate::guide::functions#accepted-by-a-check
 /// [writes leave a valid source]: crate::guide::functions#writes-leave-a-valid-source
@@ -2590,7 +2584,7 @@ pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Res
 /// ```
 ///
 /// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [opaque scalar]: crate::guide::concepts#opaque-scalars
 /// [rules]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
 /// [layout independence]: crate::guide::layouts#layout-independence
@@ -2644,9 +2638,9 @@ pub const fn int<T: Pun>(value: &T) -> u128 {
 
 /// Returns the bytes of a value.
 ///
-/// `as_bytes(value)` is [`pun_ref::<S, [u8]>(value)`](pun_ref), with identical behavior: the result
-/// covers `value` up to the end of its slice, without any padding after the slice. Only `S` is a
-/// type parameter, since the target is `[u8]`. Nothing is checked at run time.
+/// `as_bytes(value)` is [`pun_ref::<S, [u8]>(value)`](pun_ref), with identical behavior, so the
+/// result has the length that `pun_ref` gives a slice. Only `S` is a type parameter, since the
+/// target is `[u8]`. Nothing is checked at run time.
 ///
 /// # Compile-time errors
 ///
@@ -2685,9 +2679,9 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 /// # Errors
 ///
 /// Returns, in the order of the checks, [`Error::Alignment`] if `D` needs an alignment greater than
-/// 1 and `bytes` is not aligned for it, [`Error::Size`] if the length of `bytes` is not a size that
-/// `D` can have, and [`Error::Validity`] if the bytes are not a [valid] `D` or do not meet its
-/// [requirements].
+/// 1 and `bytes` is not aligned for it, [`Error::Size`] if no `D` has the length of `bytes` as its
+/// [extent] or if that `D` is larger than `bytes`, and [`Error::Validity`] if the bytes are not a
+/// [valid] `D` or do not meet its [requirements].
 ///
 /// # Compile-time errors
 ///
@@ -2728,7 +2722,8 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 ///
 /// [valid]: crate::guide::concepts#what-is-a-valid-value
 /// [requirements]: crate::guide::concepts#requirements
-/// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [extent]: crate::guide::concepts#layouts-and-rules
+/// [inhabited]: crate::guide::concepts#uninhabited-types
 /// [compiles]: crate::guide::errors
 /// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
 /// [no address check in a constant]: crate::guide::functions#in-a-constant
@@ -2830,8 +2825,8 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
 ///
 /// [valid]: crate::guide::concepts#what-is-a-valid-value
 /// [opaque scalars]: crate::Scalar#opaque-scalars
-/// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-/// [uninhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [unspecified layout]: crate::guide::concepts#unspecified-layouts
+/// [uninhabited]: crate::guide::concepts#uninhabited-types
 /// [part]: crate::guide::concepts#layouts-and-rules
 /// [compiles]: crate::guide::errors
 pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Error> {
@@ -2879,7 +2874,7 @@ pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Err
 /// let _ = puns::from_bytes_mut::<(u8, u16)>(&mut [0; 4]);
 /// ```
 ///
-/// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [inhabited]: crate::guide::concepts#uninhabited-types
 /// [compiles]: crate::guide::errors
 /// [writes leave a valid source]: crate::guide::functions#writes-leave-a-valid-source
 /// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
@@ -2922,8 +2917,8 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
   /// Returns the `D` at the start of the `n` bytes at `addr`, and its size, as [`Plan::front`]
   /// does, but checks what `C` marks rather than everything that bytes do not prove.
   ///
-  /// A `D` whose extent (its size without the trailing padding of a slice) is not `extent` is not
-  /// valid, unless `extent` is `usize::MAX`, which allows any extent.
+  /// A `D` whose [extent](crate::guide::concepts#layouts-and-rules) is not `extent` is not valid,
+  /// unless `extent` is `usize::MAX`, which allows any extent.
   ///
   /// # Safety
   ///
@@ -3038,9 +3033,10 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
 
 /// Reinterprets the start of `bytes` as a `D`, and returns it with the bytes that follow it.
 ///
-/// A sized `D` takes `size_of::<D>()` bytes. A `D` that ends with a slice takes the size that its
-/// `size` or `len` rule gives (see [`macro@Pun`]), or else as many elements as fit, trailing
-/// padding included.
+/// A sized `D` takes `size_of::<D>()` bytes. A `D` that ends with a slice and has a `size` or `len`
+/// rule (see [`macro@Pun`]) takes its [extent], which the rule gives, rounded up to the alignment of
+/// `D`: the bytes must also hold the padding that follows its slice. Without such a rule, it takes
+/// as many elements as fit, trailing padding included.
 ///
 /// # Errors
 ///
@@ -3084,7 +3080,8 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
 ///
 /// [valid]: crate::guide::concepts#what-is-a-valid-value
 /// [requirements]: crate::guide::concepts#requirements
-/// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [extent]: crate::guide::concepts#layouts-and-rules
+/// [inhabited]: crate::guide::concepts#uninhabited-types
 /// [compiles]: crate::guide::errors
 /// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
 /// [no address check in a constant]: crate::guide::functions#in-a-constant
@@ -3180,7 +3177,7 @@ pub const fn rejects<D: ?Sized + Pun>(bytes: &[u8]) -> bool {
 ///
 /// [valid]: crate::guide::concepts#what-is-a-valid-value
 /// [requirements]: crate::guide::concepts#requirements
-/// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [inhabited]: crate::guide::concepts#uninhabited-types
 /// [compiles]: crate::guide::errors
 /// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
 /// [no address check in a constant]: crate::guide::functions#in-a-constant
@@ -3233,7 +3230,7 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&[u8], &D), Err
 /// let _ = puns::from_head_mut::<(u8, u16)>(&mut [0; 4]);
 /// ```
 ///
-/// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [inhabited]: crate::guide::concepts#uninhabited-types
 /// [compiles]: crate::guide::errors
 /// [writes leave a valid source]: crate::guide::functions#writes-leave-a-valid-source
 /// [no opaque scalar]: crate::guide::functions#no-opaque-scalar
@@ -3296,7 +3293,7 @@ pub const fn from_head_mut<D: ?Sized + Pun>(
 /// let _ = puns::from_tail_mut::<(u8, u16)>(&mut [0; 4]);
 /// ```
 ///
-/// [inhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [inhabited]: crate::guide::concepts#uninhabited-types
 /// [compiles]: crate::guide::errors
 /// [writes leave a valid source]: crate::guide::functions#writes-leave-a-valid-source
 /// [no opaque scalar]: crate::guide::functions#no-opaque-scalar

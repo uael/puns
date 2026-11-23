@@ -1,6 +1,7 @@
 # Measured performance
 
-A checked pun compiles to the checks of what the analysis could not prove.
+A proven pun compiles to no check, and a checked pun to the checks that the analysis leaves to run
+time ([Proven, checked and refused][concepts#proven-checked-and-refused]).
 
 ## Machine code
 
@@ -127,9 +128,10 @@ by hand.
 ## Build time
 
 The time of the analysis grows with the number of fields, variants, ranges of values and states
-of an automaton, and its searches are bounded ([Limits of Rust][limits#limits-of-rust]). `cargo
-xtask build-time` ([`xtask/src/build_time.rs`][build-time]) builds a crate that uses `puns` in
-several ways, and prints the best of 3 builds of that crate alone, in seconds. It takes minutes.
+of an automaton, and its searches are bounded ([Bounds of the
+analysis][limits#bounds-of-the-analysis]). `cargo xtask build-time`
+([`xtask/src/build_time.rs`][build-time]) builds a crate that uses `puns` in several ways, and
+prints the best of 3 builds of that crate alone, in seconds. It takes minutes.
 These times were measured on 2026-11-21, with the library at commit [`4176671`][commit], `rustc`
 1.100.0, on the machine above, at a load average between 3.9 and 4.3. The output of these builds is
 not in the repository.
@@ -165,13 +167,14 @@ of steps that grows with that size ([Walks][walks]), so a checksum or another wa
 multiplies the time by the size at each level.
 
 Each checked pun is code specialized for its two types, and relies on inlining, which a debug build
-mostly does not do. Measure the checks in release.
+mostly does not do. If you measure the checks, measure them in a release build.
 
 > **Warning:** Walks nest up to 4 deep, so a checksum inside the deepest one takes time in
-> proportion to the fifth power of the size. Limit the size of the untrusted bytes that such a
-> type reads.
+> proportion to the fifth power of the size. Limit the size of the untrusted bytes that you read
+> as such a type.
 
-[limits#limits-of-rust]: limits.md#limits-of-rust
+[concepts#proven-checked-and-refused]: concepts.md#proven-checked-and-refused
+[limits#bounds-of-the-analysis]: limits.md#bounds-of-the-analysis
 [walks]: rules.md#walks
 [build-time]: https://github.com/uael/puns/blob/v0.2.4/xtask/src/build_time.rs
 [checks]: https://github.com/uael/puns/blob/v0.2.4/puns/benches/checks.rs

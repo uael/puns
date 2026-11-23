@@ -16,10 +16,10 @@
 //! [functions#writes-leave-a-valid-source]: super::functions#writes-leave-a-valid-source
 //! [functions#writing-through-mut]: super::functions#writing-through-mut
 //! [macro@Pun#compile-time-errors]: macro@Pun#compile-time-errors
-//! [opaque scalar]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+//! [opaque scalar]: super::concepts#opaque-scalars
 //! [rules#fields-in-a-rule]: super::rules#fields-in-a-rule
-//! [uninhabited]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-//! [unspecified layout]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+//! [uninhabited]: super::concepts#uninhabited-types
+//! [unspecified layout]: super::concepts#unspecified-layouts
 //! [msrv]: super::target#minimum-rust-version
 #![doc = include_str!("../../docs/errors.md")]
 

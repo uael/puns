@@ -13,7 +13,8 @@
 //! - **Validity** ([`Relation`]): whether the pun is infallible, fallible, or never valid. Each
 //!   constrained scalar of the target must accept every value that the source may hold under it.
 //! - **Marks** ([`Marks`]): which scalars, patterns, enums, unions and rules of the target the
-//!   source does not prove. These are exactly what a checked pun checks at run time.
+//!   source does not prove. A checked pun checks these at run time, and with them the parts that
+//!   share a check with them ([What a check reads](#what-a-check-reads)).
 //! - **Mutability** ([`mutable`], [`mutable_part`]): whether the reverse inclusion holds, which is
 //!   what a `&mut` requires. Every value written through the target must leave a valid source.
 //!
@@ -22,8 +23,8 @@
 //! [Layouts that Rust leaves to the compiler](#layouts-that-rust-leaves-to-the-compiler)).
 //!
 //! The errors of the analysis are panics of `const { .. }` blocks in the generic functions of the
-//! crate. Such a block depends on type parameters, so it is evaluated after monomorphization, and
-//! `cargo check` does not report these errors while `cargo build` does.
+//! crate, evaluated after monomorphization ([Compile-time errors](crate::guide::errors) says what
+//! this means for a user).
 //!
 //! # Cost
 //!
@@ -59,8 +60,7 @@
 //! states of automata of the types. Where it would grow with their size, a search stops at a limit:
 //! [`PLACES`] places of fields, a budget of boxes of a scalar, a budget of runs under a pattern,
 //! and [`CUT_ELEMENTS`] elements of an array looked at one by one. These limits keep the analysis
-//! within the bound of const evaluation (see the chapter [Rust version and
-//! targets](crate::guide::target) of the guide).
+//! within the bound of const evaluation ([Limits of Rust](crate::guide::limits#limits-of-rust)).
 //!
 //! # Enums and unions
 //!
@@ -193,17 +193,13 @@
 //!
 //! Rules are checked when a value is made from something else, and tell `from_head` how long a
 //! value is. A rule is proven only by the same rules, at the same place of the source, in a struct
-//! of the same extent ([`Layout::same_rules`], [`proves_rules`]). A rule is a function of four
-//! things: the bytes of its struct, its size (`size_of_val(self)` or a `size` rule), the number of
-//! elements of its tail (a `len` rule), and the bytes of that tail (regions). So a struct of the
-//! source with the same rules in the same order ([`Rule::equals`](crate::layout::Rule::equals)),
-//! the same sized part and the same tail computes the same rules over the same bytes, whatever its
-//! fields, which are related to the target as any others. The same tail means the same start, the
-//! same size of an element and, for a sized struct, the same bytes and elements of the array that
-//! it ends with. This is how `Frame<Ipv4<Udp>>` proves the rules of `Frame<Ipv4>`, since the
-//! payload of `Ipv4` is a typed region of its bytes, not a field of another type. A part of a
-//! struct of a dynamic size has another size, so it does not prove the rules of a struct of its own
-//! size.
+//! of the same extent ([`proves_rules`]), as [Why the pair
+//! decides](crate::guide::concepts#why-the-pair-decides) states for users. [`Layout::same_rules`]
+//! says why such a struct computes the same rules over the same bytes, whatever its fields, which
+//! are related to the target as any others. This is how `Frame<Ipv4<Udp>>` proves the rules of
+//! `Frame<Ipv4>`, since the payload of `Ipv4` is a typed region of its bytes, not a field of
+//! another type. A part of a struct of a dynamic size has another size, so it does not prove the
+//! rules of a struct of its own size.
 //!
 //! The elements of an array or a slice share their leaves, so their rules are proven together.
 //! Where the source has elements of the same size at the same place, each element is to the source
@@ -2981,10 +2977,10 @@ pub enum Exact {
   Never(&'static str),
 }
 
-/// How the extent of a source maps to the extent of a target.
+/// How the [extent](crate::guide::concepts#layouts-and-rules) of a source maps to the extent of a
+/// target.
 ///
-/// The *extent* of a value is its size without the trailing padding of an unsized type (the offset
-/// of its slice tail plus the size of that slice).
+/// The extent of an unsized value is the offset of its slice tail plus the size of that slice.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Fit {
   /// Whether the extents are the same.

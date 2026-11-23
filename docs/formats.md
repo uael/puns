@@ -3,7 +3,7 @@
 A binary format is a layout of fields, and relations between them: a header gives the length
 of what follows, a byte gives the kind of a message, a checksum covers the data. With
 `#[derive(Pun)]`, the fields of a struct describe the layout, and attributes describe the
-relations. This chapter builds formats from these parts, one at a time. The
+relations. This chapter adds one kind of relation at a time. The
 [derive][macro@Pun] lists every attribute with its conditions, and [The language of
 rules][rules] specifies the expressions that the attributes take.
 
@@ -41,10 +41,10 @@ assert_eq!(puns::from_head::<Record>(&long).err(), Some(puns::Error::Validity));
 assert_eq!(puns::from_head::<Record>(&[2, 0, 3, b'a']).err(), Some(puns::Error::Size));
 ```
 
-The expressions of `len` and `assert` are [rules][concepts#layouts-and-rules]. A record
-has the length that its rule gives, so [`from_head`] can take it from the front of a stream. A
-rule can also read bytes beyond the fields, such as a checksum over the data, as the packet of
-the [crate page][crate#reading-a-packet] does.
+The expressions of `len` and `assert` are [rules][concepts#layouts-and-rules]. A record has the
+length that its rule gives, so you can take it from the front of a stream with [`from_head`]. A
+rule can also read bytes beyond the fields, such as a checksum over the data, as the packet of the
+[crate page][crate#reading-a-packet] does.
 
 `len` counts elements, not bytes. Two numbers of two bytes each are four bytes:
 
@@ -91,10 +91,10 @@ assert_eq!((&header.options, payload), (&[1, 2, 3, 4, 5, 6][..], &[0xaa][..]));
 
 ## Bit fields and regions
 
-A byte that holds several values is read by getters, which [`get`][macro@Pun#get] generates
-from expressions on the fields. A field that holds several parts is split into
-[regions][rules#regions] by [`regions`][macro@Pun#regions], whose methods return the
-bytes of each part:
+Read a byte that holds several values with getters, which [`get`][macro@Pun#get] generates from
+expressions on the fields. Split a field that holds several pieces of data into
+[regions][concepts#layouts-and-rules] with [`regions`][macro@Pun#regions], whose methods return
+the bytes of each region:
 
 ```rust
 use puns::Pun;
@@ -150,7 +150,7 @@ assert_eq!(far.origin().err(), Some(puns::Error::Validity));
 A field has the byte order of its type, and the numbers of [`num`] have a fixed one: `u32be`,
 `i16le` and `f64be`. Some formats give their byte order in the value, as ELF does in `EI_DATA`
 and TIFF in its first two bytes. Such a format has one type for each byte order, and a
-[view][concepts#layouts-and-rules] chooses between them:
+[view][macro@Pun#views] chooses between them:
 
 ```rust
 use puns::{Pun, num::{u16bec, u16lec, u32be, u32le}};
@@ -184,13 +184,14 @@ assert!(matches!(Tiff::from_bytes(&header), Ok(Tiff::Big(tiff)) if tiff.first.ge
 ## A tag
 
 A message often starts with a kind, which selects the type of what follows. Make the message
-generic over its payload, with a kind of type `P::Tag`, and give each payload the values of the
-kind that select it with [`tag`][macro@Pun#tag]. A view then reads a message of any kind:
+generic over a payload `P: Tag<Kind>`, whose kind has the type `P::Tag`, and give each payload
+the values of the kind that select it with [`tag`][macro@Pun#tag]. The page of [`Tag`] declares
+such a `Message`, its `Kind` and a `Ping`. A view then reads a message of any kind:
 
 ```rust
 use puns::{Pun, Tag, num::{u8c, u16be}};
 
-/// The kind of a message, when its payload is not known.
+// `Kind`, `Message` and `Ping`, as on the page of `Tag`.
 #[derive(Pun, Clone, Copy)]
 #[repr(transparent)]
 struct Kind(u8);
@@ -204,7 +205,7 @@ struct Message<P: ?Sized + Tag<Kind> = [u8]> {
 
 #[derive(Pun)]
 #[repr(C)]
-#[pun(tag(Kind = u8c<1>))]
+#[pun(tag(Kind = u8c<7>))]
 struct Ping {
   sequence: u16be,
 }
@@ -215,12 +216,13 @@ enum Any<'a> {
   Other(&'a Message),
 }
 
-let ping = [1, 0, 7];
-assert!(matches!(Any::from_bytes(&ping), Ok(Any::Ping(m)) if m.payload.sequence.get() == 7));
+let ping = [7, 0, 1];
+assert!(matches!(Any::from_bytes(&ping), Ok(Any::Ping(m)) if m.payload.sequence.get() == 1));
 assert!(matches!(Any::from_bytes(&[2, 0, 7]), Ok(Any::Other(m)) if m.kind.0 == 2));
 ```
 
-Every `Message<Ping>` is also a `Message`, so the view checks a ping only for its kind.
+Every `Message<Ping>` is also a `Message`, so the view checks a ping only for its kind ([How the
+derive reads a type][macro@Pun#how-the-derive-reads-a-type]).
 
 ## Reading again after a write
 
@@ -254,16 +256,18 @@ Check bytes again when they come from code that may have written them.
 [`from_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes.html
 [`from_head`]: https://docs.rs/puns/0.2.4/puns/fn.from_head.html
 [`num`]: https://docs.rs/puns/0.2.4/puns/num/index.html
+[`Tag`]: https://docs.rs/puns/0.2.4/puns/trait.Tag.html
 [concepts#layouts-and-rules]: concepts.md#layouts-and-rules
 [concepts#requirements]: concepts.md#requirements
 [crate#reading-a-packet]: ../README.md#reading-a-packet
 [macro@Pun]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
 [macro@Pun#assert]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#assert
 [macro@Pun#get]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#get
+[macro@Pun#how-the-derive-reads-a-type]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#how-the-derive-reads-a-type
 [macro@Pun#len]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#len
 [macro@Pun#regions]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#regions
 [macro@Pun#size]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#size
 [macro@Pun#tag]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#tag
 [macro@Pun#valid]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#valid
+[macro@Pun#views]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#views
 [rules]: rules.md
-[rules#regions]: rules.md#regions

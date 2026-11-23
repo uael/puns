@@ -3,7 +3,7 @@
 //! [derive#enums-with-fields]: macro@Pun#enums-with-fields
 //! [functions#in-a-constant]: super::functions#in-a-constant
 //! [limits#bounds-of-the-analysis]: super::limits#bounds-of-the-analysis
-//! [opaque scalar]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+//! [opaque scalar]: super::concepts#opaque-scalars
 //! [soundness#unions]: super::soundness#unions
 //! [testing#compile-fail-tests]: super::testing#compile-fail-tests
 //! [testing#miri]: super::testing#miri
