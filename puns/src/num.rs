@@ -1,17 +1,75 @@
 //! Numbers of a given byte order, and integers restricted to some values.
 //!
-//! - [`u16le`], [`u32be`] and similar types are unsigned integers stored in a given byte order.
-//!   Each is a byte array, so its alignment is 1, and any bytes are a valid value.
-//! - [`i16le`], [`i32be`], [`f32le`], [`f64be`] and similar types are signed integers and
-//!   floating-point numbers, stored the same way.
-//! - [`u8c<V>`](u8c), [`u16lec<V>`](u16lec), [`u32bec<V>`](u32bec) and similar types are integers
-//!   whose only valid value is `V`: magic numbers, versions and type tags.
-//! - [`u8in<MIN, MAX>`](u8in) is a `u8` from `MIN` to `MAX`.
+//! # Byte order
 //!
-//! The types of restricted values guarantee their values. Their field is private, and a value is
-//! made only by their constructors or by a pun that proves or checks its bytes. So a pun may rely
-//! on them, unlike a field restricted by `#[pun(valid(..))]`, to which safe code can write any
-//! value.
+//! [`u16le`] is a little-endian `u16`, which stores its least significant byte first, and
+//! [`u16be`] a big-endian one, which stores it last. There are such types for the unsigned
+//! integers of 16, 24, 32, 48, 64 and 128 bits, for `i16` to `i128`, and for `f32` and `f64`, such
+//! as [`u24be`], [`i32le`] and [`f64be`].
+//!
+//! Each type is a byte array, so any bytes of its size are a valid value, and its alignment is 1:
+//! it can be at any address. A `repr(C)` struct whose fields all have alignment 1, as these types
+//! and `u8` do, has no padding and can be at any address too.
+//!
+//! Integers are compared, ordered and formatted as their values. A floating-point number is
+//! formatted as its value and has no order, and two of them are equal if their bytes are. So,
+//! unlike with `f64`, a NaN equals itself, and `-0.0` is not `0.0`.
+//!
+//! ```
+//! use puns::num::{f64le, i16be, u16be, u16le, u24be};
+//!
+//! // The same bytes in each byte order.
+//! assert_eq!(u16le::from_bytes([1, 2]).get(), 0x0201);
+//! assert_eq!(u16be::from_bytes([1, 2]).get(), 0x0102);
+//! assert_eq!(u16be::new(0x0102).to_bytes(), [1, 2]);
+//!
+//! // One byte into an array, which an alignment of 1 allows.
+//! let bytes = [0, 1, 2, 3];
+//! let x: &u24be = puns::from_head(&bytes[1..]).unwrap().0;
+//! assert_eq!(x.get(), 0x01_0203);
+//!
+//! assert_eq!(i16be::from_bytes([0xff, 0xfe]).get(), -2);
+//!
+//! // Floating-point numbers are equal if their bytes are.
+//! assert_eq!(f64le::new(f64::NAN), f64le::new(f64::NAN));
+//! assert_ne!(f64le::new(-0.0), f64le::new(0.0));
+//! ```
+//!
+//! # Constant types and ranges
+//!
+//! A *constant type* is an integer whose only valid value is its parameter `V`: [`u8c<V>`](u8c),
+//! and one for each unsigned type above, such as [`u32bec<V>`](u32bec). It holds a magic number, a
+//! version or a type tag. Bytes are a valid value only if they are `V` in its byte order. A pun of
+//! it as its unsigned type, such as `u32bec<V>` as `u32be`, is proven, since `V` is a valid value
+//! of that type.
+//!
+//! [`u8in<MIN, MAX>`](u8in) is a `u8` from `MIN` to `MAX`.
+//!
+//! Constant types and `u8in` [guarantee] their values: their field is private, and a value is made
+//! only by their constructors or by a pun that proves or checks its bytes. So a pun can rely on
+//! them, as it cannot on a [requirement].
+//!
+//! ```
+//! use puns::{Pun, num::{u16be, u32bec}};
+//!
+//! /// The start of a Java class file.
+//! #[derive(Pun)]
+//! #[repr(C)]
+//! struct Class {
+//!   magic: u32bec<0xcafe_babe>,
+//!   minor: u16be,
+//!   major: u16be,
+//! }
+//!
+//! let class: &Class = puns::from_bytes(&[0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 65]).unwrap();
+//! // Java 21.
+//! assert_eq!(class.major.get(), 65);
+//! // Other bytes than the magic number fail the check.
+//! assert!(puns::from_bytes::<Class>(&[0; 8]).is_err());
+//! ```
+//!
+//! [guarantee]: crate::guide::concepts#what-is-a-valid-value
+//! [requirement]: crate::guide::concepts#requirements
 
 use core::fmt;
 
@@ -30,17 +88,17 @@ macro_rules! endian {
   };
 }
 
-/// Expands to `$text` for an integer of fewer bytes than its `$raw` (`u24` and `u48`), which some
-/// values of `$raw` do not fit, and to nothing otherwise.
+/// Expands to `$narrow` for an integer of fewer bytes than its `$raw` (`u24` and `u48`), which
+/// some values of `$raw` do not fit, and to `$exact` otherwise.
 macro_rules! narrower {
-  (u32 3, $text:expr) => {
-    $text
+  (u32 3, $narrow:expr, $exact:expr) => {
+    $narrow
   };
-  (u64 6, $text:expr) => {
-    $text
+  (u64 6, $narrow:expr, $exact:expr) => {
+    $narrow
   };
-  ($raw:ident $size:tt, $text:expr) => {
-    ""
+  ($raw:ident $size:tt, $narrow:expr, $exact:expr) => {
+    $exact
   };
 }
 
@@ -111,18 +169,14 @@ macro_rules! sample {
 /// that type whose only valid value is `V`.
 macro_rules! ints {
   ($($name:ident $literal:ident: $raw:ident[$size:tt] $endian:ident;)+) => {$(
-    #[doc = concat!(
-      "An unsigned integer of ", stringify!($size), " bytes, stored least significant "
+    #[doc = narrower!(
+      $raw $size,
+      concat!(
+        "A ", endian!($endian, "little", "big"), "-endian unsigned integer of ", stringify!($size),
+        " bytes, read as a `", stringify!($raw), "`."
+      ),
+      concat!("A ", endian!($endian, "little", "big"), "-endian `", stringify!($raw), "`.")
     )]
-    #[doc = endian!($endian, "byte first (little-endian),", "byte last (big-endian),")]
-    #[doc = concat!(" read as a `", stringify!($raw), "`.")]
-    ///
-    #[doc = concat!(
-      "Any ", stringify!($size), " bytes are a valid value, at any address: its alignment is 1."
-    )]
-    /// It is compared, ordered and formatted as its value.
-    ///
-    /// # Examples
     ///
     /// ```
     #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -141,18 +195,28 @@ macro_rules! ints {
     pub struct $name([u8; $size]);
 
     impl $name {
-      /// The greatest value, whose bytes are all `0xff`.
+      /// The greatest value.
+      ///
+      /// ```
+      #[doc = concat!("use puns::num::", stringify!($name), ";")]
+      ///
+      #[doc = concat!(
+        "assert_eq!(", stringify!($name), "::MAX.to_bytes(), [0xff; ", stringify!($size), "]);"
+      )]
+      /// // As many bits as the bytes have.
+      #[doc = concat!(
+        "assert_eq!(", stringify!($name), "::MAX.get(), ", stringify!($raw), "::MAX >> (",
+        stringify!($raw), "::BITS - 8 * ", stringify!($size), "));"
+      )]
+      /// ```
       pub const MAX: Self = Self([0xff; $size]);
 
-      #[doc = concat!(
-        "Creates the integer `value`, stored in ", stringify!($size), " bytes of this byte order."
-      )]
+      /// Creates `value` in this byte order.
       ///
       #[doc = narrower!($raw $size, concat!(
-        "# Panics\n\nPanics if `value` does not fit in ", stringify!($size), " bytes.\n"
-      ))]
-      ///
-      /// # Examples
+        "# Panics\n\nPanics if `value` does not fit in ", stringify!($size), " bytes.\n\n",
+        "# Examples\n"
+      ), "")]
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -173,9 +237,7 @@ macro_rules! ints {
         this
       }
 
-      #[doc = concat!("Returns the value, as a `", stringify!($raw), "`.")]
-      ///
-      /// # Examples
+      /// Returns the value.
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -183,11 +245,6 @@ macro_rules! ints {
       #[doc = concat!(
         "assert_eq!(", stringify!($name), "::from_bytes(", sample!(bytes $size), ").get(), ",
         sample!($endian $size), ");"
-      )]
-      /// // The greatest value: as many bits as the bytes have.
-      #[doc = concat!(
-        "assert_eq!(", stringify!($name), "::MAX.get(), ", stringify!($raw), "::MAX >> (",
-        stringify!($raw), "::BITS - 8 * ", stringify!($size), "));"
       )]
       /// ```
       #[inline]
@@ -200,9 +257,7 @@ macro_rules! ints {
         value
       }
 
-      /// Returns the bytes of the integer in memory.
-      ///
-      /// # Examples
+      /// Returns its bytes.
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -217,11 +272,7 @@ macro_rules! ints {
         self.0
       }
 
-      /// Creates the integer whose bytes in memory are `bytes`.
-      ///
-      /// Any bytes are a valid value.
-      ///
-      /// # Examples
+      /// Creates a value from its bytes.
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -304,19 +355,10 @@ macro_rules! ints {
 
     #[doc = concat!("A [`", stringify!($name), "`] whose only valid value is `V`.")]
     ///
-    /// Bytes are a valid value only if they are `V` in this byte order. Such a type holds a magic
-    #[doc = concat!(
-      "number, a version or a type tag. Every value is a valid [`", stringify!($name), "`], so a ",
-      "pun of it as a [`", stringify!($name), "`] is proven."
-    )]
-    ///
     #[doc = narrower!($raw $size, concat!(
-      "# Compile-time errors\n\nA pun of a type that holds this type compiles only if `V` fits ",
-      "in ", stringify!($size), " bytes. This is checked after monomorphization, as ",
-      "[the guide](crate::guide::errors) explains.\n"
-    ))]
-    ///
-    /// # Examples
+      "# Compile-time errors\n\nA pun of a type that holds it [compiles](crate::guide::errors) ",
+      "only if `V` fits in ", stringify!($size), " bytes.\n\n# Examples\n"
+    ), "")]
     ///
     /// ```
     #[doc = concat!("use puns::num::{", stringify!($name), ", ", stringify!($literal), "};")]
@@ -338,13 +380,12 @@ macro_rules! ints {
     pub struct $literal<const V: $raw>($name);
 
     impl<const V: $raw> $literal<V> {
-      /// Creates the value `V`, the only valid one.
+      /// Creates `V`.
       ///
       #[doc = narrower!($raw $size, concat!(
-        "# Panics\n\nPanics if `V` does not fit in ", stringify!($size), " bytes.\n"
-      ))]
-      ///
-      /// # Examples
+        "# Panics\n\nPanics if `V` does not fit in ", stringify!($size), " bytes.\n\n",
+        "# Examples\n"
+      ), "")]
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($literal), ";")]
@@ -360,8 +401,6 @@ macro_rules! ints {
       }
 
       /// Returns `V`.
-      ///
-      /// # Examples
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($literal), ";")]
@@ -450,40 +489,11 @@ ints! {
   u128be u128bec: u128[16] Big;
 }
 
-/// Expands to the sentence that says how a number read as a `$raw` is ordered: by its value for a
-/// signed integer (`ordered!`), and not at all for a floating-point number.
-macro_rules! order {
-  (f32) => {
-    ""
-  };
-  (f64) => {
-    ""
-  };
-  ($raw:ident) => {
-    concat!(" Two values are ordered as the `", stringify!($raw), "` values that they hold.")
-  };
-}
-
 /// Defines, for each `$name: $raw[$size] $endian = $value`, a number `$name` of `$size` bytes of
 /// the byte order `$endian`, read as a `$raw`. Its examples use the value `$value`.
 macro_rules! numbers {
   ($($name:ident: $raw:ident[$size:literal] $endian:ident = $value:literal;)+) => {$(
-    #[doc = concat!(
-      "An `", stringify!($raw), "` stored in ", stringify!($size), " bytes, least significant "
-    )]
-    #[doc = endian!($endian, "byte first (little-endian).", "byte last (big-endian).")]
-    ///
-    #[doc = concat!(
-      "Any ", stringify!($size), " bytes are a valid value, at any address: its alignment is 1."
-    )]
-    #[doc = concat!(
-      "Two values are equal if their bytes are.", order!($raw), " It is formatted as its value."
-    )]
-    ///
-    /// Its bits are not its value as an unsigned integer, so the rules of `#[derive(Pun)]` do not
-    /// read it.
-    ///
-    /// # Examples
+    #[doc = concat!("A ", endian!($endian, "little", "big"), "-endian `", stringify!($raw), "`.")]
     ///
     /// ```
     #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -502,11 +512,7 @@ macro_rules! numbers {
     pub struct $name([u8; $size]);
 
     impl $name {
-      #[doc = concat!(
-        "Creates the number `value`, stored in ", stringify!($size), " bytes of this byte order."
-      )]
-      ///
-      /// # Examples
+      /// Creates `value` in this byte order.
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -523,9 +529,7 @@ macro_rules! numbers {
         Self(endian!($endian, value.to_le_bytes(), value.to_be_bytes()))
       }
 
-      #[doc = concat!("Returns the value, as an `", stringify!($raw), "`.")]
-      ///
-      /// # Examples
+      /// Returns the value.
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -543,9 +547,7 @@ macro_rules! numbers {
         endian!($endian, $raw::from_le_bytes(self.0), $raw::from_be_bytes(self.0))
       }
 
-      /// Returns the bytes of the number in memory.
-      ///
-      /// # Examples
+      /// Returns its bytes.
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -561,11 +563,7 @@ macro_rules! numbers {
         self.0
       }
 
-      /// Creates the number whose bytes in memory are `bytes`.
-      ///
-      /// Any bytes are a valid value.
-      ///
-      /// # Examples
+      /// Creates a value from its bytes.
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -676,11 +674,6 @@ ordered!(i16le i16be i32le i32be i64le i64be i128le i128be);
 
 /// A `u8` whose only valid value is `V`.
 ///
-/// A byte is a valid value only if it is `V`. Such a type holds a version or a type tag. Every
-/// value is a valid `u8`, so a pun of it as a `u8` is proven.
-///
-/// # Examples
-///
 /// ```
 /// use puns::num::u8c;
 ///
@@ -698,9 +691,7 @@ ordered!(i16le i16be i32le i32be i64le i64be i128le i128be);
 pub struct u8c<const V: u8>(u8);
 
 impl<const V: u8> u8c<V> {
-  /// Creates the value `V`, the only valid one.
-  ///
-  /// # Examples
+  /// Creates `V`.
   ///
   /// ```
   /// use puns::num::u8c;
@@ -714,8 +705,6 @@ impl<const V: u8> u8c<V> {
   }
 
   /// Returns `V`.
-  ///
-  /// # Examples
   ///
   /// ```
   /// use puns::num::u8c;
@@ -759,16 +748,12 @@ impl<const V: u8> fmt::Debug for u8c<V> {
   }
 }
 
-/// A `u8` from `MIN` to `MAX`, inclusive.
-///
-/// `u8in<0, 0x7f>` is an ASCII character. Unlike a field restricted by `#[pun(valid(..))]`, to
-/// which safe code can write any value, this type guarantees its range. So it can prove what a
-/// target requires.
+/// A `u8` from `MIN` to `MAX`, inclusive. `u8in<0, 0x7f>` is an ASCII character.
 ///
 /// # Compile-time errors
 ///
-/// A pun of a type that holds this type compiles only if `MIN` is not greater than `MAX`. This is
-/// checked after monomorphization, as [the guide](crate::guide::errors) explains.
+/// A pun of a type that holds it [compiles](crate::guide::errors) only if `MIN` is not greater
+/// than `MAX`:
 ///
 /// ```compile_fail,E0080
 /// use puns::num::u8in;
@@ -799,8 +784,6 @@ pub struct u8in<const MIN: u8, const MAX: u8>(u8);
 impl<const MIN: u8, const MAX: u8> u8in<MIN, MAX> {
   /// Returns `value` as a `u8in`, or `None` if it is not from `MIN` to `MAX`.
   ///
-  /// # Examples
-  ///
   /// ```
   /// use puns::num::u8in;
   ///
@@ -816,8 +799,6 @@ impl<const MIN: u8, const MAX: u8> u8in<MIN, MAX> {
   }
 
   /// Returns the value, which is from `MIN` to `MAX`.
-  ///
-  /// # Examples
   ///
   /// ```
   /// use puns::num::u8in;
