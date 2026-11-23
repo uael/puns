@@ -294,8 +294,8 @@ compares the two types of each conversion. Read on 2026-11-23, with `zerocopy` 0
 | Atomics | [not decided][not-decided] | `zerocopy` handles atomics |
 | Rust | [1.99][msrv] or later | 1.56 or later (`zerocopy`), 1.34 or later without features (`bytemuck`) |
 
-Rust's own [Safe Transmute][safe transmute] project compares the two types as well, inside the
-compiler, but it's only on nightly.
+Rust's own Safe Transmute project compares the two types as well, inside the compiler, with
+[`TransmuteFrom`][transmute-from], but it's only on nightly.
 
 ### Caveats
 
@@ -304,8 +304,9 @@ compiler, but it's only on nightly.
   invariant ([details][deriving]).
 - Without a `repr`, the compiler is free to change the layout of a type, and `puns` refuses
   anything that depends on it unless you turn on the [`unstable` feature][unstable]. Even
-  `repr(C)` only fixes the order of the fields: the byte order of a `u32` and the alignment of a
-  `u64` still vary between targets. For data that leaves the program, use the integers of
+  `repr(C)` only places the fields in order, each at the next offset that its alignment allows:
+  the byte order of a `u32` and the alignment of a `u64` still vary between targets, and so do the
+  offsets that follow from them. For data that leaves the program, use the integers of
   [`puns::num`][num], like `u32be`.
 - In a release build, the error may not name the line of your code. A debug build names it.
 - A generic function that calls `pun_ref` compiles fine on its own, and only fails when you call
@@ -448,4 +449,4 @@ additional terms or conditions.
 [nom]: https://crates.io/crates/nom
 [typic]: https://github.com/jswrenn/typic
 [typenum]: https://github.com/paholg/typenum
-[safe transmute]: https://rust-lang.github.io/rfcs/2835-project-safe-transmute.html
+[transmute-from]: https://doc.rust-lang.org/nightly/core/mem/trait.TransmuteFrom.html

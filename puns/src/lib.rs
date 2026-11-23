@@ -115,9 +115,9 @@ pub use layout::{crc32, sum16};
 /// variant require. With the `Rust` representation, the compiler chooses the tag, so the enum has
 /// an [unspecified layout](crate::guide::concepts#unspecified-layouts).
 ///
-/// The derive finds where the fields of a variant are, and its tag, on the *least value* of the
-/// variant. That value holds the least value of each field. The least value of an enum is that of
-/// its first variant that has values. The derive compiles an enum with fields only if it meets
+/// The derive finds where the fields of a variant are, and its tag, on the *sample* of the variant:
+/// its least value, which holds the least value of each field. The least value of an enum is that
+/// of its first variant that has values. The derive compiles an enum with fields only if it meets
 /// these conditions:
 ///
 /// - With the `Rust` representation, the least value of each variant must hold no [opaque
@@ -131,9 +131,9 @@ pub use layout::{crc32, sum16};
 ///   written without a macro or an attribute, or be left out after a variant whose tag the derive
 ///   reads. Rust gives a variant without a discriminant the tag before it plus one.
 ///
-/// The `dead_code` lint never reports a field of a variant of a primitive or `C` enum as never
-/// read. The derive binds these fields in a pattern to measure their offsets, which the lint counts
-/// as reading them.
+/// The `dead_code` lint never reports a field of a variant of an enum of a primitive or `C`
+/// representation as never read. The derive binds these fields in a pattern to measure their
+/// offsets, which the lint counts as reading them.
 ///
 /// [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
 /// [opaque scalar]: crate::guide::concepts#opaque-scalars
@@ -607,7 +607,7 @@ pub use core as __core;
 /// assert_eq!(puns::pun::<Percent, u8>(Percent::new(7).unwrap()), 7);
 /// ```
 ///
-/// [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
+/// [valid]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity
 /// [Representation]: core::option#representation
 pub unsafe trait Scalar {
   /// The size, the byte order and the valid values of `Self`.

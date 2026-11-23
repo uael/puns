@@ -120,7 +120,8 @@ What is planned, each with what it would allow.
   A proven union, an enum that holds one, or a struct whose rule reads its padding may then read a
   byte that is uninitialized in the source, and the pun is refused, though the part needs no
   check. Planned: checking only the parts that are not proven, and only the fields of a target
-  union that read no padding, where [Unions][soundness#unions] refuses the pun.
+  union that require no byte that may be padding to be initialized, where [Unions][soundness#unions]
+  refuses the pun.
 
 ## Not decided
 
@@ -166,12 +167,12 @@ What could be done, where whether to do it is not decided.
   types at one place of it (`OPTIONAL` and `CHOICE` of ASN.1), and a type that holds itself (the
   containers of CBOR and MessagePack), are not supported.
 
-[`Atomic`]: https://doc.rust-lang.org/1.100.0/core/sync/atomic/struct.Atomic.html
+[`Atomic`]: https://doc.rust-lang.org/1.99.0/core/sync/atomic/struct.Atomic.html
 [`encodings.rs`]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/encodings.rs
 [`LINT_TERMINATOR_LIMIT`]: https://github.com/rust-lang/rust/blob/1.99.0/compiler/rustc_const_eval/src/const_eval/machine.rs
 [`long_running_const_eval`]: https://doc.rust-lang.org/1.99.0/rustc/lints/listing/deny-by-default.html#long-running-const-eval
 [`recursion_limit`]: https://doc.rust-lang.org/1.99.0/reference/attributes/limits.html#r-attributes.limits.recursion_limit
-[`UnsafeCell`]: https://doc.rust-lang.org/1.100.0/core/cell/struct.UnsafeCell.html#memory-layout
+[`UnsafeCell`]: https://doc.rust-lang.org/1.99.0/core/cell/struct.UnsafeCell.html#memory-layout
 
 [`Error`]: https://docs.rs/puns/0.2.4/puns/enum.Error.html
 [`from_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes.html

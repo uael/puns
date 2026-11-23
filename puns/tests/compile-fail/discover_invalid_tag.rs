@@ -1,7 +1,7 @@
-// What the layout of an enum of the `Rust` representation rests on (`puns/src/discover.rs`, "Const
-// evaluation fails on what is not a value"): const evaluation refuses to read the variant of a
-// value whose tag is not one, here a `bool` of 2 where `rustc` put the niche of `None`. If this
-// ever compiles, an experiment that goes wrong could give an answer instead of failing.
+// What the layout of an enum of the `Rust` representation rests on (`docs/rust.md`, "Errors of
+// const evaluation"): const evaluation refuses to read the variant of a value whose tag is not
+// one, here a `bool` of 2 where `rustc` put the niche of `None`. If this ever compiles, an
+// experiment that goes wrong could give an answer instead of failing.
 use core::mem::{self, MaybeUninit};
 
 const fn variant_of_two() -> mem::Discriminant<Option<bool>> {

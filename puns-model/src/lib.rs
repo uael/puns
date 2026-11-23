@@ -174,7 +174,7 @@
 //! every source once. `model.yml` builds the files in groups, a job for each group and each feature
 //! set (`.github/model-tests.sh`).
 //!
-//! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
+//! [valid]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity
 
 pub mod types;
 pub mod views;

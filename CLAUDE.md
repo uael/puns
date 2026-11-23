@@ -51,18 +51,22 @@ cargo deny check                     # License/advisory/ban auditing
 ```
 
 Why a build reports refusals that `cargo check` does not is in
-[Compile-time errors](docs/errors.md). The commands of each crate are in its `CLAUDE.md`.
+[Compile-time errors](docs/errors.md). The commands that run the tests, the model check and Miri
+are in [Commands](docs/testing.md#commands), and the other commands of each crate in its
+`CLAUDE.md`.
 
 ## CI
 
 Every check that CI runs on a push must take at most a minute, build included, since CI builds the
 crates of the workspace each time. Check what matters, and time a check before adding one. The time
-that counts is the one of the job on GitHub, which a local run does not measure. About 15 seconds
-of each job go to the checkout and the toolchain before anything runs, and the runners are slower
-and vary by a third from one run to the next, so aim at 45 seconds, and read the times of the jobs
-after a change of the workflow. The first run after a change of a cache key has nothing cached.
-With the caches, a job takes 15 to 20 seconds before its work starts, and its work takes at most
-about 20 seconds. Split a job again rather than let it pass 45 seconds.
+that counts is the one of the job on GitHub, which a local run does not measure. In the three runs
+of CI on `main` of 2026-11-23 (commits `c92ebf2`, `5ce6f30` and `9e02b3f`), with the caches, a job
+spent 11 to 47 seconds before its work started, 15 at the median, and the longest of the three
+times of a job was, at the median, a quarter more than the shortest. So aim at 45 seconds, and read
+the times of the jobs after a change of the workflow. The first run after a change of a cache key
+has nothing cached. Split a job again rather than let it pass 45 seconds. In these three runs, the
+four jobs of the sample of the model check that build `parts` or `miri_sample` took 34 to 64
+seconds, and more than 45 in 9 of their 12 runs.
 
 This is why `cargo test --all` is fourteen jobs there: the tests of `puns` in six, four without the
 `unstable` feature and two with it, and the sample of the model check in eight, four each way.
@@ -85,15 +89,20 @@ code do not hold ([`puns/CLAUDE.md`](puns/CLAUDE.md#tests)).
 
 The chapters of the guide are the files `docs/<chapter>.md`, which `puns/src/guide/<chapter>.rs`
 includes, so they are read on GitHub and on docs.rs. [`xtask/src/links.rs`](xtask/src/links.rs)
-states how their links and those of the README are written, and `cargo xtask links --check` checks
-them in CI:
+states how their links and those of the README are written. In CI, `cargo xtask links --check`
+checks that each of these links names the version where it must, and that its target exists if it
+is a file or a heading of the repository, or a page or a section of the documentation of `puns`.
+It checks no link to another site, and no link of a `CLAUDE.md` file or of a comment. `cargo doc`
+with `-D warnings` checks the intra-doc links. The links are written so:
 
 - Every link to docs.rs, crates.io or a file of the repository names the version of `puns` or its
   tag, so that it leads to the same version on GitHub, crates.io and docs.rs. A link to the `wip`
   branch, which keeps the prototypes for history, is the one exception. The release workflow pins
   the links on the branch of each release PR.
-- A link between these files is relative, and the `.rs` file that includes a chapter defines its
-  label as an intra-doc link.
+- A link between chapters is relative, and the `.rs` file that includes a chapter defines its
+  label as an intra-doc link. The README has no relative link, since crates.io would resolve it
+  elsewhere: it names each file of the repository by its URL at the tag, and `puns/src/lib.rs`
+  defines the same label as an intra-doc link.
 - Each block of code names its language, and has no hidden lines (`# `), since GitHub shows them.
 
 The times published in `docs/performance.md`, the chapter "Measured performance", name the machine,

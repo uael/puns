@@ -13,10 +13,8 @@
 //!
 //! # Miri
 //!
-//! CI runs the tests under Miri with `-Zmiri-strict-provenance`, with tree borrows on x86-64, and
-//! with stacked borrows on `i686-unknown-linux-gnu` and `s390x-unknown-linux-gnu`. The i686 target
-//! has a 32-bit `usize` and a `u64` aligned to 4. The s390x target is big-endian. The selection of
-//! the model check for Miri runs on x86-64 only, with tree borrows.
+//! [Miri](crate::guide::testing#miri) says on which targets and with which flags the tests run
+//! under Miri.
 //!
 //! `-Zmiri-symbolic-alignment-check` reports a misaligned reference where `try_pun_ref` checked the
 //! address of bytes that happened to be aligned. The check reinterprets the address as an integer
@@ -113,9 +111,9 @@ pub const unsafe fn verify<T: ?Sized>(probe: *const T) {
   // have the same size, which is asserted above, and the assertions below check the rest of the
   // representation. If a byte of `*const T` were not initialized, the read would be undefined
   // behavior. In the evaluation of a `LAYOUT` constant, which calls `verify`, `rustc` reports such
-  // a read as an error (`discover`, module documentation). Rust does not promise that a pointer
-  // has no uninitialized byte, so a call at run time relies on the representation that `rustc`
-  // gives pointers, which has none.
+  // a read as an error, which the guide discloses (chapter What `puns` relies on, "Errors of const
+  // evaluation"). Rust does not promise that a pointer has no uninitialized byte, so a call at run
+  // time relies on the representation that `rustc` gives pointers, which has none.
   unsafe {
     assert!(raw_len(probe) == PROBE_LEN, "{}", MESSAGE);
     let other = raw_with_len(probe, PROBE_LEN + 39);

@@ -1718,13 +1718,9 @@ impl Layout {
   /// The generated code names these types by their path in the crate that `#[pun(crate = ..)]`
   /// names, which safe code can make name something else. It also writes this constant with the
   /// same paths, as a tuple of `fn` types, so a path that names another type does not compile,
-  /// because a `fn` type is not a path, and nothing can replace it. The functions that make a layout
-  /// are associated functions of these types, and methods of the values that they return. The other
-  /// types that this code names by a path are fixed by the types of these functions: the
-  /// description of an enum of the `Rust` representation is the type that [`Layout::discover`]
-  /// returns. The rest of what the generated code names through the path is fixed by the traits
-  /// that it implements, checked against the layout, or makes no layout ("What the derive trusts" in
-  /// the documentation of `#[derive(Pun)]`).
+  /// because a `fn` type is not a path, and nothing can replace it. [The generated
+  /// code](crate::guide::trust#the-generated-code), in the chapter What the derive trusts, says
+  /// what fixes the rest of what the generated code names.
   #[doc(hidden)]
   #[expect(
     clippy::type_complexity,
@@ -3263,8 +3259,8 @@ impl Layout {
     }
   }
 
-  /// Returns whether a value of the layout can be made, valid under every rule that the language
-  /// may settle for unions ([Unions](crate::guide::soundness#unions)).
+  /// Returns whether a value of the layout can be made, valid under every proposal for the validity
+  /// of unions that the language may adopt ([Unions](crate::guide::soundness#unions)).
   ///
   /// An uninhabited type has no value, nor has an enum whose variants have none, or a struct or an
   /// array of at least one element that holds an uninhabited type. A slice has values, since it may
@@ -3312,11 +3308,11 @@ impl Layout {
     }
   }
 
-  /// Returns whether a value of the layout may exist, under some rule that the language may settle
-  /// for unions.
+  /// Returns whether a value of the layout may exist, under some proposal for the validity of
+  /// unions that the language may adopt.
   ///
-  /// This is the question for a source. A union may hold any bytes under one of these rules, so it
-  /// may exist even if none of its fields has values, though no such union can be made
+  /// This is the question for a source. A union may hold any bytes under one of these proposals, so
+  /// it may exist even if none of its fields has values, though safe code cannot make such a union
   /// ([`Layout::is_inhabited`]). Otherwise the answer is that of `is_inhabited`: a struct may exist
   /// if each of its fields may, an array if it is empty or its element may, an enum if one of its
   /// variants may, and a slice, a string and a scalar always.
@@ -3355,7 +3351,7 @@ impl Layout {
   /// Only `Enum::union` makes a `layout` that this function accepts.
   ///
   /// The language has not settled the validity of unions, and this layout takes what is sound under
-  /// each of the rules being considered, as [Unions](crate::guide::soundness#unions) describes.
+  /// each of the proposals being considered, as [Unions](crate::guide::soundness#unions) describes.
   ///
   /// # Panics
   ///

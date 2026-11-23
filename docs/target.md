@@ -23,8 +23,9 @@ The last row sets the minimum version. `puns` reads the layout of an unsized typ
 ends with a slice or a `str`, in `const` from a raw pointer with an arbitrary length.
 `size_of_val` cannot do this, because it needs a reference, and a reference needs a valid value.
 On 1.98, `puns` does not build, because `layout_for_ptr` and its use in `const` are unstable there.
-CI builds the library and its examples on 1.99, which evaluates their refusals too. Const
-evaluation is also bounded ([Limits of Rust][limits#limits-of-rust]).
+CI builds the library and its examples on 1.99, so the constants that make and compare their
+layouts are evaluated by that version too. Const evaluation is also bounded ([Limits of
+Rust][limits#limits-of-rust]).
 
 ## Targets
 
@@ -38,16 +39,18 @@ compile time. The code assumes the following of `usize`:
   assertion checks that `isize::MAX` plus 16 does not overflow a `usize`.
 - An offset, a length or a range that a rule reads is compared with the size of the value as a
   `u128`, on every target, before it becomes a `usize`.
-- The tables of a [`layout::Crc`] take 32 KiB, or a single table of 2 KiB where `usize` has 16
-  bits. A `const` assertion checks that they are at most `isize::MAX` bytes. The CRCs are the same
-  with one table or sixteen, and tests compare them with reference values. The table of
-  [`crc32`], 16 KiB, fits on every width, since `isize::MAX` is 32 KiB minus 1 on 16 bits.
+- A [`layout::Crc`] has one table instead of sixteen where `usize` has 16 bits, since sixteen
+  would be larger than a value can be there (the page of [`layout::Crc`] gives their sizes). A
+  `const` assertion checks that its tables are at most `isize::MAX` bytes. The CRCs are the same
+  with one table or sixteen, and tests compare them with reference values. The tables of
+  [`crc32`], 16 KiB, fit on every width, since `isize::MAX` is 32 KiB minus 1 on 16 bits.
 - [`sum16`] folds its sum before it can overflow a `u64`: every 2^20 blocks, or only at the end
   where `usize` cannot count that far. A `const` assertion checks that the blocks between two
   folds cannot overflow.
-- An operation of a rule is computed in a register where its values fit, and on 128 bits
-  otherwise. The register has 64 bits where `usize` has 64, and 32 bits otherwise. Every width
-  computes the same values, so the choice changes only the speed, and tests check both.
+- An operation of a rule is computed on the narrowest of `u32`, `u64` and `u128` that holds its
+  values, but not narrower than a register, which has 64 bits where `usize` has 64, and 32 bits
+  otherwise. Every width computes the same values, so the choice changes only the speed, and tests
+  check both.
 
 What `unsafe` code assumes of the target (the alignment of a primitive, the width of `usize` and
 of `isize`, the byte order) is asserted in a `const` where it is used, or derived from the target.

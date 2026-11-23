@@ -5,7 +5,8 @@ path name something else, with `#[pun(crate = ..)]`, `#[pun(crate)]` or `extern 
 core;`. The generated code names `::core` and the root of `puns`, yet what a layout is made of
 depends on no path that the deriving crate can redefine, except the identity of the type ([The
 identity of a type and the compiler](#the-identity-of-a-type-and-the-compiler)). [The derive
-against a fake `core`][testing#the-derive-against-a-fake-core] checks this.
+against other paths and rewritten items][testing#the-derive-against-other-paths-and-rewritten-items]
+says how each of these claims is tested.
 
 ## Sizes and offsets
 
@@ -15,15 +16,15 @@ fields](#enums-with-fields)). It does not use `offset_of!`, a macro named by a p
 pointer (`&raw const (*p).field`) and subtracts with `byte_offset_from`, which run only in const
 evaluation. For a struct of the `Rust` representation and for a union, which are `Sized`, the
 pointer is to an uninitialized value. A `repr(C)` or `repr(transparent)` struct may be unsized, so
-the pointer is into uninitialized bytes that hold it with a tail of no element: the smallest power
-of two from 4096 bytes up, a local of const evaluation. A struct of any size is measured, and if
-const evaluation cannot allocate those bytes, the build fails.
+the pointer is into uninitialized bytes that hold it with a trailing slice of no element: the
+smallest power of two from 4096 bytes up, a local of const evaluation. A struct of any size is
+measured, and if const evaluation cannot allocate those bytes, the build fails.
 
 ## Enums with fields
 
-The derive reads offsets and tags on the *sample* of each variant, its [least value][least], which
-a function of [`Layout`] makes. A fake `MaybeUninit`, or a fake result type, named by a path does
-not have the type that the functions of `Layout` take or return, and does not compile.
+The derive reads offsets and tags on the [sample] of each variant, which a function of [`Layout`]
+makes. A fake `MaybeUninit` or `Option`, named by a path, does not have the type that the functions
+of `Layout` take or return, and does not compile.
 
 With a primitive or `C` representation, the derive computes the layout that [RFC 2195] specifies
 from the sizes and alignments of the fields, and checks it against the size and alignment of the
@@ -40,8 +41,8 @@ discriminant, or reordered variants, fail the build.
 A variant without a sample holds an [opaque scalar] or a union none of whose fields has values. If
 a value of it may exist, its tag must be known from its declaration, as [Enums with fields][enums]
 says, or the build fails (E0080) with "the tag of a variant without a sample is not known". Such a
-tag has the same value in both enums, because there the derive names only items whose names start
-with `__Pun`, which it refuses in the input.
+tag has the same value in both enums, because the items that the derive declares there all have
+names that start with `__Pun`, which it refuses in the input.
 
 With the `Rust` representation, the derive finds the layout that `rustc` chose by
 [experiments][rust#the-tag-of-an-enum-of-the-rust-representation] on the samples. Each sample is
@@ -67,10 +68,11 @@ the regions and the getters call functions named through the path, in code that 
 block. A path that names other functions there changes what they return, but whatever it is, it is
 a valid value of its type.
 
-The trait that says where a field is, `Path`, is sealed, and the leaf at which a list of fields
-places a field is checked against the layout. A list of fields, of rules or of the operations of
-an expression that is not the layout's fails the build, with "not where the field is", "not the
-rules of the struct" or "not the operations of the expression".
+The trait that says where a field is, `Path`, is sealed, and where a list of fields says that a
+field is, counted in the parts of the layout that a check may read, is checked against the layout.
+A list of fields, of rules or of the operations of an expression that is not the layout's fails the
+build, with "not where the field is", "not the rules of the struct" or "not the operations of the
+expression".
 
 The derive writes the type of each field once, as an associated type of a trait that it declares
 and implements for the type, where `Self` is the type, as in its declaration. The rest of the
@@ -92,9 +94,9 @@ feature no other verdict does ([The same type][same]).
 
 The derive names no other item of `::core` than these:
 
-- `Option` with `Some` and `None`, `MaybeUninit`, and the integers `u8`, `u128` and `usize`, which
-  are checked by the types of the traits that it implements and of the functions of `puns` that it
-  calls.
+- `Option` with `Some` and `None`, `MaybeUninit`, and the integers `u8`, `u128` and `usize`, as
+  types only, which are checked by the types of the traits that it implements and of the functions
+  of `puns` that it calls.
 - `PhantomData`, only as the field of the types that the derive declares as markers, whose bytes
   nothing reads.
 - `Result`, only in the signatures of safe functions, the methods of regions and the functions of
@@ -103,6 +105,11 @@ The derive names no other item of `::core` than these:
   to a function of `puns` that needs the real `Sized`.
 - `ptr::null()`, the probe of a sized type, which nothing reads, and `panic!`, written only next to
   a compile error of the derive.
+
+It also names `bool`, `u128` and `usize` without a path, where an item of the deriving crate may
+have one of these names: they are checked by the types as the integers above. And it derives
+`Clone` and `Copy`, by these names, for the enum of tags that it declares next to the
+implementation, of which no function of `puns` requires either trait.
 
 The derive trusts the compiler for what it parses, such as `repr`. From the `repr` that it read, it
 takes whether Rust specifies the layout, on which a verdict without the `unstable` feature may rely
@@ -118,12 +125,13 @@ union, and guarantees nothing of a source union.
 
 Where such an attribute changes the order of the fields or the `repr`, the layout is that of the
 type as compiled, or the build fails, since the derive measures the offsets and checks the tags and
-the variants on the samples, as above. It also checks the width of the tag of a primitive or `C`
-enum. In a copy of each sample, the byte after the tag that the derive read is set to 0, then to
-255, and the variant of the copy, which const evaluation reads from the tag alone ([The variant
-read from the tag][rust#the-variant-read-from-the-tag]), must stay the same. So a wider tag fails
-the build. A narrower one leaves a byte of padding or of a field where the derive reads its tag, so
-the comparison with the samples or the size of the enum fails the build.
+the variants on the samples, as above. It also checks the width of the tag of an enum of a
+primitive or `C` representation. In a copy of each sample, the byte after the tag that the derive
+read is set to 0, then to 255, and the variant of the copy, which const evaluation reads from the
+tag alone ([The variant read from the tag][rust#the-variant-read-from-the-tag]), must stay the
+same. So a wider tag fails the build. A narrower one leaves a byte of padding or of a field where
+the derive reads its tag, so the comparison with the samples or the size of the enum fails the
+build.
 
 What such an attribute can still change without failing the build:
 
@@ -134,7 +142,7 @@ What such an attribute can still change without failing the build:
 
 [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
 [enums]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
-[least]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
+[sample]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
 [`Checksum`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Checksum.html
 [`Crc`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Crc.html
 [`Enum`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Enum.html
@@ -150,4 +158,4 @@ What such an attribute can still change without failing the build:
 [rust#the-tag-of-an-enum-of-the-rust-representation]: rust.md#the-tag-of-an-enum-of-the-rust-representation
 [rust#the-variant-read-from-the-tag]: rust.md#the-variant-read-from-the-tag
 [same]: layouts.md#the-same-type
-[testing#the-derive-against-a-fake-core]: testing.md#the-derive-against-a-fake-core
+[testing#the-derive-against-other-paths-and-rewritten-items]: testing.md#the-derive-against-other-paths-and-rewritten-items

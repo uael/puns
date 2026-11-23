@@ -5,20 +5,17 @@ published, and uses the test-only `verdict` feature of `puns`. Its crate documen
 [`src/lib.rs`](src/lib.rs), describes its types, its oracles and what runs where.
 
 - `fakecore/` is the `core` whose items give wrong answers, against which the derive is built
-  ([The derive against a fake `core`](../docs/testing.md#the-derive-against-a-fake-core)).
+  ([The derive against other paths and rewritten
+  items](../docs/testing.md#the-derive-against-other-paths-and-rewritten-items)).
 - `rewrite/` is an attribute that changes an item after the derive has read it, for the tests of
   `puns` about the item that `rustc` compiles: two compile-fail cases and `tests/soundness.rs`. It
   is a dev-dependency of `puns` by path, which `cargo publish` leaves out.
 
 ## Commands
 
-```sh
-cargo test -p puns-model                                  # A sample of the model check
-cargo test --profile model -p puns-model --features full  # The full model check (every night in model.yml, also with `full,unstable`)
-MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns-model  # A selection of the model check: the unsafe paths it reaches
-```
-
-Run the full model check when `rust-toolchain` changes.
+The commands of the sample, of the full model check and of its selection under Miri are in
+[Commands](../docs/testing.md#commands). The full model check runs every night in `model.yml`,
+also with `full,unstable`. Run it when `rust-toolchain` changes.
 
 ## Verdicts
 
@@ -30,10 +27,9 @@ check does not count it as imprecise.
 
 ## Build cost
 
-Each pair of types in a test of the model is an instance of the analysis, about a tenth of a second
-of build, so keep the tests that every push builds small. Building the `miri_sample` tests, or the
-`parts` tests, already takes about 20 seconds, the most that the work of a job of CI may take
-([`CLAUDE.md`](../CLAUDE.md#ci)).
+Each pair of types in a test of the model is an instance of the analysis, which every push builds,
+so keep these tests small. The jobs of CI that build the `miri_sample` tests or the `parts` tests
+are already among the longest ([`CLAUDE.md`](../CLAUDE.md#ci) gives their times).
 
 One `rustc` builds each test file, and must fit in the memory of a runner (16 GB). So the largest
 checks are cut along their sources into several files (`tests/support/`), and the files are built in

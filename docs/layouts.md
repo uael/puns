@@ -166,13 +166,13 @@ nothing, itself included. An identity only adds a condition, since the layouts m
 as well ([The identity of a type and the compiler][trust-identity]).
 
 [`-Zrandomize-layout`]: https://doc.rust-lang.org/nightly/unstable-book/compiler-flags/randomize-layout.html
-[`mem::discriminant`]: https://doc.rust-lang.org/1.100.0/core/mem/fn.discriminant.html
+[`mem::discriminant`]: https://doc.rust-lang.org/1.99.0/core/mem/fn.discriminant.html
 [`r-items.enum.discriminant.repr-rust`]: https://doc.rust-lang.org/1.99.0/reference/items/enumerations.html#r-items.enum.discriminant.repr-rust
 [`r-layout.guarantees`]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.guarantees
 [`r-layout.repr.rust.unspecified`]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.rust.unspecified
 [`r-type.struct.layout`]: https://doc.rust-lang.org/1.99.0/reference/types/struct.html#r-type.struct.layout
-[`transmute`]: https://doc.rust-lang.org/1.100.0/core/intrinsics/fn.transmute.html
-[offset_of layout]: https://doc.rust-lang.org/1.100.0/core/mem/macro.offset_of.html#layout-is-subject-to-change
+[`transmute`]: https://doc.rust-lang.org/1.99.0/core/mem/fn.transmute.html
+[offset_of layout]: https://doc.rust-lang.org/1.99.0/core/mem/macro.offset_of.html#layout-is-subject-to-change
 
 [`as_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.as_bytes.html
 [`layout::UNSTABLE`]: https://docs.rs/puns/0.2.4/puns/layout/constant.UNSTABLE.html

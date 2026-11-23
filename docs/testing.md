@@ -19,9 +19,10 @@ feature. Its crate documentation describes its types, its oracles and what runs 
 
 The tests of `puns` run under [Miri] on every push, with `-Zmiri-strict-provenance`. They run with
 tree borrows on x86-64, and with stacked borrows on `i686-unknown-linux-gnu`, where `usize` has 32
-bits and a `u64` is aligned to 4, and on `s390x-unknown-linux-gnu`, which is big-endian. Test
-files that are not about the `unsafe` code do not run there, such as the examples other than
-`ethernet`, which reach the same `unsafe` code.
+bits and a `u64` is aligned to 4, and on `s390x-unknown-linux-gnu`, which is big-endian. A test
+file that reaches no `unsafe` code that the other files do not reach does not run there, such as
+the examples other than `ethernet`, and neither does the compile-fail test, since Miri cannot run
+the compiler. [Commands](#commands) gives the command of each run.
 
 The model check runs under Miri too, with tree borrows on x86-64 only, on a selection of pairs
 that reaches each of its `unsafe` paths. [`miri_sample.rs`][sample] names the paths of `try_pun`
@@ -47,17 +48,29 @@ and `Result`, and the tests of the layout that `rustc` chose. CI also builds the
 
 ## Compile-fail tests
 
-172 programs in [`puns/tests/`][compile-fail] must fail to compile, each with its expected message:
-the 162 of `compile-fail` with and without the feature, the 2 of `compile-fail-kept` without it, and
+178 programs in [`puns/tests/`][compile-fail] must fail to compile, each with its expected message:
+the 167 of `compile-fail` with and without the feature, the 3 of `compile-fail-kept` without it, and
 the 8 of `compile-fail-unstable` with it. 3 others must compile. `discover_reads_padding`,
 `discover_invalid_tag` and `structure_too_large` check the three [errors of const
 evaluation][rust#errors-of-const-evaluation] that `puns` relies on.
 
-## The derive against a fake `core`
+## The derive against other paths and rewritten items
 
-The derive is also built in a crate whose `core` is another crate, `fakecore`, whose items give
-wrong answers: its `offset_of!` swaps two fields, and its `PhantomData` is aligned to 16 bytes
-(`puns-model/tests/core_shadowed.rs`).
+[What the derive trusts][trust] states what the code that the derive generates withstands, and
+these tests check it:
+
+- `::core` that names another crate, through `extern crate .. as core;`: in
+  `puns/tests/core_shadowed.rs` and `puns-model/tests/core_shadowed.rs`, its `offset_of!` swaps two
+  fields and its `PhantomData` is aligned to 16 bytes, and in the case `core_usize_max` of
+  `compile-fail-kept`, its `usize::MAX` is 1.
+- `#[pun(crate = ..)]` that names other items: the compile-fail cases `crate_path_*`, and
+  `the_crate_path_does_not_choose_the_functions` in `puns/tests/soundness.rs`.
+- `Self`, or a macro, in the type of a field: the compile-fail case `derive_field_type_shadowed`,
+  and `self_in_a_field_is_the_type` and `a_macro_in_a_field_names_the_type_of_the_field` in
+  `puns/tests/soundness.rs`.
+- An attribute below the derive that changes the item after the derive read it: the compile-fail
+  cases `derive_item_rewritten` and `derive_enum_tag_rewritten`, and the tests of
+  `puns/tests/soundness.rs` that use the attribute of `puns-model/rewrite`.
 
 ## Commands
 
@@ -83,3 +96,4 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-
 [rust#errors-of-const-evaluation]: rust.md#errors-of-const-evaluation
 [rust#the-tag-of-an-enum-of-the-rust-representation]: rust.md#the-tag-of-an-enum-of-the-rust-representation
 [soundness]: soundness.md
+[trust]: trust.md

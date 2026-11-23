@@ -1501,12 +1501,12 @@ fn home(this: &TokenStream, name: &Ident, ty: &Type) -> TokenStream {
 /// Returns the one home of the type of each field, and the function that ties it to the item as
 /// `rustc` compiled it.
 ///
-/// The derive reads the tokens of the item, and an item can name another type than its tokens
-/// seem to: a macro in the type of a field expands in the code generated here, where `Self` and
-/// the names `__Pun..` are other items than in the declaration, and an attribute expanded after
-/// the derive can change the item. So the type of each field is written once, as the associated
-/// type `name` of `__PunTypes`, in an implementation for the type, where `Self` is the type as in
-/// its declaration. Every other place names it through [`home`], so they all name one type.
+/// The derive reads the tokens of the item, which can name other types than the item that `rustc`
+/// compiles: the guide of `puns`, chapter What the derive trusts, says how ("The generated code"
+/// and "Attribute macros below the derive"). So the type of each field is written once, as the
+/// associated type `name` of `__PunTypes`, in an implementation for the type, where `Self` is the
+/// type as in its declaration. Every other place names it through [`home`], so they all name one
+/// type.
 ///
 /// `check` is the body of `item`, which is never called. It compiles only if the item as compiled
 /// has the fields and the variants that the derive read, each of the type of its home, and no

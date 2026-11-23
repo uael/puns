@@ -38,18 +38,15 @@ The library: `#![no_std]`, no dependency but the derive.
 
 ## Commands
 
+The commands that run the tests both ways, the record of verdicts under a seed, and Miri on each
+target are in [Commands](../docs/testing.md#commands). These are the others:
+
 ```sh
-cargo test -p puns --features verdict  # Without the `unstable` feature, the default: every test that builds without it, the record of verdicts included
-cargo test -p puns --features unstable  # With it: the targets that need it too (`required-features`), the cases of `compile-fail-unstable`
 cargo test --test api                # Run only one test file of tests/ (also: bytes, parts, enums, ethernet, str, never)
 cargo test --test api TESTNAME       # Run a single test
 cargo test --test compile_fail       # Compile-fail tests (trybuild); TRYBUILD=overwrite to regenerate .stderr
 cargo run --example ethernet         # The Ethernet example; it asserts its results and prints `ok`
 PUNS_BLESS=1 cargo test -p puns --features verdict --test seeds  # Write the record of verdicts again (`puns/tests/seeds.txt`)
-RUSTFLAGS="-Zrandomize-layout -Zlayout-seed=1" cargo +nightly-2026-11-17 test -p puns --features verdict --test seeds  # The same record, with another layout
-MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests  # Miri, tree borrows
-MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests --target s390x-unknown-linux-gnu  # Miri, stacked borrows, on a big-endian target
-MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests --target i686-unknown-linux-gnu  # 32 bits
 cargo build -p puns --target thumbv7em-none-eabihf  # A target without std (CI also builds msp430-none-elf, see docs/target.md)
 cargo rustc --release --features unstable --example codegen -- --emit asm -C llvm-args=-x86-asm-syntax=intel  # Machine code, see examples/codegen.rs
 cargo bench -p puns --features unstable --bench checks   # Time of the run-time checks, next to the same checks by hand (not in CI)
@@ -75,8 +72,9 @@ the same time: two name their files, and the third takes all the remaining files
 the files that test it are split in two.
 
 What `unsafe` code assumes of the target is run under Miri on a target where the assumption does
-not hold (32 bits, big-endian). A new `unsafe` block that reads a type at an address comes with the
-test that stresses it (an over-aligned type, an integer wider than `isize`, the other byte order).
+not hold ([Miri](../docs/testing.md#miri)). A new `unsafe` block that reads a type at an address
+comes with the test that stresses it (an over-aligned type, an integer wider than `isize`, the
+other byte order).
 
 `Layout::PIN` fixes the types whose functions make a layout, so a new type whose functions the
 derive calls goes there. The cases `crate_path_*` of `tests/compile-fail` test that no path of

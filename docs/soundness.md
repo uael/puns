@@ -9,7 +9,7 @@ memory safety: a rule that no longer holds gives wrong values or a panic, never 
 The analysis compares the layouts that the implementations of [`Pun`] give: those of `puns` for
 the types of `core` that it supports, and those of the derive for other types ([What the derive
 trusts][trust]). [What `puns` relies on][rust] lists what Rust documents of these layouts, and what
-no documentation states. [Testing][testing] says how each is checked.
+no documentation states, each fact with what checks it. [Testing][testing] describes the tests.
 
 ## Guarantees and requirements
 
@@ -35,9 +35,9 @@ target, it accepts any bytes. As a source, it proves only a target that accepts 
 written through a `&mut MaybeUninit<T>` may be uninitialized, so such a reference is made only from
 a source that accepts any bytes there, uninitialized ones included.
 
-The tag of an enum is never padding. Rust places the tag of a primitive or `C` enum, and the
-experiments that find the tag of a `Rust` enum fail the build on a byte of padding ([Errors of
-const evaluation][rust#errors-of-const-evaluation]).
+The tag of an enum is never padding. Rust places the tag of an enum of a primitive or `C`
+representation, and the experiments that find the tag of an enum of the `Rust` representation fail
+the build on a byte of padding ([The padding of a new value][rust#the-padding-of-a-new-value]).
 
 ## Unions
 
@@ -47,32 +47,33 @@ The language has not decided which bytes a union may hold. The Reference states 
 > Obviously, all values that can be created entirely in safe code are valid. If the union has a
 > zero-sized field, then every possible value is valid.
 
-Some of the rules under discussion let a union hold any bytes, others require its bytes to be one
-of its fields, and safe code may write one field over another. `puns` accepts only what is sound
-under every one of these rules:
+Some of the proposals under discussion let a union hold any bytes, others require its bytes to be
+one of its fields, and safe code may write one field over another. `puns` accepts only what is sound
+under every one of these proposals:
 
 - As a target, bytes are a union only if they are one of its fields. Safe code makes such bytes by
-  writing that field, so the first sentence above makes them valid under every rule, though some
-  rules accept more. A union is proven by any one field that the source proves, and is otherwise
-  checked field by field at run time.
+  writing that field, so the first sentence above makes them valid under every proposal, though
+  some proposals accept more. A union is proven by any one field that the source proves, and is
+  otherwise checked field by field at run time.
 - As a source, nothing is known of a union, not even that its bytes are initialized, since some
-  rules let it hold any bytes, as the second sentence does where it has a field of size 0. Only the
-  same union proves a union. A union may hold a value even if none of its fields has one, though no
-  value of it can be made. Such a union, and a variant or a struct that holds it, is not
-  uninhabited as a source, and [`Layout::is_inhabited`] answers for a target only.
+  proposals let it hold any bytes, as the second sentence does where it has a field of size 0. Only
+  the same union proves a union. A union may hold a value even if none of its fields has one,
+  though safe code cannot make such a value, since it makes a union only from a value of one of its
+  fields. Such a union, and a variant or a struct that holds it, is not uninhabited as a source, and
+  [`Layout::is_inhabited`] answers for a target only.
 
-The bytes that a field *reads* are those that it checks, those that a rule of a struct in it
-loads, and every byte of a struct whose rule reads bytes by offset. A field of a target union is
-checked only if no byte that it reads may be padding in the source. If some field may read
-padding and no field is proven, the pun is refused ([Not yet][limits#not-yet] says what would lift
-this).
+A target union that no field proves is checked field by field only if no field requires a byte to
+be initialized that may be padding in the source. Otherwise the pun is refused ([Not
+yet][limits#not-yet] says what would lift this).
 
 A proven union is not read, except where it shares a check with other parts, as the elements of
-an array or the fields of a variant of an enum checked as a whole. The check then tries its fields
-in order, and stops at the first one that the source proves whatever safe code writes. A field
-that only a requirement of the source proves fails where safe code broke that requirement, so the
-check may go on past it, and the bytes that the later fields read count too. The pun is refused if
-the check would read a byte that may be padding in the source, or a byte of the same union.
+an array or the fields of a variant of an enum checked as a whole. The bytes that a field *reads*
+are those that it checks, those that a rule of a struct in it loads, and every byte of a struct
+whose rule reads bytes by offset. The check tries the fields in order, and stops at the first one
+that the source proves whatever safe code writes. A field that only a requirement of the source
+proves fails where safe code broke that requirement, so the check may go on past it, and the bytes
+that the later fields read count too. The pun is refused if the check would read a byte that may
+be padding in the source, or a byte of the same union.
 
 ## Uninhabited types
 
@@ -81,7 +82,7 @@ valid. A variant or a struct that holds an uninhabited type is uninhabited too.
 
 No bytes are an uninhabited variant of a target enum, or an uninhabited field of a target union.
 The analysis does not look at such a part, and a check reads nothing of it, so bytes with the tag
-of that variant fail the check whatever its other fields hold. Without this rule, a variant of a
+of that variant fail the check whatever its other fields hold. Otherwise, a variant of a
 `repr(u8)` enum whose field is uninhabited would be proven from a variant whose field is not,
 because no byte of a type of size 0 is ever compared.
 
@@ -166,7 +167,7 @@ assert_eq!(odd.get(), 3);
 [requirements]: concepts.md#requirements
 [rule]: rules.md
 [rust]: rust.md
-[rust#errors-of-const-evaluation]: rust.md#errors-of-const-evaluation
+[rust#the-padding-of-a-new-value]: rust.md#the-padding-of-a-new-value
 [testing]: testing.md
 [trust]: trust.md
 [uninhabited]: concepts.md#uninhabited-types

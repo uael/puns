@@ -11,7 +11,7 @@
 //! [requirements]: super::concepts#requirements
 //! [rule]: super::rules
 //! [rust]: super::rust
-//! [rust#errors-of-const-evaluation]: super::rust#errors-of-const-evaluation
+//! [rust#the-padding-of-a-new-value]: super::rust#the-padding-of-a-new-value
 //! [testing]: super::testing
 //! [trust]: super::trust
 //! [uninhabited]: super::concepts#uninhabited-types

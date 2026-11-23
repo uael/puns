@@ -6,9 +6,9 @@
 //! one into the other (`adc`), its product is three multiplications, and its division is a call. In
 //! a loop, the optimizer does not know that the high half of a state is zero. So this module finds
 //! the range of every value of an expression at compile time. Each operation is then computed as
-//! narrowly as its range allows, with the same result and the same failure as on `u128`: in a
-//! register (64 bits, or 32 where `usize` is narrower) where the values fit it, or in 128 bits
-//! otherwise.
+//! narrowly as its range allows, with the same result and the same failure as on `u128`: on the
+//! narrowest of `u32`, `u64` and `u128` that holds its values, but not narrower than a register (64
+//! bits, or 32 where `usize` is narrower), as [`Range::fits`] says.
 //!
 //! # Ranges
 //!
@@ -43,7 +43,8 @@
 //! that applies the operation, as the operation is (see "No interpreter" in the documentation of
 //! [`validate`](mod@crate::validate#no-interpreter)). It says four things:
 //!
-//! - The width in which the operation is computed, a register or 128 bits ([`REGISTER`]).
+//! - The width in which the operation is computed, 32, 64 or 128 bits, never narrower than a
+//!   register ([`REGISTER`]).
 //! - Whether it may fail. An addition, a product or a shift that cannot overflow is not tested.
 //! - Whether an addition or a difference of 128 bits is computed on each half alone, which is done
 //!   where the low halves cannot carry or borrow.

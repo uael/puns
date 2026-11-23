@@ -61,56 +61,38 @@
 //!
 //! # What the experiments rely on
 //!
-//! The experiments rely on these facts of the compiler, and on one fact of this crate.
+//! The experiments rely on facts of the compiler that no documentation states, and on one fact of
+//! this crate. The chapter [What `puns` relies on](crate::guide::rust) of the guide states each
+//! fact of the compiler, with what checks it, under the section that each heading below links to.
 //!
 //! ## The layout is that of the target
 //!
-//! The layout of a type is the same in const evaluation as at run time, for a given target. Const
-//! evaluation computes it for that target, with the same code. This is a property of how `rustc` is
-//! built.
+//! [The layout in const evaluation](crate::guide::rust#the-layout-in-const-evaluation).
 //!
 //! ## One scalar tells the variant
 //!
-//! The variant of a value is told by one scalar at a fixed place, its *tag*. Either it is a direct
-//! tag before the fields of every variant, with one value for each variant. Or it is a *niche*, a
-//! scalar in the fields of one variant, the dataful one, that no field of another variant covers.
-//! The values of the niche that are valid for its field are that variant, and each other value is
-//! one other variant, or no value. This is how `rustc` lays out enums, since 2017 for one variant
-//! with fields and since Rust 1.65 for several. It is not a promise of the language. The
-//! experiments verify what they rely on of it. The tag decides, and nothing outside the tag does. A
-//! layout of another shape is refused.
+//! [The tag of an enum of the `Rust`
+//! representation](crate::guide::rust#the-tag-of-an-enum-of-the-rust-representation): a direct
+//! tag or a niche, and nothing outside the tag.
 //!
 //! ## Const evaluation fails on what is not a value
 //!
-//! Const evaluation reports an error when it reads an uninitialized byte, and when it reads the
-//! variant of a value whose tag is not the tag of a variant that has values. This is a behavior of
-//! the compiler, which the Reference does not promise for undefined behavior in `const`. The
-//! compile-fail tests `discover_reads_padding` and `discover_invalid_tag` check this behavior.
+//! [Errors of const evaluation](crate::guide::rust#errors-of-const-evaluation), the first two.
 //!
 //! ## The variant is read from the tag
 //!
-//! When const evaluation reads the variant of a value whose tag is the tag of a variant that has
-//! values, it reads the tag alone, and neither reads nor checks the other bytes of the value. Yet
-//! `mem::discriminant` takes a reference to the whole value, and the Reference requires a reference
-//! to point to a valid value. [`try_tag`] relies on this behavior of the compiler: the bytes of the
-//! tag of one variant, moved into the sample of another, make a value whose tag is valid and whose
-//! other bytes may be no valid fields of the variant that the tag tells. The model check compares
-//! the layouts that the experiments find with oracles that do not use them, for its enums of the
-//! `Rust` representation.
+//! [The variant read from the tag](crate::guide::rust#the-variant-read-from-the-tag). [`try_tag`]
+//! relies on it.
 //!
 //! ## The discriminant is the index
 //!
-//! `mem::Discriminant<E>` of an enum of the `Rust` representation holds its discriminant, which is
-//! the index of the variant, as an `isize`. No explicit discriminant is allowed on such an enum
-//! with fields. The size of `Discriminant<E>` is asserted, and the discriminant of every sample is
-//! checked to be its own index.
+//! [The discriminant of an enum of the `Rust`
+//! representation](crate::guide::rust#the-discriminant-of-an-enum-of-the-rust-representation).
+//! [`variant`] reads it.
 //!
 //! ## A fresh value has uninitialized padding
 //!
-//! A value made in const evaluation (`E::A(x)`) has its padding uninitialized, because making a
-//! variant writes its fields and its tag and nothing else. So a byte of a fresh sample outside its
-//! fields that can be read is a byte of the tag, which the compile-fail test
-//! `discover_reads_padding` checks.
+//! [The padding of a new value](crate::guide::rust#the-padding-of-a-new-value).
 //!
 //! ## The valid values of a layout are valid for `rustc`
 //!
@@ -146,9 +128,9 @@
 //! [tag]: #the-variant-is-read-from-the-tag
 //! [index]: #the-discriminant-is-the-index
 //! [fresh]: #a-fresh-value-has-uninitialized-padding
-//! [`mem::variant_count`]: https://doc.rust-lang.org/core/mem/fn.variant_count.html
-//! [`discriminant_value`]: https://doc.rust-lang.org/core/intrinsics/fn.discriminant_value.html
-//! [`mem::discriminant`]: https://doc.rust-lang.org/core/mem/fn.discriminant.html
+//! [`mem::variant_count`]: https://doc.rust-lang.org/1.99.0/core/mem/fn.variant_count.html
+//! [`discriminant_value`]: https://doc.rust-lang.org/1.99.0/core/intrinsics/fn.discriminant_value.html
+//! [`mem::discriminant`]: https://doc.rust-lang.org/1.99.0/core/mem/fn.discriminant.html
 
 use core::mem::{self, MaybeUninit};
 

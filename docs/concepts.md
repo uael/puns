@@ -190,12 +190,12 @@ without variants are uninhabited.
 [`pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.pun_ref.html
 [`Pun`]: https://docs.rs/puns/0.2.4/puns/trait.Pun.html
 [`try_pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_ref.html
-[core::mem::transmute]: https://doc.rust-lang.org/1.100.0/core/intrinsics/fn.transmute.html
+[core::mem::transmute]: https://doc.rust-lang.org/1.99.0/core/mem/fn.transmute.html
 [crate]: ../README.md
 [num::u16bec]: https://docs.rs/puns/0.2.4/puns/num/struct.u16bec.html
 [num::u8in]: https://docs.rs/puns/0.2.4/puns/num/struct.u8in.html
 [opaque-scalars]: https://docs.rs/puns/0.2.4/puns/trait.Scalar.html#opaque-scalars
-[properly aligned]: https://doc.rust-lang.org/1.100.0/core/ptr/index.html#alignment
+[properly aligned]: https://doc.rust-lang.org/1.99.0/core/ptr/index.html#alignment
 [rules]: rules.md
 [rules#regions]: rules.md#regions
 [soundness#what-deriving-pun-means]: soundness.md#what-deriving-pun-means

@@ -85,9 +85,10 @@
 //! initializes.
 //!
 //! A union as a target is proven by one of its fields that the source proves. Otherwise it is
-//! checked field by field at run time if the check of no field reads a byte that may be padding in
-//! the source, and refused if one does ([`relate_union_from`]). The marks of the analysis cannot
-//! tell the validation which fields to skip, so a union is not checked by some of its fields only.
+//! checked field by field at run time if no field requires a byte to be initialized that may be
+//! padding in the source, and refused if one does ([`relate_union_from`]). The marks of the
+//! analysis cannot tell the validation which fields to skip, so a union is not checked by some of
+//! its fields only.
 //! A union that is proven may still be checked, with a part that holds it. That check stops at the
 //! first field that the source proves whatever safe code writes, one that holds no requirement
 //! ([`Layout::holds_requirement`]). A field proven through a requirement, a `valid(..)` or a rule,
@@ -1671,8 +1672,8 @@ const fn relate_enum_from(
 /// the source did not prove.
 ///
 /// The union is proven if the source proves one of its fields. Otherwise it is checked at run
-/// time, field by field, if no field's check would read a byte that may be padding in the
-/// source. Otherwise it is refused, with that byte recorded as read from padding.
+/// time, field by field, if no field requires a byte to be initialized that may be padding in the
+/// source. Otherwise it is refused, with that byte recorded in [`Relation::uninit`].
 ///
 /// Returns `false`, having done nothing, if `b` is not a union.
 const fn relate_union_from(
