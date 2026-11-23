@@ -1469,7 +1469,7 @@ impl core::fmt::Display for Error {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     f.write_str(match self {
       Error::Alignment => "value is not aligned for the target type",
-      Error::Size => "value does not have the size of the target type",
+      Error::Size => "value has a size that the target type cannot have, or is too short for it",
       Error::Validity => "value is not valid for the target type",
     })
   }
