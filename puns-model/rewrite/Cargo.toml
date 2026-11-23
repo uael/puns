@@ -1,0 +1,13 @@
+[package]
+name = "rewrite"
+version = "0.0.0"
+edition.workspace = true
+license = "Apache-2.0 OR MIT"
+publish = false
+description = "An attribute that rewrites an item after `#[derive(Pun)]` has read it: a test of the soundness audit"
+
+[lib]
+proc-macro = true
+
+[lints]
+workspace = true

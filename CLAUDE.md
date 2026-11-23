@@ -141,7 +141,9 @@ the crate docs and `README.md` consistent with the code.
 - **`puns-derive/`**: `#[derive(Pun)]`, re-exported as `puns::Pun`.
 - **`puns-model/`**: the model check of the analysis against oracles that do not use it (not
   published, and using the test-only `verdict` feature of `puns`), with `fakecore/`, a `core` whose
-  items give wrong answers, for what the derive must not trust.
+  items give wrong answers, for what the derive must not trust, and `rewrite/`, an attribute that
+  changes an item after the derive has read it, for a compile-fail case of `puns` (a
+  dev-dependency by path, which `cargo publish` leaves out).
 - **`xtask/`**: dev automation (fmt, lint, build times, the chart of check times, the links of the
   README).
 
@@ -153,7 +155,8 @@ Merging that PR publishes to crates.io and creates a GitHub release with a `v<ve
 
 - Config: `release-plz.toml`
 - Workflow: `.github/workflows/release-plz.yml`
-- Only `puns` and `puns-derive` are published; `xtask`, `puns-model` and `fakecore` are excluded
+- Only `puns` and `puns-derive` are published; `xtask`, `puns-model`, `fakecore` and `rewrite`
+  are excluded
 - `puns` owns the changelog and git tags (`v{{ version }}`); `puns-derive` has no changelog or tags
   of its own
 - Both crates are released under the same version (`version_group` in `release-plz.toml`): the
