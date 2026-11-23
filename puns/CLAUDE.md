@@ -14,9 +14,10 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - The documentation of `#[derive(Pun)]` (on `pub use puns_derive::Pun` in
   [`src/lib.rs`](src/lib.rs)) says what a rule means, what it reads, and what the derive trusts
   ("What the derive trusts").
-- [`Scalar`](src/lib.rs) states the contract of a scalar declared by hand, a scalar that a pun
-  never makes (`Spec::never`) included, and the crate documentation ("Scalars that a pun never
-  makes") what `puns` guarantees its crate in return.
+- [`Scalar`](src/lib.rs) states the contract of a scalar declared by hand, an opaque scalar
+  (`Spec::opaque`) included, and the crate documentation ("Opaque scalars") what `puns` guarantees
+  its crate in return. `Deferred` and `Validate` say how that crate reads and proves a value that
+  holds one.
 
 ## How it works
 
@@ -51,12 +52,17 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   `layout::Stable` records what is the same in every layout that Rust allows.
 - A requirement (`valid(..)`, a rule) never proves a guarantee of another type. Two layouts are
   equal only if they require and guarantee the same values.
-- No function makes a value that holds a scalar that a pun never makes (`Spec::never`), and no
-  function gives a `&mut` to one. As a target, such a scalar is disjoint from every source
-  (`atom_relation`), and a part of a target that holds one is proven by nothing, not even by
-  itself (`Layout::holds_never`). Only `validate_but_never` accepts one, unread, and makes no value.
-  `Option` of one is one of the same size (`std_enums::never_option`), found without a sample, which
-  `puns` has none of: its size and the bytes of `None` are checked in const evaluation.
+- No function makes a value that holds an opaque scalar (`Spec::opaque`), and no function gives a
+  `&mut` to one. As a target, such a scalar is disjoint from every source (`atom_relation`), and a
+  part of a target that holds one is proven by nothing, not even by itself
+  (`Layout::holds_opaque`). A check never accepts it (`validate::accepts`), so a variant that
+  holds one is refused at run time. The one exception is a `Deferred<T>` target
+  (`Layout::is_deferred`, `Cursor::deferred`): its opaque scalars are checked against their
+  values, as any scalar is (`Checks::OPAQUE`), and a failure returns its offset
+  (`Checks::POSITION`, `Error::ValidityAt`). An opaque scalar has values, so the sample of a
+  variant that holds one is its least value. `Option` of one is one of the same size
+  (`std_enums::opaque_option`), whose values are those of the scalar and the bytes of `None`,
+  read in const evaluation.
 - The validation of the `try_` and `from_` functions compares the rules of what the derive or a
   hand-written `Pun` lists with the layout (`validate::listed`) and the place of each field
   (`F::Path`), and relies on the `# Safety` section of `Pun` for the other lists.
@@ -71,9 +77,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   compiled has those fields and variants, of those types. The offsets of the fields are measured
   on the item as compiled (`Layout::measure_base`, the samples of the variants), except where
   "What the derive trusts" says that the `repr` that the derive read gives them.
-- Every scalar that a pun never makes in the repository is declared through the public API only,
-  as another crate would declare it, with `Scalar` and `Spec::never`. Most of them share
-  [`tests/support/never.rs`](tests/support/never.rs).
+- Every opaque scalar in the repository is declared through the public API only, as another crate
+  would declare it, with `Scalar` and `Spec::opaque`. Most of them share
+  [`tests/support/opaque.rs`](tests/support/opaque.rs).
 
 ## Not done yet
 

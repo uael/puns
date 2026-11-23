@@ -23,8 +23,8 @@ note: erroneous constant encountered
 note: the above error was encountered while instantiating `fn puns::validate::validate_fields::<puns::Plan<[u8; 2], Flag>, puns::Root, Flag, __PunField0>`
  --> src/validate.rs
   |
-  |         validate_fields::<C, P, T, T::Fields>(ptr)
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         let fields = validate_fields::<C, P, T, T::Fields>(ptr);
+  |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked: not where the field is
  --> $RUST/core/src/panic.rs
@@ -39,5 +39,5 @@ error[E0080]: evaluation panicked: not where the field is
 note: the above error was encountered while instantiating `fn puns::validate::validate_fields::<puns::Plan<[u8; 2], Flag>, puns::Root, Flag, __PunField1>`
  --> src/validate.rs
   |
-  |     valid && validate_fields::<C, P, T, F::Next>(ptr)
-  |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     validate_fields::<C, P, T, F::Next>(ptr)
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -53,9 +53,9 @@
 //! - A view enum is an enum whose variants each hold a reference. [The derive](macro@Pun) gives it
 //!   `from_bytes` and `from_head`, which return the first variant that the bytes match.
 //!
-//! None of these functions makes a value that holds a scalar that a pun never makes, such as the
-//! offset of a self-relative pointer ([Scalars that a pun never
-//! makes](#scalars-that-a-pun-never-makes)), but they read such a value as plain data.
+//! None of these functions makes a value that holds an opaque scalar, such as the offset of a
+//! self-relative pointer, but each of them makes a [`Deferred`] of one, whose crate then proves it
+//! ([Opaque scalars](#opaque-scalars)). They read such a value as plain data.
 //!
 //! [`num`] has numbers of a fixed byte order, and integers restricted to some values. [`macro@Pun`]
 //! documents the options of the derive. [`layout`] has the types that describe a layout, and the
@@ -196,9 +196,8 @@
 //!   slice that is larger than an object can be. The experiments that find the layout of an enum of
 //!   the `Rust` representation rely on the first two, and only run at compile time. The derive
 //!   relies on the first to refuse an enum without fields that has padding, and on the third for an
-//!   unsized struct whose tail is so large that 8 elements overflow an `isize`. An `Option` of a
-//!   scalar that a pun never makes relies on the first to refuse a `None` with an uninitialized
-//!   byte. Compile-fail tests check each of the three errors.
+//!   unsized struct whose tail is so large that 8 elements overflow an `isize`. An `Option` of an
+//!   opaque scalar relies on the first to refuse a `None` with an uninitialized byte. Compile-fail tests check each of the three errors.
 //! - Const evaluation reads the variant of a value whose tag is the tag of a variant from the tag
 //!   alone, without reading or checking its other bytes, though `mem::discriminant` takes a
 //!   reference to the whole value and the Reference requires a reference to point to a valid value.
@@ -216,8 +215,8 @@
 //! Without the `unstable` feature, whether a pun compiles, what it checks and which values a check
 //! accepts do not depend on a layout that Rust leaves to the compiler: the order of the fields of a
 //! struct or tuple of the `Rust` representation, the tag of an enum of that representation, or
-//! niches. One exception is whether an `Option` of a scalar that a pun never makes compiles
-//! ([Scalars that a pun never makes](#scalars-that-a-pun-never-makes)). With the feature, `puns`
+//! niches. One exception is whether an `Option` of an opaque scalar compiles ([Opaque
+//! scalars](#opaque-scalars)). With the feature, `puns`
 //! also uses the layout that `rustc` chose. [The `unstable` feature](#the-unstable-feature) states
 //! the rule and [what it relies on](#what-this-relies-on).
 //!
@@ -594,33 +593,36 @@
 //! let _: &mut Drawing = puns::pun_mut(&mut shape);
 //! ```
 //!
-//! # Scalars that a pun never makes
+//! # Opaque scalars
 //!
 //! Some scalars are valid for reasons that are not in their bytes. The offset of a self-relative
 //! pointer, like the ones in the regions of [`nearest`](https://docs.rs/nearest), is valid only at
 //! its place in a buffer, and only if what it aims at is there. A handle or an index into a table
 //! is another such scalar. A crate declares such a scalar as a [`Scalar`] whose `SPEC` is
-//! [`Spec::never`](layout::Spec::never): it accepts no value, and its bytes are known to be
-//! initialized.
+//! [opaque](layout::Spec::opaque): it has the values that Rust requires of its bytes, such as "not
+//! zero" for an offset that is a `NonZero`, and its place decides the rest.
 //!
-//! A pun reads such a scalar as initialized bytes, and never makes one, not even from a value of
-//! the same type. Nothing proves a part of the target that holds one, so a pun or a check that
-//! would make one does not compile, nor does a `&mut` through which one could be written. An enum
+//! As a source, an opaque scalar proves what its values prove. As a target, nothing proves it, not
+//! even a value of the same type, so a pun or a check that would make one does not compile. An enum
 //! with a variant that holds one is the exception: a check never accepts that variant, so a pun to
 //! the enum compiles if the source has no value of that variant, and a check refuses its tag at run
-//! time. The crate that declares the scalar makes the values that hold it, and proves them. To
-//! read such a value from bytes, it checks the bytes with [`validate_but_never`], which checks
-//! every other part of the value, rules included. It then proves its scalars as only it can, and
-//! makes the reference.
+//! time. A union holds none, since which of its fields it holds cannot be told.
 //!
-//! An `Option` of such a scalar is one too, if it has the size of the scalar and every byte of
-//! `None` is initialized. Neither `None` nor `Some` is checked. Otherwise, the `Option` does not
-//! compile. `core` documents the size where the scalar is a `NonZero` integer or a
-//! `repr(transparent)` struct around one ([`Option` representation][option representation]), and
-//! `None` is then zero. For another scalar, such as a `repr(packed)` struct around a `NonZero`, the
-//! size depends on the niche that `rustc` gives it, which no documentation promises. That decides
-//! only whether the `Option` compiles, never what a pun checks or accepts, since nothing of it is
-//! checked.
+//! The crate that declares the scalar reads a value that holds one as a [`Deferred<T>`](Deferred),
+//! which every function of `puns` accepts as a target. `puns` checks every part of it, the values
+//! of its opaque scalars included, and says where a check fails ([`Error::ValidityAt`]). The crate
+//! proves the places with its implementation of [`Validate`], and [`Deferred::validated`] then gives
+//! the `&T`.
+//!
+//! An `Option` of an opaque scalar is opaque too, if it has the size of the scalar and every byte
+//! of `None` is initialized. Its values are those of the scalar and the bytes of `None`. Otherwise,
+//! the `Option` does not compile. `core` documents the size where the scalar is a `NonZero` integer
+//! or a `repr(transparent)` struct around one ([`Option` representation][option representation]),
+//! and `None` is then zero. For another scalar, such as a `repr(packed)` struct around a `NonZero`,
+//! the size depends on the niche that `rustc` gives it, which no documentation promises. Without
+//! the `unstable` feature, such a scalar must then leave out exactly one value of its size, which is
+//! then the bytes of `None`, so that what a check accepts does not depend on the niche that `rustc`
+//! chose.
 //!
 //! # Cargo features
 //!
@@ -698,18 +700,17 @@
 //! | `(u8, u8)` as `NonZero<u16>` | refused | the check reads both bytes, and each may hold either field |
 //! | a pun from `(u8, u16, u8)` or to it, other than to itself | refused | it is 4 or 6 bytes |
 //! | bytes as an enum of the `Rust` representation, or as `Option<bool>` | refused | nothing documents where its tag is, nor its values |
-//! | `validate_but_never::<(bool, u8)>` | refused | the byte that it checks is either byte |
 //!
 //! A struct or tuple of the `Rust` representation whose size is the same in every layout, and that
-//! has no rule and no scalar that a pun never makes, is proven field by field. Since a field may be
+//! has no rule and no opaque scalar, is proven field by field. Since a field may be
 //! anywhere, it must be proven at every place where it may be. So two `bool`s prove a `(bool, u8)`,
 //! four initialized bytes prove a `(u8, u16)`, and two `NonZero<u16>` prove a `(NonZero<u16>,
 //! u16)`. A struct with a rule, which names fields, is proven only by itself, as an enum is. A part
-//! that holds a scalar that a pun never makes is not proven at all. No check replaces a proof in a
+//! that holds an opaque scalar is not proven at all, but in a [`Deferred<T>`](Deferred). No check replaces a proof in a
 //! part whose layout Rust leaves to the compiler, because the check would read where the compiler
 //! may not have put the field, so whatever is not proven there does not compile. Such a part is
 //! still read by the check of a union that a later field proves, or of an enum whose variant holds
-//! a scalar that a pun never makes. The answer is then the same in every layout, and the pun
+//! an opaque scalar. The answer is then the same in every layout, and the pun
 //! compiles only if every byte under the part is initialized in the source.
 //!
 //! ### The same type
@@ -813,7 +814,7 @@
 //! - Without it, a test records the verdict of every function on every pair of 33 types. These are
 //!   the types of the table in [Puns without the feature](#puns-without-the-feature), along with
 //!   what holds them: an enum and a union of a specified representation, a struct with a rule,
-//!   arrays, and a scalar that a pun never makes. The record covers each pair whole, and in part
+//!   arrays, and an opaque scalar. The record covers each pair whole, and in part
 //!   (by `&mut` and from the end). It also records which byte patterns each type accepts from
 //!   bytes, but not the message of a refusal, which may name what `rustc` chose. A rule and an enum
 //!   checked as a whole each have a type in the record. CI compares the record with the one in the
@@ -921,18 +922,14 @@
 //!   value, or, for a `size` or `len` rule, the number of bytes from the start of the value to the
 //!   end of the input.
 //! - Unions must be `repr(C)`, since the fields of other unions are not known to be at 0. A union
-//!   must not hold a scalar that a pun never makes, and as a source nothing is known about it (see
+//!   must not hold an opaque scalar, and as a source nothing is known about it (see
 //!   [Unions](#unions)).
-//! - An enum of the `Rust` representation is refused if the sample of one of its variants needs a
-//!   value of a scalar that a pun never makes, since `puns` cannot make one. A sample holds the
-//!   least value of each field, and of an enum its first variant that has values. The direct tag of
-//!   such an enum, which is all the bytes before the first field of any variant, must be 1, 2, 4, 8
+//! - The direct tag of an enum of the `Rust` representation, which is all the bytes before the first field of any variant, must be 1, 2, 4, 8
 //!   or 16 bytes, since `rustc` makes no other size, or the enum is refused. If `rustc` places the
 //!   fields of a variant without values before the fields of the other variants, the build fails,
 //!   because `puns` cannot observe where those fields are and does not guess.
-//! - In an enum with fields and a primitive or `C` representation, a variant that holds a scalar
-//!   that a pun never makes, or a union none of whose fields has values, has no sample from which
-//!   `puns` reads its tag. Its discriminant must hold no macro and no attribute, or it must have
+//! - In an enum with fields and a primitive or `C` representation, a variant that holds a union
+//!   none of whose fields has values has no sample from which `puns` reads its tag. Its discriminant must hold no macro and no attribute, or it must have
 //!   none after a variant whose tag is known, or the enum is refused ([What the derive
 //!   trusts](macro@Pun#what-the-derive-trusts)).
 //!
@@ -1124,8 +1121,8 @@ pub use layout::{crc32, sum16};
 /// every order has in common (see [`layout::UNSTABLE`]). If every order makes the same bytes, as
 /// for `(u8, [u8; 3])` or `(bool, bool)`, a pun may rely on every byte of the struct. Otherwise, as
 /// a source, the struct is known to hold initialized bytes if it does in every order, and nothing
-/// more. As a target, a struct whose size is the same in every order, without rules or a scalar
-/// that a pun never makes, is proven field by field, each field at every place where it may be, and
+/// more. As a target, a struct whose size is the same in every order, without rules or an opaque
+/// scalar, is proven field by field, each field at every place where it may be, and
 /// any other is proven only by the same type ([Puns without the
 /// feature](crate#puns-without-the-feature)). A struct may also have rules, which its attributes
 /// state (see "Attributes").
@@ -1400,9 +1397,6 @@ pub use layout::{crc32, sum16};
 /// - The variants of a view all hold a reference with the same named lifetime, `&'a T`.
 /// - The type of each variant of a view meets the compile-time conditions of [`from_bytes`], where
 ///   `from_head` or `from_bytes` of the view is used.
-/// - The sample of each variant of an enum with fields of the `Rust` representation holds no
-///   scalar that a pun never makes, since `puns` cannot make one. A sample holds the least value
-///   of each field, and of an enum its first variant that has values.
 /// - The compiler lays out an enum with fields of the `Rust` representation in a way that the
 ///   derive recognizes. The variant of a value is given by a tag of 1, 2, 4, 8 or 16 bytes before
 ///   the fields of every variant, or by a niche in a scalar among the fields of one variant. Any
@@ -1411,7 +1405,7 @@ pub use layout::{crc32, sum16};
 /// For a union:
 ///
 /// - The union is `repr(C)`, and not packed.
-/// - No field holds a scalar that a pun never makes.
+/// - No field holds an opaque scalar.
 ///
 /// The derive reports an unknown, misplaced or repeated option, and an expression that is not a
 /// rule, at the place of the fault. `cargo check` reports these errors, as well as type errors. The
@@ -1480,8 +1474,8 @@ pub use layout::{crc32, sum16};
 ///   name that a macro writes may name another item, so a discriminant may have another value
 ///   there. A function of [`layout::Variant`] compares each of its tags with the first bytes of a
 ///   sample of the variant, made as for the `Rust` representation, and fails the build if they
-///   differ. A variant without a sample of which a value may exist, because it holds a scalar that
-///   a pun never makes or a union none of whose fields has values, must have a discriminant that
+///   differ. A variant without a sample of which a value may exist, because it holds a union none
+///   of whose fields has values, must have a discriminant that
 ///   holds no macro and no attribute, or none after a variant whose tag is known, since Rust then
 ///   gives it the tag before it plus one. Such a discriminant has the same value in both enums: the
 ///   derive names only items that start with `__Pun` there, which it refuses in the input.
@@ -1541,8 +1535,7 @@ pub use layout::{crc32, sum16};
 ///
 /// What such an attribute can still change without failing the build:
 ///
-/// - A variant without a sample, which holds a scalar that a pun never makes or a union none of
-///   whose fields has values, keeps the offsets that [RFC 2195] specifies, and so does every
+/// - A variant without a sample, which holds a union none of whose fields has values, keeps the offsets that [RFC 2195] specifies, and so does every
 ///   variant of an enum none of whose variants has a sample, of which no tag width is checked.
 /// - The derive takes from the `repr` that it read whether Rust specifies the layout, on which,
 ///   without the `unstable` feature, a verdict may rely ([The `unstable`
@@ -1674,7 +1667,7 @@ pub use layout::{crc32, sum16};
 /// }
 /// ```
 pub use puns_derive::Pun;
-use validate::{Checks, validate};
+use validate::{Checks, validate_at};
 
 /// Where the type `$name` is declared, its name, and `$n`, the number of the derive in its crate,
 /// as its identity (`layout::Id`), for `#[derive(Pun)]`, which names `core` through this crate (a
@@ -1720,18 +1713,19 @@ pub use core as __core;
 /// - Every value of `Self`, read as an unsigned integer with the size and byte order of `SPEC`, is
 ///   a value that `SPEC` accepts. If `SPEC` is made with [`Spec::maybe_uninit`] or
 ///   [`Spec::uninit`], a value of `Self` may instead hold any bytes, including uninitialized ones.
-///   If `SPEC` is made with [`Spec::never`], which accepts no value, every byte of every value of
-///   `Self` is instead initialized.
-/// - Every value that `SPEC` accepts is a [valid] `Self`, and meets every invariant that the code
-///   of `Self` relies on.
+/// - Every value that `SPEC` accepts is a [valid] `Self`, and, unless `SPEC` is
+///   [opaque](Spec::opaque), meets every invariant that the code of `Self` relies on. If `SPEC` is
+///   opaque, whether a value meets the invariants that its place gives it is for the crate that
+///   declares `Self` to prove ([Opaque scalars](crate#opaque-scalars)).
 /// - No byte of `Self` is inside an [`UnsafeCell`](core::cell::UnsafeCell).
 ///
 /// An implementation by hand leaves the hidden items at their defaults. If `T: Scalar`, unsafe code
 /// may assume that `T::SPEC` describes the values of `T` exactly. `puns` makes a `T` from any bytes
 /// that `SPEC` accepts, and takes the bytes of every `T` to be bytes that `SPEC` accepts, unless
 /// `SPEC` is made with [`Spec::maybe_uninit`] or [`Spec::uninit`]. It then takes them to be any
-/// bytes, uninitialized ones included. With [`Spec::never`], it takes them to be initialized bytes,
-/// and makes no `T` ([Scalars that a pun never makes](crate#scalars-that-a-pun-never-makes)).
+/// bytes, uninitialized ones included. If `SPEC` is opaque, `puns` makes no `T` as the target of a
+/// function, but only inside a [`Deferred`], and a value of `T` in const evaluation, as the sample
+/// of a variant whose layout it measures, which it never returns.
 ///
 /// # Examples
 ///
@@ -1806,12 +1800,14 @@ pub unsafe trait Scalar {
 ///
 /// `Pun` must not be implemented by hand, because its items are hidden, and may change in any
 /// release. It is implemented by `#[derive(Pun)]`, and by `puns` for the types listed above, a
-/// [`Scalar`] included.
+/// [`Scalar`] and a [`Deferred`] included.
 ///
 /// An implementation guarantees that the layout it describes is the layout of `Self`: its size, its
 /// alignment, the offset of each field, the values each scalar may hold, and its rules. Every value
 /// of `Self` holds what the layout says every value holds, and every value that the layout accepts
-/// is a valid `Self`. The lists of the implementation are those of the layout: its fields if it is a
+/// is a valid `Self`, but for the [opaque scalars](crate#opaque-scalars) that it holds: such a
+/// value is valid in Rust's sense, and meets the invariants of the places of these scalars only
+/// where their crate proves them ([`Validate`]). The lists of the implementation are those of the layout: its fields if it is a
 /// struct, its variants if it is an enum or a union, and its element if it is an array or a slice.
 /// `puns` reads no list of a layout of another kind, which may then be anything. No byte of `Self`
 /// is inside an [`UnsafeCell`](core::cell::UnsafeCell).
@@ -2225,10 +2221,10 @@ unsafe impl Fields for () {
 //   alignment is `align_of::<T>()`. A scalar has no field.
 // - Every value of `T` holds a value that `T::SPEC` accepts, by the `# Safety` of `Scalar`. If
 //   `T::SPEC` is made with `Spec::maybe_uninit` or `Spec::uninit`, it holds any bytes instead,
-//   uninitialized ones included, and if it is made with `Spec::never`, initialized bytes. These
-//   are the values that `T::SPEC` is known to hold, which are what the layout says every value
-//   holds. Every value that `T::SPEC` accepts is a valid `T`, by the `# Safety` of `Scalar`, and
-//   `Spec::never` accepts none.
+//   uninitialized ones included. These are the values that `T::SPEC` is known to hold, which are
+//   what the layout says every value holds. Every value that `T::SPEC` accepts is a valid `T`, by
+//   the `# Safety` of `Scalar`, and meets the invariants of `T` unless `T::SPEC` is opaque, which
+//   is what the `# Safety` of `Pun` allows.
 // - A scalar has no element, field, variant or rule, and each of these lists is `()`.
 // - No byte of `T` is inside an `UnsafeCell`, by the `# Safety` of `Scalar`.
 unsafe impl<T: Scalar> Pun for T {
@@ -2601,8 +2597,9 @@ impl_signed_non_zero!(i8 i16 i32 i64 i128 isize);
 
 /// The reason a value cannot be reinterpreted as another type.
 ///
-/// The functions that check at run time return it: the `try_` functions, the `from_` functions,
-/// and [`validate_but_never`].
+/// The functions that check at run time return it: the `try_` functions and the `from_`
+/// functions. Where the target is a [`Deferred<T>`](Deferred), a value that is not valid is
+/// [`Error::ValidityAt`] the part that fails, and otherwise [`Error::Validity`].
 ///
 /// # Examples
 ///
@@ -2618,6 +2615,7 @@ impl_signed_non_zero!(i8 i16 i32 i64 i128 isize);
 /// assert_eq!(puns::from_bytes::<u32>(&bytes[1..5]), Err(Error::Alignment));
 /// assert_eq!(puns::from_bytes::<bool>(&[2]), Err(Error::Validity));
 /// assert_eq!(Error::Validity.to_string(), "value is not valid for the target type");
+/// assert_eq!(Error::ValidityAt(3).to_string(), "value is not valid for the target type at byte 3");
 /// ```
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Error {
@@ -2629,15 +2627,41 @@ pub enum Error {
   /// The bytes are not a valid target, because a scalar holds a value that the target does not
   /// accept, a `str` is not UTF-8, or a rule of the target does not hold or cannot be computed.
   Validity,
+  /// The same, where the target is a [`Deferred<T>`](Deferred): the offset, from the start of the
+  /// value, of the part that fails. A part is a scalar, a field restricted by `#[pun(valid(..))]`,
+  /// a struct whose rule does not hold (the size or the length of the value included), an enum
+  /// whose tag is the tag of no variant, a union none of whose fields is valid, or a string.
+  ValidityAt(usize),
 }
 
 impl core::fmt::Display for Error {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    f.write_str(match self {
-      Error::Alignment => "value is not aligned for the target type",
-      Error::Size => "value does not have the size of the target type",
-      Error::Validity => "value is not valid for the target type",
-    })
+    match self {
+      Error::Alignment => f.write_str("value is not aligned for the target type"),
+      Error::Size => f.write_str("value does not have the size of the target type"),
+      Error::Validity => f.write_str("value is not valid for the target type"),
+      Error::ValidityAt(at) => write!(f, "value is not valid for the target type at byte {at}"),
+    }
+  }
+}
+
+/// Returns the [`Error`] of a check by `C` that failed at `failure`, a part of the value at `base`.
+///
+/// # Safety
+///
+/// The caller must ensure that:
+///
+/// - If `C` asks where a check fails ([`Checks::POSITION`](validate::Checks::POSITION)), `failure`
+///   is a part of the value at `base`, which is the [`Failure`](validate::Failure) of a check of it,
+///   in the same allocation, at or after `base`.
+#[inline(always)]
+const unsafe fn invalid<C: Checks>(failure: *const u8, base: *const u8) -> Error {
+  if C::POSITION {
+    // SAFETY: `failure` and `base` are in the same allocation, `failure` at or after `base`, by
+    // contract on the caller, as `offset_from` requires. The difference is not negative.
+    Error::ValidityAt(unsafe { failure.offset_from(base) }.cast_unsigned())
+  } else {
+    Error::Validity
   }
 }
 
@@ -2677,12 +2701,6 @@ const UNSPECIFIED: &str = "the pun depends on a part of the source or of the tar
   could arrange it otherwise. Only the same type at the same place \
   proves it.\nAdd `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature \
   of `puns`";
-
-/// A check of every part of a type that would read a part whose layout Rust leaves to the compiler.
-const CHECKS_UNSPECIFIED: &str = "the type has a part whose layout Rust leaves to the compiler (a \
-  struct, a tuple or an enum of the `Rust` representation), and something to check in it, which \
-  would be at another place with another compiler.\nAdd `#[repr(C)]` (or `#[repr(u8)]` to an \
-  enum), or enable the `unstable` feature of `puns`";
 
 /// A `&mut` whose writes are not known to leave a valid source in every layout that Rust allows.
 const UNSPECIFIED_MUT: &str = "what may be written through the `&mut` is a valid source in the \
@@ -2974,15 +2992,22 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
     // or it is unsized and its extent is rounded up to an alignment that divides that of `S`. So
     // `target` is valid for reads of a `D`, by contract on the caller. Every byte that a marked
     // check reads is initialized, by contract on the caller.
-    if !unsafe { validate::<C, Root, D>(target) } {
-      return Err(Error::Validity);
+    let failure = unsafe { validate_at::<C, Root, D>(target) };
+    if !failure.is_null() {
+      // SAFETY: `failure` is the `Failure` of the check of the `D` at `addr`, which `target`
+      // points to, as `invalid` requires.
+      return Err(unsafe { invalid::<C>(failure, addr) });
     }
     Ok(target)
   }
 }
 
+/// A target that is a [`Deferred<T>`](Deferred) checks its opaque scalars against their values,
+/// and its check says where it fails.
 impl<S: ?Sized + Pun, D: ?Sized + Pun> Checks for Plan<S, D> {
   const MARKS: Marks = Self::ANALYSIS.relation.marks;
+  const OPAQUE: bool = D::LAYOUT.is_deferred();
+  const POSITION: bool = D::LAYOUT.is_deferred();
 }
 
 /// A compile-time error message, without `format!`.
@@ -3046,8 +3071,9 @@ impl Message {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - `size_of::<S>() == size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
 /// - Every value of `S` is a [valid](crate#soundness) `D`.
@@ -3087,8 +3113,9 @@ pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - `size_of::<S>() >= size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in the first
 ///   `size_of::<D>()` bytes of every value of `S`.
@@ -3130,8 +3157,9 @@ pub const fn head<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - `size_of::<S>() >= size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in the last `size_of::<D>()`
 ///   bytes of every value of `S`.
@@ -3202,8 +3230,9 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - `size_of::<S>() == size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
 /// - Each part of `D` (each scalar that is not in an enum or a union, some variant of each enum,
@@ -3231,13 +3260,16 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 #[inline]
 pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Result<D, Error> {
   const { Plan::<S, D>::TRY };
+  let base = (&raw const value).cast::<u8>();
   // SAFETY: `Plan::<S, D>::TRY` compiled, so the analysis meets `Need::TRY`. `S` and `D` are
   // `Copy`, so `Sized`, and the fit is `Exact::Always`: they have the same size. So `value` is
   // valid for reads of a `D`, which `validate` does not need aligned. The relation records no byte
   // that may be padding in `S` and that `D` requires to be initialized, or that a check marked by
   // the analysis reads. So every byte that `validate` reads is initialized.
-  if !unsafe { validate::<Plan<S, D>, Root, D>((&raw const value).cast()) } {
-    return Err(Error::Validity);
+  let failure = unsafe { validate_at::<Plan<S, D>, Root, D>(base.cast()) };
+  if !failure.is_null() {
+    // SAFETY: `failure` is the `Failure` of the check of the `D` at `base`, as `invalid` requires.
+    return Err(unsafe { invalid::<Plan<S, D>>(failure, base) });
   }
   // SAFETY: `S` and `D` have the same size. `validate` found every part of `D` that the analysis
   // marked to be valid in `value`. Every part that it did not mark is valid in every value of `S`,
@@ -3288,8 +3320,9 @@ const unsafe fn pun_unchecked<S: Copy, D: Copy>(value: S) -> D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - Whatever the length of its slice, every value of `S` has a size that `D` can have. For sized
 ///   types, this means `size_of::<S>() == size_of::<D>()`.
 /// - `D` needs no greater alignment than `S`. Use [`try_pun_ref`] to check the address at run
@@ -3351,9 +3384,9 @@ pub const fn pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - Neither `S` nor `D` holds a scalar that a pun never makes
-///   ([`Spec::never`](layout::Spec::never)) in a part that the pun covers, except in a variant of
-///   an enum, which a check never accepts.
+/// - Neither `S` nor `D` holds an [opaque scalar](crate#opaque-scalars) in a part that the pun
+///   covers, except in a variant of an enum, which a check never accepts, unless it is a
+///   [`Deferred<T>`](Deferred).
 /// - Whatever the length of its slice, every value of `S` has a size that `D` can have. For sized
 ///   types, this means `size_of::<S>() == size_of::<D>()`.
 /// - `D` needs no greater alignment than `S`. Use [`try_pun_mut`] to check the address at run
@@ -3407,8 +3440,9 @@ pub const fn pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D 
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - Every value of `S` is at least as large as the smallest `D`. For sized types, this means
 ///   `size_of::<S>() >= size_of::<D>()`.
 /// - `D` needs no greater alignment than `S`.
@@ -3460,8 +3494,9 @@ pub const fn head_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - `S` is sized, because where the last bytes of an unsized value start is known only at run
 ///   time. Use [`from_tail`] to take a value from the end of bytes.
 /// - `D` is sized.
@@ -3521,9 +3556,9 @@ pub const fn tail_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - No part that the pun covers, of `D` or of `S`, holds a scalar that a pun never makes
-///   ([`Spec::never`](layout::Spec::never)), except in a variant of an enum, which a check never
-///   accepts.
+/// - No part that the pun covers, of `D` or of `S`, holds an [opaque
+///   scalar](crate#opaque-scalars), except in a variant of an enum, which a check never accepts,
+///   or in a [`Deferred<T>`](Deferred).
 /// - Every value of `S` is at least as large as the smallest `D`. For sized types, this means
 ///   `size_of::<S>() >= size_of::<D>()`.
 /// - `D` needs no greater alignment than `S`.
@@ -3595,9 +3630,9 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - No part that the pun covers, of `D` or of `S`, holds a scalar that a pun never makes
-///   ([`Spec::never`](layout::Spec::never)), except in a variant of an enum, which a check never
-///   accepts.
+/// - No part that the pun covers, of `D` or of `S`, holds an [opaque
+///   scalar](crate#opaque-scalars), except in a variant of an enum, which a check never accepts,
+///   or in a [`Deferred<T>`](Deferred).
 /// - `S` is sized, because where the last bytes of an unsized value start is known only at run
 ///   time. Use [`from_tail_mut`] to take a value from the end of bytes.
 /// - `D` is sized.
@@ -3673,8 +3708,9 @@ pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - Some length of `value` gives it a size that `D` can have. For sized types, this means
 ///   `size_of::<S>() == size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
@@ -3749,9 +3785,9 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - Neither `S` nor `D` holds a scalar that a pun never makes
-///   ([`Spec::never`](layout::Spec::never)) in a part that the pun covers, except in a variant of
-///   an enum, which a check never accepts.
+/// - Neither `S` nor `D` holds an [opaque scalar](crate#opaque-scalars) in a part that the pun
+///   covers, except in a variant of an enum, which a check never accepts, unless it is a
+///   [`Deferred<T>`](Deferred).
 /// - Some length of `value` gives it a size that `D` can have. For sized types, this means
 ///   `size_of::<S>() == size_of::<D>()`.
 /// - Every byte that `D` requires to be initialized is initialized in every value of `S`.
@@ -3813,8 +3849,8 @@ pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Res
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `T` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - No part of the `T` whose bytes are all zero is an [opaque scalar](crate#opaque-scalars), even
+///   in a [`Deferred<T>`](Deferred): `puns` makes no value of one.
 /// - A `T` whose bytes are all zero is a [valid](crate#soundness) `T`, apart from its rules.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
@@ -3939,8 +3975,9 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - `D` is [inhabited].
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
@@ -3991,97 +4028,196 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
   }
 }
 
-/// Returns whether `bytes` are a valid `D`, but for the scalars that a pun never makes
-/// ([`Spec::never`](layout::Spec::never)), which are only required to be initialized, as bytes are.
+// -------------------------------------------------------------------------------------------------
+// `Deferred` and `Validate`
+
+/// A `T` that `puns` checked in everything but the places of its [opaque
+/// scalars](crate#opaque-scalars), which only the crate that declares them proves.
 ///
-/// This is the check of [`from_bytes`] for a `D` that holds such scalars, which `from_bytes`
-/// refuses. It makes no `D`: the crate that declares the scalars proves them, and then makes the
-/// reference.
+/// No function of `puns` makes a value that holds an opaque scalar. Each of them makes a `Deferred`
+/// of one instead, as its target: [`from_bytes`], [`from_head`], [`from_tail`], [`try_pun_ref`],
+/// the variants of a view, typed regions, and the others. As a target, a `Deferred<T>` is checked
+/// as a `T`, its alignment, its size and its rules included, except that its opaque scalars are
+/// checked against their values instead of refused. A `Deferred<T>` that is a part of another type
+/// is checked as a `T`, so its opaque scalars are refused there. A check that fails returns
+/// [`Error::ValidityAt`] the part that fails.
 ///
-/// The bytes need not be aligned for `D`, since no reference to them is made. The crate that makes
-/// the reference checks the address.
-///
-/// # Errors
-///
-/// Returns [`Error::Size`] if the length of `bytes` is not a size that `D` can have, and
-/// [`Error::Validity`] if a part of `D` other than those scalars is not valid, or a rule of `D`
-/// does not hold.
-///
-/// # Compile-time errors
-///
-/// Without the `unstable` feature, a call compiles only if no part of `D` whose layout Rust leaves
-/// to the compiler (a struct, a tuple or an enum of the `Rust` representation) has something to
-/// check. A `D` without values compiles, and no bytes are valid for it.
+/// A `Deferred<T>` gives its `T` only through [`Deferred::validated_with`] and
+/// [`Deferred::validated`], after the [`Validate`] implementation of `T` proves the places.
 ///
 /// # Examples
 ///
-/// A node whose `next` is an offset to another node of the same buffer, which only the crate of
-/// the node can follow:
+/// See [`Validate`].
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct Deferred<T: ?Sized>(T);
+
+impl<T: ?Sized + Validate> Deferred<T> {
+  /// Returns the `T`, if [`Validate::validate`] proves its opaque scalars at their places, with the
+  /// context `cx`.
+  ///
+  /// The proof is made at each call, of the value where it is: a `Deferred<T>` that was copied or
+  /// moved is proven at its new place.
+  ///
+  /// # Errors
+  ///
+  /// Returns the error of [`Validate::validate`].
+  ///
+  /// # Examples
+  ///
+  /// See [`Validate`].
+  #[inline]
+  pub fn validated_with(&self, cx: &mut T::Context<'_>) -> Result<&T, T::Error> {
+    match self.0.validate(cx) {
+      Ok(()) => Ok(&self.0),
+      Err(error) => Err(error),
+    }
+  }
+
+  /// Returns the `T`, if [`Validate::validate`] proves its opaque scalars at their places, with
+  /// the default context.
+  ///
+  /// # Errors
+  ///
+  /// Returns the error of [`Validate::validate`].
+  ///
+  /// # Examples
+  ///
+  /// See [`Validate`].
+  #[inline]
+  pub fn validated(&self) -> Result<&T, T::Error>
+  where
+    for<'a> T::Context<'a>: Default,
+  {
+    self.validated_with(&mut Default::default())
+  }
+}
+
+// SAFETY: `Deferred<T>` is `repr(transparent)` over `T`, its only field, so it has the size, the
+// alignment and the layout of `T`, and its parts are those of `T` at the same offsets. So the lists
+// of `T` are its lists, and its layout is that of `T` (`Pun`, section Safety), marked as deferred,
+// which only changes what a target of it accepts of its opaque scalars, their values, which are
+// what Rust requires of them (`Scalar`, section Safety), and identified as `Deferred<T>`. `PROBE` is
+// that of `T`, cast with `as`, with the same metadata. It holds no `UnsafeCell`, since `T` holds
+// none. `Option<Self>` is `Option<T>`, as `repr(transparent)` gives it.
+unsafe impl<T: ?Sized + Pun> Pun for Deferred<T> {
+  type Elem = T::Elem;
+  type Fields = T::Fields;
+  type Variants = T::Variants;
+  type Rules = T::Rules;
+  const PROBE: *const Self = T::PROBE as *const Self;
+  const LAYOUT: Layout =
+    T::LAYOUT.deferred().identified(layout::Id::new("Deferred", &[T::LAYOUT.id]));
+  const NULL_OPTIMIZED: bool = T::NULL_OPTIMIZED;
+}
+
+/// The proof of the opaque scalars of a type, by the crate that declares them.
+///
+/// `puns` checks a [`Deferred<Self>`](Deferred) in everything but the places of its [opaque
+/// scalars](crate#opaque-scalars). [`Deferred::validated_with`] then calls `validate`, and makes
+/// the `&Self` if it returns `Ok`. `Context` is what `validate` reads and writes, such as the bytes
+/// around the value or a queue of what is left to prove, and `Error` why it fails.
+///
+/// `validate` is given a `&Self` whose bytes are a valid `Self` in Rust's sense, since `puns`
+/// checked the values of every scalar, opaque ones included, but whose opaque scalars are not
+/// proven at their places. It must not rely on what they would mean there before it proves them.
+///
+/// # Safety
+///
+/// `validate` returns `Ok` only if every opaque scalar of `self` is valid at its place: it meets
+/// every invariant that the code of its type relies on there. `Deferred::validated_with` relies on
+/// it to give the `&Self` to safe code.
+///
+/// # Examples
+///
+/// A table whose first byte is the index of one of its items, which `puns` cannot prove from that
+/// byte alone:
 ///
 /// ```
 /// use core::num::NonZero;
 ///
-/// use puns::{Error, Pun, Scalar, layout::Spec};
+/// use puns::{
+///   Deferred, Error, Pun, Scalar, Validate,
+///   layout::{Endian, Spec},
+/// };
 ///
-/// /// An offset from its own address to the next node.
+/// /// The number of an item of the table that holds it, from 1.
 /// #[derive(Clone, Copy)]
 /// #[repr(transparent)]
-/// struct Next(NonZero<u32>);
+/// struct Item(NonZero<u8>);
 ///
-/// // SAFETY: `Next` is `repr(transparent)` over a `NonZero<u32>`, so it has its size, and every
-/// // value is 4 initialized bytes, as `Spec::never` requires. It holds no `UnsafeCell`.
-/// unsafe impl Scalar for Next {
-///   const SPEC: Spec = Spec::never::<Next>();
+/// // SAFETY: `Item` is `repr(transparent)` over a `NonZero<u8>`, so it has its layout, and `SPEC`
+/// // has its size. Its values are the bytes from 1 to 255, each a valid `Item` in Rust's sense.
+/// // Whether it numbers an item of its table is not in its byte: `SPEC` is opaque, and `Validate`
+/// // proves it. It holds no `UnsafeCell`.
+/// unsafe impl Scalar for Item {
+///   const SPEC: Spec = Spec::ranges::<Item>(Endian::NATIVE, &[(1, 255)]).opaque();
 /// }
 ///
 /// #[derive(Pun)]
 /// #[repr(C)]
-/// #[pun(assert(len <= 4))]
-/// struct Node {
-///   len: u32,
-///   next: Next,
+/// struct Table {
+///   first: Item,
+///   len: u8,
+///   #[pun(len = len)]
+///   items: [u8],
 /// }
 ///
-/// // The bytes of a node, in the byte order of the target, as `Node` reads them.
-/// let node = |len: u32| {
-///   let mut bytes = [0; 8];
-///   bytes[..4].copy_from_slice(&len.to_ne_bytes());
-///   bytes[4..].copy_from_slice(&8u32.to_ne_bytes());
-///   bytes
-/// };
-/// let (ok, long) = (node(2), node(9));
-/// assert_eq!(puns::validate_but_never::<Node>(&ok), Ok(()));
-/// assert_eq!(puns::validate_but_never::<Node>(&long), Err(Error::Validity));
-/// assert_eq!(puns::validate_but_never::<Node>(&ok[..4]), Err(Error::Size));
+/// impl Table {
+///   fn first(&self) -> u8 {
+///     self.items[usize::from(self.first.0.get()) - 1]
+///   }
+/// }
+///
+/// // SAFETY: `validate` returns `Ok` only if `first` numbers an item of `items`, which is what
+/// // `Table::first` relies on.
+/// unsafe impl Validate for Table {
+///   type Context<'a> = ();
+///   type Error = ();
+///
+///   fn validate(&self, _: &mut ()) -> Result<(), ()> {
+///     if usize::from(self.first.0.get()) <= self.items.len() { Ok(()) } else { Err(()) }
+///   }
+/// }
+///
+/// let table = puns::from_bytes::<Deferred<Table>>(&[2, 3, 7, 8, 9]).unwrap();
+/// assert_eq!(table.validated().map(Table::first), Ok(8));
+/// // The fourth item of three: `puns` takes the byte, `Validate` refuses it.
+/// assert_eq!(puns::from_bytes::<Deferred<Table>>(&[4, 3, 7, 8, 9]).unwrap().validated().err(), Some(()));
+/// // Zero is no `Item`: `puns` refuses it, at its place.
+/// assert_eq!(puns::from_bytes::<Deferred<Table>>(&[0, 3, 7, 8, 9]).err(), Some(Error::ValidityAt(0)));
 /// ```
 ///
-/// [`from_bytes`] does not compile for such a type, since it would make a `Next`:
+/// `puns` makes no `Table` itself:
 ///
 /// ```compile_fail,E0080
 /// # use core::num::NonZero;
-/// # use puns::{Pun, Scalar, layout::Spec};
+/// # use puns::{Pun, Scalar, layout::{Endian, Spec}};
 /// # #[derive(Clone, Copy)]
 /// # #[repr(transparent)]
-/// # struct Next(NonZero<u32>);
+/// # struct Item(NonZero<u8>);
 /// # // SAFETY: As above.
-/// # unsafe impl Scalar for Next {
-/// #   const SPEC: Spec = Spec::never::<Next>();
+/// # unsafe impl Scalar for Item {
+/// #   const SPEC: Spec = Spec::ranges::<Item>(Endian::NATIVE, &[(1, 255)]).opaque();
 /// # }
-/// let _ = puns::from_bytes::<Next>(&[8, 0, 0, 0]);
+/// # #[derive(Pun)]
+/// # #[repr(C)]
+/// # struct Table { first: Item, len: u8, #[pun(len = len)] items: [u8] }
+/// let _ = puns::from_bytes::<Table>(&[2, 3, 7, 8, 9]);
 /// ```
-pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Error> {
-  const {
-    if !D::LAYOUT.checks_kept() {
-      Message::new(CHECKS_UNSPECIFIED).panic();
-    }
-  };
-  // SAFETY: `bytes` is a valid `[u8]`, valid for reads, and every one of its bytes is initialized,
-  // so every byte that a check reads is. These are the requirements of `check_by`. Its result,
-  // which may not be aligned, is not used as a `D`.
-  match unsafe { Plan::<[u8], D>::check_by::<validate::AllButNever>(bytes) } {
-    Ok(_) => Ok(()),
-    Err(error) => Err(error),
-  }
+pub unsafe trait Validate: Pun {
+  /// What [`Validate::validate`] reads and writes.
+  type Context<'a>;
+  /// Why [`Validate::validate`] fails.
+  type Error;
+
+  /// Returns `Ok` if every opaque scalar of `self` is valid at its place.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if an opaque scalar of `self` is not valid at its place, or if `validate`
+  /// cannot tell.
+  fn validate(&self, cx: &mut Self::Context<'_>) -> Result<(), Self::Error>;
 }
 
 /// Reinterprets mutable bytes as a mutable reference to a `D`, after checking them.
@@ -4103,8 +4239,9 @@ pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Err
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - `D` is [inhabited].
 /// - Every byte of every value of `D` is initialized.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
@@ -4185,6 +4322,9 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     extent: usize,
   ) -> Result<(*const D, usize), Error> {
     let (layout, rule) = const { (D::LAYOUT, D::LAYOUT.length_rule()) };
+    // SAFETY: A failure of the size or the length that a rule gives is one of the value at `addr`,
+    // at offset 0, as `invalid` requires.
+    let not_valid = unsafe { invalid::<C>(addr, addr) };
     let (head, stride) = (layout.head(), layout.stride());
     if n < head {
       return Err(Error::Size);
@@ -4205,7 +4345,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
         // checked above, and the sized fields of `D`, and of the struct in it that has the rule,
         // are in the first `head` bytes. `D` has such a rule: `length_rule` returned it.
         let Some(value) = (unsafe { validate::length::<D>(addr, n) }) else {
-          return Err(Error::Validity);
+          return Err(not_valid);
         };
         // From the size of the struct that has the rule, down to a number of elements: in a
         // `usize` (where the value is a field, the optimizer knows that it fits one), else a
@@ -4213,7 +4353,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
         let before = head - rule.base;
         if value > usize::MAX as u128 {
           let whole = rule.elements || (value - before as u128).is_multiple_of(stride as u128);
-          return Err(if whole { Error::Size } else { Error::Validity });
+          return Err(if whole { Error::Size } else { not_valid });
         }
         let value = value as usize;
         let len = match () {
@@ -4221,7 +4361,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
           () if value >= before && (value - before).is_multiple_of(stride) => {
             (value - before) / stride
           }
-          () => return Err(Error::Validity),
+          () => return Err(not_valid),
         };
         if len > (n - head) / stride {
           return Err(Error::Size);
@@ -4231,7 +4371,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     };
     // At most the `n` bytes: no overflow.
     if extent != usize::MAX && head + len * stride != extent {
-      return Err(Error::Validity);
+      return Err(not_valid);
     }
     // With its trailing padding, if any.
     let size = match layout.size_of_val(len) {
@@ -4243,8 +4383,11 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     // size, `size`, is at most `n`, which is checked above. So it is valid for reads of a `D`, by
     // contract on the caller. Every one of the `n` bytes is initialized, by contract on the
     // caller, so every byte that a check reads is.
-    if !unsafe { validate::<C, Root, D>(target) } {
-      return Err(Error::Validity);
+    let failure = unsafe { validate_at::<C, Root, D>(target) };
+    if !failure.is_null() {
+      // SAFETY: `failure` is the `Failure` of the check of the `D` at `addr`, as `invalid`
+      // requires.
+      return Err(unsafe { invalid::<C>(failure, addr) });
     }
     Ok((target, size))
   }
@@ -4264,7 +4407,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     let Some(start) = n.checked_sub(layout.size()) else { return Err(Error::Size) };
     // SAFETY: `start <= n`, and `addr` is valid for reads of `n` bytes, by contract on the
     // caller. So `addr..addr + start` is in bounds of one allocation, as `add` requires.
-    let addr = unsafe { addr.add(start) };
+    let (bytes, addr) = (addr, unsafe { addr.add(start) });
     if const { D::LAYOUT.align() > 1 } && !ptr::is_aligned(addr, layout.align()) {
       return Err(Error::Alignment);
     }
@@ -4272,8 +4415,12 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     // SAFETY: This satisfies the safety contract of `validate`. `D` is `Sized`, by contract on the
     // caller, and `target` is the `size_of::<D>()` bytes from `start`, which end at `n`. So it is
     // valid for reads of a `D`, and its bytes are initialized, by contract on the caller.
-    if !unsafe { validate::<Self, Root, D>(target) } {
-      return Err(Error::Validity);
+    let failure = unsafe { validate_at::<Self, Root, D>(target) };
+    if !failure.is_null() {
+      // SAFETY: `failure` is the `Failure` of the check of the `D` at `addr`, `start` bytes into
+      // the `n` bytes at `bytes`, so in the same allocation and after `bytes`, as `invalid`
+      // requires. The offset is from the start of the bytes.
+      return Err(unsafe { invalid::<Self>(failure, bytes) });
     }
     Ok((start, target))
   }
@@ -4301,8 +4448,9 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - `D` is [inhabited].
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
@@ -4396,8 +4544,9 @@ pub const fn rejects<D: ?Sized + Pun>(bytes: &[u8]) -> bool {
 ///
 /// - `D` is sized, because where an unsized `D` starts cannot be found from the end of the bytes.
 ///   Use [`from_head`] or [`from_bytes`].
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - `D` is [inhabited].
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.
@@ -4467,8 +4616,9 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&[u8], &D), Err
 ///
 /// A call compiles only if all of the following hold:
 ///
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - `D` is [inhabited].
 /// - Every byte of every value of `D` is initialized.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
@@ -4539,8 +4689,9 @@ pub const fn from_head_mut<D: ?Sized + Pun>(
 /// A call compiles only if all of the following hold:
 ///
 /// - `D` is sized. Use [`from_head_mut`] or [`from_bytes_mut`] for an unsized `D`.
-/// - `D` holds no scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) in a part
-///   that the pun covers, except in a variant of an enum, which a check never accepts.
+/// - `D` holds no [opaque scalar](crate#opaque-scalars) in a part that the pun covers,
+///   except in a variant of an enum, which a check never accepts, unless `D` is a
+///   [`Deferred<T>`](Deferred).
 /// - `D` is [inhabited].
 /// - Every byte of every value of `D` is initialized.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a

@@ -4,14 +4,14 @@ error[E0275]: overflow evaluating the requirement `Ping<u32>: Pun`
 26 |   let _ = puns::as_bytes(&ping);
    |           ^^^^^^^^^^^^^^^^^^^^^
    |
-note: required for `never::Ref<Ping<u32>>` to implement `Scalar`
-  --> tests/compile-fail/../support/never.rs
+note: required for `opaque::Ref<Ping<u32>>` to implement `Scalar`
+  --> tests/compile-fail/../support/opaque.rs
    |
    | unsafe impl<T: Pun> Scalar for Ref<T> {
    |                ---  ^^^^^^     ^^^^^^
    |                |
    |                unsatisfied trait bound introduced here
-   = note: required for `never::Ref<Ping<u32>>` to implement `Pun`
+   = note: required for `opaque::Ref<Ping<u32>>` to implement `Pun`
    = note: 4 redundant requirements hidden
    = note: required for `Ping<u32>` to implement `Pun`
 note: required by a bound in `puns::as_bytes`

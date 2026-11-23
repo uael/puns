@@ -40,6 +40,6 @@ fn main() {
   let _ = puns::try_pun::<u8, Option<bool>>(2);
   // What a `&mut` lets be written.
   let _ = puns::pun_mut::<(bool, u8), [u8; 2]>(&mut (true, 1));
-  // What a check of every part reads.
-  let _ = puns::validate_but_never::<Mixed>(&[1, 1]);
+  // What a check of a `Deferred` reads.
+  let _ = puns::from_bytes::<puns::Deferred<Mixed>>(&[1, 1]);
 }

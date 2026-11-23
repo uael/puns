@@ -26,17 +26,18 @@ use core::{any::type_name, fmt::Write as _, num::NonZero};
 
 use puns::{Pun, Scalar, hook, layout::Spec};
 
-/// A scalar that a pun reads as initialized bytes but never makes, as an offset of another crate
-/// would be.
+/// An opaque scalar, which a pun reads as any initialized bytes but never makes, as an offset of
+/// another crate would be.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 struct Sealed(u32);
 
 // SAFETY: `Sealed` is `repr(transparent)` over a `u32`, so it has its size, and every value is 4
-// initialized bytes, which is all that `Spec::never` says is known of it. It accepts no value, so
-// no pun makes one. It holds no `UnsafeCell`.
+// initialized bytes, each a valid `Sealed` in Rust's sense, which `Spec::any` accepts. Whether it is
+// correct is not in its bytes: `SPEC` is opaque, and not a number, so that no rule reads it. It
+// holds no `UnsafeCell`.
 unsafe impl Scalar for Sealed {
-  const SPEC: Spec = Spec::never::<Sealed>();
+  const SPEC: Spec = Spec::any::<Sealed>().opaque().not_a_number();
 }
 
 /// A struct of the `Rust` representation. Rust specifies its size and that its bytes are

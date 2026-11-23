@@ -701,16 +701,19 @@ fn wide_scalars_in_option() {
   assert_eq!(puns::try_pun::<[u8; 33], Option<Wide>>(bytes), Ok(Some(Wide([7; 32]))));
 }
 
-/// An offset that a pun never makes ([`Spec::never`](puns::layout::Spec::never)).
+/// An opaque offset ([`Spec::opaque`](puns::layout::Spec::opaque)), which a pun never makes.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(transparent)]
 struct Off(NonZero<u32>);
 
 // SAFETY: `Off` is `repr(transparent)` over a `NonZero<u32>`, so `SPEC`, made for `Self`, has its
-// size, and every value is 4 initialized bytes, which is what `Spec::never` says is known of it. It
-// accepts no value, so no pun makes one. It holds no `UnsafeCell`.
+// size and its values, every `u32` but zero, each a valid `Off` in Rust's sense. Where it aims is
+// not in its bytes: `SPEC` is opaque. It holds no `UnsafeCell`.
 unsafe impl puns::Scalar for Off {
-  const SPEC: puns::layout::Spec = puns::layout::Spec::never::<Self>();
+  const SPEC: puns::layout::Spec =
+    puns::layout::Spec::ranges::<Self>(puns::layout::Endian::NATIVE, &[(1, u32::MAX as u128)])
+      .opaque()
+      .not_a_number();
 }
 
 /// An enum of a specified representation, whose sample is `End`, which holds no `Off`.
@@ -721,8 +724,8 @@ enum Link {
   Next(Off),
 }
 
-/// The sample of each variant holds no `Off`, so `puns` finds the layout of the enum, and of an
-/// `Option` of it. A variant whose own field were an `Off` would have no sample.
+/// `puns` finds the layout of the enum, and of an `Option` of it, from a sample of each variant,
+/// one of which holds the least `Off`.
 #[derive(Pun, Clone, Copy, Debug, PartialEq)]
 enum Linked {
   Value(u32),
@@ -730,7 +733,7 @@ enum Linked {
 }
 
 #[test]
-fn never_scalars_in_variants() {
+fn opaque_scalars_in_variants() {
   // A check never accepts the variant that holds an `Off`, in the enum or in an `Option` of it.
   let next = Linked::Link(Link::Next(Off(NonZero::new(8).unwrap())));
   assert_eq!(puns::try_pun_ref::<Linked, Linked>(&next), Err(Error::Validity));
@@ -741,4 +744,8 @@ fn never_scalars_in_variants() {
   assert_eq!(puns::try_pun_ref::<Linked, Linked>(&value), Ok(&value));
   assert_eq!(puns::try_pun_ref::<_, Option<Linked>>(&Some(value)), Ok(&Some(value)));
   assert_eq!(puns::try_pun_ref::<_, Option<Linked>>(&None::<Linked>), Ok(&None));
+  // A `Deferred` takes every variant, by the values of the `Off`.
+  let deferred = puns::try_pun_ref::<Linked, puns::Deferred<Linked>>(&next).unwrap();
+  assert!(puns::try_pun_ref::<_, puns::Deferred<Linked>>(deferred).is_ok());
+  assert!(puns::try_pun::<_, puns::Deferred<Option<Linked>>>(Some(next)).is_ok());
 }

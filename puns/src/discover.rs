@@ -55,9 +55,11 @@
 //! values has no sample either, but a value of it may exist, with a tag that no experiment can
 //! find, so the enum is refused. The lists of fields and variants are the declared ones. A
 //! field of a variant without values is not in the layout, and its entry in the list says so (its
-//! `FIELD` is `None`). The sample of a variant cannot hold a scalar that a pun never makes, because
-//! `puns` cannot make a value of one ([`sample`]). `Option<T>` and `Result<T, E>` are found the
-//! same way (`std_enums.rs`).
+//! `FIELD` is `None`). The sample of a variant that holds an opaque scalar holds the least of its
+//! values, as for any scalar: they are what Rust requires of its bytes, by the contract of
+//! `Scalar`, and a sample is never returned, nor read as anything but bytes and a tag ([`sample`]).
+//! `Option<T>` and `Result<T, E>` are found the same way (`std_enums.rs`), except an `Option` of an
+//! opaque scalar.
 //!
 //! # What the experiments rely on
 //!
@@ -161,8 +163,8 @@ use crate::layout::{Endian, Field, Kind, Layout, Spec, Valid, load, max_value};
 ///
 /// # Panics
 ///
-/// Panics if `T` has no value, or if its sample holds a scalar that a pun never makes, since no
-/// value of one is made of nothing.
+/// Panics if `T` has no value, or if its sample holds a slice or a pattern, which have no size of
+/// their own.
 pub const fn sample<T: crate::Pun>() -> MaybeUninit<T> {
   assert!(T::LAYOUT.is_inhabited(), "a type without values has no sample");
   let mut value = MaybeUninit::<T>::uninit();
@@ -173,7 +175,7 @@ pub const fn sample<T: crate::Pun>() -> MaybeUninit<T> {
 }
 
 /// Returns whether [`sample`] makes a value of the type of `layout` rather than panic: whether the
-/// type has values, and its sample holds no scalar that a pun never makes.
+/// type has values, and its sample holds no slice and no pattern.
 pub const fn has_sample(layout: &Layout) -> bool {
   layout.is_inhabited() && writes(layout)
 }
@@ -181,7 +183,7 @@ pub const fn has_sample(layout: &Layout) -> bool {
 /// Returns whether `write` of `layout` writes a value rather than panic.
 const fn writes(layout: &Layout) -> bool {
   match layout.kind {
-    Kind::Scalar(spec) => !matches!(spec.valid, Valid::Never),
+    Kind::Scalar(_) => true,
     Kind::Array(elem, len) => len == 0 || elem.size == 0 || writes(elem),
     Kind::Struct(fields, _) => {
       let mut i = 0;
@@ -211,7 +213,7 @@ const fn writes(layout: &Layout) -> bool {
 ///
 /// # Panics
 ///
-/// Panics if the value that it writes holds a scalar that a pun never makes, a slice or a pattern.
+/// Panics if the value that it writes holds a slice or a pattern.
 ///
 /// # Safety
 ///
@@ -240,7 +242,6 @@ const unsafe fn write(layout: &Layout, ptr: *mut u8) {
         Valid::Uninit => {}
         Valid::Any => store(ptr, spec.size, spec.endian, 0),
         Valid::In(ranges) => store(ptr, spec.size, spec.endian, ranges[0].0),
-        Valid::Never => panic!("a scalar that a pun never makes has no sample value"),
       },
       Kind::Array(elem, len) => {
         if len == 0 || elem.size == 0 {

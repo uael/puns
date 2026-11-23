@@ -1,0 +1,39 @@
+error[E0080]: evaluation panicked: zero is not a valid value of this type
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `puns::zeroed::<Handle>::{constant#0}` failed here
+  |
+ ::: src/lib.rs
+  |
+  |     assert!(T::LAYOUT.zeroable(), "zero is not a valid value of this type");
+  |     ----------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  | /   const {
+  | |     assert!(T::LAYOUT.zeroable(), "zero is not a valid value of this type");
+  | |   };
+  | |___^
+
+note: the above error was encountered while instantiating `fn puns::zeroed::<Handle>`
+  --> tests/compile-fail/opaque_zeroed.rs:15:19
+   |
+15 |   let _: Handle = puns::zeroed();
+   |                   ^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: zero is not a valid value of this type
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `puns::zeroed::<puns::Deferred<Handle>>::{constant#0}` failed here
+  |
+ ::: src/lib.rs
+  |
+  |     assert!(T::LAYOUT.zeroable(), "zero is not a valid value of this type");
+  |     ----------------------------------------------------------------------- in this macro invocation
+
+note: the above error was encountered while instantiating `fn puns::zeroed::<Deferred<Handle>>`
+  --> tests/compile-fail/opaque_zeroed.rs:16:29
+   |
+16 |   let _: Deferred<Handle> = puns::zeroed();
+   |                             ^^^^^^^^^^^^^^

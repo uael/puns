@@ -1,44 +1,94 @@
-error[E0080]: evaluation panicked: an `Option` of a scalar that a pun never makes must have the size of the scalar: give the scalar a niche, as a `NonZero` has
+error[E0080]: reading memory at alloc184[0x0..0x10], but memory is uninitialized at [0x0..0x1], and this operation requires initialized memory
  --> src/std_enums.rs
   |
-  |     unsafe { never_option::<T>() }
-  |              ^^^^^^^^^^^^^^^^^^^ evaluation of `puns::std_enums::<impl puns::Pun for std::option::Option<Wide>>::LAYOUT` failed inside this call
+  |   let values = const { &unsafe { option_values::<T>() } };
+  |                                  ^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::std_enums::opaque_option::<Gap>::{constant#0}` failed inside this call
   |
-note: inside `puns::std_enums::never_option::<Wide>`
- --> $RUST/core/src/panic.rs
+  = note: the raw bytes of the constant (size: 16, align: 16) {
+              __ 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 │ ░...............
+          }
+note: inside `puns::std_enums::option_values::<Gap>`
+ --> src/std_enums.rs
   |
-  = note: the failure occurred here
+  |     let byte = unsafe { crate::discover::read(&none, at, 1) };
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::discover::read::<Option<Gap>>`
+ --> src/discover.rs
   |
- ::: src/std_enums.rs
+  |   unsafe { load(sample.as_ptr().cast::<u8>().add(offset), len, Endian::NATIVE) }
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `layout::load`
+ --> src/layout.rs
   |
-  | /   assert!(
-  | |     size_of::<Option<T>>() == size_of::<T>(),
-  | |     "an `Option` of a scalar that a pun never makes must have the size of the scalar: give the \
-  | |      scalar a niche, as a `NonZero` has"
-  | |   );
-  | |___- in this macro invocation
+  |         u128::from_le_bytes(buf)
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `core::num::<impl u128>::from_le_bytes`
+ --> $RUST/core/src/num/uint_macros.rs
+ --> $RUST/core/src/num/mod.rs
+ ::: $RUST/core/src/num/mod.rs
+  |
+  = note: in this macro invocation
+  = note: this error originates in the macro `uint_impl` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+note: erroneous constant encountered
+ --> src/std_enums.rs
+  |
+  |   let values = const { &unsafe { option_values::<T>() } };
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/lib.rs
   |
-  |     if !D::LAYOUT.checks_kept() {
-  |         ^^^^^^^^^
+  |     T::LAYOUT.deferred().identified(layout::Id::new("Deferred", &[T::LAYOUT.id]));
+  |     ^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/lib.rs
   |
-  | /   const {
-  | |     if !D::LAYOUT.checks_kept() {
-  | |       Message::new(CHECKS_UNSPECIFIED).panic();
-  | |     }
-  | |   };
-  | |___^
+  |   const ANALYSIS: Analysis = analyze(&S::LAYOUT, &D::LAYOUT);
+  |                                                   ^^^^^^^^^
 
-note: the above error was encountered while instantiating `fn validate_but_never::<Option<Wide>>`
-  --> tests/compile-fail/never_option_without_niche.rs:15:11
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |     check(&Self::ANALYSIS, need)
+  |            ^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<[u8], D>::TRY_REF };
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<[u8], D>::TRY_REF };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn puns::from_bytes::<Deferred<Option<Gap>>>`
+  --> tests/compile-fail/opaque_option_none_uninit.rs:21:11
    |
-15 |   let _ = puns::validate_but_never::<Option<Wide>>(&[0; 8]);
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+21 |   let _ = puns::from_bytes::<Deferred<Option<Gap>>>(&[1, 0]);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |     if const { !Self::ANALYSIS.aligned } && !ptr::is_aligned(source.cast(), D::LAYOUT.align()) {
+  |                 ^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |     if const { !Self::ANALYSIS.aligned } && !ptr::is_aligned(source.cast(), D::LAYOUT.align()) {
+  |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |     if const { !Self::ANALYSIS.aligned } && !ptr::is_aligned(source.cast(), D::LAYOUT.align()) {
+  |                                                                             ^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/lib.rs
@@ -77,10 +127,16 @@ note: erroneous constant encountered
   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const MARKS: Marks = Self::ANALYSIS.relation.marks;
+  |                        ^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
  --> src/validate.rs
   |
   |   if const { !C::MARKS.any(P::LEAF, T::LAYOUT.leaves) } {
-  |                                     ^^^^^^^^^
+  |               ^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
@@ -115,7 +171,7 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |       Shape::Enum(layout) if layout.union => validate_union::<C, T, T::Variants>(ptr),
+  |       Shape::Enum(layout) if layout.union => {
   |                   ^^^^^^
 
 note: erroneous constant encountered
@@ -127,8 +183,68 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |           && (const { !rules_marked::<C, P, T>() } || check_rules(ptr))
-  |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         if (const { !rules_marked::<C, P, T>() }) || check_rules(ptr) {
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         if (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || accepts::<C>(spec, at) {
+  |                      ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         if (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || accepts::<C>(spec, at) {
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   !T::LAYOUT.rules().is_empty() && C::MARKS.any(P::LEAF + T::LAYOUT.leaves - 1, 1)
+  |                                    ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const OPAQUE: bool = D::LAYOUT.is_deferred();
+  |                        ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     match const { (C::OPAQUE, C::POSITION) } {
+  |                    ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     match const { (C::OPAQUE, C::POSITION) } {
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   (!spec.is_opaque() || C::OPAQUE) && unsafe { spec.matches(ptr) }
+  |                         ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const POSITION: bool = D::LAYOUT.is_deferred();
+  |                          ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   if C::POSITION { at } else { core::ptr::dangling() }
+  |      ^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         return if C::POSITION {
+  |                   ^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/ptr.rs
@@ -318,7 +434,7 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     (const { inhabited::<V::Fields>() } && every::<C, T, V::Fields>(ptr))
+  |     (const { inhabited::<V::Fields>() } && every::<C, T, V::Fields>(ptr).is_null())
   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
@@ -330,26 +446,20 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |         (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
-  |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         if (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || accepts::<C>(spec, at) {
+  |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |   let Some(field) = (const { F::FIELD }) else { return true };
+  |   let Some(field) = (const { F::FIELD }) else { return core::ptr::null() };
   |                              ^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |   let Some(field) = (const { F::FIELD }) else { return true };
+  |   let Some(field) = (const { F::FIELD }) else { return core::ptr::null() };
   |                     ^^^^^^^^^^^^^^^^^^^^
-
-note: erroneous constant encountered
- --> src/validate.rs
-  |
-  |         (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
@@ -390,13 +500,13 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |   let Some(expected) = (const { V::TAG }) else { return false };
+  |   let Some(expected) = (const { V::TAG }) else { return failed::<C>(ptr.cast()) };
   |                                 ^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |   let Some(expected) = (const { V::TAG }) else { return false };
+  |   let Some(expected) = (const { V::TAG }) else { return failed::<C>(ptr.cast()) };
   |                        ^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
@@ -420,5 +530,11 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |       (const { inhabited::<V::Fields>() }) && every::<C, T, V::Fields>(ptr)
-  |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     } else if const { inhabited::<V::Fields>() } {
+  |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   if C::POSITION {
+  |      ^^^^^^^^^^^

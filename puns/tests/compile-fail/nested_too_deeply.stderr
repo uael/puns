@@ -17,8 +17,8 @@ note: inside `puns::analysis::relate`
 note: inside `puns::analysis::relate_at`
  --> src/analysis.rs
   |
-  |   relate_with(a, base_a, b, base_b, start, end, checked, &Known::NONE)
-  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   relate_with(a, base_a, b, base_b, start, end, checked, &Known::NONE, b.is_deferred())
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::analysis::relate_with`
  --> src/analysis.rs
   |
@@ -95,17 +95,17 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |           && (const { !rules_marked::<C, P, T>() } || check_rules(ptr))
-  |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         if (const { !rules_marked::<C, P, T>() }) || check_rules(ptr) {
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |         (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
-  |                   ^^^^^^^^
+  |         if (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || accepts::<C>(spec, at) {
+  |                      ^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |         (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         if (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || accepts::<C>(spec, at) {
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

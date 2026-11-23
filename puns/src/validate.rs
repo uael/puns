@@ -12,6 +12,19 @@
 //! `from_head` turns the value of a `size` or `len` rule into a number of elements in a `usize`.
 //! There, the optimizer knows that the value of a field fits a `usize`.
 //!
+//! # Opaque scalars and positions
+//!
+//! Two constants of [`Checks`] change what a check does, each fixed for an instance. Where
+//! `OPAQUE` is false, an opaque scalar is never accepted ([`accepts`]), so a variant that holds one
+//! fails. Where it is true, as for a [`Deferred<T>`](crate::Deferred) target, an opaque scalar is
+//! checked against its values, as any scalar is. A check returns a [`Failure`]: null if the value is
+//! valid, otherwise the address of the part that fails where `POSITION` is true, or one constant
+//! address that is not null where it is false. The test for null then folds into the `bool` that
+//! a check without positions computed before, and the machine code of `examples/codegen.rs` does
+//! not change. The elements of a slice are checked in blocks without a branch. After a block fails,
+//! [`locate`] checks its elements one by one, for the position, out of line and only where
+//! `POSITION` is true.
+//!
 //! # No interpreter
 //!
 //! Every operation of every rule is applied by an instance of a function of its own ([`steps`]), in
@@ -60,10 +73,12 @@
 //! its failure: the evaluator stops there, and what follows is compiled knowing that nothing
 //! failed.
 
+use core::marker::PhantomData;
+
 use crate::{
   Fields, Path, Pun, Root, Rules, Steps, Variants,
   analysis::Marks,
-  layout::{self, Dfa, Enum, Kind, Machine, Op, Rule, Shape, load, op_at, walk_limit},
+  layout::{self, Dfa, Enum, Kind, Machine, Op, Rule, Shape, Spec, load, op_at, walk_limit},
   narrow::{Planned, fit},
   ptr,
   steps::{InRule, ONE, Ops, TWO, WALK},
@@ -73,17 +88,21 @@ use crate::{
 pub trait Checks {
   /// The leaves to check (scalars, patterns, enums, unions and rules), by index in the target.
   const MARKS: Marks;
-  /// Whether a scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) is accepted,
-  /// as the initialized bytes that it is known to be, instead of refused.
-  const NEVER: bool = false;
+  /// Whether an opaque scalar ([`Spec::opaque`](layout::Spec::opaque)) is checked against its
+  /// values, instead of refused unread: a check that makes no value, for the crate that proves
+  /// the scalar.
+  const OPAQUE: bool = false;
+  /// Whether a failure returns where it is ([`validate_at`]), instead of an address that only says
+  /// that it failed ([`failed`]).
+  const POSITION: bool = false;
 }
 
-/// The [`Checks`] that check every part, but accept a scalar that a pun never makes.
-pub struct AllButNever;
+/// The [`Checks`] that check every part, an opaque scalar against its values.
+pub struct AllButOpaque;
 
-impl Checks for AllButNever {
+impl Checks for AllButOpaque {
   const MARKS: Marks = Marks::ALL;
-  const NEVER: bool = true;
+  const OPAQUE: bool = true;
 }
 
 /// The [`Checks`] that check every part.
@@ -93,11 +112,66 @@ impl Checks for All {
   const MARKS: Marks = Marks::ALL;
 }
 
+/// The [`Checks`] of `C`, whose failures return where they are.
+pub struct Located<C>(PhantomData<C>);
+
+impl<C: Checks> Checks for Located<C> {
+  const MARKS: Marks = C::MARKS;
+  const OPAQUE: bool = C::OPAQUE;
+  const POSITION: bool = true;
+}
+
+/// Where a check failed: null if it did not. Otherwise, if [`Checks::POSITION`], the address of
+/// the part that failed: a scalar, a field restricted by `#[pun(valid(..))]`, a struct whose rule
+/// does not hold, an enum whose tag is no variant that has values, a union none of whose fields
+/// is valid, or a pattern. Otherwise any address that is not null ([`failed`]).
+pub type Failure = *const u8;
+
+/// Returns the [`Failure`] of the part at `at`: `at` if `C` asks where, and otherwise one address
+/// that is not null, the same for every part.
+///
+/// Where `C` does not ask where, every failure is then the same constant, and a caller that tests
+/// it for null compiles to what a `bool` would. The address is never read.
+#[inline(always)]
+const fn failed<C: Checks>(at: *const u8) -> Failure {
+  if C::POSITION { at } else { core::ptr::dangling() }
+}
+
+/// Returns whether the scalar `spec` at `ptr` is valid as `C` checks it.
+///
+/// An opaque scalar is refused unread, unless `C` checks it against its values ([`Checks::OPAQUE`]):
+/// no function that makes a value accepts one.
+///
+/// # Safety
+///
+/// The caller must ensure that:
+///
+/// - If the scalar is not opaque, or `C::OPAQUE` is `true`, the requirements of `Spec::matches`.
+#[inline(always)]
+const unsafe fn accepts<C: Checks>(spec: Spec, ptr: *const u8) -> bool {
+  // SAFETY: `matches` is called only if the scalar is not opaque or `C::OPAQUE` is `true`, and its
+  // requirements then hold, by contract on the caller.
+  (!spec.is_opaque() || C::OPAQUE) && unsafe { spec.matches(ptr) }
+}
+
 /// Returns whether the parts of the `T` at `ptr` that `C` marks are valid.
+///
+/// It is [`validate_at`], of which it keeps only whether the check failed.
+///
+/// # Safety
+///
+/// The requirements of [`validate_at`].
+pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T) -> bool {
+  // SAFETY: The requirements of `validate_at`, by contract on the caller.
+  unsafe { validate_at::<C, P, T>(ptr).is_null() }
+}
+
+/// Returns where the parts of the `T` at `ptr` that `C` marks are not valid: null if they are.
 ///
 /// `P` is where `T` is in the target, which tells the indexes of its leaves. Parts that `C` does
 /// not mark are not checked, and their checks are not compiled. An enum and a union are checked
-/// as a whole once one of their leaves is marked.
+/// as a whole once one of their leaves is marked. The [`Failure`] is the first part that fails,
+/// in the order of the checks: the fields of a struct in order, then its rules.
 ///
 /// # Safety
 ///
@@ -105,25 +179,25 @@ impl Checks for All {
 ///
 /// - `ptr` is valid for reads of a `T`. It need not be aligned.
 /// - Every byte that a check marked by `C` reads is initialized. A marked scalar reads its own
-///   bytes, unless it is one that a pun never makes, which is never read: `C::NEVER` accepts it,
-///   and otherwise it is refused. A marked pattern reads its tail. An enum or a union with a marked
-///   leaf reads its tag and what the checks of its variants read, which check every part. Nothing
-///   is read of a variant, or of a field of a union, that has no value. A struct whose rules are
-///   marked reads the fields that its rules load and, if one of its rules reads bytes by offset
-///   ([`Layout::rules_read_bytes`]), all of its bytes, padding included.
+///   bytes, unless it is opaque and `C::OPAQUE` is `false`: it is then refused unread. A marked
+///   pattern reads its tail. An enum or a union with a marked leaf reads its tag and what the checks
+///   of its variants read, which check every part. Nothing is read of a variant, or of a field of a
+///   union, that has no value. A struct whose rules are marked reads the fields that its rules load
+///   and, if one of its rules reads bytes by offset ([`Layout::rules_read_bytes`]), all of its
+///   bytes, padding included.
 ///
 /// [`Layout::rules_read_bytes`]: layout::Layout::rules_read_bytes
-pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T) -> bool {
+pub const unsafe fn validate_at<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T) -> Failure {
   if const { !C::MARKS.any(P::LEAF, T::LAYOUT.leaves) } {
-    return true;
+    return core::ptr::null();
   }
   // SAFETY: `ptr` is valid for reads of a `T`, and every byte that a marked check reads is
   // initialized, by contract on the caller. A leaf of `T` is marked, since the function did not
   // return above. `T::LAYOUT` is the layout of `T`, and `T::Elem`, `T::Fields` and `T::Variants`
   // are its lists (`Pun`, section Safety). For each shape:
-  // - A scalar is `T` itself, of `spec.size` bytes, and is marked. If it is one that a pun never
-  //   makes, nothing reads it: `C::NEVER` accepts it, and `Spec::matches` refuses it otherwise.
-  //   Any other scalar reads its own bytes, so they are initialized, as `Spec::matches` requires.
+  // - A scalar is `T` itself, of `spec.size` bytes, and is marked. If it is opaque and `C::OPAQUE`
+  //   is `false`, nothing reads it. Any other scalar reads its own bytes, so they are initialized,
+  //   as `accepts` requires.
   // - An array or a slice is `len` or `ptr::metadata(ptr)` elements of type `T::Elem`, one after
   //   the other, each valid for reads. Its elements share their leaves, so what is marked in one
   //   is marked in each, as `validate_elems` requires.
@@ -137,31 +211,65 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
   //   with `layout` the layout of `T`, and of `validate_union`, with `T::Variants` the list of
   //   its variants.
   unsafe {
+    let at = ptr.cast::<u8>();
+    // Each arm returns its own failure. One failure for every arm, returned at the end of the
+    // function, costs an instruction in the machine code of `examples/codegen.rs`
+    // (`from_tail::<Trailer>`).
     match const { T::LAYOUT.shape() } {
-      Shape::Scalar(spec) => (const { C::NEVER } && spec.is_never()) || spec.matches(ptr.cast()),
+      Shape::Scalar(spec) => {
+        if accepts::<C>(spec, at) {
+          core::ptr::null()
+        } else {
+          failed::<C>(at)
+        }
+      }
       Shape::Array(len) => validate_elems::<C, P, T::Elem>(ptr.cast(), len),
       Shape::Slice => validate_elems::<C, P, T::Elem>(ptr.cast(), ptr::metadata(ptr)),
       Shape::Struct => {
-        validate_fields::<C, P, T, T::Fields>(ptr)
-          && (const { !rules_marked::<C, P, T>() } || check_rules(ptr))
+        let fields = validate_fields::<C, P, T, T::Fields>(ptr);
+        if !fields.is_null() {
+          return fields;
+        }
+        if (const { !rules_marked::<C, P, T>() }) || check_rules(ptr) {
+          core::ptr::null()
+        } else {
+          failed::<C>(at)
+        }
       }
       // `str::from_utf8` checks the bytes where the automaton is that of UTF-8, by its states,
       // since an `id` proves nothing. This is decided at compile time.
       Shape::Pattern(_) if const { matches!(T::LAYOUT.kind, Kind::Pattern(dfa) if dfa.is_utf8()) } => {
-        Dfa::matches_utf8(ptr.cast(), ptr::metadata(ptr))
+        if Dfa::matches_utf8(at, ptr::metadata(ptr)) {
+          core::ptr::null()
+        } else {
+          failed::<C>(at)
+        }
       }
-      Shape::Pattern(dfa) => dfa.matches(ptr.cast(), ptr::metadata(ptr)),
-      Shape::Enum(layout) if layout.union => validate_union::<C, T, T::Variants>(ptr),
+      Shape::Pattern(dfa) => {
+        if dfa.matches(at, ptr::metadata(ptr)) {
+          core::ptr::null()
+        } else {
+          failed::<C>(at)
+        }
+      }
+      Shape::Enum(layout) if layout.union => {
+        if validate_union::<C, T, T::Variants>(ptr) {
+          core::ptr::null()
+        } else {
+          failed::<C>(at)
+        }
+      }
       Shape::Enum(layout) => validate_enum::<C, T>(ptr, layout),
     }
   }
 }
 
-/// Returns whether the enum at `ptr` has the tag of one of its variants, and the fields of that
-/// variant are valid.
+/// Returns where the enum at `ptr` fails: null if it has the tag of one of its variants and the
+/// fields of that variant are valid, the enum if no variant that has values has its tag, and
+/// otherwise the part of the variant that fails.
 ///
-/// Every part of the variant is checked, since nothing is known of what is in an enum, with a
-/// scalar that a pun never makes accepted if `C` accepts it.
+/// Every part of the variant is checked, since nothing is known of what is in an enum, with an
+/// opaque scalar refused unless `C` checks it against its values.
 ///
 /// # Panics
 ///
@@ -176,7 +284,7 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
 /// - The tag of the enum is initialized, and so is every byte that the checks of the fields of that
 ///   tag's variant read, which check every part.
 #[inline(always)]
-const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout: &Enum) -> bool {
+const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout: &Enum) -> Failure {
   let Kind::Scalar(spec) = layout.tag.layout.kind else { panic!() };
   // SAFETY: `Layout::enumeration` asserts that the tag is a scalar that `Spec::is_integer`
   // accepts, so of at most 16 bytes, at `layout.tag.offset` within the size of `T`. So `add`
@@ -190,12 +298,14 @@ const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout:
   }
 }
 
-/// Returns whether the variant of tag `tag`, among `V` and the ones after it, has valid fields
-/// in the enum at `ptr`, with a scalar that a pun never makes accepted if `C` accepts it.
+/// Returns where the variant of tag `tag`, among `V` and the ones after it, fails in the enum at
+/// `ptr`: null if its fields are valid, with an opaque scalar refused unless `C` checks it against
+/// its values.
 ///
-/// Returns `false` if no such variant has the tag. A variant whose tag is a range of values (the
-/// variant of a niche) has the tag if `tag` is in that range. Returns `false` too, without reading
-/// anything, if the variant that has the tag has no value, because one of its fields has none.
+/// Fails at the enum if no such variant has the tag. A variant whose tag is a range of values (the
+/// variant of a niche) has the tag if `tag` is in that range. Fails at the enum too, without
+/// reading anything, if the variant that has the tag has no value, because one of its fields has
+/// none.
 ///
 /// # Safety
 ///
@@ -208,8 +318,8 @@ const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout:
 const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
   ptr: *const T,
   tag: u128,
-) -> bool {
-  let Some(expected) = (const { V::TAG }) else { return false };
+) -> Failure {
+  let Some(expected) = (const { V::TAG }) else { return failed::<C>(ptr.cast()) };
   let this = match const { V::RANGES } {
     None => tag == expected,
     // The variant of a niche, or one that no value is (no range).
@@ -221,12 +331,14 @@ const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
   // as `validate_fields` requires. Otherwise the requirements of the call for the next variants are
   // those of this call.
   unsafe {
-    if this {
+    if !this {
+      validate_variants::<C, T, V::Next>(ptr, tag)
+    } else if const { inhabited::<V::Fields>() } {
+      every::<C, T, V::Fields>(ptr)
+    } else {
       // No value is a variant of which a field has no value, so nothing of it is read. The
       // analysis does not look at such a variant either (`Variant::is_present`).
-      (const { inhabited::<V::Fields>() }) && every::<C, T, V::Fields>(ptr)
-    } else {
-      validate_variants::<C, T, V::Next>(ptr, tag)
+      failed::<C>(ptr.cast())
     }
   }
 }
@@ -240,27 +352,28 @@ const fn inhabited<F: Fields>() -> bool {
   }
 }
 
-/// Returns whether every part of the fields `F` of the `T` at `ptr` is valid, with a scalar that a
-/// pun never makes accepted if `C` accepts it.
+/// Returns where a part of the fields `F` of the `T` at `ptr` fails, every part checked, with an
+/// opaque scalar refused unless `C` checks it against its values, and positions if `C` asks.
 ///
 /// # Safety
 ///
 /// The requirements of `validate_fields` with every part marked.
 #[inline(always)]
-const unsafe fn every<C: Checks, T: ?Sized + Pun, F: Fields>(ptr: *const T) -> bool {
+const unsafe fn every<C: Checks, T: ?Sized + Pun, F: Fields>(ptr: *const T) -> Failure {
   // SAFETY: The requirements of `validate_fields`, by contract on the caller.
   unsafe {
-    if const { C::NEVER } {
-      validate_fields::<AllButNever, Root, T, F>(ptr)
-    } else {
-      validate_fields::<All, Root, T, F>(ptr)
+    match const { (C::OPAQUE, C::POSITION) } {
+      (true, false) => validate_fields::<AllButOpaque, Root, T, F>(ptr),
+      (false, false) => validate_fields::<All, Root, T, F>(ptr),
+      (true, true) => validate_fields::<Located<AllButOpaque>, Root, T, F>(ptr),
+      (false, true) => validate_fields::<Located<All>, Root, T, F>(ptr),
     }
   }
 }
 
 /// Returns whether the union at `ptr` is a valid value of one of its fields, `V` or one after it.
-/// A union holds no scalar that a pun never makes (`Layout::union` asserts it), so `C` changes
-/// nothing here.
+/// A union holds no opaque scalar (`Layout::union` asserts it), so `C::OPAQUE` changes nothing
+/// here. A union that fails fails as a whole, since no field tells which one it was meant to be.
 ///
 /// Each field of a union is a variant of one field in its layout.
 ///
@@ -284,22 +397,24 @@ const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(ptr: *co
   // call. Nothing is read of a field that has no value, which no bytes are, as in
   // `validate_variants`.
   unsafe {
-    (const { inhabited::<V::Fields>() } && every::<C, T, V::Fields>(ptr))
+    (const { inhabited::<V::Fields>() } && every::<C, T, V::Fields>(ptr).is_null())
       || validate_union::<C, T, V::Next>(ptr)
   }
 }
 
-/// Returns whether the parts that `C` marks of the `len` elements at `ptr` are valid.
+/// Returns where the parts that `C` marks of the `len` elements at `ptr` fail: null if they are
+/// valid.
 ///
 /// Elements whose checks are a few comparisons are checked in blocks of about 64 bytes, without a
-/// branch within a block. The result is the same as one element at a time.
+/// branch within a block. The result is the same as one element at a time. If a block fails and
+/// `C` asks where, its elements are checked again one at a time ([`locate`]), only then.
 ///
 /// # Safety
 ///
 /// The caller must ensure that:
 ///
-/// - `ptr` is valid for reads of `len` consecutive `T`s, each as [`validate`] requires.
-const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(ptr: *const T, len: usize) -> bool {
+/// - `ptr` is valid for reads of `len` consecutive `T`s, each as [`validate_at`] requires.
+const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(ptr: *const T, len: usize) -> Failure {
   let mut i = 0;
   // Without a stop within a block, the optimizer can vectorize the checks, which it cannot do in a
   // loop that may stop at each element.
@@ -315,7 +430,13 @@ const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(ptr: *const T, len: u
         j += 1;
       }
       if !valid {
-        return false;
+        return if C::POSITION {
+          // SAFETY: The `block` elements from `i` are within the `len` elements at `ptr`, as
+          // above, each as `validate_at` requires, as `locate` requires.
+          unsafe { locate::<C, P, T>(ptr.add(i), block) }
+        } else {
+          failed::<C>(ptr.cast())
+        };
       }
       i += block;
     }
@@ -323,26 +444,56 @@ const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(ptr: *const T, len: u
   while i < len {
     // SAFETY: `i < len`. `ptr` is valid for reads of `len` elements, by contract on the caller,
     // so `add(i)` stays within them and points to an element that meets the requirements of
-    // `validate`.
-    if !unsafe { validate::<C, P, T>(ptr.add(i)) } {
-      return false;
+    // `validate_at`.
+    let failure = unsafe { validate_at::<C, P, T>(ptr.add(i)) };
+    if !failure.is_null() {
+      return failure;
     }
     i += 1;
   }
-  true
+  core::ptr::null()
 }
 
-/// Returns whether the parts that `C` marks of the field `F` of the `T` at `ptr`, and of the
-/// fields after it, are valid.
+/// Returns where the first of the `len` elements at `ptr` that fails fails, after a block of them
+/// failed: the check of the block keeps no position, so that it has no branch.
 ///
-/// A field restricted by `#[pun(valid(..))]` is checked against its restriction, not against its
-/// type.
+/// It runs only after a failure, so it is out of line, and compiled away where `C` does not ask
+/// where.
 ///
 /// # Safety
 ///
 /// The caller must ensure that:
 ///
-/// - The requirements of [`validate`] hold, with the same `C`, `P` and `T`.
+/// - `ptr` is valid for reads of `len` consecutive `T`s, each as [`validate_at`] requires.
+#[cold]
+#[inline(never)]
+const unsafe fn locate<C: Checks, P: Path, T: Pun>(ptr: *const T, len: usize) -> Failure {
+  let mut i = 0;
+  while i < len {
+    // SAFETY: `i < len`. `ptr` is valid for reads of `len` elements, by contract on the caller,
+    // so `add(i)` stays within them and points to an element that meets the requirements of
+    // `validate_at`.
+    let failure = unsafe { validate_at::<C, P, T>(ptr.add(i)) };
+    if !failure.is_null() {
+      return failure;
+    }
+    i += 1;
+  }
+  // The block failed, so one of its elements does: not reached.
+  failed::<C>(ptr.cast())
+}
+
+/// Returns where the parts that `C` marks of the field `F` of the `T` at `ptr`, and of the fields
+/// after it, fail: null if they are valid.
+///
+/// A field restricted by `#[pun(valid(..))]` is checked against its restriction, not against its
+/// type, and fails at its place.
+///
+/// # Safety
+///
+/// The caller must ensure that:
+///
+/// - The requirements of [`validate_at`] hold, with the same `C`, `P` and `T`.
 /// - `F` is a field of `T`: of the struct, or of the variant of the enum that the value at `ptr`
 ///   is.
 ///
@@ -352,8 +503,8 @@ const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(ptr: *const T, len: u
 /// writes the list with paths that the user may redefine, so this is checked.
 const unsafe fn validate_fields<C: Checks, P: Path, T: ?Sized + Pun, F: Fields>(
   ptr: *const T,
-) -> bool {
-  let Some(field) = (const { F::FIELD }) else { return true };
+) -> Failure {
+  let Some(field) = (const { F::FIELD }) else { return core::ptr::null() };
   // Where the list says that the field is must be where its layout says it is: the list is made
   // by the derive with paths it is told (`#[pun(crate = ..)]`), which could name another `At`.
   const {
@@ -365,25 +516,32 @@ const unsafe fn validate_fields<C: Checks, P: Path, T: ?Sized + Pun, F: Fields>(
   };
   // SAFETY: `F` is a field of `T`, by contract on the caller, and `field` is its place in the
   // layout of `T`, `F::FIELD` (`Fields`, section Safety). `ptr` points to the start of a `T` that
-  // is valid for reads, by the requirements of `validate`, so in one allocation, and `T` has a
+  // is valid for reads, by the requirements of `validate_at`, so in one allocation, and `T` has a
   // field of type `F::Type` at `field.offset()`. These are the requirements of `ptr::field` and
   // `add`, and that field is valid for reads.
-  // - A restricted field is a scalar leaf. It is read only if it is marked, so its bytes are
-  //   initialized, as `Spec::matches` requires.
+  // - A restricted field is a scalar leaf. It is read only if it is marked, and is not an opaque
+  //   scalar that `C` refuses unread, so its bytes are initialized, as `accepts` requires.
   // - Any other field is a `F::Type` at the place `F::Path<P>`, which the assertion above shows
   //   is the leaf of the field. What `C` marks there is what it marks of the field in `T`. So the
-  //   field meets the requirements of `validate`.
+  //   field meets the requirements of `validate_at`.
   // The requirements of the call for the next fields are those of this call.
   unsafe {
-    let valid = match field.restriction() {
+    let failure = match field.restriction() {
       // A scalar that accepts less than its type does: there is no type to recurse into.
       Some(spec) => {
-        (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
-          || spec.matches(ptr.cast::<u8>().add(field.offset()))
+        let at = ptr.cast::<u8>().add(field.offset());
+        if (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || accepts::<C>(spec, at) {
+          core::ptr::null()
+        } else {
+          failed::<C>(at)
+        }
       }
-      None => validate::<C, F::Path<P>, F::Type>(ptr::field::<T, F::Type>(ptr, field.offset())),
+      None => validate_at::<C, F::Path<P>, F::Type>(ptr::field::<T, F::Type>(ptr, field.offset())),
     };
-    valid && validate_fields::<C, P, T, F::Next>(ptr)
+    if !failure.is_null() {
+      return failure;
+    }
+    validate_fields::<C, P, T, F::Next>(ptr)
   }
 }
 

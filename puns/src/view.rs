@@ -251,6 +251,9 @@ where
     let head = if head.0 == NONE { all } else { head.1 };
     whole.union(&head)
   };
+  /// A variant that is a [`Deferred<T>`](crate::Deferred) checks its opaque scalars against their
+  /// values. A view returns no position of a failure.
+  const OPAQUE: bool = <Plan<[u8], <V::List as Get<I>>::Type> as Checks>::OPAQUE;
 }
 
 /// Returns the index of the first base of the variant at `index` of a list, among the variants
@@ -472,8 +475,8 @@ where
 ///
 /// A call compiles only if all of the following hold, as for [`from_bytes`](crate::from_bytes):
 ///
-/// - The type of `I` holds no scalar that a pun never makes in a part that the check covers, except
-///   in a variant of an enum, which a check never accepts.
+/// - The type of `I` holds no opaque scalar in a part that the check covers, except in a variant
+///   of an enum, which a check never accepts, unless it is a [`Deferred<T>`](crate::Deferred).
 /// - Some bytes are a valid value of the type of `I`.
 /// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
 ///   check accepts do not depend on a layout that Rust leaves to the compiler.

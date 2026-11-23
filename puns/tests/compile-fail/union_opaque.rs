@@ -1,9 +1,9 @@
-//! A union holds no scalar that a pun never makes: what is known of a union is what each field
+//! A union holds no opaque scalar: what is known of a union is what each field
 //! could hold, and its crate proves such a scalar where it makes one, which a union does not tell.
-#[path = "../support/never.rs"]
+#[path = "../support/opaque.rs"]
 #[allow(dead_code)]
-mod never;
-use never::Off;
+mod opaque;
+use opaque::Off;
 
 #[derive(puns::Pun, Clone, Copy)]
 #[repr(C)]

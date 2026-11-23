@@ -140,9 +140,10 @@ the crate docs and `README.md` consistent with the code.
 
 - **`puns/`**: the library (`#![no_std]`, no dependency but the derive). A scalar whose validity
   is not in its bytes, such as the offset of a self-relative pointer of `nearest`, is a `Scalar`
-  with `Spec::never`: a pun reads it and never makes it, and its crate proves it, so `nearest`
-  depends on `puns`, not the reverse. The tests declare such scalars through that API only
-  (`tests/support/never.rs`, shared by `#[path]` with the compile-fail cases).
+  with `Spec::opaque`: a pun reads it by its values and never makes it, but in a `Deferred<T>`,
+  which its crate proves with `Validate`, so `nearest` depends on `puns`, not the reverse. The
+  tests declare such scalars through that API only (`tests/support/opaque.rs`, shared by `#[path]`
+  with the compile-fail cases).
 - **`puns-derive/`**: `#[derive(Pun)]`, re-exported as `puns::Pun`.
 - **`puns-model/`**: the model check of the analysis against oracles that do not use it (not
   published, and using the test-only `verdict` feature of `puns`), with `fakecore/`, a `core` whose

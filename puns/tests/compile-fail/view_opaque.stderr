@@ -5,7 +5,7 @@ error[E0080]: evaluation panicked:
     --> src/lib.rs
      |
      |   const TRY_REF: () = Self::require(Self::check(Need::TRY_REF));
-     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8], never::Node>::TRY_REF` failed inside this call
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8], opaque::Node>::TRY_REF` failed inside this call
      |
 note: inside `puns::Plan::<[u8], Node>::require`
  --> src/lib.rs

@@ -35,7 +35,7 @@ note: erroneous constant encountered
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: the above error was encountered while instantiating `fn pun::<Nullable, Linked>`
-  --> tests/compile-fail/never_same_enum.rs:21:19
+  --> tests/compile-fail/opaque_same_enum.rs:21:19
    |
 21 |   let _: Linked = puns::pun(Nullable::Next(None));
    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -77,7 +77,7 @@ note: erroneous constant encountered
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: the above error was encountered while instantiating `fn pun_ref::<Nullable, Nullable>`
-  --> tests/compile-fail/never_same_enum.rs:22:22
+  --> tests/compile-fail/opaque_same_enum.rs:22:22
    |
 22 |   let _: &Nullable = puns::pun_ref(&Nullable::Next(None));
    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

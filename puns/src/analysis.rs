@@ -233,9 +233,8 @@
 //!   the multiples of the greatest common divisor of the sizes, of which every sum of sizes is one.
 //!   A few of these offsets are in no order, such as the second byte of a `(bool, [u8; 3])`, so
 //!   more is then required, never less. A struct that has a rule, which names fields, proves only
-//!   itself, as an enum does. As a target, a part that holds a scalar that a pun never makes is
-//!   proven by nothing, not even by itself ([`Layout::holds_never`]), and is refused in every
-//!   layout.
+//!   itself, as an enum does. As a target, a part that holds an opaque scalar is proven by
+//!   nothing, not even by itself ([`Layout::holds_opaque`]), and is refused in every layout.
 //! - **A check does not replace a proof in a closed node,** since a check would read where the
 //!   compiler may not have put the field. What is not proven does not compile
 //!   ([`Relation::unspecified`]), and whatever reads a relation reads this, including what a
@@ -246,8 +245,8 @@
 //!   layout. A union that a later field proves is not refused for an earlier field that is not
 //!   proven, and where its leaf is marked for another reason, its check tries that field first,
 //!   where `rustc` put its fields: the later field accepts whatever that field does not. And a
-//!   part that holds a scalar that a pun never makes is never valid, so the enum of a variant that
-//!   holds it is checked as a whole, and the check reads the fields of the part. Since a field may
+//!   part that holds an opaque scalar is never valid, but in a `Deferred<T>`, so the enum of a
+//!   variant that holds it is checked as a whole, and the check reads the fields of the part. Since a field may
 //!   be anywhere in the node, such a node is refused there if any byte under it may be
 //!   uninitialized in the source ([`Relation::unreadable`]).
 //!
@@ -264,9 +263,9 @@
 //! only if what Rust does not specify of them is of the same type ([`equal`]). A `&mut` to a part
 //! covers such a node whole, by the same type, or not at all ([`cut`]). A pun of a type whose size
 //! Rust does not specify compiles only if both sides are the same type ([`sizes_kept`]).
-//! [`validate_but_never`](crate::validate_but_never) compiles only if nothing that Rust does not
-//! specify has something to check ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does not
-//! accept the zeros of an enum that is not fixed.
+//! A part checked as a whole, as an enum or what a string of the source covers, is refused if
+//! something that Rust does not specify in it has something to check ([`Layout::checks_kept`]), and
+//! [`zeroed`](crate::zeroed) does not accept the zeros of an enum that is not fixed.
 //!
 //! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
 
@@ -400,6 +399,9 @@ pub struct Cursor {
   /// This is the tag of an enum, when a variant of the target is related to a variant of the
   /// source, or to a source whose bytes there are one of the tags of that variant.
   known: Known,
+  /// Whether the target is a [`Deferred<T>`](crate::Deferred): its opaque scalars are then
+  /// related as scalars of their values, which its check reads (`Checks::OPAQUE`).
+  deferred: bool,
 }
 
 /// The most ranges that a [`Known`] holds. Past them, nothing is known.
@@ -510,7 +512,8 @@ impl Cursor {
     checked: Checked,
   ) -> Self {
     let frame = Frame { layout: root, base, leaf: 0, field: 0 };
-    Self { stack: [frame; MAX_DEPTH], depth: 1, target, checked, known: Known::NONE }
+    let deferred = target && root.is_deferred();
+    Self { stack: [frame; MAX_DEPTH], depth: 1, target, checked, known: Known::NONE, deferred }
   }
 
   /// Returns whether a rule that may be checked reads the padding at the top of the stack.
@@ -596,6 +599,12 @@ impl Cursor {
         Uniform::No => {}
       }
       match layout.kind {
+        // In a target that is a `Deferred<T>`, an opaque scalar is a scalar of its values.
+        Kind::Scalar(spec) if self.deferred && spec.is_opaque() => {
+          let spec = spec.decided();
+          let kind = if spec.is_constrained() { RunKind::Atom(spec) } else { RunKind::Any };
+          return Run { kind, start: frame.base, end, leaf: frame.leaf };
+        }
         Kind::Scalar(spec) => {
           return Run { kind: RunKind::Atom(spec), start: frame.base, end, leaf: frame.leaf };
         }
@@ -920,10 +929,11 @@ pub const fn relate_at(
   end: usize,
   checked: Checked,
 ) -> Relation {
-  relate_with(a, base_a, b, base_b, start, end, checked, &Known::NONE)
+  relate_with(a, base_a, b, base_b, start, end, checked, &Known::NONE, b.is_deferred())
 }
 
-/// Relates `a` and `b` as [`relate_at`] does, knowing what the source holds at some bytes.
+/// Relates `a` and `b` as [`relate_at`] does, knowing what the source holds at some bytes, and
+/// whether `b` is a part of a [`Deferred<T>`](crate::Deferred) target (`deferred`).
 ///
 /// A string that the target ends with and that starts at `end` is empty, and the range does not
 /// reach it. No value of the source is valid for it if its automaton does not accept the empty
@@ -938,6 +948,7 @@ const fn relate_with(
   end: usize,
   checked: Checked,
   known: &Known,
+  deferred: bool,
 ) -> Relation {
   assert!(base_a == 0 || matches!(checked, Checked::No), "internal error: shifted source");
   let mut relation = Relation::NEW;
@@ -967,6 +978,7 @@ const fn relate_with(
   let mut a = Cursor::new(a, base_a, false, Checked::No);
   let mut b = Cursor::new(b, base_b, true, checked);
   b.known = *known;
+  b.deferred = deferred;
   relate_range(&mut a, &mut b, start, end, &mut relation);
   // The empty string at `end`. The root of a dynamic layout has no end, so the cursor reaches it.
   if end != usize::MAX
@@ -1264,8 +1276,8 @@ const fn relate_range(
         if out.partial.is_none() {
           out.partial = Some(pos);
         }
-        // No check accepts a scalar that a pun never makes.
-        if b.stack[0].layout.holds_never() && out.disjoint.is_none() {
+        // No check accepts an opaque scalar, but that of a `Deferred<T>`.
+        if !b.deferred && b.stack[0].layout.holds_opaque() && out.disjoint.is_none() {
           out.disjoint = Some(pos);
         }
         // A part whose layout Rust leaves to the compiler is recorded too, since a check would read
@@ -1293,12 +1305,11 @@ const fn relate_range(
     if let RunKind::Closed(target) = run_b.kind {
       let stop = min(run_b.end, end);
       let whole = run_b.start == pos && run_b.end <= end;
-      // Not a part that holds a scalar that a pun never makes, which nothing proves, not even the
-      // same type.
+      // Not a part that holds an opaque scalar, which nothing proves, not even the same type.
       let same = matches!(run_a.kind, RunKind::Closed(source) if same_type(source, target))
         && run_a.start == pos
         && whole
-        && !target.holds_never();
+        && (b.deferred || !target.holds_opaque());
       let fields = if same || !whole { (false, None) } else { relate_fields(a, b, target, pos) };
       let proven = same || fields.0;
       // Proven, but what a check of it would read may be uninitialized in the source.
@@ -1315,7 +1326,7 @@ const fn relate_range(
         // `rustc` put them, so any byte under it counts.
         out.unreadable(run_b.leaf, target.leaves, at);
       }
-      if !proven && target.holds_never() {
+      if !proven && !b.deferred && target.holds_opaque() {
         // Refused in every layout, so not for the layout.
         if out.disjoint.is_none() {
           out.disjoint = Some(pos);
@@ -1332,7 +1343,7 @@ const fn relate_range(
       if let Some((enum_a, base_a, _)) = a.enumeration()
         && base_a == pos
         && base_b == pos
-        && relate_enums(enum_a, enum_b, pos, leaf, out)
+        && relate_enums(enum_a, enum_b, pos, leaf, b.deferred, out)
       {
         pos += enum_b.size;
         continue;
@@ -1345,7 +1356,7 @@ const fn relate_range(
       // From something else, variant by variant: the ones whose tags the source can hold there.
       if base_b == pos
         && pos + enum_b.size <= end
-        && relate_enum_from(a, enum_b, pos, leaf, &b.known, out)
+        && relate_enum_from(a, enum_b, pos, leaf, &b.known, b.deferred, out)
       {
         pos += enum_b.size;
         continue;
@@ -1387,8 +1398,11 @@ const fn relate_range(
         pos = stop;
       }
       RunKind::Atom(spec) => {
-        // The tag, whose values may be known.
-        let relation = if let Some(known) = b.known.of(run_b.start, run_b.end, spec.endian) {
+        // An opaque scalar is proven by no source, whatever is known of it. Otherwise the values
+        // of a tag may be known.
+        let relation = if spec.is_opaque() {
+          Some(Rel::Disjoint)
+        } else if let Some(known) = b.known.of(run_b.start, run_b.end, spec.endian) {
           let Valid::In(ranges) = spec.valid else { panic!("not an atom") };
           Some(relate_ranges(known, ranges))
         } else {
@@ -1481,6 +1495,7 @@ const fn relate_fields(
       let start = pos + offset;
       let (mut from, mut to) = (*a, Cursor::new(field, start, true, b.checked));
       to.known = b.known;
+      to.deferred = b.deferred;
       let mut relation = Relation::NEW;
       relate_range(&mut from, &mut to, start, start + field.size, &mut relation);
       proven &= relation.infallible();
@@ -1499,7 +1514,8 @@ const fn relate_fields(
 /// that the tag is one of both. A variant of `a` is proven if all its tags are of one variant of
 /// `b`, which it proves. If a variant of `a` is not proven, the enum is marked, and checked as a
 /// whole at run time. Returns `true` at once if `a` and `b` are the same layout ([`equal`]) that
-/// holds no scalar that a pun never makes, which nothing proves, not even the same layout.
+/// holds no opaque scalar, which nothing proves, not even the same layout, unless `b` is a part of
+/// a [`Deferred<T>`](crate::Deferred) target (`deferred`).
 ///
 /// Returns `false`, having done nothing, if either is a union, if `a` is smaller than `b`, or if
 /// their tags differ in place, size or byte order.
@@ -1508,9 +1524,10 @@ const fn relate_enums(
   b: &'static Layout,
   pos: usize,
   leaf: usize,
+  deferred: bool,
   out: &mut Relation,
 ) -> bool {
-  if equal(a, b) && !b.holds_never() {
+  if equal(a, b) && (deferred || !b.holds_opaque()) {
     // Proven without reading anything. A check of it would read what the same type does not
     // promise to be initialized, such as the bytes of a union.
     if !checkable(b) {
@@ -1556,7 +1573,8 @@ const fn relate_enums(
       }
       // What the tag holds in `to`: the tags of both.
       let known = Known::both(tag, size, tag_b.endian, &tags, &to.tags());
-      let mut relation = relate_with(from.layout, 0, to.layout, 0, 0, b.size, Checked::All, &known);
+      let mut relation =
+        relate_with(from.layout, 0, to.layout, 0, 0, b.size, Checked::All, &known, deferred);
       mark_rules(from.layout, to.layout, 0, 0, &mut relation);
       unreadable_rules(from.layout, 0, to.layout, 0, 0, b.size, &known, &mut relation);
       if let Some(offset) = relation.uninit {
@@ -1602,6 +1620,8 @@ const fn relate_enums(
 /// in the source, if the source may be that variant. If the tag may be padding in the source, that
 /// is recorded, since no value of the source is then this enum.
 ///
+/// `deferred` tells whether `b` is a part of a [`Deferred<T>`](crate::Deferred) target.
+///
 /// Returns `false`, having done nothing, if `b` is a union.
 const fn relate_enum_from(
   a: &Cursor,
@@ -1609,6 +1629,7 @@ const fn relate_enum_from(
   pos: usize,
   leaf: usize,
   known: &Known,
+  deferred: bool,
   out: &mut Relation,
 ) -> bool {
   let Kind::Enum(layout) = b.kind else { panic!() };
@@ -1638,6 +1659,7 @@ const fn relate_enum_from(
     let mut relation = Relation::NEW;
     let (mut from, mut to) = (*a, Cursor::new(variant.layout, pos, true, Checked::All));
     to.known = known;
+    to.deferred = deferred;
     relate_range(&mut from, &mut to, pos, pos + b.size, &mut relation);
     mark_rules(source, variant.layout, pos, 0, &mut relation);
     unreadable_rules(source, base, variant.layout, pos, 0, pos + b.size, &known, &mut relation);
@@ -1977,15 +1999,14 @@ const fn gather(a: &mut Cursor, start: usize, end: usize) -> ([Piece; 16], usize
 ///
 /// # Errors
 ///
-/// Returns `None` if one of the pieces may be uninitialized, unless `spec` is a scalar that a pun
-/// never makes, which no source is, whatever its pieces hold.
+/// Returns `None` if one of the pieces may be uninitialized, unless `spec` is opaque, which no
+/// source proves, whatever its pieces hold.
 const fn atom_relation(pieces: &[Piece; 16], len: usize, spec: &Spec) -> Option<Rel> {
-  let ranges = match spec.valid {
-    Valid::In(ranges) => ranges,
-    // No value of the source is one, whatever it holds.
-    Valid::Never => return Some(Rel::Disjoint),
-    Valid::Any | Valid::Uninit => panic!("not an atom"),
-  };
+  // No value of the source is one as a target, whatever its values.
+  if spec.is_opaque() {
+    return Some(Rel::Disjoint);
+  }
+  let Valid::In(ranges) = spec.valid else { panic!("not an atom") };
   // What is known of the pieces: a restriction that the type system does not enforce only
   // proves a restriction of the same kind.
   let (mut known, soft) = (*pieces, spec.is_soft());

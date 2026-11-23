@@ -1,18 +1,18 @@
-error[E0080]: evaluation panicked: a scalar that a pun never makes has at least one byte
- --> tests/compile-fail/never_zero_size.rs:8:36
+error[E0080]: evaluation panicked: an opaque scalar has at least one byte
+ --> tests/compile-fail/opaque_zero_size.rs:8:36
   |
-8 |   const SPEC: puns::layout::Spec = puns::layout::Spec::never::<Token>();
-  |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Token as puns::Scalar>::SPEC` failed inside this call
+8 |   const SPEC: puns::layout::Spec = puns::layout::Spec::any::<Token>().opaque();
+  |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Token as puns::Scalar>::SPEC` failed inside this call
   |
-note: inside `Spec::never::<Token>`
+note: inside `Spec::opaque`
  --> $RUST/core/src/panic.rs
   |
   = note: the failure occurred here
   |
  ::: src/layout.rs
   |
-  |     assert!(size > 0, "a scalar that a pun never makes has at least one byte");
-  |     -------------------------------------------------------------------------- in this macro invocation
+  |     assert!(self.size > 0, "an opaque scalar has at least one byte");
+  |     ---------------------------------------------------------------- in this macro invocation
 
 note: erroneous constant encountered
  --> src/lib.rs
@@ -45,7 +45,7 @@ note: erroneous constant encountered
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: the above error was encountered while instantiating `fn pun::<(), Token>`
-  --> tests/compile-fail/never_zero_size.rs:12:18
+  --> tests/compile-fail/opaque_zero_size.rs:12:18
    |
 12 |   let _: Token = puns::pun(());
    |                  ^^^^^^^^^^^^^

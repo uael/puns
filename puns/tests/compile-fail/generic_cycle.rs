@@ -1,10 +1,10 @@
 //! Two generic types that hold each other: the bounds that the derive finds for each (the type
 //! of each field that depends on a parameter is `Pun`) go round in a circle. They are told with
 //! `#[pun(bound())]` on both (the ones that the types declare are enough), which this lacks.
-#[path = "../support/never.rs"]
+#[path = "../support/opaque.rs"]
 #[allow(dead_code)]
-mod never;
-use never::Ref;
+mod opaque;
+use opaque::Ref;
 use puns::Pun;
 
 #[derive(Pun)]

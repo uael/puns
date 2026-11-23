@@ -11,15 +11,17 @@
 //! at 255 today, below the valid values rather than after them. This is found, not assumed.
 //! `Option<u16>` has a tag of two bytes. `Result<u32, Infallible>` is a struct of its `u32`.
 //!
-//! An `Option` of a scalar that a pun never makes ([`Spec::never`](crate::layout::Spec::never)) is
-//! not found so, since `puns` has no sample value of such a scalar. Its layout is a scalar of the
-//! same kind ([`never_option`]), which needs no sample.
+//! An `Option` of an opaque scalar ([`Spec::opaque`](crate::layout::Spec::opaque)) is not found so.
+//! Its layout is an opaque scalar of the same size ([`opaque_option`]), whose values are those of
+//! the scalar and the bytes of `None`. Found as an enum, it would have the layout that Rust leaves
+//! to the compiler, unless `core` documents it, which it does only for a `NonZero` and a
+//! `repr(transparent)` struct around one.
 
 use core::{marker::PhantomData, mem::MaybeUninit};
 
 use crate::{
   At, Fields, Path, Pun, Variants,
-  layout::{Desc, Enum, Field, Id, Kind, Layout, Spec, Variant},
+  layout::{Desc, Enum, Field, Id, Kind, Layout, Spec, UNSTABLE, Valid, Variant},
 };
 
 /// Returns the offset of `field` in `whole`.
@@ -100,43 +102,154 @@ macro_rules! variant {
   };
 }
 
-/// Returns the layout of `Option<T>`, where `T` is a scalar that a pun never makes: a scalar of the
-/// same kind, of the size of `T`.
+/// The most ranges of values of an opaque scalar of which an `Option` is laid out
+/// ([`opaque_option`]), one more for `None`.
+const OPTION_RANGES: usize = 32;
+
+/// Returns the layout of `Option<T>`, where `T` is an opaque scalar: an opaque scalar of the size
+/// of `T`, whose values are the values of `T` and the bytes of `None`.
 ///
-/// Such a scalar says only that its bytes are initialized. So does `Option<T>`, if it has the size
-/// of `T` and every byte of `None` is initialized. `Some(x)` then holds `x` in every byte, since
-/// there is no other byte for a tag. Both are checked here: the size by an assertion, and the bytes
-/// of `None` by reading each of them in const evaluation, which reports an error on an
-/// uninitialized byte. That error is a behavior of `rustc` that no documentation states, and the
-/// crate documentation discloses it (section Soundness). `None` has no field, so its bytes are
-/// what `rustc` writes for it, at compile time as at run time. `core` promises the size where `T`
-/// is a `NonZero` integer, or a `repr(transparent)` struct around one ("Representation" in
-/// `core::option`). For another `T`, the size depends on the niche that `rustc` gives it.
+/// If `Option<T>` has the size of `T` and every byte of `None` is initialized, `Some(x)` holds `x`
+/// in every byte, since there is no other byte for a tag. So a value of `Option<T>` is `None`, or
+/// one of the values of `T`. Both conditions are checked here: the size by an assertion, and the
+/// bytes of `None` by reading each of them in const evaluation ([`option_values`]), which reports an
+/// error on an uninitialized byte. That error is a behavior of `rustc` that no documentation
+/// states, and the crate documentation discloses it (section Soundness). `None` has no field, so
+/// its bytes are what `rustc` writes for it, at compile time as at run time. `core` promises the
+/// size where `T` is a `NonZero` integer, or a `repr(transparent)` struct around one
+/// ("Representation" in `core::option`). For another `T`, the size depends on the niche that
+/// `rustc` gives it.
+///
+/// Which bytes `None` has is what `rustc` chose, unless `core` documents it (`Pun::NULL_OPTIMIZED`:
+/// zero), or `T` leaves out one value of its size: `None` is then that value, since it is no value
+/// of `T` and there is no other. Without the `unstable` feature, another `T` is refused, so that
+/// what a check accepts does not depend on that choice.
 ///
 /// # Panics
 ///
-/// Panics if `Option<T>` is larger than `T`, or if a byte of `None` is not initialized.
+/// Panics if `T` is not a scalar, if `Option<T>` is larger than `T`, if a byte of `None` is not
+/// initialized, if `T` has more than `OPTION_RANGES - 1` ranges of values, or, without the
+/// `unstable` feature, if `T` leaves out more than one value of its size and `core` does not
+/// document its `Option`.
+const fn opaque_option<T: Pun>() -> Layout {
+  let Kind::Scalar(spec) = T::LAYOUT.kind else { panic!("not a scalar") };
+  assert!(
+    size_of::<Option<T>>() == size_of::<T>(),
+    "an `Option` of an opaque scalar must have the size of the scalar: give the scalar a niche, \
+     as a `NonZero` has"
+  );
+  assert!(
+    UNSTABLE || T::NULL_OPTIMIZED || one_left_out(spec),
+    "an `Option` of an opaque scalar that leaves out more than one value has the `None` that `rustc` \
+     chooses: without the `unstable` feature, give the scalar every value but one"
+  );
+  // SAFETY: The call is in an inline `const` block, so it is evaluated at compile time, as
+  // `option_values` requires.
+  let values = const { &unsafe { option_values::<T>() } };
+  let option = Spec::any::<Option<T>>().with_endian(spec.endian);
+  let option =
+    if values.1 == 0 { option } else { option.with_ranges(values.0.split_at(values.1).0) };
+  let option = if spec.number { option } else { option.not_a_number() };
+  Layout::scalar::<Option<T>>(option.opaque())
+}
+
+/// Returns the ranges of values of `Option<T>`, where `T` is an opaque scalar of the same size, and
+/// their number, or 0 if every value of its size is one: the values of `T`, and the bytes of
+/// `None` read in the byte order of `T`.
+///
+/// # Panics
+///
+/// Panics if `T` is not a scalar of at most 16 bytes, if a byte of `None` is not initialized, or if
+/// `T` has more than `OPTION_RANGES - 1` ranges of values.
 ///
 /// # Safety
 ///
 /// The call must be evaluated at compile time, in a `const` item or block, as `discover::read`
 /// requires.
-const unsafe fn never_option<T: Pun>() -> Layout {
-  assert!(
-    size_of::<Option<T>>() == size_of::<T>(),
-    "an `Option` of a scalar that a pun never makes must have the size of the scalar: give the \
-     scalar a niche, as a `NonZero` has"
-  );
+const unsafe fn option_values<T: Pun>() -> ([(u128, u128); OPTION_RANGES], usize) {
+  let Kind::Scalar(spec) = T::LAYOUT.kind else { panic!("not a scalar") };
+  let size = size_of::<T>();
+  assert!(size <= 16, "a scalar is at most 16 bytes wide");
   let none = MaybeUninit::new(None::<T>);
-  let mut at = 0;
-  while at < size_of::<T>() {
+  let (mut value, mut at) = (0u128, 0);
+  while at < size {
     // SAFETY: `at` is within an `Option<T>`, and the call is evaluated at compile time, by contract
     // on the caller, as `read` requires. A byte of `None` that is not initialized fails the build
     // there.
-    unsafe { crate::discover::read(&none, at, 1) };
+    let byte = unsafe { crate::discover::read(&none, at, 1) };
+    // The value of a scalar is its bytes read in its byte order: the byte at `at` is the `at`th
+    // least significant in little endian, and the `at`th most significant in big endian.
+    let shift = if spec.endian.is_little() { at } else { size - 1 - at };
+    value |= byte << (8 * shift);
     at += 1;
   }
-  Layout::scalar::<Option<T>>(Spec::never::<Option<T>>())
+  let mut out = ([(0u128, 0u128); OPTION_RANGES], 0);
+  let ranges: &[(u128, u128)] = match spec.valid {
+    Valid::In(ranges) => ranges,
+    // Every value of the size of `T` is one, `None` included.
+    _ => return out,
+  };
+  assert!(
+    ranges.len() < OPTION_RANGES,
+    "an opaque scalar of which an `Option` is laid out has \
+    fewer ranges of values"
+  );
+  // The ranges of `T`, with `value` merged in their order.
+  let (mut i, mut placed) = (0, false);
+  while i <= ranges.len() {
+    let next = if i < ranges.len() { Some(ranges[i]) } else { None };
+    let (lo, hi) = match next {
+      Some((lo, hi)) if placed || value > hi.saturating_add(1) => (lo, hi),
+      Some((lo, hi)) if value.saturating_add(1) >= lo => {
+        placed = true;
+        (if value < lo { value } else { lo }, if value > hi { value } else { hi })
+      }
+      Some(range) => {
+        placed = true;
+        push(&mut out, (value, value));
+        range
+      }
+      None if placed => break,
+      None => {
+        placed = true;
+        (value, value)
+      }
+    };
+    push(&mut out, (lo, hi));
+    i += 1;
+  }
+  // A full range is every value.
+  if out.1 == 1 && out.0[0].0 == 0 && out.0[0].1 == crate::layout::max_value(size) {
+    out.1 = 0;
+  }
+  out
+}
+
+/// Returns whether `spec` accepts every value of its size but one.
+const fn one_left_out(spec: Spec) -> bool {
+  let Valid::In(ranges) = spec.valid else { return false };
+  // The values left out: before the first range, between two ranges, and after the last.
+  let mut out = ranges[0].0;
+  let mut i = 1;
+  while i < ranges.len() {
+    out = out.saturating_add(ranges[i].0 - ranges[i - 1].1 - 1);
+    i += 1;
+  }
+  out = out.saturating_add(crate::layout::max_value(spec.size) - ranges[ranges.len() - 1].1);
+  out == 1
+}
+
+/// Appends `range` to the ranges of `out`, merged with the last one if they touch.
+const fn push(out: &mut ([(u128, u128); OPTION_RANGES], usize), range: (u128, u128)) {
+  if out.1 > 0 && out.0[out.1 - 1].1.saturating_add(1) >= range.0 {
+    let last = &mut out.0[out.1 - 1];
+    if range.1 > last.1 {
+      last.1 = range.1;
+    }
+  } else {
+    out.0[out.1] = range;
+    out.1 += 1;
+  }
 }
 
 /// Returns the layout of `Option<T>` that the experiments on its samples find.
@@ -270,9 +383,9 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
 // `discover`. These fail to compile rather than find a wrong layout, under the facts of the
 // compiler that its module documentation lists. The variant `Some` holds the layout of `T` at the
 // offset observed on a sample, and the lists of variants and fields are those of this layout (see
-// `OptionNone`, `OptionSome` and `OptionSomeField`). Where `T` is a scalar that a pun never makes,
-// the layout is that of `never_option`, whose shape is checked there: a scalar, whose lists `puns`
-// does not read, so they may be anything (`Pun`, section Safety). `Option<T>` holds a `T` or
+// `OptionNone`, `OptionSome` and `OptionSomeField`). Where `T` is an opaque scalar, the layout is
+// that of `opaque_option`, whose shape is checked there: a scalar, whose lists `puns` does not
+// read, so they may be anything (`Pun`, section Safety). `Option<T>` holds a `T` or
 // nothing, and a tag, so no `UnsafeCell`, since `T: Pun`.
 unsafe impl<T: Pun> Pun for Option<T> {
   type Elem = ();
@@ -280,13 +393,8 @@ unsafe impl<T: Pun> Pun for Option<T> {
   type Variants = OptionNone<T>;
   type Rules = ();
   const PROBE: *const Self = core::ptr::null();
-  const LAYOUT: Layout = if T::LAYOUT.is_never() {
-    // SAFETY: This is the value of an associated constant, evaluated at compile time, as
-    // `never_option` requires.
-    unsafe { never_option::<T>() }
-  } else {
-    discovered::<T>()
-  };
+  const LAYOUT: Layout =
+    if T::LAYOUT.is_opaque() { opaque_option::<T>() } else { discovered::<T>() };
 }
 
 // SAFETY: The layout is the one that `rustc` gave `Result<T, E>`, found by the experiments of
@@ -342,10 +450,10 @@ pub struct ResultOkField<T, E>(PhantomData<(T, E)>);
 #[doc(hidden)]
 pub struct ResultErrField<T, E>(PhantomData<(T, E)>);
 
-// The lists of variants and fields of an `Option` of a scalar that a pun never makes, whose layout
-// is no enum (`never_option`), are those of a variant without a tag or a field. Nothing reads them,
-// but a check of `Option<T>` names them, so their constants are evaluated, and must not run the
-// experiments, which have no sample of `T`.
+// The lists of variants and fields of an `Option` of an opaque scalar, whose layout is no enum
+// (`opaque_option`), are those of a variant without a tag or a field. Nothing reads them, but a
+// check of `Option<T>` names them, so their constants are evaluated, and must not run the
+// experiments, whose layout would not be the one of `opaque_option`.
 
 /// Returns whether the layout of `E` is an enum.
 const fn is_enum<E: Pun>() -> bool {
@@ -377,7 +485,7 @@ const fn found_field<E: Pun + Found>(index: usize) -> Option<Field> {
 
 // SAFETY: `TAG` and `RANGES` are those of the variant 0 of the layout of `Option<T>`, `None`,
 // which has no field, and `Next` is the variant 1. So the list is the variants of the layout, in
-// order, as the `# Safety` of `Variants` requires. Where `Option<T>` is no enum (`never_option`),
+// order, as the `# Safety` of `Variants` requires. Where `Option<T>` is no enum (`opaque_option`),
 // `tag` and `ranges` give 0 and `None`, and `puns` reads no list of its variants, which may then be
 // anything (`Variants`, section Safety).
 unsafe impl<T: Pun> Variants for OptionNone<T> {
@@ -398,7 +506,7 @@ unsafe impl<T: Pun> Variants for OptionSome<T> {
 
 // SAFETY: `FIELD` is the field of the variant `Some` in the layout of `Option<T>`, a `T` at the
 // offset observed on its sample, and the only one. It is `None`, an empty list, if the variant
-// has no value, as the layout has no field there, or if `Option<T>` is no enum (`never_option`),
+// has no value, as the layout has no field there, or if `Option<T>` is no enum (`opaque_option`),
 // whose lists no function reads.
 unsafe impl<T: Pun> Fields for OptionSomeField<T> {
   type Type = T;

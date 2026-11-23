@@ -112,22 +112,23 @@
 //! values. The shapes of the model put a part that a check need not read next to a part that it
 //! checks: the same union in an array, a union in an enum checked as a whole, an array of small
 //! unions under an enum of the target whose first run accepts every value of 2 bytes, and a tuple,
-//! whose layout Rust leaves to the compiler, in a field of a union and in a variant next to a
-//! scalar that a pun never makes, a struct with a rule that loads its field, in a union in an
+//! whose layout Rust leaves to the compiler, in a field of a union and in a variant next to an
+//! opaque scalar, a struct with a rule that loads its field, in a union in an
 //! enum, and a union whose first field the source proves only through a requirement, which a
 //! value of the source may break: the values of a source are what the type guarantees, not what
 //! it requires. `tests/shapes.rs` has a sample of each, and runs under Miri.
 //!
-//! A scalar that a pun never makes (`Opaque`, made with `Spec::never`) is in the model alone, in a
-//! struct, and in a variant of an enum. Its oracle reads an initialized byte as a source, and as a
-//! target requires what no byte meets, without reading it. A check that accepts it is found
+//! An opaque scalar (`Opaque`, made with `Spec::opaque`) is in the model alone, in a struct, and in
+//! a variant of an enum. Its oracle reads an initialized byte as a source, and as a target requires
+//! what no byte meets, without reading it, but in a `Deferred<T>`, where it is any byte. A check that accepts it is found
 //! incorrect, which was tried. A check that rejects its variant need not read its byte, which may
 //! be uninitialized in the source (`ByteZero -> MaybeOpaque`): only the value of a decision that
 //! needs an uninitialized byte in both modes is unsound to check (`check_pair`), and Miri runs the
-//! pair. `OpaqueNz` is such a byte with a niche at zero, and `Option<OpaqueNz>` is such a scalar
-//! too, alone and in a struct (`HoldsOptOpaque`). That the same type does not prove it is not a
-//! verdict that the oracle can judge, since a source that does not meet its own requirements
-//! implies any requirement: the compile-fail case `never_same_type` of `puns` holds it.
+//! pair. `OpaqueNz` is such a byte with a niche at zero, which is not one of its values, and
+//! `Option<OpaqueNz>` is such a scalar too, alone and in a struct (`HoldsOptOpaque`). That the
+//! same type does not prove it is not a verdict that the oracle can judge, since a source that does
+//! not meet its own requirements implies any requirement: the compile-fail case `opaque_same_type`
+//! of `puns` holds it. A `Deferred<T>` of each is a target too (`tests/opaque.rs`).
 //!
 //! # Parts
 //!
@@ -219,19 +220,30 @@ pub struct Mode {
   pub required: bool,
   /// The rule for unions.
   pub unions: Unions,
+  /// Whether the value is in a `Deferred<T>` target, of which an opaque scalar is required to be
+  /// one of its values rather than refused.
+  pub deferred: bool,
 }
 
 impl Mode {
   /// What the type system guarantees under `unions`.
   #[must_use]
   pub const fn guaranteed(unions: Unions) -> Self {
-    Self { required: false, unions }
+    Self { required: false, unions, deferred: false }
   }
 
   /// What the type requires under `unions`.
   #[must_use]
   pub const fn requires(unions: Unions) -> Self {
-    Self { required: true, unions }
+    Self { required: true, unions, deferred: false }
+  }
+}
+
+/// A `Deferred<T>` is a `T` whose opaque scalars are required to be their values: the mode of `T`
+/// with `deferred`, at the root of the target, as `puns` reads it.
+impl<T: Oracle> Oracle for puns::Deferred<T> {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    T::check(b, off, reads, Mode { deferred: true, ..mode })
   }
 }
 
@@ -867,8 +879,8 @@ pub fn check_pair<S: Oracle, D: Oracle>(limit: usize) {
   let claims: Vec<bool> = if ds <= ss { implied::<S, D>(&source, 0) } else { vec![] };
   // A value whose decision needs an uninitialized byte: what the type system guarantees reads one,
   // and so does what the target requires, which is what a check decides. Every oracle reads in
-  // target mode what it reads without it, but that of a scalar that a pun never makes, whose
-  // requirement holds of no byte and reads none: a check rejects its variant unread.
+  // target mode what it reads without it, but that of an opaque scalar outside a `Deferred<T>`,
+  // whose requirement holds of no byte and reads none: a check rejects its variant unread.
   let any_uninit = truths.iter().any(|t| t.hard.is_err() && t.soft.is_err());
   // A requirement that reads uninitialized bytes is unsound to check: only one that the source
   // implies may be read so, as it is then not checked.

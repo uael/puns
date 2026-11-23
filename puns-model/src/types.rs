@@ -593,9 +593,9 @@ impl Oracle for Zero {
   }
 }
 
-// --- Scalars that a pun never makes -------------------------------------------------------------
+// --- Opaque scalars ------------------------------------------------------------------------------
 
-/// A byte whose validity is not in its bytes, as the offset of a self-relative pointer of another
+/// A byte whose correctness is not in its bytes, as the offset of a self-relative pointer of another
 /// crate: a pun reads it as an initialized byte, and never makes it.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -603,18 +603,18 @@ pub struct Opaque(pub u8);
 
 // SAFETY: `Opaque` is `repr(transparent)` over a `u8`, so `SPEC`, of a `u8`, has its size. The
 // items of the `# Safety` of `Scalar` hold:
-// - `SPEC` is made with `Spec::never`, and every byte of every value of `Opaque` is initialized.
-// - `SPEC` accepts no value.
+// - Every value of `Opaque` is a byte, which `SPEC` accepts.
+// - Every byte is a valid `Opaque`; `SPEC` is opaque, so whether it is correct is not claimed.
 // - `Opaque` holds no `UnsafeCell`.
 unsafe impl puns::Scalar for Opaque {
-  const SPEC: puns::layout::Spec = puns::layout::Spec::never::<u8>();
+  const SPEC: puns::layout::Spec = puns::layout::Spec::any::<u8>().opaque().not_a_number();
 }
 
 impl Oracle for Opaque {
   fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     // As a target, a requirement that no byte meets, which reads none: only the crate of the
-    // scalar makes one. As a source, an initialized byte.
-    if mode.required {
+    // scalar makes one. As a source, and in a `Deferred<T>`, an initialized byte.
+    if mode.required && !mode.deferred {
       return require(off, "Opaque", Ok(false));
     }
     int(b, off, 1, true, reads)?;
@@ -622,25 +622,28 @@ impl Oracle for Opaque {
   }
 }
 
-/// A byte that a pun never makes, as `Opaque`, with a niche at zero, as an offset that is never
-/// zero. Its `Option` is one too, `None` as zero.
+/// An opaque byte, as `Opaque`, with a niche at zero, as an offset that is never zero: its values
+/// are the bytes but zero. Its `Option` is one too, `None` as zero.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct OpaqueNz(pub NonZero<u8>);
 
 // SAFETY: `OpaqueNz` is `repr(transparent)` over a `NonZero<u8>`, so `SPEC`, of a `u8`, has its
 // size. The items of the `# Safety` of `Scalar` hold:
-// - `SPEC` is made with `Spec::never`, and every byte of every value of `OpaqueNz` is initialized.
-// - `SPEC` accepts no value.
+// - Every value of `OpaqueNz` is a byte that is not zero, which `SPEC` accepts.
+// - Every byte that is not zero is a valid `OpaqueNz`; `SPEC` is opaque.
 // - `OpaqueNz` holds no `UnsafeCell`.
 unsafe impl puns::Scalar for OpaqueNz {
-  const SPEC: puns::layout::Spec = puns::layout::Spec::never::<u8>();
+  const SPEC: puns::layout::Spec =
+    puns::layout::Spec::ranges::<u8>(puns::layout::Endian::NATIVE, &[(1, 255)])
+      .opaque()
+      .not_a_number();
 }
 
 impl Oracle for OpaqueNz {
   fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    // As `Opaque`; as a source, a byte that is not zero.
-    if mode.required {
+    // As `Opaque`; as a source and in a `Deferred<T>`, a byte that is not zero.
+    if mode.required && !mode.deferred {
       return require(off, "OpaqueNz", Ok(false));
     }
     Ok(int(b, off, 1, true, reads)? != 0)
@@ -649,9 +652,10 @@ impl Oracle for OpaqueNz {
 
 impl Oracle for Option<OpaqueNz> {
   fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    // As `Opaque`: `None` is zero and `Some` any other byte, so as a source, any initialized byte.
+    // As `Opaque`: `None` is zero and `Some` any other byte, so as a source and in a
+    // `Deferred<T>`, any initialized byte.
     const { assert!(size_of::<Option<OpaqueNz>>() == 1, "`None` is the niche of `OpaqueNz`") };
-    if mode.required {
+    if mode.required && !mode.deferred {
       return require(off, "Option<OpaqueNz>", Ok(false));
     }
     int(b, off, 1, true, reads)?;
@@ -660,7 +664,7 @@ impl Oracle for Option<OpaqueNz> {
 }
 
 model_struct!(
-  /// A struct of a `bool`, then a byte that a pun never makes, or zero.
+  /// A struct of a `bool`, then an opaque byte, or zero.
   #[repr(C)]
   struct HoldsOptOpaque {
     b: bool,
@@ -669,7 +673,7 @@ model_struct!(
 );
 
 model_struct!(
-  /// A struct of a `bool`, then a byte that a pun never makes.
+  /// A struct of a `bool`, then an opaque byte.
   #[repr(C)]
   struct HoldsOpaque {
     b: bool,
@@ -677,7 +681,7 @@ model_struct!(
   }
 );
 
-/// An enum whose second variant holds a byte that a pun never makes.
+/// An enum whose second variant holds an opaque byte.
 ///
 /// A check accepts `Empty` only.
 #[derive(Pun, Clone, Copy)]
@@ -1619,7 +1623,7 @@ impl Oracle for HoldsTuple {
   }
 }
 
-/// An enum whose first variant holds a tuple of a `bool` and of a byte that a pun never makes.
+/// An enum whose first variant holds a tuple of a `bool` and of an opaque byte.
 ///
 /// No bytes are a target `A`, and a check need not read its `bool`.
 #[derive(Pun, Clone, Copy)]

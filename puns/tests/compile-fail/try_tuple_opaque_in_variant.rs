@@ -1,11 +1,11 @@
-//! A variant that holds a tuple with a scalar that a pun never makes, its `bool` declared first.
+//! A variant that holds a tuple with an opaque scalar, its `bool` declared first.
 //! No value of the variant is valid, but the enum is checked as a whole, and the check of the
 //! variant reads the fields of the tuple where `rustc` put them, which would read a byte that may
 //! be uninitialized in the source.
-#[path = "../support/never.rs"]
+#[path = "../support/opaque.rs"]
 #[allow(dead_code)]
-mod never;
-use never::Off;
+mod opaque;
+use opaque::Off;
 use puns::Pun;
 
 #[derive(Pun, Clone, Copy)]
