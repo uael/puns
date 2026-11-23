@@ -92,7 +92,6 @@ struct InOrder {
 /// the compiler.
 #[derive(Pun, Clone, Copy)]
 #[repr(u8)]
-#[expect(dead_code, reason = "a type of which only the layout matters")]
 enum Wraps {
   A(Mixed),
   B(u8),

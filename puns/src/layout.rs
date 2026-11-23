@@ -1432,7 +1432,7 @@ impl Variant {
   #[must_use]
   pub const unsafe fn declared_tags<E, T, const N: usize>(
     tags: &[T; N],
-    samples: &[Option<mem::MaybeUninit<E>>; N],
+    samples: &Samples<E, N>,
     declared: [Option<bool>; N],
     exists: [bool; N],
   ) -> [u128; N] {
@@ -1811,6 +1811,80 @@ impl Layout {
   #[must_use]
   pub const fn uninit<T>() -> mem::MaybeUninit<T> {
     mem::MaybeUninit::uninit()
+  }
+
+  /// Returns a pointer to a `T` in memory of const evaluation, whose slice tail, if any, has no
+  /// element, for `#[derive(Pun)]`, which measures the offsets of the fields of `T` by projecting
+  /// it, or a null pointer if such a `T` is larger than the memory (4096 bytes).
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure that either `T` is `Sized`, or `T` is a struct whose last field is a
+  /// slice, `str`, or a struct whose last field is one of these, at any depth, and `probe` is
+  /// `<[E] as Pun>::PROBE` cast to `*const T` with `as` casts only.
+  #[doc(hidden)]
+  #[must_use]
+  pub const unsafe fn measure_base<T: ?Sized>(probe: *const T) -> *const T {
+    // SAFETY: By contract on the caller, `T` is `Sized`, or it is slice-tailed and `probe` is
+    // `slice_from_raw_parts(null(), PROBE_LEN)` cast with `as` casts only, which are the
+    // requirements of `verify`, and so of `in_buffer`.
+    unsafe { ptr::in_buffer(probe) }
+  }
+
+  /// Returns a pointer to the sample of the variant `index` in `samples`, or a null pointer if the
+  /// variant has none, for `#[derive(Pun)]`.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn sample_of<E, const N: usize>(samples: &Samples<E, N>, index: usize) -> *const E {
+    match &samples[index] {
+      Some(sample) => sample.as_ptr(),
+      None => core::ptr::null(),
+    }
+  }
+
+  /// Returns a copy of the sample at `sample` whose byte at `at` is `byte`, or an unchanged copy if
+  /// `at` is not within an `E`, for `#[derive(Pun)]`, which reads the variant of the copy to check
+  /// that a byte past the tag that it read is not a byte of the tag of the enum as compiled.
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure that `sample` is not null, is aligned for `E`, and is valid for reads
+  /// of `size_of::<E>()` bytes, which need not be initialized.
+  #[doc(hidden)]
+  #[must_use]
+  pub const unsafe fn with_byte<E>(sample: *const E, at: usize, byte: u8) -> mem::MaybeUninit<E> {
+    // SAFETY: `sample` is valid for reads of the bytes of an `E`, and aligned, by contract on the
+    // caller, and so is the `MaybeUninit<E>` cast from it, which has the size and alignment of an
+    // `E`. A `MaybeUninit<E>` may hold bytes that are no `E`, uninitialized ones included [1], so
+    // the copy that `read` makes is valid. These are the requirements of `read`.
+    //
+    // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/union.MaybeUninit.html:
+    //
+    //     `MaybeUninit<T>` serves to enable unsafe code to deal with uninitialized data. It is a
+    //     signal to the compiler indicating that the data here might *not* be initialized
+    let mut copy = unsafe { core::ptr::read(sample.cast::<mem::MaybeUninit<E>>()) };
+    if at < size_of::<E>() {
+      // SAFETY: `at` is less than the size of an `E`, so `add(at)` stays within `copy`, and the
+      // byte there is valid for writes. A `u8` is aligned at any address. These are the
+      // requirements of `add` and of `write`.
+      unsafe { copy.as_mut_ptr().cast::<u8>().add(at).write(byte) };
+    }
+    copy
+  }
+
+  /// Panics unless `read`, the variant of a sample of the variant `index` whose byte past the tag
+  /// that the derive read was changed ([`Layout::with_byte`]), is `index`, for `#[derive(Pun)]`.
+  ///
+  /// # Panics
+  ///
+  /// Panics if `read` is not `index`: the tag of the enum as compiled is wider than the one that
+  /// the derive read.
+  #[doc(hidden)]
+  pub const fn same_variant(read: usize, index: usize) {
+    assert!(
+      read == index,
+      "the tag of the enum is wider than the one of the representation that the derive read"
+    );
   }
 
   /// Returns a `T` that is valid in the sense of the Reference, whose rules may not hold, made from
@@ -6269,3 +6343,9 @@ pub const unsafe fn bits_of<T>(value: T) -> u128 {
   //     subject to the same layout optimizations as `T`.
   unsafe { load((&raw const value).cast(), size_of::<T>(), Endian::NATIVE) }
 }
+
+/// A value of each of the `N` variants of an enum `E` whose fields have samples, for
+/// `#[derive(Pun)]`, which reads tags and offsets on them ([`Variant::declared_tags`],
+/// [`Layout::sample_of`]).
+#[doc(hidden)]
+pub type Samples<E, const N: usize> = [Option<mem::MaybeUninit<E>>; N];

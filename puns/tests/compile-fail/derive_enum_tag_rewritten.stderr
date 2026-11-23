@@ -1,0 +1,15 @@
+error[E0080]: enum value has invalid tag: 0xff00
+ --> tests/compile-fail/derive_enum_tag_rewritten.rs:9:10
+  |
+9 | #[derive(Pun, Clone, Copy)]
+  |          ^^^ evaluation of `<Widened as _::__PunShapes>::TAGS` failed here
+  |
+  = note: this error originates in the derive macro `Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+note: erroneous constant encountered
+ --> tests/compile-fail/derive_enum_tag_rewritten.rs:9:10
+  |
+9 | #[derive(Pun, Clone, Copy)]
+  |          ^^^
+  |
+  = note: this note originates in the derive macro `Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -267,7 +267,6 @@ fn huge_tails_cost_nothing() {
 #[derive(Pun)]
 #[repr(u8)]
 #[pun(crate)]
-#[expect(dead_code, reason = "only given to the analysis")]
 enum Shape {
   Circle(u16),
   Rect(u8, bool),
@@ -277,7 +276,6 @@ enum Shape {
 #[derive(Pun)]
 #[repr(u8)]
 #[pun(crate)]
-#[expect(dead_code, reason = "only given to the analysis")]
 enum Code {
   Short(u8, u16),
   Long([u8; 3]),
@@ -393,7 +391,6 @@ struct ReadsField {
 #[derive(Pun)]
 #[repr(u8)]
 #[pun(crate)]
-#[expect(dead_code, reason = "a layout for the analysis, never made")]
 enum WithDistinct {
   A(DistinctAscii) = 1,
   B(u8) = 2,
@@ -402,7 +399,6 @@ enum WithDistinct {
 #[derive(Pun)]
 #[repr(u8)]
 #[pun(crate)]
-#[expect(dead_code, reason = "a layout for the analysis, never made")]
 enum WithDistinctAny {
   A(Distinct) = 1,
   B(u8) = 2,

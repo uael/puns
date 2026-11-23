@@ -1628,17 +1628,17 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     .collect::<Result<Vec<_>>>()?;
   let count = fields.len();
 
-  // The offsets of the fields. Not with `offset_of!`, which comes from whatever crate `::core`
-  // names (`extern crate other as core;` makes it another crate): with `repr(C)` and
-  // `repr(transparent)`, they are what these representations specify, from the sizes and alignments
-  // of the fields; otherwise the struct is `Sized` and they are found by projecting a pointer to an
-  // uninitialized value (`&raw const (*p).field`), which the language does.
+  // The offsets of the fields, measured on the struct as compiled by projecting a pointer to it
+  // (`&raw const (*p).field`), which the language does, and not with `offset_of!`, which comes
+  // from whatever crate `::core` names (`extern crate other as core;` makes it another crate).
+  // With `repr(C)` and `repr(transparent)`, the struct may be unsized, so the pointer is into
+  // memory of the library (`Layout::measure_base`), and where the struct does not fit there, the
+  // offsets are what the representation that the derive read specifies (`__PunOffsets`).
+  // Otherwise the struct is `Sized`, and the pointer is to an uninitialized value.
   for (i, field) in fields.iter_mut().enumerate() {
     let member = &field.member;
     field.offset = match () {
-      // The field whose size is not 0 is at 0; fields of size 0 have no bytes to be anywhere.
-      () if repr.transparent => quote!(0),
-      () if repr.c => quote!(<Self as __PunOffsets>::OFFSETS[#i]),
+      () if repr.c || repr.transparent => quote!(<Self as __PunOffsets>::OFFSETS[#i]),
       () => quote!({
         let value = #root::layout::Layout::uninit::<Self>();
         let start: *const Self = value.as_ptr();
@@ -1677,10 +1677,11 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   let where_clause = &generics.where_clause;
 
   // Layout of the fields.
-  let offsets_trait = repr.c.then(|| {
+  let offsets_trait = (repr.c || repr.transparent).then(|| {
     // `repr(C)`: each field at the first offset after the previous one that its alignment allows
-    // (or `packed(N)` allows).
-    let steps = fields.iter().enumerate().map(|(i, field)| {
+    // (or `packed(N)` allows). `repr(transparent)`: the field whose size is not 0 is at 0, and
+    // fields of size 0 have no bytes to be anywhere.
+    let steps = fields.iter().enumerate().filter(|_| repr.c).map(|(i, field)| {
       let ty = &field.home;
       let align = quote!(<#ty as #root::Pun>::LAYOUT.align());
       let offset = repr.packed.as_ref().map_or_else(
@@ -1692,17 +1693,50 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         .then(|| quote!(end = offsets[#i] + #root::layout::Layout::size_align::<#ty>().0;));
       quote!(offsets[#i] = #offset; #end)
     });
+    let measured = fields.iter().map(|field| {
+      let member = &field.member;
+      quote! {
+        // SAFETY: `base` is not null, so it points to a `Self` in the memory of
+        // `Layout::measure_base`, all of whose places are in that allocation. `(*base).#member`
+        // is a place there, and `&raw const` makes a pointer to it without reading it, which
+        // needs neither initialized bytes nor alignment. That pointer and `base` are derived
+        // from the same allocation, and the bytes between them are in it, as `byte_offset_from`
+        // requires [1]. The distance is the offset of the field, which is not negative, so `as
+        // usize` keeps it.
+        //
+        // [1] Per https://doc.rust-lang.org/1.99.0/core/primitive.pointer.html#method.offset_from:
+        //
+        //     `self` and `origin` must either
+        //
+        //     - point to the same address, or
+        //     - both be derived from a pointer to the same allocation, and the memory range
+        //       between the two pointers must be in bounds of that object.
+        unsafe { (&raw const (*base).#member).byte_offset_from(base) as ::core::primitive::usize }
+      }
+    });
     quote! {
       trait __PunOffsets {
         const OFFSETS: [::core::primitive::usize; #count];
       }
 
       impl #impl_generics __PunOffsets for #this #where_clause {
-        #[allow(unused_assignments, unused_mut)]
+        #[allow(unused_assignments, unused_mut, unused_variables)]
         const OFFSETS: [::core::primitive::usize; #count] = {
-          let (mut offsets, mut end) = ([0; #count], 0);
-          #(#steps)*
-          offsets
+          // SAFETY: `Self` is `Sized`, or its last field is unsized, so that it is a slice, `str`
+          // or a struct whose last field is one of these, at any depth (`Pun`, section Safety),
+          // and its probe is the probe of that field cast with `as` casts, as for
+          // `Layout::structure` below. These are the requirements of `measure_base`.
+          let base = unsafe {
+            #root::layout::Layout::measure_base::<Self>(<Self as #root::Pun>::PROBE)
+          };
+          if base.is_null() {
+            // Too large to be measured: the offsets that the representation specifies.
+            let (mut offsets, mut end) = ([0; #count], 0);
+            #(#steps)*
+            offsets
+          } else {
+            [#(#measured),*]
+          }
         };
       }
     }
@@ -1941,12 +1975,15 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       // - `Layout::structure` takes the size and the alignment from the compiler. It asserts that
       //   the fields do not overlap and are within the size, and that the trailing padding of an
       //   unsized struct is the one it computes.
-      // - The offset of each field is that of the compiler: for `repr(C)`, the one that the
-      //   representation specifies [1], from the sizes and alignments of the fields
-      //   (`Layout::tail_offset`, `Layout::tail_offset_packed`); for `repr(transparent)`, 0 for
-      //   the field with a size [2]; otherwise, the offset of a place projected from a pointer to
-      //   the `Sized` struct. The order of the fields and the `repr` are those that the derive
-      //   read, which it trusts to be those of the struct as compiled ("What the derive trusts").
+      // - The offset of each field is that of the compiler, measured on the struct as compiled:
+      //   the offset of a place projected from a pointer to the struct, in the memory of
+      //   `Layout::measure_base` for `repr(C)` and `repr(transparent)`, and to an uninitialized
+      //   value otherwise. A `repr(C)` or `repr(transparent)` struct too large for that memory has
+      //   the offsets that the representation that the derive read specifies: for `repr(C)`, from
+      //   the sizes and alignments of the fields [1] (`Layout::tail_offset`,
+      //   `Layout::tail_offset_packed`); for `repr(transparent)`, 0 for the field with a size [2].
+      //   The derive trusts that representation to be that of the struct as compiled there ("What
+      //   the derive trusts").
       // - The type of each field is its home in `__PunTypes`, which `item` requires to be the type
       //   of the field of that name in the struct as compiled, and the struct to have no other
       //   field. Each field has the layout of its type (`Pun`, section Safety), or a restriction
@@ -2470,9 +2507,57 @@ fn derive_tagged(
   // Where the fields of the variants are.
   let fields =
     if repr.c { quote!(#root::layout::Enum::fields(&#tag_layout, &#sizes)) } else { quote!(0) };
-  let (mut items, mut variants) = (vec![], vec![]);
+  let (mut items, mut variants, mut offsets) = (vec![], vec![], vec![]);
   for (i, variant) in data.variants.iter().enumerate() {
     let (shadow, shape) = (&shadows[i], &shapes[i]);
+    // The offsets of the fields of the variant, measured on its sample, or, if it has none, what
+    // the representation that the derive read specifies.
+    let n = variant.fields.len();
+    let offsets_name = format_ident!("OFFSETS{}", i);
+    let name = &variant.ident;
+    let members = variant
+      .fields
+      .iter()
+      .enumerate()
+      .map(|(j, field)| {
+        field
+          .ident
+          .as_ref()
+          .map_or_else(|| Member::Unnamed(Index::from(j)), |ident| Member::Named(ident.clone()))
+      })
+      .collect::<Vec<_>>();
+    let bindings = (0..n).map(|j| format_ident!("__pun_field{}", j)).collect::<Vec<_>>();
+    let types = &home_types[i];
+    let indices = (0..n).map(Index::from).collect::<Vec<_>>();
+    let computed = quote!([#(#fields + <Self as __PunShapes>::#shape.0[#indices]),*]);
+    offsets.push(quote! {
+      const #offsets_name: [#usize; #n] = {
+        // Bound by `let`, so that the samples live as long as the pointers into them.
+        let samples = &<Self as __PunShapes>::SAMPLES;
+        let base = #layout::sample_of(samples, #i);
+        if base.is_null() {
+          #computed
+        } else {
+          // SAFETY (of the generated code): The reference made from `base` meets the
+          // requirements of a reference: it is not null, aligned and not dangling, because `base`
+          // is `as_ptr` of a `MaybeUninit<Self>` in `SAMPLES`, and it points to a valid `Self`,
+          // because the sample is the variant made of samples of its fields, which are valid.
+          // Nothing writes `SAMPLES` while it lives.
+          match unsafe { &*base } {
+            Self::#name { #(#members: #bindings),* } => [#(
+              // SAFETY (of the generated code): Each binding is a reference to a field of the
+              // value at `base`, made from `base`. So both pointers are derived from the same
+              // allocation, and the bytes between them are in it, as `byte_offset_from`
+              // requires. The distance is the offset of the field, not negative.
+              unsafe { (#bindings as *const #types).byte_offset_from(base) } as #usize
+            ),*],
+            // Not the variant: a sample is made as its variant, so this is not reached.
+            #[allow(unreachable_patterns)]
+            _ => #computed,
+          }
+        }
+      };
+    });
     let markers = (0..variant.fields.len())
       .map(|j| format_ident!("__PunVariant{}Field{}", i, j))
       .collect::<Vec<_>>();
@@ -2480,7 +2565,7 @@ fn derive_tagged(
     for (j, field) in variant.fields.iter().enumerate() {
       let options = parse_options(&field.attrs, "a field of an enum", &["valid"])?;
       let ty = &home_types[i][j];
-      let offset = quote!(#fields + <Self as __PunShapes>::#shape.0[#j]);
+      let offset = quote!(<Self as __PunShapes>::#offsets_name[#j]);
       layouts.push(match &options.valid {
         None => quote!(#root::layout::Field::new(#offset, &<#ty as #root::Pun>::LAYOUT)),
         Some(ranges) => {
@@ -2544,6 +2629,9 @@ fn derive_tagged(
     )));
   }
   let (first, outside, pin) = (&shadows[0], repr.c, pin(root));
+  let offset_names = (0..count).map(|i| format_ident!("OFFSETS{}", i));
+  let offset_lens = data.variants.iter().map(|variant| variant.fields.len());
+  let variant_indices = 0..count;
 
   Ok(quote! {
     const _: () = {
@@ -2574,8 +2662,10 @@ fn derive_tagged(
 
       #(#items)*
 
-      trait __PunShapes {
+      trait __PunShapes: ::core::marker::Sized {
         #(#shape_decls)*
+        const SAMPLES: #root::layout::Samples<Self, #count>;
+        #(const #offset_names: [#usize; #offset_lens];)*
         const TAGS: [::core::primitive::u128; #count];
       }
 
@@ -2583,7 +2673,10 @@ fn derive_tagged(
         #(#shape_defs)*
         // A variant with a field without values has no sample, but it is written.
         #[allow(unreachable_code)]
-        const TAGS: [::core::primitive::u128; #count] =
+        const SAMPLES: #root::layout::Samples<Self, #count> = [#(#samples),*];
+        #(#offsets)*
+        const TAGS: [::core::primitive::u128; #count] = {
+          let tags =
           // SAFETY (of the generated code): `#tag` is an enum without fields, `repr(C)` or of a
           // primitive representation, without `align`. Such an enum is an integer that holds its
           // discriminant (the crate documentation, "What Rust documents"), so every byte of it is
@@ -2619,11 +2712,47 @@ fn derive_tagged(
           unsafe {
             #root::layout::Variant::declared_tags::<Self, #tag, #count>(
               &[#(#tag::#names),*],
-              &[#(#samples),*],
+              &<Self as __PunShapes>::SAMPLES,
               [#(#declared),*],
               [#(#exists),*],
             )
           };
+          // The byte after the tag that the derive read, set to 0 and to 255 in a copy of each
+          // sample, which changes the tag of the enum as compiled if it is wider, and otherwise
+          // a field or padding of the variant, which leaves its variant as it is.
+          let after = <#tag as #root::Pun>::LAYOUT.size();
+          let samples = &<Self as __PunShapes>::SAMPLES;
+          let mut i = 0;
+          while i < #count {
+            let sample = #layout::sample_of(samples, i);
+            if !sample.is_null() {
+              let (values, mut byte) = ([0, 255], 0);
+              while byte < 2 {
+                // SAFETY (of the generated code): `sample` is not null, and points to a
+                // `MaybeUninit<Self>` in `SAMPLES`, so it is aligned and valid for reads of the
+                // bytes of a `Self`, as `with_byte` requires.
+                let changed = unsafe {
+                  #layout::with_byte(sample, after, values[byte])
+                };
+                // SAFETY (of the generated code): The reference made from `as_ptr` of `changed`, a
+                // local `MaybeUninit<Self>`, is not null, aligned, and not dangling. It points to a
+                // sample whose byte `after` may have been changed, so it may be no `Self`. This
+                // constant is evaluated at compile time, where the `match`, which reads the
+                // variant, relies on the behaviors of `rustc` that `discover` relies on, and that
+                // the crate documentation discloses (section Soundness): `rustc` reports an error
+                // if the tag is not the tag of a variant, and otherwise reads the variant from the
+                // tag alone, without reading the fields.
+                let read = match unsafe { &*changed.as_ptr() } {
+                  #(Self::#names { .. } => #variant_indices,)*
+                };
+                #layout::same_variant(read, i);
+                byte += 1;
+              }
+            }
+            i += 1;
+          }
+          tags
+        };
       }
 
       // SAFETY: For every enum that `derive_tagged` accepts, the layout meets the `# Safety` of
@@ -2631,13 +2760,14 @@ fn derive_tagged(
       // - The enum is `repr(C)` or of a primitive representation, whose layout Rust specifies
       //   [1] [2]. Its tag is `#tag`, an enum without fields of the same representation and
       //   discriminants, whose values `TAGS` compares with those of the enum, and fails the build
-      //   if they differ. Each variant is a `repr(C)` struct, after the tag or in a union next to
-      //   it, and `Layout::repr_c` computes the offsets of its fields as `repr(C)` specifies.
-      //   `Layout::enumeration` asserts the result against the size and the alignment of the
-      //   enum, and asserts that the tag and the fields are within it.
-      //   The order of the variants and of their fields, and the representation, are those that
-      //   the derive read, which it trusts to be those of the enum as compiled ("What the derive
-      //   trusts").
+      //   if they differ, and whose width `TAGS` checks on copies of the samples whose byte after
+      //   the tag is changed. Each variant is a `repr(C)` struct, after the tag or in a union next
+      //   to it. The offsets of its fields are measured on its sample, or, for a variant without
+      //   one, computed by `Layout::repr_c` as `repr(C)` specifies, from the representation that
+      //   the derive read, which it trusts to be that of the enum as compiled there ("What the
+      //   derive trusts"). `Layout::enumeration` asserts the result against the size and the
+      //   alignment of the enum, and asserts that the tag and the fields are within it and do not
+      //   overlap.
       // - The type of each field is its home in `__PunTypes`, which `item` requires to be the type
       //   of that field of that variant in the enum as compiled, and the enum to have no other
       //   variant and no other field. Each field has the layout of its type, or a restriction of
@@ -2976,12 +3106,33 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
     same.push(same_type(&quote!((*p).#member), &ty, &field.ty));
     named.push((name, &field.ty));
     let options = parse_options(&field.attrs, "a field of a union", &["valid"])?;
+    // Measured on the union as compiled, as for a struct of the `Rust` representation: 0 if the
+    // union is `repr(C)`.
+    let offset = quote!({
+      let value = #root::layout::Layout::uninit::<Self>();
+      let start: *const Self = value.as_ptr();
+      // SAFETY: `start` points to `value`, an uninitialized `Self`, which is `Sized` as every
+      // union is, so `(*start).#member` is a place in its allocation. `&raw const` makes a pointer
+      // to it without reading it, which needs neither initialized bytes nor alignment. That
+      // pointer and `start` are derived from the same allocation, and the bytes between them are
+      // in it, as `byte_offset_from` requires [1]. The distance is the offset of the field, which
+      // is not negative, so `as usize` keeps it.
+      //
+      // [1] Per https://doc.rust-lang.org/1.99.0/core/primitive.pointer.html#method.offset_from:
+      //
+      //     `self` and `origin` must either
+      //
+      //     - point to the same address, or
+      //     - both be derived from a pointer to the same allocation, and the memory range
+      //       between the two pointers must be in bounds of that object.
+      unsafe { (&raw const (*start).#member).byte_offset_from(start) as ::core::primitive::usize }
+    });
     let layout = match &options.valid {
-      None => quote!(#root::layout::Field::new(0, &<#ty as #root::Pun>::LAYOUT)),
+      None => quote!(#root::layout::Field::new(#offset, &<#ty as #root::Pun>::LAYOUT)),
       Some(ranges) => {
         let ranges = valid_ranges(ranges, &ty, &root)?;
         quote!(#root::layout::Field::restricted(
-          0,
+          #offset,
           const { &<#ty as #root::Pun>::LAYOUT.restricted(#ranges) },
         ))
       }
