@@ -129,6 +129,10 @@ What could be done, where whether to do it is not decided.
 
 - **`Wrapping` and `Saturating`.** They are `repr(transparent)` around their integer, and `puns`
   does not implement `Pun` for them.
+- **`repr(transparent)` enums with fields.** Rust gives such an enum the layout of its only field
+  of nonzero size ([`r-layout.repr.transparent.layout-abi`]), but the derive reads it as an enum
+  of the `Rust` representation ([Enums with fields][macro@Pun#enums-with-fields]). So without the
+  `unstable` feature, a pun that reads its field is refused for an unspecified layout.
 - **Atomics, `Cell` and `UnsafeCell`.** An atomic integer has the size and the bit validity of
   its integer, but `core` makes its alignment "always equal to its size, even on targets where
   `T` has alignment less than its size" ([`Atomic`]). `Cell<T>` and `UnsafeCell<T>` have "the same
@@ -137,8 +141,8 @@ What could be done, where whether to do it is not decided.
   `UnsafeCell`. Whether to support them by value and through `&mut` only is not decided.
 - **A rule that two variants of a [view][macro@Pun#views] share, where neither accepts every
   value of the other.** For bytes that fail the rule, each variant computes it, unless a later
-  variant computes it once for both ([How the derive reads a
-  type][macro@Pun#how-the-derive-reads-a-type]). Skipping the later variants whose same rule
+  variant computes it once for both ([What the view functions
+  check][macro@Pun#what-the-view-functions-check]). Skipping the later variants whose same rule
   failed, over the same extent at the same place, would need the check to report which rule
   failed, while it now returns a `bool` that the optimizer folds. Whether that cost is worth it is
   not decided.
@@ -172,6 +176,7 @@ What could be done, where whether to do it is not decided.
 [`LINT_TERMINATOR_LIMIT`]: https://github.com/rust-lang/rust/blob/1.99.0/compiler/rustc_const_eval/src/const_eval/machine.rs
 [`long_running_const_eval`]: https://doc.rust-lang.org/1.99.0/rustc/lints/listing/deny-by-default.html#long-running-const-eval
 [`recursion_limit`]: https://doc.rust-lang.org/1.99.0/reference/attributes/limits.html#r-attributes.limits.recursion_limit
+[`r-layout.repr.transparent.layout-abi`]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi
 [`UnsafeCell`]: https://doc.rust-lang.org/1.99.0/core/cell/struct.UnsafeCell.html#memory-layout
 
 [`Error`]: https://docs.rs/puns/0.2.4/puns/enum.Error.html
@@ -198,7 +203,7 @@ What could be done, where whether to do it is not decided.
 [macro@Pun]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
 [macro@Pun#enums-with-fields]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
 [macro@Pun#get]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#get
-[macro@Pun#how-the-derive-reads-a-type]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#how-the-derive-reads-a-type
+[macro@Pun#what-the-view-functions-check]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#what-the-view-functions-check
 [macro@Pun#views]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#views
 [rules]: rules.md
 [concepts#layouts-and-rules]: concepts.md#layouts-and-rules

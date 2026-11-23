@@ -12,18 +12,18 @@ type, the *target* `D`, through a function of `puns`. The two types are the pun'
 
 ## Layouts and rules
 
-`puns` knows your types only by their layouts and by what the type system enforces about their
-bytes, never by what their constructors check ([What deriving `Pun`
+`puns` knows your types only by their [layouts][layout] and by what the type system enforces
+about their bytes, never by what their constructors check ([What deriving `Pun`
 means][soundness#what-deriving-pun-means]).
 
-The layout that `puns` reads holds more than the layout that the Reference defines. Besides the
-size, the alignment and the offset of each field, it holds the values that each scalar may
-hold, and the rules of each struct. A byte that may be uninitialized, such as a byte of a struct
+The layout that `puns` reads holds more than the [layout that the Reference defines][type-layout].
+Besides the size, the alignment and the offset of each field, it holds the values that each scalar
+may hold, and the rules of each struct. A byte that may be uninitialized, such as a byte of a struct
 that no field covers, is *padding*. The type's implementation of [`Pun`] gives this layout as a
-`const` value, `Pun::LAYOUT`. The analysis is ordinary `const fn` code that compares the two
-layouts of a pair *part* by part. A part is a scalar, an element of an array, a field, a variant
-or a trailing slice. The compiler runs the analysis once for each pair that a function of
-`puns` is used with.
+`const` value, `Pun::LAYOUT`. The analysis is ordinary `const fn` code that compares the two layouts
+of a pair *part* by part. A part is a scalar, an element of an array, a field, a variant or a
+trailing slice. The compiler runs the analysis once for each pair that a function of `puns` is used
+with.
 
 A struct that derives `Pun` may state *[rules][rules]*: expressions on its fields and its
 bytes that its values must meet. A rule is an assertion, the size of a value, the length of its
@@ -184,6 +184,7 @@ without variants are uninhabited.
 [`r-layout.guarantees`]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.guarantees
 [uninhabited]: https://doc.rust-lang.org/1.99.0/reference/glossary.html#uninhabited
 [`size_of_val`]: https://doc.rust-lang.org/1.99.0/core/mem/fn.size_of_val.html
+[type-layout]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html
 
 [`Error`]: https://docs.rs/puns/0.2.4/puns/enum.Error.html
 [`num`]: https://docs.rs/puns/0.2.4/puns/num/index.html
@@ -199,5 +200,6 @@ without variants are uninhabited.
 [rules]: rules.md
 [rules#regions]: rules.md#regions
 [soundness#what-deriving-pun-means]: soundness.md#what-deriving-pun-means
+[layout]: https://docs.rs/puns/0.2.4/puns/layout/index.html
 [layouts]: layouts.md
 [limits#not-yet]: limits.md#not-yet

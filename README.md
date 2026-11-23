@@ -86,9 +86,9 @@ traits and modules.
 Binary formats fix the byte order of their integers, while a `u16` has the byte order of the
 machine. [`puns::num`][num] therefore has a type for each byte order: `u16be` is a big-endian `u16`,
 `u16le` a little-endian one, and the same goes for integers of 24 to 128 bits, signed integers and
-floats (`i32le`, `f64be`). Each one is a byte array with an alignment of 1. A struct made only of
-them and of bytes has no padding, and can be at any address in a buffer. `get` returns the value,
-and `new` makes one from a value.
+floats (`i32le`, `f64be`). Each one is a byte array with an alignment of 1. A `repr(C)` struct
+made only of them and of bytes has no padding, and can be at any address in a buffer, unless
+`align(..)` raises its alignment. `get` returns the value, and `new` makes one from a value.
 
 Binary formats also usually store the length of their data and a checksum of it. With `puns`, you
 write those relations on the struct as *rules*:

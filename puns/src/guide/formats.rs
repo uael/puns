@@ -11,7 +11,7 @@
 //! [macro@Pun]: macro@Pun
 //! [macro@Pun#assert]: macro@Pun#assert
 //! [macro@Pun#get]: macro@Pun#get
-//! [macro@Pun#how-the-derive-reads-a-type]: macro@Pun#how-the-derive-reads-a-type
+//! [macro@Pun#what-the-view-functions-check]: macro@Pun#what-the-view-functions-check
 //! [macro@Pun#len]: macro@Pun#len
 //! [macro@Pun#regions]: macro@Pun#regions
 //! [macro@Pun#size]: macro@Pun#size

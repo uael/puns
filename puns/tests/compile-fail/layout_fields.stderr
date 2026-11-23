@@ -62,7 +62,7 @@ note: inside `puns::layout::Layout::structure::<Pair>`
    |         assert!(end <= size, "field out of bounds");
    |         ------------------------------------------- in this macro invocation
 
-error[E0080]: evaluation panicked: `len` is about a last field that is a slice, or an array
+error[E0080]: evaluation panicked: `len` is about a last field that is or ends with an array, a slice or a `str`
   --> tests/compile-fail/layout_fields.rs:31:3
    |
 31 | /   Layout::structure::<Pair>(
@@ -81,7 +81,7 @@ note: inside `puns::layout::Layout::structure::<Pair>`
    |
    | /           assert!(
    | |             !matches!(rules[i], Rule::Len(_)) || this.tail_shape().array,
-   | |             "`len` is about a last field that is a slice, or an array"
+   | |             "`len` is about a last field that is or ends with an array, a slice or a `str`"
    | |           );
    | |___________- in this macro invocation
 

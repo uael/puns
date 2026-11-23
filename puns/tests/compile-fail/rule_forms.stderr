@@ -1,4 +1,4 @@
-error: an `if` has an `else`
+error: an `if` in a rule needs an `else`
  --> tests/compile-fail/rule_forms.rs:5:14
   |
 5 | #[pun(assert(if a == 1 { true }))]

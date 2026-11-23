@@ -470,16 +470,12 @@ where
 ///
 /// # Compile-time errors
 ///
-/// A call compiles only if all of the following hold, as for [`from_bytes`](crate::from_bytes):
+/// A call compiles only under the compile-time conditions of [`from_bytes`](crate::from_bytes) for
+/// the type of `I`, which are checked after monomorphization, as [the guide](crate::guide::errors)
+/// explains. Among them:
 ///
 /// - The type of `I` holds no scalar that a pun never makes in a part that the check covers, except
 ///   in a variant of an enum, which a check never accepts.
-/// - Some bytes are a valid value of the type of `I`.
-/// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
-///   check accepts do not depend on a layout that Rust leaves to the compiler.
-///
-/// These conditions are checked after monomorphization, as [the guide](crate::guide::errors)
-/// explains.
 #[inline(always)]
 pub const fn decide<'a, V: ?Sized + Views, I: Index, const N: usize, const HEAD: bool>(
   known: &mut Known<'a, V, N, HEAD>,

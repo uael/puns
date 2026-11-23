@@ -24,7 +24,7 @@
 //! [macro@Pun]: macro@Pun
 //! [macro@Pun#enums-with-fields]: macro@Pun#enums-with-fields
 //! [macro@Pun#get]: macro@Pun#get
-//! [macro@Pun#how-the-derive-reads-a-type]: macro@Pun#how-the-derive-reads-a-type
+//! [macro@Pun#what-the-view-functions-check]: macro@Pun#what-the-view-functions-check
 //! [macro@Pun#views]: macro@Pun#views
 //! [rules]: super::rules
 //! [concepts#layouts-and-rules]: super::concepts#layouts-and-rules

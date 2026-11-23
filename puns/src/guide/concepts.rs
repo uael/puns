@@ -14,6 +14,7 @@
 //! [rules]: super::rules
 //! [rules#regions]: super::rules#regions
 //! [soundness#what-deriving-pun-means]: super::soundness#what-deriving-pun-means
+//! [layout]: layout
 //! [layouts]: super::layouts
 //! [limits#not-yet]: super::limits#not-yet
 //! [`size_of_val`]: core::mem::size_of_val

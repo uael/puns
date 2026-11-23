@@ -18,7 +18,8 @@ use syn::{
 // The link names the version of this crate, which is that of `puns` (`version_group` in
 // `release-plz.toml`).
 #[doc = concat!(
-  "Implements `Pun` as [`puns::Pun`](https://docs.rs/puns/",
+  "Implements `Pun` for a struct, an enum or a union, or the reading functions of a view, as ",
+  "[`puns::Pun`](https://docs.rs/puns/",
   env!("CARGO_PKG_VERSION"),
   "/puns/derive.Pun.html) documents."
 )]
@@ -50,6 +51,10 @@ pub fn derive_pun(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
+/// The documentation of `puns` on docs.rs, at the version of this crate, which is that of `puns`,
+/// for the links of the documentation that the derive generates.
+const DOCS: &str = concat!("https://docs.rs/puns/", env!("CARGO_PKG_VERSION"), "/puns/");
+
 /// Returns the types of the variants of a view as a balanced tree (`puns::view::List`): the first
 /// half, then the second.
 fn view_tree(types: &[&Type], root: &TokenStream) -> TokenStream {
@@ -78,8 +83,9 @@ fn view_place(index: usize, count: usize, root: &TokenStream) -> TokenStream {
 
 /// Returns what stands for the implementations of the derive when it fails.
 ///
-/// The error of the derive is then the only one, rather than one at each use of the type. The
-/// fallback is never used, since the crate does not compile.
+/// A use of the type then gives no error that it does not implement `Pun`, so the error of the
+/// derive comes first. An evaluation of its layout fails with "`#[derive(Pun)]` failed", next to
+/// it. The fallback is never used, since the crate does not compile.
 fn fallback(input: &DeriveInput) -> TokenStream {
   let Ok(options) = parse_options(&input.attrs, "the type", &ALL_OPTIONS) else {
     return TokenStream::new();
@@ -137,7 +143,8 @@ fn find_reserved(tokens: TokenStream) -> Option<Ident> {
 /// may lay out differently, and what makes one is not all `Pun` (`PhantomData<T>`). Lifetime
 /// parameters do not count.
 fn identity(input: &DeriveInput, root: &TokenStream) -> TokenStream {
-  // One crate is expanded by one process, in which each derive takes the next number.
+  // One crate is expanded by one process, in which each call takes the next number, so no two
+  // types of a crate have the same one. A derive of an enum with fields calls this twice.
   static DERIVES: AtomicUsize = AtomicUsize::new(0);
   let generic =
     input.generics.params.iter().any(|param| !matches!(param, GenericParam::Lifetime(_)));
@@ -581,7 +588,7 @@ fn compile_block(
 ) -> Result<Ty> {
   let (op, visible) = (quote!(#root::layout::Op), scope.names.len());
   let Some((last, statements)) = block.stmts.split_last() else {
-    return Err(Error::new(block.span(), "a block has a value"));
+    return Err(Error::new(block.span(), "a block in a rule must end with its value"));
   };
   for statement in statements {
     let syn::Stmt::Local(local) = statement else {
@@ -700,7 +707,7 @@ fn compile(
     // `if COND { EXPR } else { EXPR }`
     Expr::If(branch) => {
       let Some((_, otherwise)) = &branch.else_branch else {
-        return Err(Error::new(branch.span(), "an `if` has an `else`"));
+        return Err(Error::new(branch.span(), "an `if` in a rule needs an `else`"));
       };
       let cond = compile(&branch.cond, fields, root, ops, scope)?;
       expect(cond, Ty::Bool, &branch.cond)?;
@@ -1807,7 +1814,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
             quote!(#rule::Region(::core::option::Option::Some(#ops)))
           }
           None if index + 1 == regions.len() => quote!(#rule::Region(::core::option::Option::None)),
-          None => return Err(Error::new(name.span(), "only the last region can be unsized")),
+          None => return Err(Error::new(name.span(), "only the last region can omit its size")),
         });
         accessors.push(region.ty.as_ref().map_or_else(
           || {
@@ -1817,7 +1824,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
                the tail if its expression fails.\n\n# Compile-time errors\n\n\
                A call compiles only if every byte of the struct, up to the end of its tail, is \
                initialized and, without the `unstable` feature of `puns`, this does not depend on \
-               a layout that Rust leaves to the compiler."
+               a layout that Rust leaves to the compiler.\n\n# Examples\n\nSee [Bit fields and \
+               regions]({DOCS}guide/formats/index.html#bit-fields-and-regions)."
             );
             quote! {
               #[doc = #doc]
@@ -1838,7 +1846,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
                to the end of its tail, is initialized and, without the `unstable` feature of \
                `puns`, this does not depend on a layout that Rust leaves to the compiler. It also \
                compiles only under the compile-time conditions of `puns::from_bytes` for the type \
-               of the region."
+               of the region.\n\n# Examples\n\nSee [A region with a \
+               type]({DOCS}guide/formats/index.html#a-region-with-a-type)."
             );
             quote! {
               #[doc = #doc]
@@ -1862,7 +1871,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
        where the expression, evaluated as Rust code, panics, such as on a division by zero.\n\n\
        # Compile-time errors\n\nA call compiles only if each field that the expression names is \
        an unsigned integer, or a sized struct whose only field with a size is one and is as large \
-       as the struct.",
+       as the struct.\n\n# Examples\n\nSee [Bit fields and \
+       regions]({DOCS}guide/formats/index.html#bit-fields-and-regions).",
       getter.expr.to_token_stream(),
       ty.to_token_stream()
     );
@@ -2188,6 +2198,9 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         }
       }
     });
+    let examples = format!(
+      "\n# Examples\n\nSee the view `Message` of [the examples]({DOCS}derive.Pun.html#examples)."
+    );
     return Ok(quote! {
       impl #impl_generics #root::view::Views for #ident #ty_generics #where_clause {
         type List = #list;
@@ -2207,6 +2220,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         ///
         /// A call compiles only if the type of each variant meets the compile-time conditions of
         /// `puns::from_bytes`.
+        #[doc = #examples]
         #vis const fn from_head(bytes: #bytes) -> #result<(Self, #bytes), #root::Error> {
           let mut known = #root::view::Known::<Self, #count, true>::new(bytes);
           #(#from_heads)*
@@ -2224,6 +2238,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         ///
         /// A call compiles only if the type of each variant meets the compile-time conditions of
         /// `puns::from_bytes`.
+        #[doc = #examples]
         #vis const fn from_bytes(bytes: #bytes) -> #result<Self, #root::Error> {
           let mut known = #root::view::Known::<Self, #count, false>::new(bytes);
           #(#wholes)*
@@ -2387,8 +2402,9 @@ fn needs_bound(ty: &Type, input: &DeriveInput) -> bool {
 /// [`derive_discovered`].
 ///
 /// With `repr(C)` or an integer, Rust specifies the layout (RFC 2195): the offsets of the fields
-/// are those of `repr(C)` structs, computed from the sizes and the alignments of the fields
-/// (`Layout::repr_c`). `bounds` are those of `#[pun(bound(..))]`, if any.
+/// are those of `repr(C)` structs, measured on the sample of the variant, or, for a variant without
+/// a sample, computed from the sizes and the alignments of the fields (`Layout::repr_c`). `bounds`
+/// are those of `#[pun(bound(..))]`, if any.
 fn derive_tagged(
   input: &DeriveInput,
   data: &DataEnum,
@@ -3207,10 +3223,11 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
       // field of that name in the union as compiled. A field that the derive did not read only
       // adds values, which the layout does not accept as a target, and guarantees none.
       // `Layout::union` takes the size and the alignment from the compiler. As a target, the
-      // layout accepts bytes that are a valid value of one field. Such bytes are a value that safe code makes by writing that field,
-      // which is valid [2]. As a source, the layout guarantees nothing, not even that a byte is
-      // initialized, which every value holds. `Variants` lists the fields in order. The other lists
-      // are `()`. Each field is `Pun`, so no byte is in an `UnsafeCell`.
+      // layout accepts bytes that are a valid value of one field. Such bytes are a value that safe
+      // code makes by writing that field, which is valid [2]. As a source, the layout guarantees
+      // nothing, not even that a byte is initialized, which every value holds. `Variants` lists the
+      // fields in order. The other lists are `()`. Each field is `Pun`, so no byte is in an
+      // `UnsafeCell`.
       //
       // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.union.size-align:
       //

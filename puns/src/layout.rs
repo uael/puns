@@ -2379,7 +2379,8 @@ impl Layout {
   /// - A rule is not well formed, as `#[derive(Pun)]` writes it: it reads a field past the sized
   ///   fields, goes past a [limit of the evaluator], or is a `size` or `len` rule that reads the
   ///   size of the value.
-  /// - `T` is sized, has a `len` rule, and its last field is not an array.
+  /// - `T` is sized, has a `len` rule, and its last field is neither an array nor a struct that
+  ///   ends with one, at any depth.
   /// - The size of `T` is not the one that the layout computes, as for a `packed` struct that ends
   ///   with an aligned unsized field.
   /// - `T` is unsized, and pointers to `T` are not represented as `probe` says.
@@ -2497,7 +2498,7 @@ impl Layout {
         while i < rules.len() {
           assert!(
             !matches!(rules[i], Rule::Len(_)) || this.tail_shape().array,
-            "`len` is about a last field that is a slice, or an array"
+            "`len` is about a last field that is or ends with an array, a slice or a `str`"
           );
           i += 1;
         }

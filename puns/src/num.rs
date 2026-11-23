@@ -7,12 +7,15 @@
 //! integers of 16, 24, 32, 48, 64 and 128 bits, for `i16` to `i128`, and for `f32` and `f64`.
 //!
 //! Each type is a byte array, so any bytes of its size are a valid value, and its alignment is 1:
-//! it can be at any address. A `repr(C)` struct whose fields all have alignment 1, as these types
-//! and `u8` do, has no padding and can be at any address too.
+//! it can be at any address. A `repr(C)` struct without `align(..)` whose fields are these types,
+//! bytes, or such structs, has no padding and can be at any address too. A field of alignment 1
+//! may still hold padding of its own, as an enum `repr(u8)` with fields may.
 //!
 //! Integers are compared, ordered and formatted as their values. A floating-point number is
 //! formatted as its value and has no order, and two of them are equal if their bytes are. So,
 //! unlike with `f64`, a NaN equals a NaN of the same bytes, and `-0.0` is not `0.0`.
+//!
+//! Reading and comparing numbers of each byte order:
 //!
 //! ```
 //! use puns::num::{f64le, i16be, u16be, u16le, u24be};

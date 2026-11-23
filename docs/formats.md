@@ -221,8 +221,8 @@ assert!(matches!(Any::from_bytes(&ping), Ok(Any::Ping(m)) if m.payload.sequence.
 assert!(matches!(Any::from_bytes(&[2, 0, 7]), Ok(Any::Other(m)) if m.kind.0 == 2));
 ```
 
-Every `Message<Ping>` is also a `Message`, so the view checks a ping only for its kind ([How the
-derive reads a type][macro@Pun#how-the-derive-reads-a-type]).
+Every `Message<Ping>` is also a `Message`, so the view checks a ping only for its kind ([What the
+view functions check][macro@Pun#what-the-view-functions-check]).
 
 ## Reading again after a write
 
@@ -263,7 +263,7 @@ Check bytes again when they come from code that may have written them.
 [macro@Pun]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
 [macro@Pun#assert]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#assert
 [macro@Pun#get]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#get
-[macro@Pun#how-the-derive-reads-a-type]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#how-the-derive-reads-a-type
+[macro@Pun#what-the-view-functions-check]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#what-the-view-functions-check
 [macro@Pun#len]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#len
 [macro@Pun#regions]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#regions
 [macro@Pun#size]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#size
