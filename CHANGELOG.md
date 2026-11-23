@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3](https://github.com/uael/puns/compare/v0.2.2...v0.2.3) - 2026-11-23
+
+### Fixed
+
+- the derive measures the offsets of fields on the item as compiled ([#61](https://github.com/uael/puns/pull/61))
+- the derive names each field type once and checks it against the item as compiled ([#58](https://github.com/uael/puns/pull/58))
+- the tags of an enum with fields are those of the enum ([#57](https://github.com/uael/puns/pull/57))
+- a union proven by a field through a requirement is checked past that field ([#56](https://github.com/uael/puns/pull/56))
+- a rule that loads a field reads it, in a union that a later field proves ([#55](https://github.com/uael/puns/pull/55))
+- the check of a string reads no padding past where the analysis stopped ([#54](https://github.com/uael/puns/pull/54))
+- a part left to the compiler that is not proven is checked only from initialized bytes ([#53](https://github.com/uael/puns/pull/53))
+- a period of an array does not cut an enum of the target ([#51](https://github.com/uael/puns/pull/51))
+
 ## [0.2.2](https://github.com/uael/puns/compare/v0.2.1...v0.2.2) - 2026-11-22
 
 ### Fixed
