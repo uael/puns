@@ -4126,10 +4126,11 @@ const fn same_valid(a: Valid, b: Valid, endian_a: Endian, endian_b: Endian) -> b
 
 /// A deterministic finite automaton over bytes, for the values of an unsized type such as `str`.
 ///
-/// An automaton has 1 to 64 states, the first of which is the initial one. It accepts bytes if,
-/// from the initial state, each byte leads by an edge to a next state, and the state reached after
-/// the last byte accepts. [`Layout::pattern`] makes the layout of a type whose values are the bytes
-/// that an automaton accepts, and `matches(DFA, start, end)` runs one in a rule
+/// An automaton has 1 to 64 states, the first of which is the initial one: the analysis holds a set
+/// of states in a `u64`, one bit per state. It accepts bytes if, from the initial state, each byte
+/// leads by an edge to a next state, and the state reached after the last byte accepts.
+/// [`Layout::pattern`] makes the layout of a type whose values are the bytes that an automaton
+/// accepts, and `matches(DFA, start, end)` runs one in a rule
 /// ([Functions](crate::guide::rules#functions)).
 ///
 /// An automaton is known by its states and edges. Its `id`, a field that safe code can write, only
@@ -5592,7 +5593,10 @@ pub(crate) const fn check_ops(ops: &[Op], head: usize, sizes: bool, mut defined:
       open += 1;
     }
     match op {
-      Op::At { size, .. } => assert!(size >= 1 && size <= 16, "malformed expression"),
+      Op::At { size, .. } => assert!(
+        size >= 1 && size <= 16,
+        "`le` and `be` read 1 to 16 bytes, an unsigned integer of at most 128 bits"
+      ),
       Op::Load { offset, size, .. } => {
         assert!(size >= 1 && size <= 16 && offset + size as usize <= head, "field out of bounds");
       }

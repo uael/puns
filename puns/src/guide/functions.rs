@@ -29,6 +29,7 @@
 //! [crate#going-further]: crate#going-further
 //! [crate#reading-one-of-several-types]: crate#reading-one-of-several-types
 //! [errors]: super::errors
+//! [limits#limits-of-rust]: super::limits#limits-of-rust
 //! [limits#not-yet]: super::limits#not-yet
 #![doc = include_str!("../../docs/functions.md")]
 

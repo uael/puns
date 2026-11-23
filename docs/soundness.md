@@ -68,11 +68,11 @@ padding and no field is proven, the pun is refused ([Not yet][limits#not-yet] sa
 this).
 
 A proven union is not read, except where it shares a check with other parts, as the elements of
-an array or the fields of a variant of an enum checked as a whole. Its fields are then tried in
-order, up to the first that the source proves whatever safe code writes. A field proven only
-through a requirement of the source fails where safe code broke that requirement, so the bytes that
-the fields after it read count too. The pun is refused if the check would read a byte that may be
-padding in the source, or a byte of the same union.
+an array or the fields of a variant of an enum checked as a whole. The check then tries its fields
+in order, and stops at the first one that the source proves whatever safe code writes. A field
+that only a requirement of the source proves fails where safe code broke that requirement, so the
+check may go on past it, and the bytes that the later fields read count too. The pun is refused if
+the check would read a byte that may be padding in the source, or a byte of the same union.
 
 ## Uninhabited types
 

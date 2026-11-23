@@ -290,7 +290,8 @@ compares the two types of each conversion. Read on 2026-11-23, with `zerocopy` 0
 | A checksum | declared on the type, and checked by `from_bytes` | computed and compared by your code |
 | The rules of one type prove those of another | [yes][pairs] | no |
 | Errors | refusals, which your editor doesn't report | mostly trait bounds, which your editor reports right away |
-| `Vec` and atomics | [not yet][not-yet] | `bytemuck` casts a `Vec`, `zerocopy` handles atomics |
+| `Vec` | [not yet][not-yet] | `bytemuck` casts a `Vec` |
+| Atomics | [not decided][not-decided] | `zerocopy` handles atomics |
 | Rust | [1.99][msrv] or later | 1.56 or later (`zerocopy`), 1.34 or later without features (`bytemuck`) |
 
 Rust's own [Safe Transmute][safe transmute] project compares the two types as well, inside the
@@ -396,6 +397,7 @@ additional terms or conditions.
 [costs]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md#costs
 [rust]: https://github.com/uael/puns/blob/v0.2.4/docs/rust.md
 [guide]: https://github.com/uael/puns/blob/v0.2.4/docs/README.md
+[not-decided]: https://github.com/uael/puns/blob/v0.2.4/docs/limits.md#not-decided
 [not-yet]: https://github.com/uael/puns/blob/v0.2.4/docs/limits.md#not-yet
 [Compile-time errors]: https://github.com/uael/puns/blob/v0.2.4/docs/errors.md
 [Soundness]: https://github.com/uael/puns/blob/v0.2.4/docs/soundness.md

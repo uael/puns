@@ -11,7 +11,10 @@
 //! [concepts#why-the-pair-decides]: super::concepts#why-the-pair-decides
 //! [fn@crc32]: fn@crc32
 //! [fn@sum16]: fn@sum16
+//! [soundness#what-deriving-pun-means]: super::soundness#what-deriving-pun-means
 //! [formats]: super::formats
+//! [limits#not-yet]: super::limits#not-yet
+//! [limits#limits-of-rust]: super::limits#limits-of-rust
 //! [macro@Pun#assert]: macro@Pun#assert
 //! [macro@Pun#len]: macro@Pun#len
 //! [macro@Pun#regions]: macro@Pun#regions

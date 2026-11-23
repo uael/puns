@@ -37,10 +37,10 @@ note: the above error was encountered while instantiating `fn pun_ref::<Header, 
   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ```
 
-Byte 1 of the target is the first of the three bytes of padding after `kind`. The last note
-gives the line of the call, because each function evaluates its constant in its own body, for the
-types of that call. Between the first lines and that note, `rustc` 1.100 prints 33 lines
-that locate the failed constant inside `puns`, which can be skipped.
+Where `u32` has alignment 4, byte 1 of the target is the first of the three bytes of padding after
+`kind`. The last note gives the line of the call, because each function evaluates its constant in
+its own body, for the types of that call. Between the first lines and that note, `rustc` 1.100
+prints 33 lines that locate the failed constant inside `puns`, which can be skipped.
 
 An optimized build may inline the function into its caller before it evaluates the constant.
 The error then has no last note: it names the types, as in `Plan::<Header, [u8; 8]>`, but not
@@ -63,11 +63,11 @@ assert_eq!(bytes[..4], [1, 0, 0, 0]);
 
 ## Messages
 
-The message of a refused pun starts with `cannot pun:` and says why. When the cause is at one
-byte, the message names that byte of the target. A message names only the first cause that
-`puns` finds, in this order: the sizes, an unspecified layout, padding, a source with no valid
-value, a check that the function cannot make, then the alignment. For a `&mut`, what a write
-leaves comes last. Fixing one cause may therefore reveal the next.
+The message of a refused pun starts with `cannot pun:` and says why. When the cause is at one byte,
+the message names that byte of the target. A message names only the first cause that `puns` finds,
+in this order: the sizes, an unspecified layout, padding, no value of the source valid for the
+target, a check that the function cannot make, then the alignment. For a `&mut`, what a write leaves
+comes last. Fixing one cause may therefore reveal the next.
 
 ### Sizes
 
@@ -265,8 +265,8 @@ assert_eq!(record.pair, (1, 7));
 ### Values and padding
 
 [Reading an error](#reading-an-error) shows the message of a byte that is padding in the
-source. An enum gives it too: the byte after the tag of a `Circle` is padding, and nothing tells
-a `Circle` from a `Rect` at compile time:
+source. An enum gives it too: where `u16` has alignment 2, the byte after the tag of a `Circle` is
+padding, and nothing tells a `Circle` from a `Rect` at compile time:
 
 ```rust,compile_fail,E0080
 #[derive(puns::Pun, Clone, Copy)]
@@ -367,7 +367,8 @@ assert_eq!(puns::try_pun_ref::<[u8; 4], u32>(aligned), Ok(&0));
 assert_eq!(puns::try_pun_ref::<[u8; 4], u32>(shifted), Err(puns::Error::Alignment));
 ```
 
-[`tail_ref`] and [`tail_mut`] check no address, and their message suggests other functions:
+The functions of the front and the back check no address, and their message suggests other
+functions, since the checked functions of a whole value do not take a part of the source:
 
 ```rust,compile_fail,E0080
 let n: &u16 = puns::tail_ref(&[0u8; 4]);
@@ -380,6 +381,21 @@ Use `tail` to copy it, or `from_tail` to take it from bytes, whose address is ch
 
 ```rust
 assert_eq!(puns::tail::<[u8; 4], u16>([0, 0, 1, 0]), u16::from_ne_bytes([1, 0]));
+```
+
+[`head_ref`] and [`head_mut`] suggest `head` and `from_head` in the same way:
+
+```rust,compile_fail,E0080
+let n: &u16 = puns::head_ref(&[0u8; 4]);
+```
+
+```text
+cannot pun: the target has a greater alignment than the source.
+Use `head` to copy it, or `from_head` to take it from bytes, whose address is checked at run time.
+```
+
+```rust
+assert_eq!(puns::head::<[u8; 4], u16>([1, 0, 0, 0]), u16::from_ne_bytes([1, 0]));
 ```
 
 ### The last bytes of a value
@@ -510,6 +526,32 @@ let _: &mut u8 = puns::tail_mut(&mut Ordered { a: 1, b: 2 });
 cannot pun: a struct of the source that has a rule (a size, a length, an assertion, a region) overlaps the bytes that the `&mut` covers, and a write could break the rule.
 ```
 
+To fix it, take the struct whole, which keeps its rule a requirement of its type, or only bytes
+outside it:
+
+```rust
+#[derive(puns::Pun)]
+#[repr(C)]
+#[pun(assert(a < b))]
+struct Ordered {
+  a: u8,
+  b: u8,
+}
+
+#[derive(puns::Pun)]
+#[repr(C)]
+struct Entry {
+  range: Ordered,
+  flags: u8,
+}
+
+let mut entry = Entry { range: Ordered { a: 1, b: 2 }, flags: 0 };
+*puns::tail_mut::<_, u8>(&mut entry) = 7;
+let range: &mut Ordered = puns::head_mut(&mut entry);
+range.b = 9;
+assert_eq!((entry.range.b, entry.flags), (9, 7));
+```
+
 A `&mut` to the first or last bytes takes an enum whole or not at all:
 
 ```rust,compile_fail,E0080
@@ -570,10 +612,33 @@ assert_eq!(puns::zeroed::<Option<core::num::NonZero<u8>>>(), None);
 ## Errors of the derive
 
 The derive's [Compile-time errors][macro@Pun#compile-time-errors] say where and when each of its
-errors is reported. A rule that reads a field that is not an unsigned integer is refused, and
-[Fields in a rule][rules#fields-in-a-rule] shows its message and its fix. A getter of
-`#[pun(get(..))]` that reads such a field is refused where it is called, which `cargo check` does
-not report:
+errors is reported, and its page gives the conditions of each kind of type and of each attribute.
+Most of its messages are at the place of the fault, and say what the derive accepts there: an
+expression that is not a rule is refused at the part that is not one, with what a rule computes
+([The language of rules][rules]). These messages need more:
+
+- "`#[derive(Pun)]` failed": a constant read the layout of a type whose derive failed. It comes
+  with the error of the derive, which is the one to fix.
+- An option of `#[pun(..)]` that does not parse gets the message of the parser, such as "expected
+  `=`" or "expected `,`", at the token where parsing stopped. The derive's page gives the form of
+  each option.
+- "too many variables": an expression names at most 8 values at once, its `let`s and the
+  parameters of its walks. The names of a block end with it, so compute each value in a block of
+  its own, or split the expression into several `assert`s.
+- A message that ends with "unsupported layout": the derive cannot find the tag of an enum of the
+  `Rust` representation in the layout that `rustc` chose ([its
+  conditions][macro@Pun#enums-with-fields]). Give the enum a primitive representation, such as
+  `#[repr(u8)]`, whose layout RFC 2195 specifies.
+- A message that starts with "unsupported compiler", or says that the discriminant of an enum is
+  not what `puns` takes it to be: `rustc` does not behave as [What `puns` relies on][rust] says. No
+  change of the type fixes it, and the version of `rustc` is the cause.
+- "not where the field is", "not the rules of the struct" and "not the operations of the
+  expression": the path of [`#[pun(crate = ..)]`][macro@Pun#crate] names items other than those of
+  `puns` ([The generated code][trust#the-generated-code]).
+
+A rule that reads a field that is not an unsigned integer is refused, and [Fields in a
+rule][rules#fields-in-a-rule] shows its message and its fix. A getter of `#[pun(get(..))]` that
+reads such a field is refused where it is called, which `cargo check` does not report:
 
 ```rust,compile_fail,E0080
 #[derive(puns::Pun)]
@@ -627,7 +692,12 @@ assert!(level.negative());
 [functions#writing-through-mut]: functions.md#writing-through-mut
 [macro@Pun#compile-time-errors]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#compile-time-errors
 [opaque scalar]: concepts.md#opaque-scalars
+[macro@Pun#crate]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#crate
+[macro@Pun#enums-with-fields]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
+[rules]: rules.md
 [rules#fields-in-a-rule]: rules.md#fields-in-a-rule
+[rust]: rust.md
+[trust#the-generated-code]: trust.md#the-generated-code
 [uninhabited]: concepts.md#uninhabited-types
 [unspecified layout]: concepts.md#unspecified-layouts
 [msrv]: target.md#minimum-rust-version

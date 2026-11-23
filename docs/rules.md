@@ -12,12 +12,16 @@ struct is made from another type, as by [`try_pun`] or [`from_head`], unless the
 it ([Why the pair decides][concepts#why-the-pair-decides]). A `size` or `len` rule also
 tells `from_head` how long a value is.
 
-A rule is compiled to a constant program of [`layout::Op`]s over a stack of values and a set of
-variables, which a `const fn` can evaluate, and which costs what its arithmetic costs. What a
-rule computes is built in, and described by data where it varies (walks, variable-length
-integers, CRCs, sums), so a rule calls no function by its name alone but [those
-below](#functions), and no method. A path to a `const fn`, as `self::f(3)`, is a
-[constant](#literals-constants-and-operators).
+A rule is a Rust expression over the fields of its struct, constants, and the bytes of the value.
+It computes with operators, `if`, blocks of `let`s and the [functions](#functions) below, and calls
+no other function and no method on what it reads, since its check is generic `const fn` code,
+which cannot call a function that the type chooses ([Limits of Rust][limits#limits-of-rust]). A
+part of a rule that reads nothing is a [constant](#literals-constants-and-operators), which Rust
+computes, so it may call any `const fn`.
+
+The derive compiles a rule to a constant program of [`layout::Op`]s, which a `const fn` evaluates,
+and which costs what its arithmetic costs. What varies among the functions, such as the polynomial
+of a CRC or the steps of a walk, is data of the operations.
 
 ## Regions
 
@@ -27,11 +31,13 @@ not fit in the field is truncated, and a region whose expression fails takes the
 
 ## Values and types
 
-A rule means what the same Rust expression would mean if every integer were a `u128`, or it is
-refused. It is typed as Rust types it: arithmetic is on integers, the operands of `&&` and `||`
-and the condition of an `if` are `bool`s, an `assert` is a `bool`, and a `size`, a `len` or a
-region is an integer. Rust does not convert an integer to a `bool`, so `flags & 1` is not an
-assertion, but `flags & 1 != 0` is.
+A rule means what the same Rust expression would mean if every integer were a `u128` and overflow
+checks were on, whatever the build profile ([How a rule fails](#how-a-rule-fails)), or it is
+refused. The one exception is `size_of_val(self)`, which is the extent ([Fields in a
+rule](#fields-in-a-rule)). It is typed as Rust types it: arithmetic is on integers, the operands of
+`&&` and `||` and the condition of an `if` are `bool`s, an `assert` is a `bool`, and a `size`, a
+`len` or a region is an integer. Rust does not convert an integer to a `bool`, so `flags & 1` is not
+an assertion, but `flags & 1 != 0` is.
 
 ## Fields in a rule
 
@@ -79,19 +85,24 @@ assert!(puns::from_bytes::<Level>(&[7]).is_ok());
 assert!(puns::from_bytes::<Level>(&(-1i8).to_ne_bytes()).is_err());
 ```
 
-`size_of_val(self)` is the extent of the value in bytes. A `size` or `len` rule, which defines
-the extent, does not read it, and the derive reports one that does.
+`size_of_val(self)` is the [extent][concepts#layouts-and-rules] of the value in bytes. It differs
+from what Rust's `size_of_val` gives where padding follows the trailing slice, which the extent
+leaves out. A `size` or `len` rule, which defines the extent, does not read it, and the derive
+reports one that does.
 
 ## Literals, constants and operators
 
 Besides its fields, a rule is made of:
 
-- integer literals, with no suffix or the suffix of an unsigned type (`1u8`), and byte literals
-  (`b'a'`). Floating-point numbers, negative numbers, signed integers and `char`s are refused,
-  since they would mean something else.
-- constants of an unsigned integer type, which Rust computes: `MAX_LEN`, `u16::MAX`, a const
-  parameter `N`, `size_of::<Header>()`, `offset_of!(Self, field)`, or `self::f(3)` for a `const
-  fn f`.
+- integer literals, with no suffix or the suffix of an unsigned type (`1u8`), byte literals
+  (`b'a'`), `true` and `false`. A floating-point, negative, signed or `char` literal is refused,
+  since it would mean something else as a `u128`.
+- constants of an unsigned integer type: any expression that names no field and no name of a
+  `let` or a walk, which Rust computes as it is written. `MAX_LEN`, `u16::MAX`, a const parameter
+  `N`, `size_of::<Header>()`, `offset_of!(Self, field)`, `u8::MAX.count_ones()`, `self::f(3)` for
+  a `const fn f`, and a cast of a constant, such as `'a' as u32` or `-1i8 as u8`, are constants. A
+  function called by its name alone, as `f(3)`, is taken for a [function of rules](#functions), and
+  refused if it is not one: name it by its path.
 - the operators `+ - * / % & | ^ << >> == != < <= > >= && || !`. On an integer, `!` is a bitwise
   not (`!3` is `0xffff..fffc`). On a `bool`, it is a logical not.
 - casts: `as u8`, `as u16`, `as u32`, `as u64` and `as usize` keep the low bits, with the width
@@ -104,10 +115,10 @@ Besides its fields, a rule is made of:
 
 ## How a rule fails
 
-Where Rust would panic, the rule fails, which means that it does not hold: on an overflow of `+`,
-`-` or `*`, a difference below zero included, a division or remainder by zero, a shift by 128 or
-more, and a read or a range outside the value. `<<` drops the bits it shifts out, as in Rust, so
-`(1 << 127) << 1` is `0`.
+Where Rust would panic with overflow checks, the rule fails, which means that it does not hold, in
+every build profile: on an overflow of `+`, `-` or `*`, a difference below zero included, a division
+or remainder by zero, a shift by 128 or more, and a read or a range outside the value. `<<` drops
+the bits it shifts out, as in Rust, so `(1 << 127) << 1` is `0`.
 
 As in Rust, the right side of `&&` and `||` is computed only if the left side does not decide,
 and the branch of an `if` that is not taken is not computed. What is not computed cannot fail,
@@ -178,16 +189,17 @@ assertion. A checksum that covers several layers is an assertion of the struct t
 all: that of UDP and TCP covers the addresses of the IP header, so it is one of the IPv4 packet.
 
 A rule that reads bytes by offset (`le`, `be`, a variable-length integer, a checksum, a CRC,
-`matches`, or a `walk` whose expressions do) reads the padding of its struct as well. It is
-checked when the source does not prove it, and with what it shares a check with: in a variant
-of an enum checked as a whole, in an element of an array of which another element is checked,
-and where every part of the target is checked. The pun is then refused if its struct has a byte
-that may be padding in the source.
+`matches`, or a `walk` whose expressions do) may read the padding of its struct too. Such a rule is
+checked when the source does not prove it. A proven one is checked too where its struct shares a
+check with a part that is not proven: in a variant of an enum that is checked as a whole, in an
+element of an array whose other elements are checked, and where every part of the target is checked
+([Not yet][limits#not-yet]). Wherever the rule is checked, the pun is refused if its struct has a
+byte that may be padding in the source.
 
 ## Functions
 
 - `le(offset, N)` and `be(offset, N)`: the unsigned integer of `N` bytes at `offset`,
-  little-endian or big-endian. `N` is a constant from 1 to 16.
+  little-endian or big-endian. `N` is a `u8` constant from 1 to 16.
 - `leb128(offset)`, `quic(offset)` and `vlq(offset)`: the variable-length integer at `offset`.
   LEB128 has 7 bits per byte, least significant first (Protocol Buffers, WebAssembly, MQTT).
   QUIC (RFC 9000) has 1, 2, 4 or 8 bytes, as its two high bits say. VLQ is big-endian base 128
@@ -214,11 +226,51 @@ that may be padding in the source.
 - `sum(start, end)`: the sum of the bytes (tar).
 - `matches(DFA, start, end)`: whether an automaton accepts the bytes from `start` to `end`. `DFA` is
   a `&'static` [`layout::Dfa`]: `Dfa::ASCII`, `Dfa::DIGITS`, `Dfa::OCTAL`, `Dfa::HEX`, `Dfa::UTF8`,
-  `Dfa::UTF8_NO_NUL`, or one of your own. The automaton has 1 to 64 states, and the edges of each
-  state are sorted and disjoint. `matches` states a pattern that the struct requires of its bytes,
-  and like any rule, it proves nothing about them. A type that guarantees a pattern, as `str` does,
-  cannot be derived, since safe code can write its fields.
+  `Dfa::UTF8_NO_NUL`, or one of your own, which [`layout::Dfa`] says how to write. `matches`
+  states a pattern that the struct requires of its bytes, and like any rule, it proves nothing about
+  them. A derived type cannot guarantee a pattern, as `str` does ([What deriving `Pun`
+  means][soundness#what-deriving-pun-means]).
 - `walk(START, |at| COND, |at| NEXT)`: see [Walks](#walks).
+
+A record that gives the length of its data as a VLQ, and ends with the Modbus CRC of what comes
+before it, little-endian, and a header that holds the CRC-32 of its 8 bytes, computed with the
+bytes of the CRC as zeros, then the Fletcher-16 of its first 4 bytes:
+
+```rust
+use puns::Pun;
+
+#[derive(Pun)]
+#[repr(C)]
+#[pun(size = vlq_len(0) + vlq(0) + 2, assert({
+  let end = size_of_val(self) - 2;
+  le(end, 2) == crc::<16, 0x8005, 0xffff, true, 0>(0, end)
+}))]
+struct Record {
+  bytes: [u8],
+}
+
+#[derive(Pun)]
+#[repr(C)]
+#[pun(assert(le(4, 4) == crc32(0, 8, 4, 8) && be(8, 2) == fletcher16(0, 4)))]
+struct Header {
+  magic: [u8; 4],
+  crc: [u8; 4],
+  sum: [u8; 2],
+}
+
+// A length of 3, "abc", its CRC, then the next record.
+let bytes = [3, b'a', b'b', b'c', 0x38, 0xf7, 0];
+let (record, next) = puns::from_head::<Record>(&bytes).unwrap();
+assert_eq!((record.bytes.len(), next), (6, &[0][..]));
+// A byte of the data changed: the CRC no longer matches.
+assert!(puns::from_head::<Record>(&[3, b'a', b'b', b'd', 0x38, 0xf7]).is_err());
+
+let header = *b"PUNS\xb8\x34\x08\x0b\x31\x47";
+assert!(puns::from_bytes::<Header>(&header).is_ok());
+let mut wrong = header;
+wrong[9] = 0;
+assert!(puns::from_bytes::<Header>(&wrong).is_err());
+```
 
 ## Walks
 
@@ -229,11 +281,12 @@ the first "type, length, value" whose type is 0 is `walk(0, |at| be(at, 1) != 0,
 be(at + 1, 1))`. A walk may be in any rule or in another walk, and one expression may hold
 several. It fails if `COND` still holds after its last step, or if `COND` or `NEXT` fails.
 
-A walk takes at most `8 * size + 128` steps, one for each bit of the `size` bytes that it may
-read and of a `u128`, and fails beyond that. `size` is `size_of_val(self)`, or, for a `size` or
-`len` rule, the number of bytes from the start of the value to the end of the input, which are
-then the bytes it reads. So a walk always ends, and a walk over the bits of a field fits any
-value. The size of a zero-terminated string is a walk:
+A walk takes at most `8 * size + 128` steps, one for each bit of the `size` bytes that it may read
+and of a `u128`, and fails beyond that. Where that number does not fit in a `usize`, the limit is
+`usize::MAX` steps. `size` is `size_of_val(self)`, or, for a `size` or `len` rule, the number of
+bytes from the start of the value to the end of the input, which are then the bytes it reads. So a
+walk always ends, and a walk over the bits of a field fits any value. The size of a zero-terminated
+string is a walk:
 
 ```rust
 use puns::Pun;
@@ -275,11 +328,13 @@ which the last two limits keep few. An expression has:
 - at most 256 operations;
 - at most 4 walks nested in each other;
 - a stack of at most 16 values. `a + (b + (c + d))` needs one more for each level, 4 in all,
-  which a `let` or another order saves: `a + b + c + d` needs 2;
+  which a `let` or another order saves: `a + b + c + d` needs 2. An `if` keeps its condition and
+  the value of its first branch while it computes the other, so each `else if` of a chain needs 2
+  more: a chain of 7 conditions needs 15, and one of 8 needs 17;
 - at most 8 names at once, its `let`s and the parameters of its walks.
 
 The derive reports an expression past one of these limits at the place of the fault, with the
-numbers. A walk takes at most `8 * size + 128` steps ([Walks](#walks)).
+numbers. The steps of a walk are bounded too ([Walks](#walks)).
 
 [`codegen.rs`]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/codegen.rs
 [`ethernet.rs`]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/ethernet.rs
@@ -297,7 +352,10 @@ numbers. A walk takes at most `8 * size + 128` steps ([Walks](#walks)).
 [concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
 [fn@crc32]: https://docs.rs/puns/0.2.4/puns/layout/fn.crc32.html
 [fn@sum16]: https://docs.rs/puns/0.2.4/puns/layout/fn.sum16.html
+[soundness#what-deriving-pun-means]: soundness.md#what-deriving-pun-means
 [formats]: formats.md
+[limits#not-yet]: limits.md#not-yet
+[limits#limits-of-rust]: limits.md#limits-of-rust
 [macro@Pun#assert]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#assert
 [macro@Pun#len]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#len
 [macro@Pun#regions]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#regions

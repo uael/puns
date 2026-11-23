@@ -68,7 +68,9 @@ block. A path that names other functions there changes what they return, but wha
 a valid value of its type.
 
 The trait that says where a field is, `Path`, is sealed, and the leaf at which a list of fields
-places a field is checked against the layout.
+places a field is checked against the layout. A list of fields, of rules or of the operations of
+an expression that is not the layout's fails the build, with "not where the field is", "not the
+rules of the struct" or "not the operations of the expression".
 
 The derive writes the type of each field once, as an associated type of a trait that it declares
 and implements for the type, where `Self` is the type, as in its declaration. The rest of the

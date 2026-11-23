@@ -154,10 +154,10 @@ assert_eq!((note.urgent, &note.text), (true, b"ABC"));
 
 ## In a constant
 
-Every function of `puns` is a `const fn`, and so is every function that the derive generates, so
-you can check bytes in a constant while the program compiles. Only the implementations of
-standard traits, such as `From` and `Display`, are not, since stable Rust cannot call a trait
-method in `const`. `unwrap` is not `const` either: match on the result instead.
+Every function of `puns` is a `const fn`, and so is every function that the derive generates, so you
+can check bytes in a constant while the program compiles. Only the implementations of standard
+traits, such as `From` and `Display`, are not ([Limits of Rust][limits#limits-of-rust]). `unwrap` is
+not `const` either: match on the result instead.
 
 A check of an address does not compile in a constant, because `core` calls reading an address as an
 integer undefined behavior in const evaluation, and says that using the integer stops the evaluation
@@ -270,8 +270,9 @@ decides][concepts#why-the-pair-decides]).
 Each [part][concepts#layouts-and-rules] of `D` accepts what some value of `S` holds at its
 place: each scalar outside an enum or a union, some variant of each enum, and some field of each
 union. The check at run time then tests that the bytes are a valid `D` and meet the requirements
-of `D`. A pair that no value can pass is refused rather than checked, so `D` is inhabited if `S`
-is.
+of `D`. A pair where no value of `S` is a valid `D` is refused rather than checked, so `D` is
+inhabited if `S` is. The analysis does not solve rules, so a pair whose rules no value meets, such
+as `assert(a > 255)` on a `u8`, compiles, and its check always fails.
 
 ### Writes leave a valid source
 
@@ -327,4 +328,5 @@ accepts it. For a `&mut`, the covered bytes of `S` hold none either, since a wri
 [crate#going-further]: ../README.md#going-further
 [crate#reading-one-of-several-types]: ../README.md#reading-one-of-several-types
 [errors]: errors.md
+[limits#limits-of-rust]: limits.md#limits-of-rust
 [limits#not-yet]: limits.md#not-yet

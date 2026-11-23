@@ -13,6 +13,7 @@
 //! [opaque scalar]: super::concepts#opaque-scalars
 //! [part]: super::concepts#layouts-and-rules
 //! [rule]: super::concepts#layouts-and-rules
+//! [rust#how-rustc-places-fields]: super::rust#how-rustc-places-fields
 //! [rust#what-rust-documents]: super::rust#what-rust-documents
 //! [trust-identity]: super::trust#the-identity-of-a-type-and-the-compiler
 //! [unspecified layout]: super::concepts#unspecified-layouts

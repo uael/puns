@@ -5,8 +5,9 @@ Rust leaves these choices of layout to the compiler, and a type whose layout dep
 
 - The order of the fields of a struct or a tuple of the `Rust` representation, and so its size.
   Where `u16` has alignment 2, `struct Triple(u8, u16, u8)` may be 4 or 6 bytes. `rustc` makes it
-  4 bytes, and 6 bytes under [`-Zrandomize-layout`] `-Zlayout-seed=1` on `nightly-2026-11-17`.
-  That flag does not move the fields of a tuple, though Rust allows it.
+  4 bytes, and [`-Zrandomize-layout`] on `nightly-2026-11-17` makes it 6 bytes under some seeds.
+  The order that this flag chooses depends on the seed and on the type's path, its crate
+  included. The flag does not move the fields of a tuple, though Rust allows it.
 - The tag of an enum of the `Rust` representation: where and how its discriminant is stored, and
   its values ([`r-items.enum.discriminant.repr-rust`], [`mem::discriminant`]).
 - The niches of `Option` and `Result`, except where `core` documents them.
@@ -23,12 +24,18 @@ one exception is whether an `Option` of an [opaque scalar] compiles where `core`
 document its niche ([Opaque scalars][opaque-scalars]). What such a pun checks and accepts does not
 depend on the niche.
 
+Layout independence assumes that the compiler places the fields of a struct as `rustc` does
+([How `rustc` places fields][rust#how-rustc-places-fields]). Under another placement, a pun could
+only fail to compile. It also assumes that the path of `puns` that the derive names is `puns`
+itself: a crate that redirects it can make a verdict depend on how `rustc` arranged two types
+([The identity of a type and the compiler][trust-identity]).
+
 Layout independence holds of a pun, which is a function and a pair, not of a type: of the rows of
-`(bool, u8)` below, some are proven and some refused. It does not cover the message of a
-refusal, which may name what `rustc` chose. `pun` of a `Triple` as a `[u8; 4]` is refused for its
-unspecified layout, or, under the seed above, because the source is larger than the target. Nor
-does it cover which field each byte holds, which is the compiler's choice with or without `puns`.
-A pun returns a valid value whose fields depend on the layout, as [`transmute`] does:
+`(bool, u8)` below, some are proven and some refused. It does not cover the message of a refusal,
+which may name what `rustc` chose. `pun` of a `Triple` as a `[u8; 4]` is refused for its unspecified
+layout, or, where `Triple` has 6 bytes, because the source is larger than the target. Nor does it
+cover which field each byte holds, which is the compiler's choice with or without `puns`. A pun
+returns a valid value whose fields depend on the layout, as [`transmute`] does:
 
 ```rust
 let pair: (u8, u8) = puns::pun([1u8, 2]);
@@ -51,7 +58,7 @@ assert!(pair == (1, 2) || pair == (2, 1));
 | `try_pun` of bytes as `struct P { a: u8, b: u8 }` with the rule `a < b` | refused | the rule reads `a`, which is either byte |
 | `try_pun` of `(u8, u8)` as a `repr(C)` struct of a `bool` and a `u8` | refused | `(0, 2)` passes in one order only |
 | `try_pun` of `(u8, u8)` as `NonZero<u16>` | refused | each byte that the check reads may hold either field |
-| any function of a `Triple`, or to it, but `pun` to itself | refused | it may be 4 or 6 bytes |
+| any pun of a `Triple` as another type, or of another type as a `Triple` | refused | it may be 4 or 6 bytes |
 | `try_pun` of bytes as an enum of the `Rust` representation, or as `Option<bool>` | refused | nothing documents where the tag is, nor its values |
 | `pun` of `(u8, S)` as itself, for an opaque scalar `S` | refused | a [part] that holds an opaque scalar is proven by nothing |
 | [`validate_but_never`] of `(bool, u8)` | refused | the byte that it checks is either byte |
@@ -124,15 +131,16 @@ with fields or without, proves only the same type, and only the same type proves
 
 No check replaces a proof in a part with an unspecified layout, since the check would read where
 the compiler may not have put the field. What is not proven there is refused. Two checks still
-read such a part, with the same answer in every layout: that of a union that a later field
-proves, which accepts whatever the earlier field does not, and that of an enum whose variant
-holds an opaque scalar, which no value of the variant passes. The pun then compiles only if every
-byte under the part is initialized in the source.
+read such a part, because their answer is the same in every layout. The first is the check of a
+target union of which the source proves a field after the first: whatever the earlier fields do
+not accept, that field does, so the union accepts every value of the source. The second is that of
+an enum whose variant holds an opaque scalar, which no value of the variant passes. The pun then
+compiles only if every byte under the part is initialized in the source.
 
 Niches are used only where `core` documents the representation of `Option` and `Result`, not
 where it documents only ABI compatibility ([What Rust documents][rust#what-rust-documents]). So
-`try_pun` of a `u32` as `enum Ticket { Free, Paid(NonZero<u32>) }` needs the feature, though `rustc` lays
-`Ticket` out like `Option<NonZero<u32>>`.
+`try_pun` of a `u32` as `enum Ticket { Free, Paid(NonZero<u32>) }` needs the feature, though
+`rustc` lays `Ticket` out like `Option<NonZero<u32>>`.
 
 ## The same type
 
@@ -141,7 +149,8 @@ proven only by the same type at the same place. A type has one layout in a progr
 types, however alike, may be arranged differently ([`offset_of!`, "Layout is subject to
 change"][offset_of layout], [`r-type.struct.layout`]). For `struct Wrapper<A, B> { a: A, b: B,
 c: u16 }`, `-Zrandomize-layout` on `nightly-2026-11-17` orders the fields of `Wrapper<u8, u8>` and
-`Wrapper<u8, i8>` alike with `-Zlayout-seed=1`, and differently with `-Zlayout-seed=4`.
+`Wrapper<u8, i8>` alike under some seeds and differently under others, depending on the crate and
+the path of the type as well.
 
 Stable Rust cannot compare types in `const`, where `TypeId` cannot be compared and `type_name`
 cannot be called. So `puns` gives a type an *identity*, a name together with the identities
@@ -177,6 +186,7 @@ as well ([The identity of a type and the compiler][trust-identity]).
 [opaque scalar]: concepts.md#opaque-scalars
 [part]: concepts.md#layouts-and-rules
 [rule]: concepts.md#layouts-and-rules
+[rust#how-rustc-places-fields]: rust.md#how-rustc-places-fields
 [rust#what-rust-documents]: rust.md#what-rust-documents
 [trust-identity]: trust.md#the-identity-of-a-type-and-the-compiler
 [unspecified layout]: concepts.md#unspecified-layouts

@@ -10,17 +10,18 @@ the message of each [refused][kinds] pun is in [Compile-time errors][errors].
   evaluation is taking a long time". So the analysis cannot take a step for each byte of a type,
   nor a step or an instance for each element of an array, and its searches stop at the
   [bounds](#bounds-of-the-analysis) below.
-- **No function that a type chooses.** The check of a [rule][rules] is `const fn` code, generic
-  over the type it checks, and stable Rust cannot call there a function that the type chooses. A
-  call through a function pointer is refused ("function pointer calls are not allowed in constant
-  functions"), and so is a call of a trait method (E0015, "cannot call non-const associated
-  function"), while const traits are unstable (E0658, "const trait impls are experimental"), with
-  the same messages on Rust 1.99.0 and 1.100.0. A user function could be called only if the check
-  stopped being `const`, or behind a check that runs only outside of `const`, which stable Rust
-  cannot express. So a rule may not call an arbitrary function, while a [getter][macro@Pun#get],
-  which is not generic, may call any `const fn`. Since const traits are unstable, the
-  implementations of `Display` for [`Error`] and the types of [`num`], and of `From` between these
-  types and their integers, are not `const`.
+- **No function that a type chooses.** The check of a [rule][rules] is `const fn` code in `puns`,
+  generic over the type it checks, and stable Rust cannot call there a function that the type
+  chooses. A call through a function pointer is refused ("function pointer calls are not allowed in
+  constant functions"). A call of a trait method is refused too (E0015, "cannot call non-const
+  associated function"), since const traits are unstable (E0658, "const trait impls are
+  experimental"). The messages are the same on Rust 1.99.0 and 1.100.0. A function of the user could
+  be called only if the check stopped being `const`, or behind a check that runs only outside of
+  `const`, which stable Rust cannot express. So a rule calls only the functions of rules. A
+  [getter][macro@Pun#get] may call any `const fn`, because the derive writes its code in the
+  deriving crate, where the function is named directly. Since const traits are unstable, the
+  implementations of standard traits, such as `Display` for [`Error`] and the types of [`num`], and
+  `From` between these types and their integers, are not `const`.
 - **No comparison of types in `const`.** So `puns` tells types apart by an
   [identity][layouts#the-same-type], which some types lack.
 - **No unsized value by value.** Rust cannot return an unsized value by value, and `puns` never
@@ -62,27 +63,27 @@ evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions].
   combinations of the ranges of values of those fields.
 - **A string over the source.** A `str` of the target, or another type that guarantees what an
   automaton accepts, is proven by running the automaton over at most 4,096 stretches of the
-  source, each of padding, of bytes of any value, or of a scalar with restricted values.
+  source, each of padding, of bytes of any value, or of a scalar with restricted values. Over a
+  stretch of bytes of any value, the analysis follows the automaton for at most 257 bytes: if the
+  states that it may be in still change after them, the string is checked.
+- **The values of a tag.** Where a variant of an enum of the target is related to the source, the
+  analysis knows which values the source holds where the tag is, as at most 8 ranges. Past them,
+  it knows nothing of these values, so what only they prove, such as a niche of the target over
+  padding of the source variant, is not proven.
 - **Elements under a `&mut`.** A `&mut` to a part of an array whose elements have rules looks at
   no more than 64 of its elements, and is refused past them.
-- **What a check can single out.** The analysis tells apart the first 1,024 scalars, strings,
-  enums, unions and rules of a target. If one after them needs a check, the check covers all of
-  them after it.
+- **What a check can single out.** The analysis tells apart the first 1,024 parts of a target that
+  a check may test: its scalars with restricted values, strings, enums, unions and rules. Those
+  after them share one mark, so if one of them needs a check, all of them are checked.
 
 ## Not yet
+
+What is planned, each with what it would allow.
 
 - **`Vec`, `String` and maps, through their contents.** Today, reinterpret what they hold:
   [`pun_ref`] of `v.as_slice()`. The bytes of a `Vec` itself are a pointer and lengths, so
   reading them would not read its contents. Planned: a pun that reinterprets the contents and
   keeps the structure that holds them.
-- **`Wrapping` and `Saturating`.** They are `repr(transparent)` around their integer, and `puns`
-  does not implement `Pun` for them yet.
-- **Atomics, `Cell` and `UnsafeCell`.** An atomic integer has the size and the bit validity of
-  its integer, but `core` makes its alignment "always equal to its size, even on targets where
-  `T` has alignment less than its size" ([`Atomic`]). `Cell<T>` and `UnsafeCell<T>` have "the same
-  in-memory representation as" `T` ([`UnsafeCell`]). All of them allow writes through a shared
-  reference, while the functions that return a `&` rely on a [`Pun`] type holding no
-  `UnsafeCell`. Whether to support them by value and through `&mut` only is not decided.
 - **Precise `head_mut` and `tail_mut`.** [`head_mut`] and [`tail_mut`] refuse a struct that has a
   rule even if the rule reads other fields, and an enum that they cover only partly even if all
   its variants accept what is written ([Writes leave a valid
@@ -101,6 +102,38 @@ evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions].
   of 3, though it does not read the [extent][concepts#layouts-and-rules]. Nor does the analysis
   reason about the data that describes a walk, a variable-length integer, a CRC or a sum, since a
   checksum only makes a check stricter. Planned: proving a rule from rules that imply it.
+- **A checked pun from an enum to a type that is not an enum.** `puns` knows an enum as a source
+  only by the bytes that every variant initializes, not variant by variant. So `try_pun` from the
+  `Shape` of [Values and padding][errors#values-and-padding] to a struct that requires an
+  initialized byte where one variant has padding is refused, even if the check of the tag would
+  exclude that variant. Planned: relating the target to each variant whose tag it may accept, so
+  that the pun is checked.
+- **Checking only what is not proven.** Some parts of a target are checked together, so a proven
+  part among them is checked with the others:
+
+  - An enum, when only some of its variants are proven from a source that is another type, or some
+    values of the source are not a tag. Its tag is checked, then the fields of its variant.
+  - The elements of an array ([What a check may read][layouts#what-a-check-may-read]).
+  - The parts past the [first 1,024](#bounds-of-the-analysis).
+  - Every part of the target, where the source ends with a `str` and the target does not.
+
+  A proven union, an enum that holds one, or a struct whose rule reads its padding may then read a
+  byte that is uninitialized in the source, and the pun is refused, though the part needs no
+  check. Planned: checking only the parts that are not proven, and only the fields of a target
+  union that read no padding, where [Unions][soundness#unions] refuses the pun.
+
+## Not decided
+
+What could be done, where whether to do it is not decided.
+
+- **`Wrapping` and `Saturating`.** They are `repr(transparent)` around their integer, and `puns`
+  does not implement `Pun` for them.
+- **Atomics, `Cell` and `UnsafeCell`.** An atomic integer has the size and the bit validity of
+  its integer, but `core` makes its alignment "always equal to its size, even on targets where
+  `T` has alignment less than its size" ([`Atomic`]). `Cell<T>` and `UnsafeCell<T>` have "the same
+  in-memory representation as" `T` ([`UnsafeCell`]). All of them allow writes through a shared
+  reference, while the functions that return a `&` rely on a [`Pun`] type holding no
+  `UnsafeCell`. Whether to support them by value and through `&mut` only is not decided.
 - **A rule that two variants of a [view][macro@Pun#views] share, where neither accepts every
   value of the other.** For bytes that fail the rule, each variant computes it, unless a later
   variant computes it once for both ([How the derive reads a
@@ -110,34 +143,22 @@ evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions].
   not decided.
 - **Checked front and back of a typed value** (`try_head` and so on). [`head`], [`tail`] and
   their forms prove or are refused. For bytes, [`from_head`] and [`from_tail`] check.
-- **A checked pun from an enum to a type that is not an enum.** `puns` knows an enum as a source
-  only by the bytes that every variant initializes, not variant by variant. So `try_pun` from the
-  `Shape` of [Values and padding][errors#values-and-padding] to a struct that requires an
-  initialized byte where one variant has padding is refused, even if the check of the tag would
-  exclude that variant. Planned: relating the target to each variant whose tag it may accept, so
-  that the pun is checked.
-- **Checking only what is not proven.** When only some variants of an enum whose source is
-  another type are proven, or some values of the source are not a tag, the whole enum is checked
-  at run time, its tag first, then the fields of its variant. Other parts are checked together
-  too: the elements of an array ([What a check may read][layouts#what-a-check-may-read]), those
-  past the [first 1,024](#bounds-of-the-analysis), and every part of the target where the source
-  ends with a `str` and the target does not. A union that is proven there, an enum that holds
-  one, or a struct whose rule reads its padding is then checked too. The pun is refused if that
-  check would read a byte that may be uninitialized, though the part needs no check. Planned:
-  checking only the parts that are not proven, and only the fields of a target union that read no
-  padding, where [Unions][soundness#unions] refuses the pun.
 - **A byte order that a value gives.** A type has a byte order of its own, so no type reads its
   fields in the byte order that a value gives. A view chooses between a type of each byte order
   instead ([A byte order that the value gives][formats#a-byte-order-that-the-value-gives]).
-- **`default()`.** No function builds a value from the defaults of its fields (literals, sizes).
+- **A value from what its type fixes.** No function builds a value of a struct whose fields of a
+  constant type of [`num`], such as `u8c<7>`, hold their value, and whose fields that a `size` or
+  `len` rule reads hold the length of the value. Each field is written by hand, as
+  `Default::default()` for a field of a constant type.
 - **Fields of fields, and signed and floating-point fields, in rules.** A rule reads them with
   `le` or `be` at their offsets ([Fields in a rule][rules#fields-in-a-rule]). Naming a field of a
   field (`header.length`) or an element of an array (`magic[0]`) would be sound if its offset
   were checked against the layout of the field, as a scalar of that size there, as it is for the
   fields of the struct.
-- **Getters that read bytes.** A getter reads fields, not bytes, so a value that only the bytes
-  hold, such as a variable-length integer, is decoded by the user's code. A rule reads one
-  ([`leb128`][rules#functions] and others), but only to check a value or to give a size.
+- **The functions of rules in getters.** A getter has none of the functions of rules, so a value
+  that only the bytes hold, such as a variable-length integer, is decoded by a `const fn` of the
+  user. A rule reads one ([`leb128`][rules#functions] and others), but only to check a value or to
+  give a size.
 - **A size to the end of what holds the value.** A rule cannot name the end of the bytes that
   hold the value, which an MP4 box of size 0 extends to.
 - **Choices and recursion in a sequence of types.** A struct, or a chain of types such as

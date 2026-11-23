@@ -15,12 +15,12 @@
 //! [costs]: guide::performance#costs
 //! [rust]: guide::rust
 //! [guide]: guide
+//! [not-decided]: guide::limits#not-decided
 //! [not-yet]: guide::limits#not-yet
 //! [Compile-time errors]: guide::errors
 //! [Soundness]: guide::soundness
 //! [testing]: guide::testing
 //! [deriving]: guide::soundness#what-deriving-pun-means
-//! [view]: macro@Pun#views
 //! [unstable]: guide::layouts
 #![doc = include_str!("../README.md")]
 #![cfg_attr(not(test), no_std)]
@@ -99,7 +99,8 @@ pub use layout::{crc32, sum16};
 /// - The enum must be at most 16 bytes, since `puns` reads a scalar as an unsigned integer of at
 ///   most 128 bits.
 /// - The enum must have no padding, which an `align` greater than the size of its discriminant
-///   adds.
+///   adds. The build fails with an error of const evaluation that reads the padding ("memory is
+///   uninitialized").
 ///
 /// An enum without variants is [uninhabited], so no pun makes one.
 ///
@@ -218,18 +219,23 @@ pub use layout::{crc32, sum16};
 /// `#[pun(valid(0x45..=0x4f, 0x60))]`, on a field of a struct, of an enum with fields that is not
 /// a view, or of a union: the field has one of these values, its bits read as an unsigned integer
 /// in its byte order, so `0xff` is `-1i8`. Each item is a value or a range of unsigned integer
-/// literals, or of constants of an unsigned integer type. A range may omit either bound, and `..`
-/// alone accepts every value. Like a rule, `valid` is a
+/// literals, or of constants of an unsigned integer type. A range may omit either bound: the start
+/// is then 0, and the end the greatest unsigned integer of the size of the field. Like a rule,
+/// `valid` is a
 /// [requirement](crate::guide::concepts#requirements): safe code can write any value to the field.
 ///
 /// The derive compiles `valid` only if it meets these conditions:
 ///
-/// - No range may be empty, and each value must be valid for the type of the field.
+/// - No range may be empty, nor go past the greatest unsigned integer of the size of the field
+///   ("empty range", "scalar range is empty or out of bounds").
+/// - Each value must be valid for the type of the field ("restricted to values that are not valid
+///   for the type"). So `..` is refused on a `bool`, whose values are only 0 and 1.
 /// - The type of the field must have the layout of a scalar of 1 to 16 bytes that are always
 ///   initialized, since `puns` reads the value of the field as an unsigned integer of at most 128
-///   bits. Integers, floating-point numbers, `bool`, `char`, `NonZero`, enums without fields, every
-///   [`Scalar`] (those of [`num`] among them), and `ManuallyDrop` of one of these have this layout.
-///   A struct that derives `Pun` does not, even a `repr(transparent)` one.
+///   bits ("a constrained scalar must be 1 to 16 bytes wide"). Integers, floating-point numbers,
+///   `bool`, `char`, `NonZero`, enums without fields, every [`Scalar`] (those of [`num`] among
+///   them), and `ManuallyDrop` of one of these have this layout. A struct that derives `Pun` does
+///   not, even a `repr(transparent)` one.
 ///
 /// ## `get`
 ///
@@ -343,9 +349,11 @@ pub use layout::{crc32, sum16};
 ///
 /// The derive reports these errors at the place of the fault, so `cargo check` reports them too:
 ///
-/// - an unknown, misplaced or repeated option;
+/// - an unknown, misplaced or repeated option, or one that does not parse;
 /// - an expression that is not a rule, or that exceeds a [limit of the
 ///   evaluator](crate::guide::rules#limits-of-the-evaluator);
+/// - a value of `valid` that is negative, or a literal that is not an unsigned integer;
+/// - a region other than the last that omits its size;
 /// - an identifier that starts with `__Pun`;
 /// - a union that is not `repr(C)` or is packed, and a struct that ends with a slice or a `str`
 ///   but is neither `repr(C)` nor `repr(transparent)`;
@@ -1575,10 +1583,14 @@ const fn check(analysis: &Analysis, need: Need) -> Option<Message> {
     );
   }
   if need.reference && !aligned && !need.fallible {
-    return Some(Message::new(
+    // The checked functions of a whole value do not take the first bytes of a larger source.
+    return Some(Message::new(if need.part {
+      "the target has a greater alignment than the source.\nUse `head` to copy it, or \
+       `from_head` to take it from bytes, whose address is checked at run time"
+    } else {
       "the target has a greater alignment than the source.\nUse `try_pun_ref` or \
-       `try_pun_mut` to check the address at run time",
-    ));
+       `try_pun_mut` to check the address at run time"
+    }));
   }
   None
 }
@@ -1926,8 +1938,8 @@ pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 ///
 /// ```compile_fail,E0080
 /// // Rust does not specify the order of the fields of a tuple. Without the `unstable` feature, the
-/// // pun is refused for that. With it, the second byte is padding, since `rustc` puts the `u16`
-/// // after a byte of padding.
+/// // pun is refused for that. With it, where `u16` has alignment 2, the second byte is padding,
+/// // since `rustc` puts the `u16` after a byte of padding.
 /// let _: [u8; 2] = puns::head((0u8, 0u16));
 /// ```
 ///
@@ -1979,7 +1991,7 @@ pub const fn head<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 ///   b: u8,
 /// }
 ///
-/// // The last byte is padding.
+/// // Where `u16` has alignment 2, the last byte is padding.
 /// let _: u8 = puns::tail(Padded { a: 0, b: 0 });
 /// ```
 ///

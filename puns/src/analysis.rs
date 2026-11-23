@@ -58,8 +58,9 @@
 //!
 //! So the cost of an analysis grows with the number of fields, variants, ranges of values and
 //! states of automata of the types. Where it would grow with their size, a search stops at a limit:
-//! [`PLACES`] places of fields, a budget of boxes of a scalar, a budget of runs under a pattern,
-//! and [`CUT_ELEMENTS`] elements of an array looked at one by one. These limits keep the analysis
+//! [`PLACES`] places of fields, a budget of boxes of a scalar, a budget of runs under a pattern and
+//! of steps of its automaton over bytes of any value, [`KNOWN`] ranges of the values of a tag, and
+//! [`CUT_ELEMENTS`] elements of an array looked at one by one. These limits keep the analysis
 //! within the bound of const evaluation ([Limits of Rust](crate::guide::limits#limits-of-rust)).
 //!
 //! # Enums and unions
@@ -280,7 +281,9 @@ const STRICT: bool = !UNSTABLE;
 // -------------------------------------------------------------------------------------------------
 // `Cursor`
 
-/// The maximum nesting of arrays, slices and structs that a [`Cursor`] follows.
+/// The most frames of a [`Cursor`]: one for the part where it is, and one for each array, slice and
+/// struct around it, so 31 levels of nesting around a scalar ([Bounds of the
+/// analysis](crate::guide::limits#bounds-of-the-analysis)).
 const MAX_DEPTH: usize = 32;
 
 /// The kind of a [`Run`].

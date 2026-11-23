@@ -17,7 +17,12 @@
 //! [functions#writing-through-mut]: super::functions#writing-through-mut
 //! [macro@Pun#compile-time-errors]: macro@Pun#compile-time-errors
 //! [opaque scalar]: super::concepts#opaque-scalars
+//! [macro@Pun#crate]: macro@Pun#crate
+//! [macro@Pun#enums-with-fields]: macro@Pun#enums-with-fields
+//! [rules]: super::rules
 //! [rules#fields-in-a-rule]: super::rules#fields-in-a-rule
+//! [rust]: super::rust
+//! [trust#the-generated-code]: super::trust#the-generated-code
 //! [uninhabited]: super::concepts#uninhabited-types
 //! [unspecified layout]: super::concepts#unspecified-layouts
 //! [msrv]: super::target#minimum-rust-version

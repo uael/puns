@@ -392,6 +392,8 @@ const VARIABLES: usize = 8;
 const MAX_OPS: usize = 256;
 /// The depth of walks within walks of an expression.
 const MAX_WALKS: usize = 4;
+/// Why the size of `le` or `be` is refused, as `layout::check_ops` says it of a constant.
+const READ_SIZE: &str = "`le` and `be` read 1 to 16 bytes, an unsigned integer of at most 128 bits";
 
 /// Returns `tokens` located at `span`, so that an error in what they compute is reported there.
 ///
@@ -626,14 +628,13 @@ fn compile_block(
   Ok(ty)
 }
 
-/// Returns the number of operations in a part of an expression that may not be computed, as an
+/// Returns the number of operations in a branch of an expression that may not be computed, as an
 /// operation holds it (`layout::Op::Shortcut`).
 ///
-/// # Errors
-///
-/// Returns an error if the number does not fit a `u16`.
-fn part(len: usize) -> Result<u16> {
-  u16::try_from(len).map_err(|_| Error::new(Span::call_site(), "this expression is too long"))
+/// A number that does not fit a `u16` is `u16::MAX`: the expression then has more than
+/// [`MAX_OPS`] operations, which [`limits`] reports with the numbers before any operation is used.
+fn part(len: usize) -> u16 {
+  u16::try_from(len).unwrap_or(u16::MAX)
 }
 
 /// Compiles `expr` to the operations of a postfix expression, and returns its type.
@@ -710,7 +711,7 @@ fn compile(
       let middle = ops.len();
       let other = compile(otherwise, fields, root, ops, scope)?;
       expect(other, then, otherwise)?;
-      let (first, second) = (part(middle - start + 1)?, part(ops.len() - middle)?);
+      let (first, second) = (part(middle - start + 1), part(ops.len() - middle));
       ops.insert(middle, quote!(#op::Else(#second)));
       ops.insert(start, quote!(#op::Then(#first)));
       ops.push(quote!(#op::Select));
@@ -782,7 +783,7 @@ fn compile(
       expect(right, left, &binary.right)?;
       // The right side of `&&` and `||` is only computed if the left one does not decide.
       if let BinOp::And(_) | BinOp::Or(_) = binary.op {
-        let (either, len) = (matches!(binary.op, BinOp::Or(_)), part(ops.len() - start + 1)?);
+        let (either, len) = (matches!(binary.op, BinOp::Or(_)), part(ops.len() - start + 1));
         ops.insert(start, quote!(#op::Shortcut { either: #either, len: #len }));
       }
       let name = Ident::new(name, binary.op.span());
@@ -819,6 +820,12 @@ fn compile(
     Expr::Call(call) if call.args.len() == 2 && (is_call(call, "le") || is_call(call, "be")) => {
       int(&call.args[0], ops, scope)?;
       let (size, big) = (&call.args[1], is_call(call, "be"));
+      // A constant is checked with the layout (`layout::check_ops`), a literal here.
+      if let Expr::Lit(ExprLit { lit: Lit::Int(int), .. }) = size
+        && !matches!(int.base10_parse::<u8>(), Ok(1..=16))
+      {
+        return Err(Error::new_spanned(size, READ_SIZE));
+      }
       ops.push(quote!(#op::At { size: #size, big: #big }));
       Ty::Int
     }
@@ -2140,10 +2147,13 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     .collect::<Vec<_>>();
   if references.len() == data.variants.len() {
     let lifetime = &references[0].1.lifetime;
-    if lifetime.is_none() || references.iter().any(|(_, reference)| &reference.lifetime != lifetime)
-    {
-      return Err(Error::new(
-        Span::call_site(),
+    // The error is at the first reference without the named lifetime of the first one.
+    let other = references
+      .iter()
+      .find(|(_, reference)| lifetime.is_none() || &reference.lifetime != lifetime);
+    if let Some((_, reference)) = other {
+      return Err(Error::new_spanned(
+        reference,
         "the references of the variants must have the same lifetime",
       ));
     }
