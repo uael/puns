@@ -55,7 +55,7 @@ not its value as an unsigned integer, and so is an [opaque
 scalar][concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types], which is not
 a number:
 
-```compile_fail,E0080
+```rust,compile_fail,E0080
 use puns::Pun;
 
 #[derive(Pun)]
@@ -74,7 +74,7 @@ error[E0080]: evaluation panicked: a rule reads the unsigned integer fields of i
 A rule that reads bytes at an offset reads the bytes of such a field like any others. To fix
 this rule, read the bits of `level` as a byte, in which the negative levels are 128 to 255:
 
-```
+```rust
 use puns::Pun;
 
 #[derive(Pun)]
@@ -126,7 +126,7 @@ Rust, a `let` is computed whether its name is used or not, and a block fails if 
 `let`s fails. Everything that is computed counts, so the first failure is the failure of the
 expression, and the evaluation stops there:
 
-```
+```rust
 use puns::Pun;
 
 #[derive(Pun, Clone, Copy)]
@@ -220,7 +220,7 @@ read and of a `u128`, and fails beyond that. `size` is `size_of_val(self)`, or, 
 then the bytes it reads. So a walk always ends, and a walk over the bits of a field fits any
 value. The size of a zero-terminated string is a walk:
 
-```
+```rust
 use puns::Pun;
 
 #[derive(Pun)]
