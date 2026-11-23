@@ -1,22 +1,27 @@
 error[E0080]: evaluation panicked: a variant holds a union none of whose fields has values: a value of it may exist, but it has no sample to find its tag: unsupported layout
- --> src/layout.rs
-  |
-  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
-  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<R3 as puns::layout::Discover<3>>::DESC` failed inside this call
-  |
+  --> tests/compile-fail/discover_union_without_values.rs:14:10
+   |
+14 | #[derive(puns::Pun, Clone, Copy)]
+   |          ^^^^^^^^^ evaluation of `<R3 as _::__PunDiscover>::DESC` failed inside this call
+   |
+note: inside `puns::layout::Layout::discover::<R3, 3>`
+  --> src/layout.rs
+   |
+   |     unsafe { crate::discover::discover(samples, fields) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::discover::discover::<R3, 3>`
- --> $RUST/core/src/panic.rs
-  |
-  = note: the failure occurred here
-  |
- ::: src/discover.rs
-  |
-  | /       assert!(
-  | |         !exists,
-  | |         "a variant holds a union none of whose fields has values: a value of it may exist, but it \
-  | |          has no sample to find its tag: unsupported layout"
-  | |       );
-  | |_______- in this macro invocation
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/discover.rs
+   |
+   | /       assert!(
+   | |         !exists,
+   | |         "a variant holds a union none of whose fields has values: a value of it may exist, but it \
+   | |          has no sample to find its tag: unsupported layout"
+   | |       );
+   | |_______- in this macro invocation
 
 note: erroneous constant encountered
   --> tests/compile-fail/discover_union_without_values.rs:14:10

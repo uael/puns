@@ -62,7 +62,10 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   (`F::Path`), and relies on the `# Safety` section of `Pun` for the other lists.
 - What a layout is made of depends on no path that the deriving crate can redefine, though the
   generated code names `::core` and the root of `puns` ("What the derive trusts" in the
-  documentation of `#[derive(Pun)]`). `fakecore` in `puns-model` tests that the derive meets it.
+  documentation of `#[derive(Pun)]`). `Layout::PIN` fixes the types whose functions make a
+  layout, so a new type whose functions the derive calls goes there. `fakecore` in `puns-model`
+  tests that the derive meets it for `::core`, and the cases `crate_path_*` of
+  `tests/compile-fail` for the root of `puns`.
 - The derive writes the type of each field once, in a trait of its generated code (`homes` in
   `puns-derive`), and a function that is never called fails to compile unless the item as
   compiled has those fields and variants, of those types. The offsets of the fields are measured

@@ -115,7 +115,9 @@ fn an_unsized_target_fits_in_the_source_with_its_trailing_padding() {
 mod fake {
   pub use puns::Scalar;
   pub mod layout {
-    pub use puns::layout::{Endian, Enum, Field, Id, Layout, Op, Rule, Spec, Variant};
+    pub use puns::layout::{
+      Checksum, Crc, Endian, Enum, Field, Id, Layout, Op, Rule, Spec, Variant, Varint,
+    };
     /// Returns ranges that would make every byte a variant of the enum, if the generated code
     /// called it.
     pub const fn sorted_ranges<const N: usize>(_: [u128; N]) -> ([(u128, u128); N], usize) {

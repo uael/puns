@@ -1,95 +1,115 @@
 error[E0080]: evaluation panicked: the discriminant is not the index
- --> src/layout.rs
-  |
-  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
-  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Swapped as puns::layout::Discover<2>>::DESC` failed inside this call
-  |
+  --> tests/compile-fail/discover_samples_and_fields.rs:25:34
+   |
+25 |   const DESC: Desc<2> = unsafe { Layout::discover(&Self::SAMPLES, &Self::FIELDS) };
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `Swapped::DESC` failed inside this call
+   |
+note: inside `puns::layout::Layout::discover::<Swapped, 2>`
+  --> src/layout.rs
+   |
+   |     unsafe { crate::discover::discover(samples, fields) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::discover::discover::<Swapped, 2>`
- --> $RUST/core/src/panic.rs
-  |
-  = note: the failure occurred here
-  |
- ::: src/discover.rs
-  |
-  |       assert!(unsafe { variant(samples[v].as_ptr()) } == v, "the discriminant is not the index");
-  |       ------------------------------------------------------------------------------------------ in this macro invocation
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/discover.rs
+   |
+   |       assert!(unsafe { variant(samples[v].as_ptr()) } == v, "the discriminant is not the index");
+   |       ------------------------------------------------------------------------------------------ in this macro invocation
 
 note: erroneous constant encountered
-  --> tests/compile-fail/discover_samples_and_fields.rs:64:11
+  --> tests/compile-fail/discover_samples_and_fields.rs:72:11
    |
-64 |   let _ = <Swapped as Discover<2>>::DESC;
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+72 |   let _ = Swapped::DESC;
+   |           ^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked: the discriminant of an enum of the `Rust` representation is not an `isize`
- --> src/layout.rs
-  |
-  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
-  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Specified as puns::layout::Discover<2>>::DESC` failed inside this call
-  |
+  --> tests/compile-fail/discover_samples_and_fields.rs:40:34
+   |
+40 |   const DESC: Desc<2> = unsafe { Layout::discover(&Self::SAMPLES, &Self::FIELDS) };
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `Specified::DESC` failed inside this call
+   |
+note: inside `puns::layout::Layout::discover::<Specified, 2>`
+  --> src/layout.rs
+   |
+   |     unsafe { crate::discover::discover(samples, fields) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::discover::discover::<Specified, 2>`
- --> src/discover.rs
-  |
-  |       assert!(unsafe { variant(samples[v].as_ptr()) } == v, "the discriminant is not the index");
-  |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  --> src/discover.rs
+   |
+   |       assert!(unsafe { variant(samples[v].as_ptr()) } == v, "the discriminant is not the index");
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::discover::variant::<Specified>`
- --> $RUST/core/src/panic.rs
-  |
-  = note: the failure occurred here
-  |
- ::: src/discover.rs
-  |
-  | /   assert!(
-  | |     size_of::<mem::Discriminant<E>>() == size_of::<isize>(),
-  | |     "the discriminant of an enum of the `Rust` representation is not an `isize`"
-  | |   );
-  | |___- in this macro invocation
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/discover.rs
+   |
+   | /   assert!(
+   | |     size_of::<mem::Discriminant<E>>() == size_of::<isize>(),
+   | |     "the discriminant of an enum of the `Rust` representation is not an `isize`"
+   | |   );
+   | |___- in this macro invocation
 
 note: erroneous constant encountered
-  --> tests/compile-fail/discover_samples_and_fields.rs:65:11
+  --> tests/compile-fail/discover_samples_and_fields.rs:73:11
    |
-65 |   let _ = <Specified as Discover<2>>::DESC;
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+73 |   let _ = Specified::DESC;
+   |           ^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked: a field is out of the enum
- --> src/layout.rs
-  |
-  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
-  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Outside as puns::layout::Discover<2>>::DESC` failed inside this call
-  |
+  --> tests/compile-fail/discover_samples_and_fields.rs:54:34
+   |
+54 |   const DESC: Desc<2> = unsafe { Layout::discover(&Self::SAMPLES, &Self::FIELDS) };
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `Outside::DESC` failed inside this call
+   |
+note: inside `puns::layout::Layout::discover::<Outside, 2>`
+  --> src/layout.rs
+   |
+   |     unsafe { crate::discover::discover(samples, fields) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::discover::discover::<Outside, 2>`
- --> $RUST/core/src/panic.rs
-  |
-  = note: the failure occurred here
-  |
- ::: src/discover.rs
-  |
-  |         assert!(field.offset + field.layout.size <= size, "a field is out of the enum");
-  |         ------------------------------------------------------------------------------- in this macro invocation
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/discover.rs
+   |
+   |         assert!(field.offset + field.layout.size <= size, "a field is out of the enum");
+   |         ------------------------------------------------------------------------------- in this macro invocation
 
 note: erroneous constant encountered
-  --> tests/compile-fail/discover_samples_and_fields.rs:66:11
+  --> tests/compile-fail/discover_samples_and_fields.rs:74:11
    |
-66 |   let _ = <Outside as Discover<2>>::DESC;
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+74 |   let _ = Outside::DESC;
+   |           ^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked: fields overlap
- --> src/layout.rs
-  |
-  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
-  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Twice as puns::layout::Discover<2>>::DESC` failed inside this call
-  |
+  --> tests/compile-fail/discover_samples_and_fields.rs:68:34
+   |
+68 |   const DESC: Desc<2> = unsafe { Layout::discover(&Self::SAMPLES, &Self::FIELDS) };
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `Twice::DESC` failed inside this call
+   |
+note: inside `puns::layout::Layout::discover::<Twice, 2>`
+  --> src/layout.rs
+   |
+   |     unsafe { crate::discover::discover(samples, fields) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::discover::discover::<Twice, 2>`
- --> $RUST/core/src/panic.rs
-  |
-  = note: the failure occurred here
-  |
- ::: src/discover.rs
-  |
-  |         assert!(!covers(these.split_at(i).0, field.offset, field.layout.size), "fields overlap");
-  |         ---------------------------------------------------------------------------------------- in this macro invocation
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/discover.rs
+   |
+   |         assert!(!covers(these.split_at(i).0, field.offset, field.layout.size), "fields overlap");
+   |         ---------------------------------------------------------------------------------------- in this macro invocation
 
 note: erroneous constant encountered
-  --> tests/compile-fail/discover_samples_and_fields.rs:67:11
+  --> tests/compile-fail/discover_samples_and_fields.rs:75:11
    |
-67 |   let _ = <Twice as Discover<2>>::DESC;
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+75 |   let _ = Twice::DESC;
+   |           ^^^^^^^^^^^

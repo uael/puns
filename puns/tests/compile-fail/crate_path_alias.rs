@@ -5,7 +5,7 @@ mod fake {
   pub type At<P, F> =
     puns::At<puns::At<P, puns::TupleField<(bool, bool), 1>>, F>;
   pub mod layout {
-    pub use puns::layout::{Enum, Field, Id, Layout, Op, Rule, Variant};
+    pub use puns::layout::{Checksum, Crc, Enum, Field, Id, Layout, Op, Rule, Spec, Variant, Varint};
   }
 }
 

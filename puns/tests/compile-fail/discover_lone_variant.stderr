@@ -1,26 +1,31 @@
 error[E0080]: evaluation panicked: the only variant that has values is told by bytes that are not its fields
- --> src/layout.rs
-  |
-  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
-  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Direct as puns::layout::Discover<2>>::DESC` failed inside this call
-  |
+  --> tests/compile-fail/discover_lone_variant.rs:22:34
+   |
+22 |   const DESC: Desc<2> = unsafe { Layout::discover(&Self::SAMPLES, &Self::FIELDS) };
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `Direct::DESC` failed inside this call
+   |
+note: inside `puns::layout::Layout::discover::<Direct, 2>`
+  --> src/layout.rs
+   |
+   |     unsafe { crate::discover::discover(samples, fields) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::discover::discover::<Direct, 2>`
- --> $RUST/core/src/panic.rs
-  |
-  = note: the failure occurred here
-  |
- ::: src/discover.rs
-  |
-  | /     assert!(
-  | |       // SAFETY: `discover` is evaluated at compile time, by contract on the caller, so this call
-  | |       // is too.
-  | |       unsafe { decided_by(&samples[first], these, first, 0, 0) },
-  | |       "the only variant that has values is told by bytes that are not its fields"
-  | |     );
-  | |_____- in this macro invocation
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/discover.rs
+   |
+   | /     assert!(
+   | |       // SAFETY: `discover` is evaluated at compile time, by contract on the caller, so this call
+   | |       // is too.
+   | |       unsafe { decided_by(&samples[first], these, first, 0, 0) },
+   | |       "the only variant that has values is told by bytes that are not its fields"
+   | |     );
+   | |_____- in this macro invocation
 
 note: erroneous constant encountered
-  --> tests/compile-fail/discover_lone_variant.rs:24:11
+  --> tests/compile-fail/discover_lone_variant.rs:26:11
    |
-24 |   let _ = <Direct as Discover<2>>::DESC;
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+26 |   let _ = Direct::DESC;
+   |           ^^^^^^^^^^^^

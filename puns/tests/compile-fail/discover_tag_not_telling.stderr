@@ -1,21 +1,26 @@
 error[E0080]: evaluation panicked: the tag of the enum does not tell its variants: unsupported layout
- --> src/layout.rs
-  |
-  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
-  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Niche as puns::layout::Discover<2>>::DESC` failed inside this call
-  |
+  --> tests/compile-fail/discover_tag_not_telling.rs:28:34
+   |
+28 |   const DESC: Desc<2> = unsafe { Layout::discover(&Self::SAMPLES, &Self::FIELDS) };
+   |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `Niche::DESC` failed inside this call
+   |
+note: inside `puns::layout::Layout::discover::<Niche, 2>`
+  --> src/layout.rs
+   |
+   |     unsafe { crate::discover::discover(samples, fields) }
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::discover::discover::<Niche, 2>`
- --> $RUST/core/src/panic.rs
-  |
-  = note: the failure occurred here
-  |
- ::: src/discover.rs
-  |
-  |     assert!(desc.tag.1 > 0, "the tag of the enum does not tell its variants: unsupported layout");
-  |     --------------------------------------------------------------------------------------------- in this macro invocation
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/discover.rs
+   |
+   |     assert!(desc.tag.1 > 0, "the tag of the enum does not tell its variants: unsupported layout");
+   |     --------------------------------------------------------------------------------------------- in this macro invocation
 
 note: erroneous constant encountered
-  --> tests/compile-fail/discover_tag_not_telling.rs:30:11
+  --> tests/compile-fail/discover_tag_not_telling.rs:32:11
    |
-30 |   let _ = <Niche as Discover<2>>::DESC;
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+32 |   let _ = Niche::DESC;
+   |           ^^^^^^^^^^^

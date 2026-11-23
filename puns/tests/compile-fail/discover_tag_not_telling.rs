@@ -7,7 +7,7 @@ use core::mem::MaybeUninit;
 
 use puns::{
   Pun,
-  layout::{Discover, Field},
+  layout::{Desc, Field, Layout},
 };
 
 #[derive(Pun, Clone, Copy)]
@@ -20,12 +20,14 @@ enum Niche {
   B(u8),
 }
 
-impl Discover<2> for Niche {
+impl Niche {
   const FIELDS: [&'static [Field]; 2] = [&[Field::new(1, &<bool as Pun>::LAYOUT)], &[]];
   const SAMPLES: [MaybeUninit<Self>; 2] =
     [MaybeUninit::new(Self::A(Pair(0, false))), MaybeUninit::new(Self::B(0))];
+  // SAFETY: An associated constant is evaluated at compile time, as `discover` requires.
+  const DESC: Desc<2> = unsafe { Layout::discover(&Self::SAMPLES, &Self::FIELDS) };
 }
 
 fn main() {
-  let _ = <Niche as Discover<2>>::DESC;
+  let _ = Niche::DESC;
 }

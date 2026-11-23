@@ -6,7 +6,7 @@ use core::{convert::Infallible, mem::MaybeUninit};
 
 use puns::{
   Pun,
-  layout::{Discover, Field},
+  layout::{Desc, Field, Layout},
 };
 
 #[derive(Clone, Copy)]
@@ -15,11 +15,13 @@ enum Direct {
   B(u8),
 }
 
-impl Discover<2> for Direct {
+impl Direct {
   const FIELDS: [&'static [Field]; 2] = [&[Field::new(0, &<Infallible as Pun>::LAYOUT)], &[]];
   const SAMPLES: [MaybeUninit<Self>; 2] = [MaybeUninit::uninit(), MaybeUninit::new(Self::B(0))];
+  // SAFETY: An associated constant is evaluated at compile time, as `discover` requires.
+  const DESC: Desc<2> = unsafe { Layout::discover(&Self::SAMPLES, &Self::FIELDS) };
 }
 
 fn main() {
-  let _ = <Direct as Discover<2>>::DESC;
+  let _ = Direct::DESC;
 }
