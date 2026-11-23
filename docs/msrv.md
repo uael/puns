@@ -12,7 +12,7 @@ rows, which no stable release provides.
 | [`offset_of!`][offset_of] on sized fields                  | [1.77][1.77], also in unsized structs |
 | inline `const { .. }` in generic code                      | [1.79][1.79]                         |
 | `&mut` in a `const fn`, with loops and raw pointers        | [1.83][1.83]                         |
-| [`size_of_val_raw`] and [`align_of_val_raw`] in `const`    | 1.99                                 |
+| [`size_of_val_raw`] and [`align_of_val_raw`] in `const`    | [1.99][1.99]                         |
 
 The last row sets the minimum version to 1.99. `puns` reads the layout of an unsized type (a
 struct that ends with a slice or a `str`) in `const`, from a raw pointer with an arbitrary
@@ -35,6 +35,7 @@ automata of the types, and where it would grow with their size, a search stops a
 [1.77]: https://blog.rust-lang.org/2024/03/21/Rust-1.77.0/
 [1.79]: https://blog.rust-lang.org/2024/06/13/Rust-1.79.0/
 [1.83]: https://blog.rust-lang.org/2024/11/28/Rust-1.83.0/
+[1.99]: https://blog.rust-lang.org/2026/10/01/Rust-1.99.0/
 [`size_of_val_raw`]: https://doc.rust-lang.org/core/mem/fn.size_of_val_raw.html
 [`align_of_val_raw`]: https://doc.rust-lang.org/core/mem/fn.align_of_val_raw.html
 [`long_running_const_eval`]: https://doc.rust-lang.org/rustc/lints/listing/deny-by-default.html#long-running-const-eval

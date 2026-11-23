@@ -8,8 +8,8 @@
 Type punning proven at compile time: a safe alternative to `transmute` and to hand-written parsing
 of bytes.
 
-> **Notes:** `puns` is written using AI, see [How `puns` is written](#how-puns-is-written). And the first
-> release came out in November 2026: expect the API to change before 1.0.
+> **Notes:** `puns` is written using AI, see [How `puns` is written](#how-puns-is-written). And
+> the first release came out in November 2026: expect the API to change before 1.0.
 
 - [Overview](#overview)
   - [Reading a packet](#reading-a-packet)
@@ -42,9 +42,9 @@ of bytes.
 
 `puns` lets you reinterpret a value of one type, the *source*, as a value of another type, the
 *target*, or bytes as a typed value, without writing `unsafe`. `puns` is `no_std`, never allocates,
-and needs Rust 1.99 or later ([why][msrv]). It compares the [layouts] of the two types, which
-include their [valid][valid] values, while your code compiles, and whatever it can prove, it doesn't
-check at run time:
+and needs Rust 1.99 or later (see [Minimum Rust version][msrv]). It compares the [layouts] of the
+two types, which include their [valid][valid] values, while your code compiles, and whatever it can
+prove, it doesn't check at run time:
 
 ```rust
 use puns::Pun;
@@ -276,7 +276,8 @@ and then makes the reference.
 - [`Error`][error-type] says which check failed: the alignment, the size, or the values.
 - [`num`][num] has numbers of a fixed byte order, and integers restricted to some values.
 - [`layout`][layout] has the types that describe a layout, and the checksums.
-- The [guide] explains the rest as a book, in the chapters that the [contents](#contents) list.
+- The [guide] explains the rest as a book, in the chapters that the [contents](#puns) at the top of
+  this page list.
 
 The tests and the [examples] of the repository show more uses. The examples read parts of more
 than 40 formats, from TLS and DNS to ELF and SQLite, and each one says which parts of its format it
