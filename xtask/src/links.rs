@@ -19,6 +19,11 @@
 //! rustdoc takes a block with none for Rust. So each block of these files names its language:
 //! `rust,compile_fail` rather than `compile_fail`, which rustdoc reads the same way.
 //!
+//! GitHub and rustdoc make the same anchor from a heading, except where rustdoc already uses that
+//! `id` on the page (`fields`, `implementations` and others): it then adds `-1`, and a link that
+//! works on GitHub lands at the top of the page on docs.rs. So each heading of an included file must
+//! have its anchor as an `id` of the page that rustdoc wrote.
+//!
 //! `cargo xtask links` writes the version into the links. A release PR changes the version, and
 //! the workflow `release-plz.yml` runs it on the branch of the PR. With `--check`, it fails if a
 //! link is not pinned, or if its target is not there: a file of the repository, a heading of a
@@ -86,6 +91,7 @@ pub fn run(root: &Path, check: bool) -> Result<()> {
         ));
       }
       targets(root, file, &text, &version, &mut faults)?;
+      rendered(root, file, &text, &mut faults)?;
       for line in unnamed_blocks(&text) {
         faults.push(format!(
           "{}:{line}: a block of code names no language, so GitHub does not highlight it: \
@@ -263,6 +269,34 @@ fn repository(
   }
 }
 
+/// Records in `faults` each heading of `file` whose anchor is not an `id` of the page that rustdoc
+/// wrote from it, if a `.rs` file includes it.
+fn rendered(root: &Path, file: &Path, text: &str, faults: &mut Vec<String>) -> Result<()> {
+  let page = if file == Path::new(README) {
+    PathBuf::from("index.html")
+  } else if file == Path::new(DOCS).join(README) {
+    PathBuf::from("guide/index.html")
+  } else if includer(root, file).is_some() {
+    let name = file.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+    PathBuf::from(format!("guide/{name}/index.html"))
+  } else {
+    return Ok(());
+  };
+  let html = fs::read_to_string(root.join(RUSTDOC).join(&page)).with_context(|| {
+    format!("{RUSTDOC}/{} is not there: run `cargo doc --no-deps -p puns`", page.display())
+  })?;
+  for anchor in headings(text) {
+    if !html.contains(&format!("id=\"{anchor}\"")) {
+      faults.push(format!(
+        "{}: the heading `#{anchor}` has another id on docs.rs, since rustdoc uses `{anchor}` on \
+         the page: rename the heading",
+        file.display()
+      ));
+    }
+  }
+  Ok(())
+}
+
 /// Returns the `.rs` file that includes `file` as documentation, and the labels that it defines
 /// before the include, or `None` if no file includes it: the README is included by
 /// `puns/src/lib.rs`, `docs/README.md` by `puns/src/guide.rs`, and `docs/{name}.md` by
@@ -347,7 +381,8 @@ fn unnamed_blocks(text: &str) -> Vec<usize> {
 }
 
 /// Returns the anchors of the headings of a Markdown text, as GitHub makes them: lowercase,
-/// without punctuation, a space made a `-`. rustdoc makes the same from the same heading.
+/// without punctuation, a space made a `-`. rustdoc makes the same from the same heading, unless
+/// the page already has that `id` ([`rendered`]).
 fn headings(text: &str) -> BTreeSet<String> {
   let mut out = BTreeSet::new();
   let mut code = false;
