@@ -285,7 +285,7 @@ compares the two types of each conversion. Read on 2026-11-23, with `zerocopy` 0
 | The rules of one type prove those of another | [yes][pairs] | no |
 | Errors | refusals, which your editor doesn't report | mostly trait bounds, which your editor reports right away |
 | `Vec` | [not yet][not-yet] | `bytemuck` casts a `Vec` |
-| Atomics | [not decided][not-decided] | `zerocopy` handles atomics |
+| Atomics | [not yet][not-yet] | `zerocopy` handles atomics |
 | Rust | [1.99][msrv] or later | 1.56 or later (`zerocopy`), 1.34 or later without features (`bytemuck`) |
 
 Rust's own Safe Transmute project compares the two types as well, inside the compiler, with
@@ -389,7 +389,6 @@ additional terms or conditions.
 [limits]: docs/limits.md
 [trust]: docs/trust.md
 [target]: docs/target.md
-[not-decided]: docs/limits.md#not-decided
 [not-yet]: docs/limits.md#not-yet
 [Compile-time errors]: docs/errors.md
 [Soundness]: docs/soundness.md

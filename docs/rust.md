@@ -117,8 +117,7 @@ be the index of its variant, so another representation fails the build.
 Const evaluation reports an error where it would otherwise have undefined behavior, in three cases:
 when it reads an uninitialized byte, when it reads the variant of a value whose tag is not the tag
 of a variant that has values, and when it computes the size of a slice larger than an object can
-be. Code that
-relies on them runs only at compile time:
+be. Code that relies on them runs only at compile time:
 
 - The experiments rely on the first two.
 - Each unsized type relies on the first, where it reads a pointer to it as a pointer to a slice to

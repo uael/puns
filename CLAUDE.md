@@ -95,10 +95,10 @@ section of the documentation of `puns`. It checks no link to another site, and n
 `CLAUDE.md` file or of a comment. `cargo doc` with `-D warnings` checks the intra-doc links. The
 links are written so:
 
-- Every link to docs.rs, crates.io or a file of the repository names the version of `puns` or its
-  tag, so that it leads to the same version on GitHub, crates.io and docs.rs. A link to the `wip`
-  branch, which keeps the prototypes for history, is the one exception. The release workflow pins
-  the links on the branch of each release PR.
+- Every link to `puns` on docs.rs or crates.io, or to a file of the repository, names the version of
+  `puns` or its tag, so that it leads to the same version on GitHub, crates.io and docs.rs. A link
+  to the `wip` branch, which keeps the prototypes for history, is the one exception. The release
+  workflow pins the links on the branch of each release PR.
 - A link to a chapter of the reference is relative, so that GitHub stays in the revision being read,
   and the `.rs` file that includes the page defines its label as an intra-doc link
   (`puns/src/lib.rs` for the README). crates.io resolves a relative link of the README in the

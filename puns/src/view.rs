@@ -12,7 +12,8 @@
 //!   one for each variant, become one decision of the optimizer. A VLAN frame meets the EtherTypes
 //!   of IPv4 and of ARP as in a `match`.
 //! - A variant has a *base*. It is the first later variant whose type accepts every value of the
-//!   type of the variant, over the same bytes. The analysis decides it at compile time, as it
+//!   type of the variant, over the same bytes, and from which what is left to check of the variant
+//!   can be checked (`base_of`). The analysis decides it at compile time, as it
 //!   decides that `pun_ref` is proven. `Frame<Ipv4>` accepts every `Frame<Ipv4<Udp>>`, and `Frame`
 //!   accepts both. The base is decided first. Bytes that are not a value of the base are not a
 //!   value of the variant either. For bytes that are, the variant is checked only for what its base

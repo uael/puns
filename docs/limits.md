@@ -122,6 +122,13 @@ What is planned, each with what it would allow.
   check. Planned: checking only the parts that are not proven, and only the fields of a target
   union that require no byte that may be padding to be initialized, where [Unions][soundness#unions]
   refuses the pun.
+- **Atomics, `Cell` and `UnsafeCell`.** An atomic integer has the size and the bit validity of
+  its integer, but `core` makes its alignment "always equal to its size, even on targets where
+  `T` has alignment less than its size" ([`Atomic`]). `Cell<T>` and `UnsafeCell<T>` have "the same
+  in-memory representation as" `T` ([`UnsafeCell`]). All of them allow writes through a shared
+  reference, while the functions that return a `&` rely on a [`Pun`] type holding no
+  `UnsafeCell`. Planned: supporting them by value and through `&mut`, where no shared reference
+  can write them.
 
 ## Not decided
 
@@ -133,12 +140,6 @@ What could be done, where whether to do it is not decided.
   of nonzero size ([`r-layout.repr.transparent.layout-abi`]), but the derive reads it as an enum
   of the `Rust` representation ([Enums with fields][macro@Pun#enums-with-fields]). So without the
   `unstable` feature, a pun that reads its field is refused for an unspecified layout.
-- **Atomics, `Cell` and `UnsafeCell`.** An atomic integer has the size and the bit validity of
-  its integer, but `core` makes its alignment "always equal to its size, even on targets where
-  `T` has alignment less than its size" ([`Atomic`]). `Cell<T>` and `UnsafeCell<T>` have "the same
-  in-memory representation as" `T` ([`UnsafeCell`]). All of them allow writes through a shared
-  reference, while the functions that return a `&` rely on a [`Pun`] type holding no
-  `UnsafeCell`. Whether to support them by value and through `&mut` only is not decided.
 - **A rule that two variants of a [view][macro@Pun#views] share, where neither accepts every
   value of the other.** For bytes that fail the rule, each variant computes it, unless a later
   variant computes it once for both ([What the view functions

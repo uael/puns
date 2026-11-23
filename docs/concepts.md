@@ -83,16 +83,17 @@ assert_eq!(bytes.len(), 6);
 
 The kind of a pun depends on its function and on both of its types, and never on one type alone.
 With the `Switch` of the [crate page][crate], `&[Switch]` as `&[bool]` is proven by [`pun_ref`] and
-[`try_pun_ref`] alike: a pair that is proven is proven with either function. `&[u8]` as `&[bool]`
-is refused by `pun_ref`, which checks nothing, and checked by `try_pun_ref`, since a byte may hold
-the value 2. At compile time, the two layouts tell
-what holds of every value of the source. What depends on one value, such as its bytes or a length
-that a rule reads from them, is left to a check at run time.
+[`try_pun_ref`] alike: a pair that is proven is proven with either function. `&[u8]` as `&[bool]` is
+refused by `pun_ref`, which checks nothing, and checked by `try_pun_ref`, since a byte may hold the
+value 2. At compile time, the two layouts tell what holds of every value of the source. What depends
+on one value, such as its bytes or a length that a rule reads from them, is left to a check at run
+time.
 
 A `#[pun(valid(..))]` of the target is proven by any source whose values it accepts, as a `bool`
 proves `#[pun(valid(0..=1))]`. The rules of a struct are proven only by the rules of the source:
 the two structs must have at least one rule, the same rules in the same order, the same sized
-part and the same trailing slice. The names of their fields do not matter:
+part and the same trailing slice, and, without the `unstable` feature, either be the same type or
+both have a layout that Rust specifies. The names of their fields do not matter:
 
 ```rust
 use puns::Pun;

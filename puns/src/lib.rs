@@ -18,7 +18,6 @@
 //! [limits]: reference::limits
 //! [trust]: reference::trust
 //! [target]: reference::target
-//! [not-decided]: reference::limits#not-decided
 //! [not-yet]: reference::limits#not-yet
 //! [Compile-time errors]: reference::errors
 //! [Soundness]: reference::soundness
@@ -176,8 +175,9 @@ pub use layout::{crc32, sum16};
 /// The functions of a view return what trying the variants in order would return, but check each
 /// variant at most once, and only for what is not already known about it. A variant is skipped as
 /// soon as the bytes do not match its first constrained scalar, such as an EtherType. A variant
-/// whose values are all values of a later one is decided after it: it fails if that one fails, and
-/// is checked only for what that one does not prove. In the view `AnyFrame` of [`ethernet.rs`], a
+/// whose values are all values of a later one, from which what is left to check of it can be
+/// checked, is decided after it: it fails if that one fails, and is checked only for what that one
+/// does not prove. In the view `AnyFrame` of [`ethernet.rs`], a
 /// variant of `Frame<Ipv4<Udp>>`, an Ethernet frame that holds UDP over IPv4, comes before one of
 /// `Frame<Ipv4>`. A UDP frame is then checked for its protocol, without the IPv4 checksum that the
 /// `Frame<Ipv4>` variant checks, so a wrong IPv4 checksum is computed once. Where two variants
