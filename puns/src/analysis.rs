@@ -215,15 +215,15 @@
 //! # Layouts that Rust leaves to the compiler
 //!
 //! Without the `unstable` feature ([`STRICT`]), the analysis does not look into a node that is not
-//! `fixed` ([`Layout::is_opaque`], [`Stable`](crate::layout::Stable)), and the cursor makes it one
-//! run ([`RunKind::Opaque`]). The exception is a node whose size is the same in every layout, that
-//! has no rule, and whose bytes are all of any value or all padding, since what such bytes are does
-//! not depend on where its fields are.
+//! `fixed`, which it calls *closed* ([`Layout::is_closed`], [`Stable`](crate::layout::Stable)),
+//! and the cursor makes it one run ([`RunKind::Closed`]). The exception is a node whose size is the
+//! same in every layout, that has no rule, and whose bytes are all of any value or all padding,
+//! since what such bytes are does not depend on where its fields are.
 //!
-//! - **As a source**, an opaque node is what every layout of it is (all initialized bytes if it is
+//! - **As a source**, a closed node is what every layout of it is (all initialized bytes if it is
 //!   `init`, and otherwise all bytes that may be padding). That the first byte of a `(u8, u16)` is
 //!   never padding is not used.
-//! - **As a target**, an opaque node is proven by the same type at the same place ([`equal`]). A
+//! - **As a target**, a closed node is proven by the same type at the same place ([`equal`]). A
 //!   struct or a tuple whose size is the same in every layout may also be proven field by field
 //!   ([`relate_fields`]). A field may be anywhere, so it must be proven everywhere that it may be,
 //!   and since a struct is valid if each of its fields is valid at its place, the source proves the
@@ -236,7 +236,7 @@
 //!   itself, as an enum does. As a target, a part that holds a scalar that a pun never makes is
 //!   proven by nothing, not even by itself ([`Layout::holds_never`]), and is refused in every
 //!   layout.
-//! - **A check does not replace a proof in an opaque node,** since a check would read where the
+//! - **A check does not replace a proof in a closed node,** since a check would read where the
 //!   compiler may not have put the field. What is not proven does not compile
 //!   ([`Relation::unspecified`]), and whatever reads a relation reads this, including what a
 //!   variant of a view takes from another (`base` in `view.rs`), and an enum or a union that would
@@ -274,7 +274,7 @@ use crate::layout::{
   Dfa, Endian, Kind, Layout, Op, Spec, Tags, UNSTABLE, Uniform, Valid, max_value,
 };
 
-/// Whether a part of a layout that Rust leaves to the compiler is opaque to the analysis.
+/// Whether a part of a layout that Rust leaves to the compiler is closed to the analysis.
 ///
 /// It is, without the `unstable` feature. A pun then has the same verdict, and accepts the same
 /// values, whatever layout the compiler chose, as with `-Zrandomize-layout`.
@@ -302,7 +302,7 @@ pub enum RunKind {
   /// As a source, it is what every layout of it has, either initialized bytes or bytes that may be
   /// padding. As a target, it is proven by the same type at the same place, or by a source that
   /// proves each of its fields wherever the field may be ([`relate_fields`]).
-  Opaque(&'static Layout),
+  Closed(&'static Layout),
 }
 
 impl RunKind {
@@ -311,19 +311,19 @@ impl RunKind {
     match self {
       RunKind::Pad => true,
       RunKind::Atom(spec) => spec.may_be_uninit(),
-      RunKind::Opaque(layout) => !layout.always_init(),
+      RunKind::Closed(layout) => !layout.always_init(),
       RunKind::Any | RunKind::Pattern(_) => false,
     }
   }
 
   /// Returns what a source is known to hold in a run of this kind.
   ///
-  /// An opaque run is what every layout of it has, either initialized bytes or bytes that may be
+  /// A closed run is what every layout of it has, either initialized bytes or bytes that may be
   /// padding.
   const fn seen(self) -> Self {
     match self {
-      RunKind::Opaque(layout) if layout.always_init() => RunKind::Any,
-      RunKind::Opaque(_) => RunKind::Pad,
+      RunKind::Closed(layout) if layout.always_init() => RunKind::Any,
+      RunKind::Closed(_) => RunKind::Pad,
       kind => kind,
     }
   }
@@ -341,7 +341,7 @@ pub struct Run {
   start: usize,
   /// One past the last byte of the run.
   end: usize,
-  /// The index of the leaf of the run (the scalar of an atom, a pattern or an opaque part). It is 0
+  /// The index of the leaf of the run (the scalar of an atom, a pattern or a closed part). It is 0
   /// for padding and for initialized bytes.
   leaf: usize,
 }
@@ -587,8 +587,8 @@ impl Cursor {
         continue;
       }
       // Not looked into.
-      if layout.is_opaque() {
-        return Run { kind: RunKind::Opaque(layout), start: frame.base, end, leaf: frame.leaf };
+      if layout.is_closed() {
+        return Run { kind: RunKind::Closed(layout), start: frame.base, end, leaf: frame.leaf };
       }
       match layout.uniform {
         Uniform::Pad => return Run { kind: RunKind::Pad, start: frame.base, end, leaf: 0 },
@@ -783,7 +783,7 @@ pub struct Relation {
   /// The leaves of the target that may receive an invalid value, which a check tests at run time.
   pub(crate) marks: Marks,
   /// The offset of a part of the target that is not proven in every layout that Rust allows,
-  /// without the `unstable` feature ([`RunKind::Opaque`]).
+  /// without the `unstable` feature ([`RunKind::Closed`]).
   ///
   /// No check can replace it, since a check would read at a place that the compiler may move.
   /// Whatever reads the fields of a relation one by one must read this one too. With it, nothing
@@ -1290,12 +1290,12 @@ const fn relate_range(
     }
     // A part whose layout Rust leaves to the compiler (after the repetitions: an array of it is one
     // period).
-    if let RunKind::Opaque(target) = run_b.kind {
+    if let RunKind::Closed(target) = run_b.kind {
       let stop = min(run_b.end, end);
       let whole = run_b.start == pos && run_b.end <= end;
       // Not a part that holds a scalar that a pun never makes, which nothing proves, not even the
       // same type.
-      let same = matches!(run_a.kind, RunKind::Opaque(source) if same_type(source, target))
+      let same = matches!(run_a.kind, RunKind::Closed(source) if same_type(source, target))
         && run_a.start == pos
         && whole
         && !target.holds_never();
@@ -1411,7 +1411,7 @@ const fn relate_range(
         }
         pos = run_b.end;
       }
-      RunKind::Pattern(_) | RunKind::Opaque(_) => unreachable!(),
+      RunKind::Pattern(_) | RunKind::Closed(_) => unreachable!(),
     }
   }
   false
@@ -1426,7 +1426,7 @@ const PLACES: usize = 1024;
 /// `target`.
 ///
 /// `target` is a struct or a tuple of the `Rust` representation, whose size Rust specifies but
-/// not the order of its fields ([`RunKind::Opaque`]). A field may be anywhere, so it must be
+/// not the order of its fields ([`RunKind::Closed`]). A field may be anywhere, so it must be
 /// proven everywhere it may be.
 ///
 /// A struct is valid if each of its fields is valid at its place. So the source proves the
@@ -1947,7 +1947,7 @@ struct Piece {
 
 /// Returns the pieces of what `a` has over `start..end`, and their number.
 ///
-/// An opaque part of the source is what every layout of it has ([`RunKind::seen`]).
+/// A closed part of the source is what every layout of it has ([`RunKind::seen`]).
 ///
 /// # Panics
 ///
@@ -1992,7 +1992,7 @@ const fn atom_relation(pieces: &[Piece; 16], len: usize, spec: &Spec) -> Option<
   let (mut i, mut all_any) = (0, true);
   while i < len {
     match known[i].kind {
-      RunKind::Pad | RunKind::Opaque(_) => return None,
+      RunKind::Pad | RunKind::Closed(_) => return None,
       // Whatever a pattern accepts is initialized, and that is all that is made of it here.
       RunKind::Any | RunKind::Pattern(_) => {}
       // Required to be some values, but a source may hold anything there, padding included.
@@ -2337,7 +2337,7 @@ const fn pattern_target(
     let stop = min(run.end, end);
     match run.kind.seen() {
       // The check of the pattern would read what may be uninitialized.
-      RunKind::Pad | RunKind::Opaque(_) => {
+      RunKind::Pad | RunKind::Closed(_) => {
         out.unreadable(leaf, 1, pos);
         return out.uninit(pos);
       }
@@ -3256,7 +3256,7 @@ const fn cut(
   let within = !layout.is_dynamic() && base >= lo && end <= hi;
   // A part whose layout Rust leaves to the compiler is written whole, by the same type: nothing
   // else tells what of it the bytes cover.
-  if layout.is_opaque() {
+  if layout.is_closed() {
     return if within && covered(b, base - lo, layout) { None } else { Some(PART_UNSPECIFIED) };
   }
   match layout.kind {

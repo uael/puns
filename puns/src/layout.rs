@@ -774,7 +774,7 @@ pub(crate) enum Uniform {
 /// under every choice. It is computed from the layouts of its parts.
 ///
 /// Without the `unstable` feature, the analysis does not look into a layout that is not `fixed`
-/// ([`Layout::is_opaque`]). As a source, such a layout is what every choice of it is (initialized
+/// ([`Layout::is_closed`]). As a source, such a layout is what every choice of it is (initialized
 /// bytes if `init`, and otherwise bytes that may be padding). As a target, it is proven by the same
 /// type at the same place (`Id`). A struct whose size is the same in every layout, and that has
 /// no rule and no scalar that a pun never makes, is also proven field by field, at every offset
@@ -807,7 +807,7 @@ impl Stable {
 
   /// Returns the facts of a layout for which Rust specifies at most the size: the size if `size`,
   /// and that every byte is initialized if both `size` and `init`.
-  const fn opaque(size: bool, init: bool) -> Self {
+  const fn unordered(size: bool, init: bool) -> Self {
     Self { fixed: false, ordered: false, size, deep: false, init: size && init }
   }
 
@@ -2839,7 +2839,7 @@ impl Layout {
   #[must_use]
   pub const fn unspecified(self) -> Self {
     // An enum without variants, or of one variant whose fields have a size of 0, has none.
-    Self { stable: Stable::opaque(self.size == 0, true), ..self }
+    Self { stable: Stable::unordered(self.size == 0, true), ..self }
   }
 
   /// Returns the same layout, marked as the same in every layout that Rust allows wherever the size
@@ -2865,7 +2865,7 @@ impl Layout {
     let Kind::Struct(fields, _) = self.kind else { panic!("not a struct") };
     let stable = Stable::of_parts(fields);
     if self.rules_read_bytes() && !stable.deep {
-      return Stable::opaque(stable.size, false);
+      return Stable::unordered(stable.size, false);
     }
     stable
   }
@@ -2934,7 +2934,7 @@ impl Layout {
     let parts = Stable::of_parts(fields);
     if !parts.size {
       // If the size of a field is not the same in every layout, neither is the size of the struct.
-      return Self { stable: Stable::opaque(false, false), ..self };
+      return Self { stable: Stable::unordered(false, false), ..self };
     }
     // The fields that matter to the order are those with a size, or with an alignment greater than
     // 1.
@@ -2995,7 +2995,7 @@ impl Layout {
     }
     let (size, padded) =
       if tiled { (tiled_size == self.size, tiled_size != sum) } else { self.orders(fields, pack) };
-    Self { stable: Stable::opaque(size, init && !padded), ..self }
+    Self { stable: Stable::unordered(size, init && !padded), ..self }
   }
 
   /// Returns whether every order of `fields`, packed to `pack`, gives the struct its size, and
@@ -3067,7 +3067,7 @@ impl Layout {
   /// A layout whose size is the same in every layout that Rust allows, that has no rule, and whose
   /// bytes are all of any value or all padding, is looked into all the same, since what its bytes
   /// are does not depend on where its fields are.
-  pub(crate) const fn is_opaque(&self) -> bool {
+  pub(crate) const fn is_closed(&self) -> bool {
     let same_bytes =
       self.stable.size && !self.has_rules && matches!(self.uniform, Uniform::Any | Uniform::Pad);
     !UNSTABLE && !self.stable.fixed && !same_bytes

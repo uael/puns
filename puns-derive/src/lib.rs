@@ -3072,7 +3072,7 @@ fn derive_discovered(
         type Variants = #first #ty_generics;
         type Rules = ();
         const PROBE: *const Self = ::core::ptr::null();
-        // Rust specifies nothing of it: opaque without the `unstable` feature.
+        // Rust specifies nothing of it: closed without the `unstable` feature.
         const LAYOUT: #root::layout::Layout =
           #layout::enumeration::<Self>(const { &<Self as __PunDiscover>::ENUM })
             .unspecified()
