@@ -611,8 +611,11 @@
 //! The crate that declares the scalar reads a value that holds one as a [`Deferred<T>`](Deferred),
 //! which every function of `puns` accepts as a target. `puns` checks every part of it, the values
 //! of its opaque scalars included, and says where a check fails ([`Error::ValidityAt`]). The crate
-//! proves the places with its implementation of [`Validate`], and [`Deferred::validated`] then gives
-//! the `&T`.
+//! proves the places with its implementation of [`Validate`], and the methods of [`Deferral`] then
+//! give the `T`, the `&T` or the `&mut T` of a `Deferred<T>`, a `&Deferred<T>` or a
+//! `&mut Deferred<T>`. A caller that knows the places valid by other means takes the `T` with the
+//! unsafe [`Deferral::assume_valid`]. The invariant that each of them relies on is the one that the
+//! type of the scalar states ([`Scalar`], section Safety).
 //!
 //! An `Option` of an opaque scalar is opaque too, if it has the size of the scalar and every byte
 //! of `None` is initialized. Its values are those of the scalar and the bytes of `None`. Otherwise,
@@ -1711,9 +1714,13 @@ pub use core as __core;
 ///   a value that `SPEC` accepts. If `SPEC` is made with [`Spec::maybe_uninit`] or
 ///   [`Spec::uninit`], a value of `Self` may instead hold any bytes, including uninitialized ones.
 /// - Every value that `SPEC` accepts is a [valid] `Self`, and, unless `SPEC` is
-///   [opaque](Spec::opaque), meets every invariant that the code of `Self` relies on. If `SPEC` is
-///   opaque, whether a value meets the invariants that its place gives it is for the crate that
-///   declares `Self` to prove ([Opaque scalars](crate#opaque-scalars)).
+///   [opaque](Spec::opaque), meets every invariant that the code of `Self` relies on.
+/// - If `SPEC` is opaque, the documentation of `Self` states the invariant that a value must meet
+///   at its place, beyond being a value that `SPEC` accepts, such as "aims at a `T` of the same
+///   buffer" for the offset of a self-relative pointer. A value that `SPEC` accepts and that meets
+///   it meets every invariant that the code of `Self` relies on. [`Validate::validate`] proves it,
+///   and the caller of [`Deferral::assume_valid`] ensures it ([Opaque
+///   scalars](crate#opaque-scalars)).
 /// - No byte of `Self` is inside an [`UnsafeCell`](core::cell::UnsafeCell).
 ///
 /// An implementation by hand leaves the hidden items at their defaults. If `T: Scalar`, unsafe code
@@ -1803,11 +1810,12 @@ pub unsafe trait Scalar {
 /// alignment, the offset of each field, the values each scalar may hold, and its rules. Every value
 /// of `Self` holds what the layout says every value holds, and every value that the layout accepts
 /// is a valid `Self`, but for the [opaque scalars](crate#opaque-scalars) that it holds: such a
-/// value is valid in Rust's sense, and meets the invariants of the places of these scalars only
-/// where their crate proves them ([`Validate`]). The lists of the implementation are those of the layout: its fields if it is a
-/// struct, its variants if it is an enum or a union, and its element if it is an array or a slice.
-/// `puns` reads no list of a layout of another kind, which may then be anything. No byte of `Self`
-/// is inside an [`UnsafeCell`](core::cell::UnsafeCell).
+/// value is valid in Rust's sense, and meets the invariants that the types of these scalars state
+/// ([`Scalar`], section Safety) only where their crate proves them ([`Validate`]) or a caller of
+/// [`Deferral::assume_valid`] ensures them. The lists of the implementation are those of the
+/// layout: its fields if it is a struct, its variants if it is an enum or a union, and its element
+/// if it is an array or a slice. `puns` reads no list of a layout of another kind, which may then
+/// be anything. No byte of `Self` is inside an [`UnsafeCell`](core::cell::UnsafeCell).
 ///
 /// If `T: Pun`, unsafe code may assume that the layout of `T` is exact in this sense, and that `T`
 /// holds no `UnsafeCell`. The functions of `puns` are sound only under this assumption.
@@ -2166,9 +2174,11 @@ pub mod steps {
 }
 
 /// Implemented by this crate only, because what implements [`Path`], [`Rules`] and [`Steps`] is
-/// trusted.
+/// trusted (`Sealed`), and the forms of [`Deferral`] are the three that its documentation names
+/// (`Form`).
 mod sealed {
   pub trait Sealed {}
+  pub trait Form {}
 }
 
 impl sealed::Sealed for Root {}
@@ -2648,7 +2658,7 @@ impl core::fmt::Display for Error {
 ///
 /// The caller must ensure that:
 ///
-/// - If `C` asks where a check fails ([`Checks::POSITION`](validate::Checks::POSITION)), `failure`
+/// - If `C` asks where a check fails ([`Checks::POSITION`]), `failure`
 ///   is a part of the value at `base`, which is the [`Failure`](validate::Failure) of a check of it,
 ///   in the same allocation, at or after `base`.
 #[inline(always)]
@@ -4039,8 +4049,10 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
 /// is checked as a `T`, so its opaque scalars are refused there. A check that fails returns
 /// [`Error::ValidityAt`] the part that fails.
 ///
-/// A `Deferred<T>` gives its `T` only through [`Deferred::validated_with`] and
-/// [`Deferred::validated`], after the [`Validate`] implementation of `T` proves the places.
+/// A `Deferred<T>` has no method of its own. It gives its `T` through the methods of [`Deferral`],
+/// in the form in which it is held: a `Deferred<T>` gives a `T`, a `&Deferred<T>` a `&T`, and a
+/// `&mut Deferred<T>` a `&mut T`. They give it after the [`Validate`] implementation of `T` proves
+/// the places, or, with [`Deferral::assume_valid`], where their caller ensures them.
 ///
 /// # Examples
 ///
@@ -4050,11 +4062,12 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
 /// use core::num::NonZero;
 ///
 /// use puns::{
-///   Deferred, Error, Scalar, Validate,
+///   Deferral, Deferred, Error, Scalar, Validate,
 ///   layout::{Endian, Spec},
 /// };
 ///
-/// /// The number of an entry of a table, from 1, valid only if the table has that entry.
+/// /// The number of an entry of a table, from 1. Its invariant, beyond its values: the table has
+/// /// that entry, wherever the number is.
 /// #[derive(Clone, Copy, Debug, PartialEq)]
 /// #[repr(transparent)]
 /// struct Entry(NonZero<u8>);
@@ -4075,7 +4088,8 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
 ///   }
 /// }
 ///
-/// // SAFETY: `validate` returns `Ok` only if the table has the entry.
+/// // SAFETY: `validate` returns `Ok` only if the table has the entry, which does not depend on
+/// // where the `Entry` is.
 /// unsafe impl Validate for Entry {
 ///   type Context<'a> = Entries;
 ///   type Error = u8;
@@ -4095,131 +4109,6 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct Deferred<T: ?Sized>(T);
-
-impl<T: ?Sized + Validate> Deferred<T> {
-  /// Returns the `T`, if [`Validate::validate`] proves its opaque scalars at their places, with the
-  /// context `cx`.
-  ///
-  /// The proof is made at each call, of the value where it is: a `Deferred<T>` that was copied or
-  /// moved is proven at its new place.
-  ///
-  /// # Errors
-  ///
-  /// Returns the error of [`Validate::validate`].
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use core::num::NonZero;
-  /// #
-  /// # use puns::{
-  /// #   Deferred, Error, Scalar, Validate,
-  /// #   layout::{Endian, Spec},
-  /// # };
-  /// #
-  /// # /// The number of an entry of a table, from 1, valid only if the table has that entry.
-  /// # #[derive(Clone, Copy, Debug, PartialEq)]
-  /// # #[repr(transparent)]
-  /// # struct Entry(NonZero<u8>);
-  /// #
-  /// # // SAFETY: `Entry` is `repr(transparent)` over a `NonZero<u8>`: its values are the bytes from 1
-  /// # // to 255, each a valid `Entry`, and whether the table has the entry is not in its byte. It
-  /// # // holds no `UnsafeCell`.
-  /// # unsafe impl Scalar for Entry {
-  /// #   const SPEC: Spec = Spec::ranges::<Entry>(Endian::NATIVE, &[(1, 255)]).opaque();
-  /// # }
-  /// #
-  /// # /// The number of entries of the table, 4 by default.
-  /// # struct Entries(u8);
-  /// #
-  /// # impl Default for Entries {
-  /// #   fn default() -> Self {
-  /// #     Self(4)
-  /// #   }
-  /// # }
-  /// #
-  /// # // SAFETY: `validate` returns `Ok` only if the table has the entry.
-  /// # unsafe impl Validate for Entry {
-  /// #   type Context<'a> = Entries;
-  /// #   type Error = u8;
-  /// #
-  /// #   fn validate(&self, cx: &mut Entries) -> Result<(), u8> {
-  /// #     if self.0.get() <= cx.0 { Ok(()) } else { Err(self.0.get()) }
-  /// #   }
-  /// # }
-  /// let entry = puns::from_bytes::<Deferred<Entry>>(&[3]).unwrap();
-  /// assert!(entry.validated_with(&mut Entries(3)).is_ok());
-  /// assert_eq!(entry.validated_with(&mut Entries(2)).err(), Some(3));
-  /// ```
-  #[inline]
-  pub fn validated_with(&self, cx: &mut T::Context<'_>) -> Result<&T, T::Error> {
-    match self.0.validate(cx) {
-      Ok(()) => Ok(&self.0),
-      Err(error) => Err(error),
-    }
-  }
-
-  /// Returns the `T`, if [`Validate::validate`] proves its opaque scalars at their places, with
-  /// the default context.
-  ///
-  /// # Errors
-  ///
-  /// Returns the error of [`Validate::validate`].
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// # use core::num::NonZero;
-  /// #
-  /// # use puns::{
-  /// #   Deferred, Error, Scalar, Validate,
-  /// #   layout::{Endian, Spec},
-  /// # };
-  /// #
-  /// # /// The number of an entry of a table, from 1, valid only if the table has that entry.
-  /// # #[derive(Clone, Copy, Debug, PartialEq)]
-  /// # #[repr(transparent)]
-  /// # struct Entry(NonZero<u8>);
-  /// #
-  /// # // SAFETY: `Entry` is `repr(transparent)` over a `NonZero<u8>`: its values are the bytes from 1
-  /// # // to 255, each a valid `Entry`, and whether the table has the entry is not in its byte. It
-  /// # // holds no `UnsafeCell`.
-  /// # unsafe impl Scalar for Entry {
-  /// #   const SPEC: Spec = Spec::ranges::<Entry>(Endian::NATIVE, &[(1, 255)]).opaque();
-  /// # }
-  /// #
-  /// # /// The number of entries of the table, 4 by default.
-  /// # struct Entries(u8);
-  /// #
-  /// # impl Default for Entries {
-  /// #   fn default() -> Self {
-  /// #     Self(4)
-  /// #   }
-  /// # }
-  /// #
-  /// # // SAFETY: `validate` returns `Ok` only if the table has the entry.
-  /// # unsafe impl Validate for Entry {
-  /// #   type Context<'a> = Entries;
-  /// #   type Error = u8;
-  /// #
-  /// #   fn validate(&self, cx: &mut Entries) -> Result<(), u8> {
-  /// #     if self.0.get() <= cx.0 { Ok(()) } else { Err(self.0.get()) }
-  /// #   }
-  /// # }
-  /// // The default table has 4 entries.
-  /// let third = puns::from_bytes::<Deferred<Entry>>(&[3]).unwrap();
-  /// assert!(third.validated().is_ok());
-  /// let fifth = puns::from_bytes::<Deferred<Entry>>(&[5]).unwrap();
-  /// assert_eq!(fifth.validated().err(), Some(5));
-  /// ```
-  #[inline]
-  pub fn validated(&self) -> Result<&T, T::Error>
-  where
-    for<'a> T::Context<'a>: Default,
-  {
-    self.validated_with(&mut Default::default())
-  }
-}
 
 // SAFETY: `Deferred<T>` is `repr(transparent)` over `T`, its only field, so it has the size, the
 // alignment and the layout of `T`, and its parts are those of `T` at the same offsets. So the lists
@@ -4242,9 +4131,10 @@ unsafe impl<T: ?Sized + Pun> Pun for Deferred<T> {
 /// The proof of the opaque scalars of a type, by the crate that declares them.
 ///
 /// `puns` checks a [`Deferred<Self>`](Deferred) in everything but the places of its [opaque
-/// scalars](crate#opaque-scalars). [`Deferred::validated_with`] then calls `validate`, and makes
-/// the `&Self` if it returns `Ok`. `Context` is what `validate` reads and writes, such as the bytes
-/// around the value or a queue of what is left to prove, and `Error` why it fails.
+/// scalars](crate#opaque-scalars). The methods of [`Deferral`] then call `validate`, and give the
+/// `Self`, the `&Self` or the `&mut Self` if it returns `Ok`. `Context` is what `validate` reads
+/// and writes, such as the bytes around the value or a queue of what is left to prove, and `Error`
+/// why it fails.
 ///
 /// `validate` is given a `&Self` whose bytes are a valid `Self` in Rust's sense, since `puns`
 /// checked the values of every scalar, opaque ones included, but whose opaque scalars are not
@@ -4252,9 +4142,19 @@ unsafe impl<T: ?Sized + Pun> Pun for Deferred<T> {
 ///
 /// # Safety
 ///
-/// `validate` returns `Ok` only if every opaque scalar of `self` is valid at its place: it meets
-/// every invariant that the code of its type relies on there. `Deferred::validated_with` relies on
-/// it to give the `&Self` to safe code.
+/// `validate` returns `Ok` only if every opaque scalar of `self` meets, where it is, the invariant
+/// that its type states ([`Scalar`], section Safety). [`Deferral`] relies on it to give the value
+/// to safe code in three forms, two of which add a duty:
+///
+/// - The by-value form proves the `Self` of a `Deferred<Self>` where the `Deferred` is during the
+///   call, then moves it to the caller. If the invariant of an opaque scalar depends on its place,
+///   `validate` must fail anywhere but where it holds, such as for a copy on the stack.
+/// - The `&mut` form gives safe code a `&mut Self`, through which it may write what the API of
+///   `Self` allows: any `Self` that it holds and, if `Self` is sized, the value of another
+///   `&mut Self`, with [`core::mem::swap`]. Such a write must not break an invariant that the code
+///   of `Self` relies on. Since `validate` cannot tell which form calls it, a sized `Self` that
+///   holds an opaque scalar whose invariant depends on its place, and whose code relies on that
+///   invariant, cannot implement `Validate`.
 ///
 /// # Examples
 ///
@@ -4265,11 +4165,12 @@ unsafe impl<T: ?Sized + Pun> Pun for Deferred<T> {
 /// use core::num::NonZero;
 ///
 /// use puns::{
-///   Deferred, Error, Pun, Scalar, Validate,
+///   Deferral, Deferred, Error, Pun, Scalar, Validate,
 ///   layout::{Endian, Spec},
 /// };
 ///
-/// /// The number of an item of the table that holds it, from 1.
+/// /// The number of an item of a table, from 1. Its invariant, beyond its values: the table that
+/// /// holds it has that item.
 /// #[derive(Clone, Copy)]
 /// #[repr(transparent)]
 /// struct Item(NonZero<u8>);
@@ -4298,7 +4199,8 @@ unsafe impl<T: ?Sized + Pun> Pun for Deferred<T> {
 /// }
 ///
 /// // SAFETY: `validate` returns `Ok` only if `first` numbers an item of `items`, which is what
-/// // `Table::first` relies on.
+/// // `Table::first` relies on not to panic. A `Table` is unsized, so no form moves it, and a
+/// // write through a `&mut Table` that breaks it only makes `Table::first` panic.
 /// unsafe impl Validate for Table {
 ///   type Context<'a> = ();
 ///   type Error = ();
@@ -4339,26 +4241,28 @@ pub unsafe trait Validate: Pun {
   /// Why [`Validate::validate`] fails.
   type Error;
 
-  /// Returns `Ok` if every opaque scalar of `self` is valid at its place.
+  /// Returns `Ok` if every opaque scalar of `self` meets, where it is, the invariant that its type
+  /// states.
   ///
   /// # Errors
   ///
-  /// Returns an error if an opaque scalar of `self` is not valid at its place, or if `validate`
-  /// cannot tell.
+  /// Returns an error if an opaque scalar of `self` does not meet its invariant where it is, or if
+  /// `validate` cannot tell.
   ///
   /// # Examples
   ///
-  /// [`Deferred::validated_with`] calls it, and only gives the value if it returns `Ok`:
+  /// [`Deferral::validated_with`] calls it, and only gives the value if it returns `Ok`:
   ///
   /// ```
   /// # use core::num::NonZero;
   /// #
   /// # use puns::{
-  /// #   Deferred, Error, Scalar, Validate,
+  /// #   Deferral, Deferred, Scalar, Validate,
   /// #   layout::{Endian, Spec},
   /// # };
   /// #
-  /// # /// The number of an entry of a table, from 1, valid only if the table has that entry.
+  /// # /// The number of an entry of a table, from 1. Its invariant, beyond its values: the table
+  /// # /// has that entry, wherever the number is.
   /// # #[derive(Clone, Copy, Debug, PartialEq)]
   /// # #[repr(transparent)]
   /// # struct Entry(NonZero<u8>);
@@ -4379,7 +4283,8 @@ pub unsafe trait Validate: Pun {
   /// #   }
   /// # }
   /// #
-  /// # // SAFETY: `validate` returns `Ok` only if the table has the entry.
+  /// # // SAFETY: `validate` returns `Ok` only if the table has the entry, which does not depend on
+  /// # // where the `Entry` is.
   /// # unsafe impl Validate for Entry {
   /// #   type Context<'a> = Entries;
   /// #   type Error = u8;
@@ -4392,6 +4297,327 @@ pub unsafe trait Validate: Pun {
   /// assert_eq!(entry.validated_with(&mut Entries(2)), Err(3));
   /// ```
   fn validate(&self, cx: &mut Self::Context<'_>) -> Result<(), Self::Error>;
+}
+
+/// A [`Deferred<T>`](Deferred), or a reference to one: what `puns` checked in everything but the
+/// places of its [opaque scalars](crate#opaque-scalars). Each method gives the `T` in the same
+/// form: `T`, `&T` or `&mut T`.
+///
+/// Sealed: `puns` implements it for `Deferred<T>`, `&Deferred<T>` and `&mut Deferred<T>` only. Its
+/// methods are not methods of `Deferred`, so that a call on a `&Deferred<T>` never copies the
+/// `Deferred<T>` where this trait is not in scope: it does not compile there.
+///
+/// The by-value form proves the `T` where the `Deferred<T>` is during the call, then moves it: an
+/// opaque scalar whose invariant depends on its place is then refused ([`Validate`], section
+/// Safety). The `&mut` form gives a `&mut T`, through which safe code may write any `T`.
+///
+/// # Examples
+///
+/// The three forms, of an `Entry` whose invariant does not depend on its place:
+///
+/// ```
+/// use core::num::NonZero;
+///
+/// use puns::{
+///   Deferral, Deferred, Scalar, Validate,
+///   layout::{Endian, Spec},
+/// };
+///
+/// /// The number of an entry of a table, from 1. Its invariant, beyond its values: the table has
+/// /// that entry, wherever the number is.
+/// #[derive(Clone, Copy, Debug, PartialEq)]
+/// #[repr(transparent)]
+/// struct Entry(NonZero<u8>);
+///
+/// // SAFETY: `Entry` is `repr(transparent)` over a `NonZero<u8>`: its values are the bytes from 1
+/// // to 255, each a valid `Entry`, and whether the table has the entry is not in its byte. It
+/// // holds no `UnsafeCell`.
+/// unsafe impl Scalar for Entry {
+///   const SPEC: Spec = Spec::ranges::<Entry>(Endian::NATIVE, &[(1, 255)]).opaque();
+/// }
+///
+/// /// The number of entries of the table, 4 by default.
+/// struct Entries(u8);
+///
+/// impl Default for Entries {
+///   fn default() -> Self {
+///     Self(4)
+///   }
+/// }
+///
+/// // SAFETY: `validate` returns `Ok` only if the table has the entry, which does not depend on
+/// // where the `Entry` is.
+/// unsafe impl Validate for Entry {
+///   type Context<'a> = Entries;
+///   type Error = u8;
+///
+///   fn validate(&self, cx: &mut Entries) -> Result<(), u8> {
+///     if self.0.get() <= cx.0 { Ok(()) } else { Err(self.0.get()) }
+///   }
+/// }
+///
+/// // By value: an `Entry`.
+/// let entry: Entry = puns::try_pun::<u8, Deferred<Entry>>(3).unwrap().validated().unwrap();
+/// assert_eq!(entry.0.get(), 3);
+/// // By reference: a `&Entry` where the bytes are.
+/// let bytes = [2];
+/// let entry: &Entry = puns::from_bytes::<Deferred<Entry>>(&bytes).unwrap().validated().unwrap();
+/// assert_eq!(entry.0.get(), 2);
+/// // By mutable reference: a `&mut Entry`, through which the bytes are written.
+/// let mut bytes = [4];
+/// let deferred = puns::from_bytes_mut::<Deferred<Entry>>(&mut bytes).unwrap();
+/// let entry: &mut Entry = deferred.validated().unwrap();
+/// entry.0 = NonZero::new(1).unwrap();
+/// assert_eq!(bytes, [1]);
+/// ```
+pub trait Deferral: Sized + sealed::Form {
+  /// The `T` of the [`Deferred<T>`](Deferred).
+  type Target: ?Sized + Validate;
+  /// The `T` in the form of `Self`: `T`, `&T` or `&mut T`.
+  type Output;
+
+  /// Returns the `T`, if [`Validate::validate`] proves its opaque scalars, with the context `cx`.
+  ///
+  /// The proof is made at each call, of the value where it is: a `Deferred<T>` that was copied or
+  /// moved is proven at its new place.
+  ///
+  /// # Errors
+  ///
+  /// Returns the error of [`Validate::validate`].
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use core::num::NonZero;
+  /// #
+  /// # use puns::{
+  /// #   Deferral, Deferred, Scalar, Validate,
+  /// #   layout::{Endian, Spec},
+  /// # };
+  /// #
+  /// # /// The number of an entry of a table, from 1. Its invariant, beyond its values: the table
+  /// # /// has that entry, wherever the number is.
+  /// # #[derive(Clone, Copy, Debug, PartialEq)]
+  /// # #[repr(transparent)]
+  /// # struct Entry(NonZero<u8>);
+  /// #
+  /// # // SAFETY: `Entry` is `repr(transparent)` over a `NonZero<u8>`: its values are the bytes from 1
+  /// # // to 255, each a valid `Entry`, and whether the table has the entry is not in its byte. It
+  /// # // holds no `UnsafeCell`.
+  /// # unsafe impl Scalar for Entry {
+  /// #   const SPEC: Spec = Spec::ranges::<Entry>(Endian::NATIVE, &[(1, 255)]).opaque();
+  /// # }
+  /// #
+  /// # /// The number of entries of the table, 4 by default.
+  /// # struct Entries(u8);
+  /// #
+  /// # impl Default for Entries {
+  /// #   fn default() -> Self {
+  /// #     Self(4)
+  /// #   }
+  /// # }
+  /// #
+  /// # // SAFETY: `validate` returns `Ok` only if the table has the entry, which does not depend on
+  /// # // where the `Entry` is.
+  /// # unsafe impl Validate for Entry {
+  /// #   type Context<'a> = Entries;
+  /// #   type Error = u8;
+  /// #
+  /// #   fn validate(&self, cx: &mut Entries) -> Result<(), u8> {
+  /// #     if self.0.get() <= cx.0 { Ok(()) } else { Err(self.0.get()) }
+  /// #   }
+  /// # }
+  /// let entry = puns::from_bytes::<Deferred<Entry>>(&[3]).unwrap();
+  /// assert!(entry.validated_with(&mut Entries(3)).is_ok());
+  /// assert_eq!(entry.validated_with(&mut Entries(2)).err(), Some(3));
+  /// ```
+  fn validated_with(
+    self,
+    cx: &mut <Self::Target as Validate>::Context<'_>,
+  ) -> Result<Self::Output, <Self::Target as Validate>::Error>;
+
+  /// Returns the `T`, if [`Validate::validate`] proves its opaque scalars, with the default
+  /// context.
+  ///
+  /// # Errors
+  ///
+  /// Returns the error of [`Validate::validate`].
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use core::num::NonZero;
+  /// #
+  /// # use puns::{
+  /// #   Deferral, Deferred, Scalar, Validate,
+  /// #   layout::{Endian, Spec},
+  /// # };
+  /// #
+  /// # /// The number of an entry of a table, from 1. Its invariant, beyond its values: the table
+  /// # /// has that entry, wherever the number is.
+  /// # #[derive(Clone, Copy, Debug, PartialEq)]
+  /// # #[repr(transparent)]
+  /// # struct Entry(NonZero<u8>);
+  /// #
+  /// # // SAFETY: `Entry` is `repr(transparent)` over a `NonZero<u8>`: its values are the bytes from 1
+  /// # // to 255, each a valid `Entry`, and whether the table has the entry is not in its byte. It
+  /// # // holds no `UnsafeCell`.
+  /// # unsafe impl Scalar for Entry {
+  /// #   const SPEC: Spec = Spec::ranges::<Entry>(Endian::NATIVE, &[(1, 255)]).opaque();
+  /// # }
+  /// #
+  /// # /// The number of entries of the table, 4 by default.
+  /// # struct Entries(u8);
+  /// #
+  /// # impl Default for Entries {
+  /// #   fn default() -> Self {
+  /// #     Self(4)
+  /// #   }
+  /// # }
+  /// #
+  /// # // SAFETY: `validate` returns `Ok` only if the table has the entry, which does not depend on
+  /// # // where the `Entry` is.
+  /// # unsafe impl Validate for Entry {
+  /// #   type Context<'a> = Entries;
+  /// #   type Error = u8;
+  /// #
+  /// #   fn validate(&self, cx: &mut Entries) -> Result<(), u8> {
+  /// #     if self.0.get() <= cx.0 { Ok(()) } else { Err(self.0.get()) }
+  /// #   }
+  /// # }
+  /// // The default table has 4 entries.
+  /// let third = puns::from_bytes::<Deferred<Entry>>(&[3]).unwrap();
+  /// assert!(third.validated().is_ok());
+  /// let fifth = puns::from_bytes::<Deferred<Entry>>(&[5]).unwrap();
+  /// assert_eq!(fifth.validated().err(), Some(5));
+  /// ```
+  #[inline]
+  fn validated(self) -> Result<Self::Output, <Self::Target as Validate>::Error>
+  where
+    for<'a> <Self::Target as Validate>::Context<'a>: Default,
+  {
+    self.validated_with(&mut Default::default())
+  }
+
+  /// Returns the `T`, without proving its opaque scalars.
+  ///
+  /// This is for a caller that knows them valid by other means, such as bytes that it wrote from
+  /// valid values. [`Deferral::validated_with`] is the safe form.
+  ///
+  /// # Safety
+  ///
+  /// Every opaque scalar of the `T` that is returned meets the invariant that its type states
+  /// ([`Scalar`], section Safety).
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// # use core::num::NonZero;
+  /// #
+  /// # use puns::{
+  /// #   Deferral, Deferred, Scalar, Validate,
+  /// #   layout::{Endian, Spec},
+  /// # };
+  /// #
+  /// # /// The number of an entry of a table, from 1. Its invariant, beyond its values: the table
+  /// # /// has that entry, wherever the number is.
+  /// # #[derive(Clone, Copy, Debug, PartialEq)]
+  /// # #[repr(transparent)]
+  /// # struct Entry(NonZero<u8>);
+  /// #
+  /// # // SAFETY: `Entry` is `repr(transparent)` over a `NonZero<u8>`: its values are the bytes from 1
+  /// # // to 255, each a valid `Entry`, and whether the table has the entry is not in its byte. It
+  /// # // holds no `UnsafeCell`.
+  /// # unsafe impl Scalar for Entry {
+  /// #   const SPEC: Spec = Spec::ranges::<Entry>(Endian::NATIVE, &[(1, 255)]).opaque();
+  /// # }
+  /// #
+  /// # /// The number of entries of the table, 4 by default.
+  /// # struct Entries(u8);
+  /// #
+  /// # impl Default for Entries {
+  /// #   fn default() -> Self {
+  /// #     Self(4)
+  /// #   }
+  /// # }
+  /// #
+  /// # // SAFETY: `validate` returns `Ok` only if the table has the entry, which does not depend on
+  /// # // where the `Entry` is.
+  /// # unsafe impl Validate for Entry {
+  /// #   type Context<'a> = Entries;
+  /// #   type Error = u8;
+  /// #
+  /// #   fn validate(&self, cx: &mut Entries) -> Result<(), u8> {
+  /// #     if self.0.get() <= cx.0 { Ok(()) } else { Err(self.0.get()) }
+  /// #   }
+  /// # }
+  /// // The only table of this program has 4 entries, and `written` holds one of them.
+  /// let written = [Entry(NonZero::new(2).unwrap())];
+  /// let deferred = puns::from_bytes::<Deferred<Entry>>(puns::as_bytes(&written)).unwrap();
+  /// // SAFETY: These are the bytes of an entry of the table, which has it wherever it is.
+  /// let entry: &Entry = unsafe { deferred.assume_valid() };
+  /// assert_eq!(entry, &written[0]);
+  /// ```
+  #[must_use]
+  unsafe fn assume_valid(self) -> Self::Output;
+}
+
+impl<T: ?Sized> sealed::Form for Deferred<T> {}
+impl<T: ?Sized> sealed::Form for &Deferred<T> {}
+impl<T: ?Sized> sealed::Form for &mut Deferred<T> {}
+
+impl<T: Validate> Deferral for Deferred<T> {
+  type Target = T;
+  type Output = T;
+
+  #[inline]
+  fn validated_with(self, cx: &mut T::Context<'_>) -> Result<T, T::Error> {
+    match self.0.validate(cx) {
+      Ok(()) => Ok(self.0),
+      Err(error) => Err(error),
+    }
+  }
+
+  #[inline]
+  unsafe fn assume_valid(self) -> T {
+    self.0
+  }
+}
+
+impl<'a, T: ?Sized + Validate> Deferral for &'a Deferred<T> {
+  type Target = T;
+  type Output = &'a T;
+
+  #[inline]
+  fn validated_with(self, cx: &mut T::Context<'_>) -> Result<&'a T, T::Error> {
+    match self.0.validate(cx) {
+      Ok(()) => Ok(&self.0),
+      Err(error) => Err(error),
+    }
+  }
+
+  #[inline]
+  unsafe fn assume_valid(self) -> &'a T {
+    &self.0
+  }
+}
+
+impl<'a, T: ?Sized + Validate> Deferral for &'a mut Deferred<T> {
+  type Target = T;
+  type Output = &'a mut T;
+
+  #[inline]
+  fn validated_with(self, cx: &mut T::Context<'_>) -> Result<&'a mut T, T::Error> {
+    match self.0.validate(cx) {
+      Ok(()) => Ok(&mut self.0),
+      Err(error) => Err(error),
+    }
+  }
+
+  #[inline]
+  unsafe fn assume_valid(self) -> &'a mut T {
+    &mut self.0
+  }
 }
 
 /// Reinterprets mutable bytes as a mutable reference to a `D`, after checking them.

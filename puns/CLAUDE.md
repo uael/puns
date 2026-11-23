@@ -16,8 +16,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   ("What the derive trusts").
 - [`Scalar`](src/lib.rs) states the contract of a scalar declared by hand, an opaque scalar
   (`Spec::opaque`) included, and the crate documentation ("Opaque scalars") what `puns` guarantees
-  its crate in return. `Deferred` and `Validate` say how that crate reads and proves a value that
-  holds one.
+  its crate in return. The `# Safety` of `Scalar` is the one home of the invariant of an opaque
+  scalar, which the documentation of its type states. `Deferred`, `Validate` and `Deferral` say
+  how that crate reads and proves a value that holds one, and how a caller takes it unproven.
 
 ## How it works
 
@@ -53,9 +54,10 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - A requirement (`valid(..)`, a rule) never proves a guarantee of another type. Two layouts are
   equal only if they require and guarantee the same values.
 - No function makes a value that holds an opaque scalar (`Spec::opaque`), and no function gives a
-  `&mut` to one. As a target, such a scalar is disjoint from every source (`atom_relation`), and a
-  part of a target that holds one is proven by nothing, not even by itself
-  (`Layout::holds_opaque`). A check never accepts it (`validate::accepts`), so a variant that
+  `&mut` to one, but the methods of `Deferral`, after `Validate` proves it or the caller of
+  `Deferral::assume_valid` ensures it. As a target, such a scalar is disjoint from every source
+  (`atom_relation`), and a part of a target that holds one is proven by nothing, not even by
+  itself (`Layout::holds_opaque`). A check never accepts it (`validate::accepts`), so a variant that
   holds one is refused at run time. The one exception is a `Deferred<T>` target
   (`Layout::is_deferred`, `Cursor::deferred`): its opaque scalars are checked against their
   values, as any scalar is (`Checks::OPAQUE`), and a failure returns its offset

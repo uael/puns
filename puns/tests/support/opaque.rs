@@ -11,14 +11,16 @@ use puns::{
 /// The values of a `NonZero<u32>`: every `u32` but zero.
 const NON_ZERO: &[(u128, u128)] = &[(1, u32::MAX as u128)];
 
-/// An offset that is never zero, whose correctness is not in its bytes.
+/// An offset that is never zero. Its invariant, beyond its values: it is a multiple of 4. It does
+/// not depend on where the offset is, so a copy meets it as the original does. Nothing in these
+/// tests relies on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct Off(pub NonZero<u32>);
 
 // SAFETY: `Off` is `repr(transparent)` over a `NonZero<u32>`, so it has its size and its values,
-// every `u32` but zero in the byte order of the target, each a valid `Off` in Rust's sense. Where
-// it aims is not in its bytes: `SPEC` is opaque. It holds no `UnsafeCell`.
+// every `u32` but zero in the byte order of the target, each a valid `Off` in Rust's sense. Its
+// invariant is not in its bytes: `SPEC` is opaque. It holds no `UnsafeCell`.
 unsafe impl Scalar for Off {
   const SPEC: Spec = Spec::ranges::<Off>(Endian::NATIVE, NON_ZERO).opaque();
 }
@@ -30,8 +32,8 @@ pub struct Node {
   pub next: Off,
 }
 
-/// The proof of a `Node` in `Context`, bytes of `len` bytes from the node: its offset is a
-/// multiple of 4 within them. A node at another place, or with another offset, fails.
+/// What a `Node` is proven against: its offset must also be less than `len`, which these tests
+/// require beyond the invariant of `Off`.
 pub struct Context {
   pub len: usize,
 }
@@ -42,9 +44,9 @@ impl Default for Context {
   }
 }
 
-// SAFETY: `validate` returns `Ok` only if `next` aims at a multiple of 4 within the `len` bytes
-// from the node, which is what a `Node` of these tests means, and on which nothing of `Node`
-// relies.
+// SAFETY: `validate` returns `Ok` only if `next` is a multiple of 4, the invariant of `Off`, which
+// does not depend on where the node is. Nothing relies on it, so no write through a `&mut Node`
+// breaks what the code of `Node` relies on.
 unsafe impl Validate for Node {
   type Context<'a> = Context;
   type Error = u32;
@@ -72,7 +74,7 @@ pub struct Ruled {
 }
 
 /// An offset of alignment 1, as an offset of a fixed byte order is: `core` documents no niche of a
-/// packed struct, and `rustc` keeps the one of its field.
+/// packed struct, and `rustc` keeps the one of its field. Its invariant is that of `Off`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C, packed)]
 pub struct Packed(pub NonZero<u32>);
@@ -93,7 +95,8 @@ pub struct Nullable {
   pub packed: Option<Packed>,
 }
 
-/// An offset to a `T`, generic as the pointers of another crate are.
+/// An offset to a `T`, generic as the pointers of another crate are. Its invariant, beyond its
+/// values: it aims at a `T` of the bytes that hold it. Nothing in these tests relies on it.
 #[repr(transparent)]
 pub struct Ref<T>(NonZero<u32>, PhantomData<T>);
 

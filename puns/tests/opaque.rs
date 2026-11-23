@@ -1,5 +1,5 @@
 //! Opaque scalars (`Spec::opaque`): read by their values, never a target, but in a `Deferred<T>`,
-//! which `Validate` proves.
+//! which `Validate` proves, and whose `T` `Deferral` gives.
 
 #[path = "support/opaque.rs"]
 mod opaque;
@@ -7,7 +7,7 @@ mod opaque;
 use core::num::NonZero;
 
 use opaque::{Context, Link, Node, Nullable, Off, Packed, Ruled};
-use puns::{Deferred, Error, Pun};
+use puns::{Deferral, Deferred, Error, Pun};
 
 #[test]
 fn a_source_proves_its_values() {
@@ -78,6 +78,57 @@ fn validate_proves_the_places() {
   let odd = [7u32, 6];
   let deferred = puns::from_bytes::<Deferred<Node>>(puns::as_bytes(&odd)).unwrap();
   assert_eq!(deferred.validated().err(), Some(6));
+}
+
+#[test]
+fn each_form_gives_the_same_form() {
+  // By value: a `Node`, proven where the `Deferred` is, then moved.
+  let node: Node = puns::try_pun::<[u32; 2], Deferred<Node>>([7, 12]).unwrap().validated().unwrap();
+  assert_eq!(node, Node { tag: 7, next: Off(NonZero::new(12).unwrap()) });
+  let odd = puns::try_pun::<[u32; 2], Deferred<Node>>([7, 6]).unwrap();
+  assert_eq!(odd.validated_with(&mut Context { len: 16 }), Err(6));
+  // By reference: a `&Node`, where the bytes are.
+  let words = [7u32, 12];
+  let deferred = puns::from_bytes::<Deferred<Node>>(puns::as_bytes(&words)).unwrap();
+  let node: &Node = deferred.validated().unwrap();
+  assert!(core::ptr::addr_eq(node, &raw const words));
+  assert_eq!(deferred.validated_with(&mut Context { len: 12 }), Err(12));
+  // By mutable reference: a `&mut Node`, through which the bytes are written.
+  let mut buffer = Aligned([0; 16]);
+  buffer.0[..8].copy_from_slice(puns::as_bytes(&words));
+  let deferred = puns::from_bytes_mut::<Deferred<Node>>(&mut buffer.0[..8]).unwrap();
+  assert_eq!(deferred.validated_with(&mut Context { len: 12 }).err(), Some(12));
+  let node: &mut Node = deferred.validated().unwrap();
+  node.tag = 9;
+  node.next = Off(NonZero::new(8).unwrap());
+  assert_eq!(&buffer.0[..8], puns::as_bytes(&[9u32, 8]));
+  // A `&Deferred` from a `&mut Deferred`, for a `&Node`.
+  let deferred = puns::from_bytes_mut::<Deferred<Node>>(&mut buffer.0[..8]).unwrap();
+  let node: &Node = (&*deferred).validated().unwrap();
+  assert_eq!(node.tag, 9);
+}
+
+#[test]
+fn assume_valid_gives_each_form_without_validate() {
+  // An offset that `Validate` refuses, beyond the invariant of `Off`: `assume_valid` does not call
+  // it.
+  let words = [7u32, 20];
+  let deferred = puns::try_pun::<[u32; 2], Deferred<Node>>(words).unwrap();
+  assert_eq!(deferred.validated().err(), Some(20));
+  // SAFETY: 20 is a multiple of 4, the invariant of `Off`, wherever the node is.
+  let node: Node = unsafe { deferred.assume_valid() };
+  assert_eq!(node.next.0.get(), 20);
+  let deferred = puns::from_bytes::<Deferred<Node>>(puns::as_bytes(&words)).unwrap();
+  // SAFETY: As above.
+  let node: &Node = unsafe { deferred.assume_valid() };
+  assert!(core::ptr::addr_eq(node, &raw const words));
+  let mut buffer = Aligned([0; 16]);
+  buffer.0[..8].copy_from_slice(puns::as_bytes(&words));
+  let deferred = puns::from_bytes_mut::<Deferred<Node>>(&mut buffer.0[..8]).unwrap();
+  // SAFETY: As above.
+  let node: &mut Node = unsafe { deferred.assume_valid() };
+  node.tag = 3;
+  assert_eq!(&buffer.0[..8], puns::as_bytes(&[3u32, 20]));
 }
 
 #[test]

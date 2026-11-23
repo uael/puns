@@ -230,7 +230,8 @@ impl Spec {
   /// accepts a variant of an enum that holds one. Only the crate that declares the scalar makes a
   /// value of it, and proves it at its place: a [`Deferred<T>`](crate::Deferred) of a `T` that holds
   /// one is checked in everything else, the values of the scalar included, and its
-  /// [`Validate`](crate::Validate) implementation proves the place.
+  /// [`Validate`](crate::Validate) implementation proves the invariant that the type of the scalar
+  /// states ([`Scalar`](crate::Scalar), section Safety).
   ///
   /// A rule reads an opaque scalar that is a number, and `#[pun(valid(..))]` may restrict one. An
   /// `Option` of an opaque scalar is opaque too, if it has the size of the scalar ([Opaque
