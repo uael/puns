@@ -347,8 +347,8 @@ included, can keep `#![forbid(unsafe_code)]`. The [Soundness] chapter of the gui
 pun guarantees, and [What `puns` relies on][rust] what that code relies on, including behaviors of
 `rustc` that no documentation guarantees, and how each is checked. On every pair of test types of
 the same size, the analysis is compared with oracles that don't use it, and the tests run under
-Miri, on 32-bit and big-endian targets as well. 172 programs must fail to compile, each with its
-expected message ([Testing][testing]). If you find a soundness bug, please [open an
+Miri, on 32-bit and big-endian targets as well. Programs that must fail to compile are tested with
+their expected messages ([Testing][testing]). If you find a soundness bug, please [open an
 issue][issues].
 
 ## About

@@ -226,7 +226,8 @@
 //! - **As a target**, an opaque node is proven by the same type at the same place ([`equal`]). A
 //!   struct or a tuple whose size is the same in every layout may also be proven field by field
 //!   ([`relate_fields`]). A field may be anywhere, so it must be proven everywhere that it may be,
-//!   and since a struct is valid if each of its fields is valid at its place, the source proves the
+//!   and since a struct is valid if each of its fields is valid at its place ([A value whose fields
+//!   are valid](crate::guide::rust#a-value-whose-fields-are-valid)), the source proves the
 //!   struct in every order of its fields if, and only if, it proves each field at each offset that
 //!   the field has in some order. This is exact, and tries no order. The offsets taken are the
 //!   multiples of the alignment of the field where the field fits or, where no order needs padding,
@@ -268,7 +269,7 @@
 //! specify has something to check ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does not
 //! accept the zeros of an enum that is not fixed.
 //!
-//! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
+//! [valid]: crate::guide::concepts#what-is-a-valid-value
 
 use crate::layout::{
   Dfa, Endian, Kind, Layout, Op, Spec, Tags, UNSTABLE, Uniform, Valid, max_value,
@@ -1429,8 +1430,9 @@ const PLACES: usize = 1024;
 /// not the order of its fields ([`RunKind::Opaque`]). A field may be anywhere, so it must be
 /// proven everywhere it may be.
 ///
-/// A struct is valid if each of its fields is valid at its place. So the source proves the
-/// struct in every order of its fields if, and only if, it proves each field at each offset that
+/// A struct is valid if each of its fields is valid at its place ([A value whose fields are
+/// valid](crate::guide::rust#a-value-whose-fields-are-valid)). So the source proves the struct in
+/// every order of its fields if, and only if, it proves each field at each offset that
 /// the field has in some order. This is exact, and no order is tried. The offsets taken are all
 /// those that the field may have, the multiples of its alignment where it fits. Where no order
 /// needs padding, because every size is a multiple of every alignment, they are the multiples of

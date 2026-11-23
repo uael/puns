@@ -42,7 +42,7 @@ and the condition of an `if` are `bool`s, an `assert` is a `bool`, and a `size`,
 region is an integer. Rust does not convert an integer to a `bool`, so `flags & 1` is not an
 assertion, but `flags & 1 != 0` is.
 
-## Fields
+## Fields in a rule
 
 A rule reads the fields of its struct that are unsigned integers (`u8`, `u16be`,
 `NonZero<u32>`...), or sized structs whose only field with a size is one of these and is as

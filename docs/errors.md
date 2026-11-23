@@ -582,9 +582,9 @@ assert_eq!(puns::zeroed::<Option<core::num::NonZero<u8>>>(), None);
 The derive reports most of its errors where the fault is, and the others when the layout of the
 type is evaluated. The derive's [Compile-time errors][macro@Pun#compile-time-errors] say which
 are which, and when `cargo check` reports them. A rule that reads a field that is not an unsigned
-integer is refused, and [Fields][rules#fields] shows its message and its fix. A getter of
-`#[pun(get(..))]` that reads such a field is refused where it is called, which `cargo check` does
-not report:
+integer is refused, and [Fields in a rule][rules#fields-in-a-rule] shows its message and its fix.
+A getter of `#[pun(get(..))]` that reads such a field is refused where it is called, which `cargo
+check` does not report:
 
 ```rust,compile_fail,E0080
 #[derive(puns::Pun)]
@@ -641,7 +641,7 @@ assert!(level.negative());
 [limits#not-yet]: limits.md#not-yet
 [macro@Pun#compile-time-errors]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#compile-time-errors
 [opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
-[rules#fields]: rules.md#fields
+[rules#fields-in-a-rule]: rules.md#fields-in-a-rule
 [uninhabited]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [unspecified layout]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [msrv]: target.md#minimum-rust-version

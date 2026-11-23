@@ -313,7 +313,7 @@ accepts it. For a `&mut`, the covered bytes of `S` hold none either, since a wri
 [concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [concepts#what-is-a-valid-value]: concepts.md#what-is-a-valid-value
 [concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
-[core::mem::transmute#transmutation-between-pointers-and-integers]: https://doc.rust-lang.org/1.100.0/core/intrinsics/fn.transmute.html#transmutation-between-pointers-and-integers
+[core::mem::transmute#transmutation-between-pointers-and-integers]: https://doc.rust-lang.org/1.99.0/core/mem/fn.transmute.html#transmutation-between-pointers-and-integers
 [crate#going-further]: ../README.md#going-further
 [crate#reading-one-of-several-types]: ../README.md#reading-one-of-several-types
 [errors]: errors.md

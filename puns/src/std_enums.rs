@@ -271,7 +271,10 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
 // `discover`. These fail to compile rather than find a wrong layout, under the facts of the
 // compiler that its module documentation lists. The variant `Some` holds the layout of `T` at the
 // offset observed on a sample, and the lists of variants and fields are those of this layout (see
-// `OptionNone`, `OptionSome` and `OptionSomeField`). Where `T` is a scalar that a pun never makes,
+// `OptionNone`, `OptionSome` and `OptionSomeField`). The layout accepts a value whose tag is that
+// of a variant whose fields are valid. `puns` relies on such a value being valid, which no
+// documentation states (the guide, chapter What `puns` relies on, "A value whose fields are
+// valid"). Where `T` is a scalar that a pun never makes,
 // the layout is that of `never_option`, whose shape is checked there: a scalar, whose lists `puns`
 // does not read, so they may be anything (`Pun`, section Safety). `Option<T>` holds a `T` or
 // nothing, and a tag, so no `UnsafeCell`, since `T: Pun`.
@@ -293,7 +296,8 @@ unsafe impl<T: Pun> Pun for Option<T> {
 // SAFETY: The layout is the one that `rustc` gave `Result<T, E>`, found by the experiments of
 // `discover`, as for `Option<T>`. The variants `Ok` and `Err` hold the layouts of `T` and `E` at
 // the offsets observed on their samples, and the lists of variants and fields are those of this
-// layout (see `ResultOk`, `ResultErr`, `ResultOkField` and `ResultErrField`). `Result<T, E>` holds
+// layout (see `ResultOk`, `ResultErr`, `ResultOkField` and `ResultErrField`). Its values are
+// accepted as those of `Option<T>` are. `Result<T, E>` holds
 // a `T` or an `E`, and a tag, so no `UnsafeCell`.
 unsafe impl<T: Pun, E: Pun> Pun for Result<T, E> {
   type Elem = ();

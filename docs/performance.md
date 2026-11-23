@@ -1,29 +1,17 @@
 # Measured performance
 
-A proven pun compiles to no check, though it may still compute an address or a length. A checked
-pun compiles to the checks of what the analysis could not prove, which take about as long as the
-same checks written by hand. What `puns` costs is mostly build time.
+A checked pun compiles to the checks of what the analysis could not prove. [Time](#time) measures
+these checks next to the same checks written by hand, and [Build time](#build-time) measures what
+the analysis costs while the program compiles.
 
 ## Machine code
 
-The table below gives the machine code of some functions of [`puns/examples/codegen.rs`][codegen].
-That file defines their types, records the machine code of more functions, and gives the command
-that writes the assembly. The example requires the `unstable` feature, since some of its types
-have an unspecified layout. The code was measured with that feature, on `x86_64-unknown-linux-gnu`
-with `rustc` 1.100.0, in release with LTO and one codegen unit. A count of instructions is not a
-time, which [Time](#time) measures.
-
-| Function                                           | Machine code                                  |
-|----------------------------------------------------|-----------------------------------------------|
-| `&Position -> &[u8; 2]`                            | `mov rax, rdi; ret`                           |
-| `[bool; 4] -> u32`                                 | `mov eax, edi; ret`                           |
-| `&Packet<Datagram> -> &Packet` (the same rules)    | `mov rdx, rsi; mov rax, rdi; ret`             |
-| `&[Shape] -> &[Drawing]` (enums with fields)       | `mov rdx, rsi; mov rax, rdi; ret`             |
-| `&[u8; 2] -> Option<&Position>` (a `u8`, a `bool`) | one `cmp byte ptr [rdi + 1], 2`               |
-| `&Drawing -> Option<&Shape>`                       | the tag, then one `cmp` for a `bool`, 12 instructions |
-| `from_head::<Frame<Ipv4>>(&[u8])`, no checksum     | 29 instructions, no loop, no call             |
-| `&[u8] -> Option<&Ipv6>` (a walk, two checksums)   | 207 instructions, no call                     |
-| `&[u8] -> Option<&[bool]>`                         | 64 bytes at a time, no branch in a block      |
+The module documentation of [`puns/examples/codegen.rs`][codegen] gives the machine code of its
+functions in a table, with the target, the version of `rustc`, the profile and the command that
+writes the assembly. The example requires the `unstable` feature, since some of its types have an
+unspecified layout. The table has no date or revision of its own. Its module documentation asks
+that each change of the library compare the assembly before and after it, and update the table. A
+count of instructions is not a time, which [Time](#time) measures.
 
 ### Compared with `zerocopy` and `bytemuck`
 
@@ -32,7 +20,8 @@ not accept every byte, so with them, reinterpreting a `&[Switch]` as a `&[bool]`
 conversion, even when every `Switch` is 0 or 1. `puns` proves it from the two types. On 2026-11-21,
 the functions below were compiled with `zerocopy` 0.8.63, `bytemuck` 1.25.2 and `rustc` 1.100.0,
 for `aarch64-apple-darwin`, in a crate of their own built with `lto = true` and `codegen-units =
-1`, by `cargo rustc --release --lib -- --emit asm`:
+1`, by `cargo rustc --release --lib -- --emit asm`. The revision of `puns` that it used is not
+recorded, and the assembly is not in the repository:
 
 ```rust,ignore
 #[derive(puns::Pun, zerocopy::IntoBytes, zerocopy::Immutable, bytemuck::NoUninit, Clone, Copy)]
@@ -131,9 +120,9 @@ IPv4 header. The IPv6 cases of TCP time only the walk over the extension headers
 of 1400 bytes computes a checksum that fails.
 
 The code by hand computes CRC-32 and CRC-32C 16 bytes at a time, unless the name of the case says a
-byte at a time, and checks a slice with an iterator, such as `bytes.iter().all(|&b| b <= 1)`. It
+byte at a time. It checks a slice with an iterator, such as `bytes.iter().all(|&b| b <= 1)`. It
 computes the two CRC-16s a byte at a time, with a table, while `puns` computes every CRC 16 bytes at
-a time, so the rows of the CRC-16s compare two algorithms rather than the cost of the check.
+a time. So the rows of the CRC-16s compare two algorithms rather than the cost of the check.
 
 `puns` checks a slice of small elements, each a few comparisons, in blocks of up to 64 bytes,
 without a branch inside a block. Such an element has 1 to 16 bytes, and is a scalar, an array of at
@@ -144,12 +133,13 @@ time, so a slice of `MaybeFlag`, an enum of the `Rust` representation whose tag 
 
 ## Build time
 
-The analysis grows with the number of fields, variants, ranges of values and states of an
-automaton. Where it would grow with the size of a type, a search stops at one of the [bounds of the
-analysis][bounds]. `cargo xtask build-time` ([`xtask/src/build_time.rs`][build-time]) builds a crate
-that uses `puns` in several ways, and prints the best of 3 builds of that crate alone, in seconds.
-It takes minutes. These times were measured on 2026-11-21, with the library at commit
-[`4176671`][commit], `rustc` 1.100.0, on the machine above, at a load average between 3.9 and 4.3.
+The time of the analysis grows with the number of fields, variants, ranges of values and states
+of an automaton, and its searches are bounded ([Limits of Rust][limits#limits-of-rust]). `cargo
+xtask build-time` ([`xtask/src/build_time.rs`][build-time]) builds a crate that uses `puns` in
+several ways, and prints the best of 3 builds of that crate alone, in seconds. It takes minutes.
+These times were measured on 2026-11-21, with the library at commit [`4176671`][commit], `rustc`
+1.100.0, on the machine above, at a load average between 3.9 and 4.3. The output of these builds is
+not in the repository.
 
 Each struct has five fields, among them an enum and a `bool`. Reading each of 100 structs from
 bytes adds 1.7 s to a debug build, and 0.74 s to a release build: about 17 ms and 7 ms for each
@@ -176,17 +166,18 @@ faster in a release build: 24.9 s for 64 variants.
 
 ## Costs
 
-Without a checksum or a walk inside a walk, the time of a check grows with the size of the value,
-or, for a `size` or `len` rule, with the number of bytes given. A walk takes up to a number of steps
-that grows with that size ([Walks][walks]), so a checksum or another walk inside a walk multiplies
-the time by the size, at each level. Each checked pun is code specialized for its two types, and it
-relies on inlining, which a debug build mostly does not do, so measure the checks in release.
+Without a checksum or a walk inside a walk, the time of a check grows in proportion to the size of
+the value, or, for a `size` or `len` rule, to the number of bytes given. A walk takes up to a number
+of steps that grows with that size ([Walks][walks]). So a checksum or another walk inside a walk
+multiplies the time by the size, at each level. Each checked pun is code specialized for its two
+types. It relies on inlining, which a debug build mostly does not do, so measure the checks in
+release.
 
 > **Warning:** Walks nest up to 4 deep, so a checksum inside the deepest one takes time in
 > proportion to the fifth power of the size. Limit the size of the untrusted bytes that such a
 > type reads.
 
-[bounds]: limits.md#bounds-of-the-analysis
+[limits#limits-of-rust]: limits.md#limits-of-rust
 [walks]: rules.md#walks
 [build-time]: https://github.com/uael/puns/blob/v0.2.3/xtask/src/build_time.rs
 [checks]: https://github.com/uael/puns/blob/v0.2.3/puns/benches/checks.rs

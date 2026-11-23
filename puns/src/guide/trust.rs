@@ -12,7 +12,8 @@
 //! [`Variant`]: layout::Variant
 //! [independence]: super::layouts#layout-independence
 //! [opaque scalar]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-//! [rust]: super::rust
+//! [rust#the-tag-of-an-enum-of-the-rust-representation]: super::rust#the-tag-of-an-enum-of-the-rust-representation
+//! [rust#the-variant-read-from-the-tag]: super::rust#the-variant-read-from-the-tag
 //! [same]: super::layouts#the-same-type
 //! [testing]: super::testing
 #![doc = include_str!("../../docs/trust.md")]

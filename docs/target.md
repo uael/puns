@@ -9,7 +9,7 @@ it. `puns` is built without the first three rows, which no stable release provid
 | Feature | Stable |
 |---|---|
 | [`TransmuteFrom`], [`ptr::metadata`] | no |
-| [const traits] (E0658), [`generic_const_exprs`] | no |
+| [const traits], [`generic_const_exprs`] | no |
 | reflection, [`offset_of!`][offset_of] on enums and slices | no |
 | loops in a `const fn` | [1.46][1.46] |
 | dereferencing a raw pointer in a `const fn` | [1.58][1.58] |
@@ -25,9 +25,7 @@ ends with a slice or a `str`, in `const` from a raw pointer with an arbitrary le
 On 1.98, `puns` does not build, because `layout_for_ptr` and its use in `const` are unstable there.
 CI builds the library and its examples on 1.99, which evaluates their refusals too.
 
-Const evaluation is also bounded ([Limits of Rust][limits#limits-of-rust]), so where the cost of
-the analysis would grow with the size of a type, a search stops at a
-[bound][limits#bounds-of-the-analysis].
+Const evaluation is also bounded ([Limits of Rust][limits#limits-of-rust]).
 
 ## Targets
 
@@ -42,8 +40,8 @@ compile time. The code assumes the following of `usize`:
 - An offset, a length or a range that a rule reads is compared with the size of the value as a
   `u128`, on every target, before it becomes a `usize`.
 - The tables of a [`layout::Crc`] take 32 KiB, or a single table of 2 KiB where `usize` has 16
-  bits, and a `const` assertion checks that they are at most `isize::MAX` bytes. The CRCs are the
-  same with one table or sixteen, and tests compare them with reference values. The table of
+  bits. A `const` assertion checks that they are at most `isize::MAX` bytes. The CRCs are the same
+  with one table or sixteen, and tests compare them with reference values. The table of
   [`crc32`], 16 KiB, fits on every width, since `isize::MAX` is 32 KiB minus 1 on 16 bits.
 - [`sum16`] folds its sum before it can overflow a `u64`: every 2^20 blocks, or only at the end
   where `usize` cannot count that far. A `const` assertion checks that the blocks between two
@@ -54,7 +52,7 @@ compile time. The code assumes the following of `usize`:
 
 What `unsafe` code assumes of the target (the alignment of a primitive, the width of `usize` and
 of `isize`, the byte order) is asserted in a `const` where it is used, or derived from the target.
-The tests run under Miri on a 32-bit and on a big-endian target ([Miri][testing#miri]).
+[Miri][testing#miri] says on which targets the tests run.
 
 [`TransmuteFrom`]: https://doc.rust-lang.org/nightly/core/mem/trait.TransmuteFrom.html
 [`ptr::metadata`]: https://doc.rust-lang.org/nightly/core/ptr/fn.metadata.html
@@ -74,6 +72,5 @@ The tests run under Miri on a 32-bit and on a big-endian target ([Miri][testing#
 [`crc32`]: https://docs.rs/puns/0.2.3/puns/layout/fn.crc32.html
 [`layout::Crc`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Crc.html
 [`sum16`]: https://docs.rs/puns/0.2.3/puns/layout/fn.sum16.html
-[limits#bounds-of-the-analysis]: limits.md#bounds-of-the-analysis
 [limits#limits-of-rust]: limits.md#limits-of-rust
 [testing#miri]: testing.md#miri

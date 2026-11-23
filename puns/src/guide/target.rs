@@ -3,7 +3,6 @@
 //! [`crc32`]: layout::crc32
 //! [`layout::Crc`]: layout::Crc
 //! [`sum16`]: layout::sum16
-//! [limits#bounds-of-the-analysis]: super::limits#bounds-of-the-analysis
 //! [limits#limits-of-rust]: super::limits#limits-of-rust
 //! [testing#miri]: super::testing#miri
 #![doc = include_str!("../../docs/target.md")]

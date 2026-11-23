@@ -20,7 +20,7 @@
 //! [limits#not-yet]: super::limits#not-yet
 //! [macro@Pun#compile-time-errors]: macro@Pun#compile-time-errors
 //! [opaque scalar]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-//! [rules#fields]: super::rules#fields
+//! [rules#fields-in-a-rule]: super::rules#fields-in-a-rule
 //! [uninhabited]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 //! [unspecified layout]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 //! [msrv]: super::target#minimum-rust-version

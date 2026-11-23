@@ -12,15 +12,14 @@ type, the *target* `D`, through a function of `puns`. The two types are the pun'
 
 ## Layouts and rules
 
-`puns` knows a type only by its layout and by what the type system enforces about its bytes.
-Two types that differ only in phantom parameters or lifetimes therefore convert to each other,
-and a type that derives `Pun` can be made from any bytes that are valid for its fields and meet
-its rules, whatever its constructors check ([What deriving `Pun`
+`puns` knows a type only by its layout and by what the type system enforces about its bytes,
+never by what its constructors check ([What deriving `Pun`
 means][soundness#what-deriving-pun-means]).
 
 The layout that `puns` reads holds more than the layout that the Reference defines. Besides the
 size, the alignment and the offset of each field, it holds the values that each scalar may
-hold, and the rules of each struct. The type's implementation of [`Pun`] gives this layout as a
+hold, and the rules of each struct. A byte that may be uninitialized, such as a byte of a struct
+that no field covers, is *padding*. The type's implementation of [`Pun`] gives this layout as a
 `const` value, `Pun::LAYOUT`. The analysis is ordinary `const fn` code that compares the two
 layouts of a pair *part* by part. A part is a scalar, an element of an array, a field, a variant
 or a trailing slice. The compiler runs the analysis once for each pair that a function of

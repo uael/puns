@@ -13,7 +13,7 @@
 //!
 //! Integers are compared, ordered and formatted as their values. A floating-point number is
 //! formatted as its value and has no order, and two of them are equal if their bytes are. So,
-//! unlike with `f64`, a NaN equals itself, and `-0.0` is not `0.0`.
+//! unlike with `f64`, a NaN equals a NaN of the same bytes, and `-0.0` is not `0.0`.
 //!
 //! ```
 //! use puns::num::{f64le, i16be, u16be, u16le, u24be};
@@ -296,8 +296,10 @@ macro_rules! ints {
     // `SPEC` has its size. The items of the `# Safety` of `Scalar` hold:
     // - Every value of `$name` is initialized bytes, all of which `Spec::any` accepts.
     // - Every initialized `[u8; $size]` is a valid `$name`, whose one field is all that it
-    //   requires to be valid [2]. No code of `$name` relies on what its bytes are: `from_bytes`
-    //   makes one of any bytes.
+    //   requires to be valid. The Reference requires the field to be valid [2]. `puns` relies on
+    //   this being all, which no documentation states (the guide, chapter What `puns` relies on,
+    //   "A value whose fields are valid"). No code of `$name` relies on what its bytes are:
+    //   `from_bytes` makes one of any bytes.
     // - `$name` holds no `UnsafeCell`.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi:
@@ -357,7 +359,11 @@ macro_rules! ints {
     ///
     #[doc = narrower!($raw $size, concat!(
       "# Compile-time errors\n\nA pun of a type that holds it [compiles](crate::guide::errors) ",
-      "only if `V` fits in ", stringify!($size), " bytes.\n\n# Examples\n"
+      "only if `V` fits in ", stringify!($size), " bytes:\n\n",
+      "```compile_fail,E0080\nuse puns::num::", stringify!($literal), ";\n\n",
+      "// One more than the greatest value of ", stringify!($size), " bytes.\n",
+      "let _ = puns::from_bytes::<", stringify!($literal), "<{ 1 << (8 * ", stringify!($size),
+      ") }>>(&[0; ", stringify!($size), "]);\n```\n\n# Examples\n"
     ), "")]
     ///
     /// ```
@@ -435,7 +441,9 @@ macro_rules! ints {
         let _ = Self::new();
         Spec::ranges::<Self>(Endian::$endian, const { &[(V as u128, V as u128)] })
       };
-      // `V` may not fit a `usize`: its bytes are in the layout, which identical types share.
+      // The identity keeps `V as usize`, which may drop high bits. Two types whose `V` differ only
+      // there have the same identity, but different layouts, and the analysis compares the
+      // layouts.
       const ID: Id = Id::sized(stringify!($literal), &[], V as usize);
     }
 
@@ -587,8 +595,10 @@ macro_rules! numbers {
     // `SPEC` has its size. The items of the `# Safety` of `Scalar` hold:
     // - Every value of `$name` is initialized bytes, all of which `Spec::any` accepts.
     // - Every initialized `[u8; $size]` is a valid `$name`, whose one field is all that it
-    //   requires to be valid [2]. No code of `$name` relies on what its bytes are: `from_bytes`
-    //   makes one of any bytes.
+    //   requires to be valid. The Reference requires the field to be valid [2]. `puns` relies on
+    //   this being all, which no documentation states (the guide, chapter What `puns` relies on,
+    //   "A value whose fields are valid"). No code of `$name` relies on what its bytes are:
+    //   `from_bytes` makes one of any bytes.
     // - `$name` holds no `UnsafeCell`.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi:

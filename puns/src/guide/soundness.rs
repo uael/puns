@@ -6,10 +6,12 @@
 //! [`zeroed`]: zeroed
 //! [bytes]: super::rules#reading-the-bytes-of-the-value
 //! [limits#not-yet]: super::limits#not-yet
+//! [padding]: super::concepts#layouts-and-rules
 //! [pair]: super::concepts#why-the-pair-decides
 //! [requirements]: super::concepts#requirements
 //! [rule]: super::rules
 //! [rust]: super::rust
+//! [rust#errors-of-const-evaluation]: super::rust#errors-of-const-evaluation
 //! [testing]: super::testing
 //! [trust]: super::trust
 //! [uninhabited]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types

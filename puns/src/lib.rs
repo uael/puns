@@ -72,7 +72,7 @@ pub use layout::{crc32, sum16};
 /// conditions of its kind, of its attributes, and of [Compile-time errors](#compile-time-errors),
 /// which apply to every type and say where each error is reported.
 ///
-/// [valid]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity
+/// [valid]: crate::guide::concepts#what-is-a-valid-value
 ///
 /// # Structs
 ///
@@ -244,7 +244,7 @@ pub use layout::{crc32, sum16};
 /// [requirement](crate::guide::concepts#requirements) that a write may break.
 ///
 /// Where the method is used, it compiles only if the fields that `EXPR` names are unsigned
-/// integers, as in a [rule](crate::guide::rules#fields).
+/// integers, as in a [rule](crate::guide::rules#fields-in-a-rule).
 ///
 /// ## `tag`
 ///
@@ -622,9 +622,10 @@ pub unsafe trait Scalar {
 /// Every function of this crate takes `Pun` types. `puns` implements `Pun` for every [`Scalar`],
 /// and for the types of `core` that it supports: arrays, slices, `str`, tuples of up to 4 elements,
 /// `Option` and `Result` of `Pun` types, `MaybeUninit`, `ManuallyDrop` and `Infallible`.
-/// `#[derive(Pun)]` implements it for structs and enums of any representation, uninhabited ones and
-/// structs that end with a slice included, and for `repr(C)` unions. A tuple, struct or enum of the
-/// `Rust` representation has an [unspecified layout](crate::guide::layouts).
+/// `#[derive(Pun)]` implements it for structs and enums of any representation, uninhabited ones
+/// included, for `repr(C)` and `repr(transparent)` structs that end with a slice, and for `repr(C)`
+/// unions that are not packed. A tuple, struct or enum of the `Rust` representation has an
+/// [unspecified layout](crate::guide::layouts).
 ///
 /// # Safety
 ///
@@ -704,8 +705,9 @@ pub unsafe trait Pun {
 ///
 /// A payload is carried next to the field that tells its type, as a variant is next to its
 /// discriminant. `K` names the kind of tag, because one type may be carried next to tags of several
-/// kinds. By convention, it is the tag's type when nothing is known of what the tag carries. Bytes
-/// (`[u8]`) can be carried next to a tag of any kind, and accept every value of it.
+/// kinds. By convention, `K` is the type of the tag as it is read when its payload is not known, as
+/// `Kind` below. Bytes (`[u8]`) can be carried next to a tag of any kind that is `Pun + Copy`, and
+/// accept every value of it.
 ///
 /// `#[pun(tag(K = T))]` implements `Tag` ([`macro@Pun`]). It is not an `unsafe` trait, because the
 /// tag is a field like any other, whose values `puns` checks or proves.
@@ -1070,8 +1072,10 @@ unsafe impl<T: Scalar> Pun for T {
 }
 
 // SAFETY: `Layout::array(&T::LAYOUT, N)` is `N` elements of the layout of `T`, the size of `T`
-// apart, with the alignment of `T`: the layout of `[T; N]` [1]. An array is valid if each of its
-// elements is a valid `T` [2], which is what `T::LAYOUT` describes, by the `# Safety` of `Pun` for
+// apart, with the alignment of `T`: the layout of `[T; N]` [1]. An array is valid if, and only if,
+// each of its elements is a valid `T`. The Reference states the "only if" [2]. `puns` relies on the
+// "if", which no documentation states (the guide, chapter What `puns` relies on, "A value whose
+// fields are valid"). A valid `T` is what `T::LAYOUT` describes, by the `# Safety` of `Pun` for
 // `T`. `Elem` is `T`, and the other lists are `()`. Its bytes are those of its elements, none of
 // which is inside an `UnsafeCell`, since `T: Pun`.
 //
@@ -1097,8 +1101,10 @@ unsafe impl<T: Pun, const N: usize> Pun for [T; N] {
 
 // SAFETY: `Layout::slice` is the layout of elements that have the layout of `T`, the size of `T`
 // apart, with the alignment of `T`, as many as the length of the slice: the layout of `[T]` [1]. A
-// slice is valid if each of its elements is a valid `T`, as an array is, which is what `T::LAYOUT`
-// describes, by the `# Safety` of `Pun` for `T`. `Elem` is `T`, and the other lists are `()`. Its
+// slice is valid if, and only if, each of its elements is a valid `T`, as an array is. No
+// documentation states the "if", on which `puns` relies (the guide, chapter What `puns` relies on,
+// "A value whose fields are valid"). A valid `T` is what `T::LAYOUT` describes, by the `# Safety`
+// of `Pun` for `T`. `Elem` is `T`, and the other lists are `()`. Its
 // bytes are those of its elements, none of which is inside an `UnsafeCell`, since `T: Pun`.
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#slice-layout:
@@ -1250,12 +1256,14 @@ macro_rules! tuple {
     // SAFETY: The layout is `Layout::structure` of the elements of the tuple, at the offsets that
     // `offset_of!` gives, each with the layout of its type. `Layout::structure` takes the size and
     // the alignment of the tuple from the compiler, and asserts that no two fields overlap and that
-    // each is within the size. A tuple is valid if each of its elements is valid [1], and every
-    // byte that no element covers is padding. So the layout is that of the tuple, by the `# Safety`
-    // of `Pun` for each element. `rust` and `identified` change neither the size, the alignment,
-    // the offsets nor the values. `Fields` lists the elements in order (see `TupleField`). The
-    // other lists are `()`. No byte of an element is in an `UnsafeCell`, since each is `Pun`, and a
-    // byte of padding belongs to no element.
+    // each is within the size. A tuple is valid if, and only if, each of its elements is valid,
+    // and every byte that no element covers is padding. The Reference states the "only if" [1].
+    // `puns` relies on the "if", which no documentation states (the guide, chapter What `puns`
+    // relies on, "A value whose fields are valid"). So the layout is that of the tuple, by the
+    // `# Safety` of `Pun` for each element. `rust` and `identified` change neither the size, the
+    // alignment, the offsets nor the values. `Fields` lists the elements in order (see
+    // `TupleField`). The other lists are `()`. No byte of an element is in an `UnsafeCell`, since
+    // each is `Pun`, and a byte of padding belongs to no element.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.struct:
     //
@@ -1427,7 +1435,8 @@ impl_signed_non_zero!(i8 i16 i32 i64 i128 isize);
 /// The reason a value cannot be reinterpreted as another type.
 ///
 /// The `try_` functions, the `from_` functions and [`validate_but_never`] return it when a check at
-/// run time fails. It does not say which field or rule failed.
+/// run time fails. It does not say which field or rule failed. Where several checks would fail, a
+/// function returns the error of the first, in the order that its page gives.
 ///
 /// # Examples
 ///

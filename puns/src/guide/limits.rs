@@ -29,7 +29,7 @@
 //! [opaque scalar]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 //! [rules]: super::rules
 //! [rules#extent]: super::rules#extent
-//! [rules#fields]: super::rules#fields
+//! [rules#fields-in-a-rule]: super::rules#fields-in-a-rule
 //! [rules#functions]: super::rules#functions
 //! [rules#limits-of-the-evaluator]: super::rules#limits-of-the-evaluator
 //! [rules#walks]: super::rules#walks

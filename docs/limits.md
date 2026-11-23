@@ -152,7 +152,7 @@ of the evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions
   `le` at their offsets instead. Naming them would be sound if their offset were checked against
   the layout of the field, as a scalar of that size there, as it is for the fields of the struct.
 - **Signed and floating-point fields in rules.** Rules compute on unsigned integers, so such a
-  field does [not compile][rules#fields] in a rule, and is read as bits with `le` or `be`
+  field does [not compile][rules#fields-in-a-rule] in a rule, and is read as bits with `le` or `be`
   instead.
 - **Getters that read bytes.** A getter reads fields, not bytes, so a value that only the bytes
   hold, such as a variable-length integer, is decoded by the user's code. A rule reads one
@@ -200,7 +200,7 @@ of the evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions
 [opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [rules]: rules.md
 [rules#extent]: rules.md#extent
-[rules#fields]: rules.md#fields
+[rules#fields-in-a-rule]: rules.md#fields-in-a-rule
 [rules#functions]: rules.md#functions
 [rules#limits-of-the-evaluator]: rules.md#limits-of-the-evaluator
 [rules#walks]: rules.md#walks

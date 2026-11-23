@@ -2,37 +2,37 @@
 
 `puns` builds each layout in `const fn`s from what the compiler reports: `size_of` and `align_of`,
 the offsets of fields, and `size_of_val_raw` for an unsized type. What it concludes from them relies
-on what Rust documents, and on a few behaviors of `rustc` that no documentation states. This chapter
-lists both, with how each behavior is checked.
+on what Rust documents, and on seven facts that no documentation states: that a value whose fields
+are valid is valid, and six behaviors of `rustc`.
 
 ## What Rust documents
 
 Each row is a guarantee that `puns` relies on, and where Rust states it: "R" is the
-[Reference][reference] of Rust 1.99, and "C" the documentation of [`core`] 1.99. Two rules are
-only in the nightly Reference, as marked.
+[Reference][reference] of Rust 1.99, and "C" the documentation of [`core`] 1.99. A guarantee is
+cited from 1.99, the minimum Rust version of `puns`, since it must hold there. One rule is only in
+the nightly Reference, and one is in the Reference from 1.100, as marked.
 
 | Guarantee | Where |
 |---|---|
 | A size is a multiple of the alignment, and is the distance between the elements of an array | R [`r-layout.properties.size`][size] |
-| The sizes of `bool`, integers, floats and `char`, and `usize` and `isize` have the same size | R [`r-layout.primitive.size`][primitive size], [`r-layout.primitive.size-align`][primitive size-align] |
+| `bool`, the integers, the floats and `char` have the sizes in the table of the Reference, and `usize` and `isize` have the same size | R [`r-layout.primitive.size`][primitive size], [`r-layout.primitive.size-align`][primitive size-align] |
 | The alignment of a primitive is that of the platform, so `puns` reads it | R [`r-layout.primitive.platform-specific-alignment`][primitive align] |
 | Any initialized bytes are an integer or a float | R [`r-type.numeric.validity`][numeric validity] |
 | `bool` is one byte, 0 or 1 | R [`r-type.bool.layout`][bool layout], [`r-type.bool.repr`][bool repr] |
 | `char` is a `u32` that is a Unicode scalar value | R [`r-type.char.value`][char value], [`r-type.char.layout`][char layout] |
 | `[T; N]` is `N` elements one after the other, `[T]` is laid out as the array, and `str` as `[u8]` | R [`r-layout.array`][array], [`r-layout.slice`][slice], [`r-layout.str`][str] |
 | `()` has size 0 and alignment 1. `!` has the same, and no value | R [`r-layout.tuple.unit`][unit], [`r-undefined.validity.never`][validity never], nightly [`r-type.never.layout`][never layout] |
-| A value is valid if its fields or its elements are, and padding may be uninitialized | R [`r-undefined.validity.struct`][validity struct], [`r-undefined.validity.undef`][validity undef] |
-| An enum has a valid discriminant, and the fields of its variant are valid | R [`r-undefined.validity.enum`][validity enum] |
-| Which bytes a union may hold is not decided ([Unions][soundness#unions] says what `puns` does) | R [`r-undefined.validity.union`][validity union] |
+| A struct, a tuple and an array require their fields or elements to be valid, and padding may be uninitialized | R [`r-undefined.validity.struct`][validity struct], [`r-undefined.validity.undef`][validity undef] |
+| An enum requires a valid discriminant, and valid fields of the variant that it indicates | R [`r-undefined.validity.enum`][validity enum] |
 | A `repr(C)` struct has its fields in order, each at the next offset that its alignment allows | R [`r-layout.repr.c.struct`][c struct] |
 | A `repr(C)` union has every field at 0 | R [`r-layout.repr.c.union.size-align`][c union] |
-| An enum without fields, `repr(C)` or of a primitive representation, has the size of that integer, and a primitive one holds its discriminant there | R [`r-layout.repr.c.enum`][c enum], [`r-layout.repr.primitive.enum`][primitive enum], [`r-items.enum.discriminant.access-memory`][discriminant memory] |
+| An enum without fields of `repr(C)` has the size of a C enum of the target. One of a primitive representation has the size of that integer, and holds its discriminant there | R [`r-layout.repr.c.enum`][c enum], [`r-layout.repr.primitive.enum`][primitive enum], [`r-items.enum.discriminant.access-memory`][discriminant memory] |
 | An enum with fields, `repr(C)`, of a primitive representation or both, is made of `repr(C)` structs that start with the tag ([RFC 2195]) | R [`r-layout.repr.c.adt`][c adt], [`r-layout.repr.primitive.adt`][primitive adt], [`r-layout.repr.primitive-c`][primitive c] |
 | `repr(transparent)` has the layout of its field | R [`r-layout.repr.transparent.layout-abi`][transparent] |
-| `packed(N)` places each field at the smaller of `N` and its alignment, and `align(N)` raises the alignment to `N` | R [`r-layout.repr.alignment`][alignment] |
+| `packed(N)` lowers the alignment of each field to at most `N`, and `align(N)` raises the alignment to `N` | R [`r-layout.repr.alignment`][alignment] |
 | The `Rust` representation puts each field at a multiple of its alignment, and the type is at least as aligned as its fields | R [`r-layout.repr.rust.layout`][rust layout] |
 | The fields of a struct of the `Rust` representation do not overlap, in an order that is not specified | R [`r-layout.repr.rust.layout.struct`][rust struct] |
-| A struct of the `Rust` representation whose fields have size 0 has size 0, and so does an enum of one variant whose fields have size 0, or without variants | R [`r-layout.repr.rust.struct-zst`][struct zst], [`r-layout.repr.rust.enum-struct-like-zst`][enum struct-like], nightly [`r-layout.repr.rust.enum-empty-zst`][enum empty] |
+| A struct of the `Rust` representation whose fields have size 0 has size 0, and so does an enum of one variant whose fields have size 0, or without variants | R [`r-layout.repr.rust.struct-zst`][struct zst], [`r-layout.repr.rust.enum-struct-like-zst`][enum struct-like], 1.100 [`r-layout.repr.rust.enum-empty-zst`][enum empty] |
 | The `Rust` representation guarantees nothing else | R [`r-layout.repr.rust.unspecified`][rust unspecified] |
 | A tuple has the `Rust` representation | R [`r-layout.tuple.def`][tuple] |
 | The representation of a type does not change the layout of its fields | R [`r-layout.repr.inter-field`][inter-field] |
@@ -43,20 +43,53 @@ only in the nightly Reference, as marked.
 | `MaybeUninit<T>` has the size and the alignment of `T`, and any bytes are a value | C [`MaybeUninit`, "Layout"][maybe-uninit layout], [`MaybeUninit`, "Validity"][maybe-uninit validity] |
 | `PhantomData<T>` has size 0 and alignment 1 | C [`PhantomData`, "Layout"][phantom layout] |
 
-Rust also documents that an enum of two variants, one that holds a type of the `Option` row and one
-with no field of nonzero size, is [ABI-compatible][abi compatibility] with that type. `puns` does
-not use it, since it gives the size of the enum but not which bytes its other variant is.
-`Option<bool>` is one byte with `None` at 2 only because `rustc` does it today, and the
-documentation of `MaybeUninit` and `UnsafeCell` says that such layouts vary.
+Which bytes a union may hold is not decided ([`r-undefined.validity.union`][validity union]), and
+[Unions][soundness#unions] says what `puns` does.
 
-## Behaviors of `rustc` that no documentation states
+Rust also documents that an "option-like" enum, as [`core` defines it][abi compatibility], is
+ABI-compatible with the type of the `Option` row that it holds. `puns` does not use it, because it
+gives the size of the enum but not which bytes its other variant is. `Option<bool>` is one byte
+with `None` at 2 only because `rustc` does it today, and the documentation of `MaybeUninit` and
+`UnsafeCell` says that such layouts vary.
+
+## What no documentation states
+
+### A value whose fields are valid
+
+The Reference states what validity requires of a struct, a tuple, an array and an enum, and warns
+that its list of undefined behavior "is not exhaustive; it may grow or shrink"
+([`r-undefined`][undefined]). `puns` takes these conditions to be all that validity requires. A
+struct, a tuple, an array or a slice is valid if its fields or its elements are, whatever its other
+bytes, which are padding. An enum is valid if its tag is that of a variant whose fields are valid.
+
+This does not hold of every type of `core`. `NonZero` restricts the values of its field with an
+attribute that stable Rust does not accept, so `puns` describes it by its documentation (the
+`NonZero` row above). The types that `puns` describes by their fields are arrays, slices, tuples,
+`Option`, `Result`, and the types that derive `Pun`.
+
+No test checks this rule of the language. The oracles of the model check take the same rule
+([`types.rs`][model types]). So does Miri, under which the tests run ([Miri][testing#miri]), when it
+checks that a value is valid.
 
 ### Pointers to unsized types
 
 A pointer to an unsized type, a struct that ends with a slice or a `str`, has the representation of
 a pointer to a slice: an address and the length of the tail. This is checked at compile time for
-each unsized type: a pointer made from a pointer to a slice by `as` casts must give back its address
+each unsized type. A pointer made from a pointer to a slice by `as` casts must give back its address
 and its length, or the build fails.
+
+### The tag of an enum of the `Rust` representation
+
+`rustc` tells the variant of such an enum by one scalar at a fixed place. It is either a direct tag
+before the fields of every variant, or a niche in the fields of one variant. The derive finds it by
+*experiments* in const evaluation on a value of each variant, so the tag is where `rustc` put it.
+The experiments verify what they assume, and one that fails stops the build, so no wrong layout is
+used.
+
+The direct tag is all the bytes before the first field of any variant. Its size must be one that
+`rustc` gives a tag, which [Enums with fields][derive#enums-with-fields] lists, or the enum is
+refused. If `rustc` places the fields of an uninhabited variant before those of the other variants,
+the build fails, because `puns` cannot observe where those fields are and does not guess.
 
 ### Errors of const evaluation
 
@@ -65,37 +98,28 @@ when it reads an uninitialized byte, when it reads the variant of a value whose 
 of a variant, and when it computes the size of a slice larger than an object can be. Code that
 relies on them runs only at compile time:
 
-- The experiments that find the layout of an enum of the `Rust` representation rely on the first
-  two.
+- The experiments rely on the first two.
 - The derive relies on the first to refuse an enum without fields whose `align` gives it padding,
   since it reads each variant from all of its bytes.
 - An `Option` of an [opaque scalar] relies on the first to refuse a `None` with an uninitialized
   byte.
 - The derive relies on the third for an unsized struct whose tail is so large that 8 elements of
-  it overflow an `isize`, since the layout of an unsized struct is compared with the sizes that
-  `rustc` gives for tails of up to 8 elements.
+  it overflow an `isize`. It compares the layout of an unsized struct with the sizes that `rustc`
+  gives for tails of up to 8 elements.
 
-Compile-fail tests check each of the three errors ([Testing][testing]).
+Compile-fail tests check each of the three errors ([Compile-fail
+tests][testing#compile-fail-tests]).
 
 ### The variant read from the tag
 
-Const evaluation reads the variant of a value from its tag alone, when the tag is that of a variant,
-without reading or checking the other bytes of the value. Yet `mem::discriminant` takes a reference
-to the whole value, and the Reference requires a reference to point to a valid value
+Const evaluation reads the variant of a value from its tag alone, when the tag is that of a variant.
+It reads and checks no other byte of the value. Yet `mem::discriminant` takes a reference to the
+whole value, and the Reference requires a reference to point to a valid value
 ([`r-undefined.validity.reference-box`][validity reference]). The experiments rely on it when they
-move the tag of one variant into a value of another. The [model check][testing#the-model-check]
-compares the layouts that they find with its oracles.
-
-### The tag of an enum of the `Rust` representation
-
-`rustc` tells the variant of such an enum by one scalar at a fixed place: a direct tag before the
-fields of every variant, or a niche in the fields of one variant. `puns` finds it by experiments in
-const evaluation on a value of each variant, so the tag is where `rustc` put it. The experiments
-verify what they assume, and one that fails stops the build, so no wrong layout is used. The direct
-tag, all the bytes before the first field of any variant, must have 1, 2, 4, 8 or 16 bytes, since
-`rustc` makes no other size, or the enum is refused. If `rustc` places the fields of an uninhabited
-variant before those of the other variants, the build fails, since `puns` cannot observe where those
-fields are and does not guess.
+move the tag of one variant into a value of another. The derive also relies on it to check the
+width of the tag of a primitive or `C` enum ([Attribute macros below the
+derive][trust#attribute-macros-below-the-derive]). The [model check][testing#the-model-check]
+compares the layouts that the experiments find with its oracles.
 
 ### The address read as an integer
 
@@ -107,25 +131,28 @@ through a union, since no stable `const fn` gives the address on Rust 1.99. Of t
 > was originally created from an integer. [...] (And even outside `const`, such transmutation is
 > touching on many unspecified aspects of the Rust memory model and should be avoided. [...])
 
-At run time, `core` does not call it undefined behavior but says to avoid it, and no documentation
-promises that the integer is the address. The integer is never made into a pointer again, and a check of an address does not compile
-in a constant ([In a constant][functions#in-a-constant]). The tests run it under Miri with strict
-provenance ([Testing][testing]).
+At run time, `core` does not call it undefined behavior, but says to avoid it, and no documentation
+promises that the integer is the address. The integer is never made into a pointer again. A check
+of an address does not compile in a constant ([In a constant][functions#in-a-constant]). The tests
+run it under Miri with strict provenance ([Miri][testing#miri]).
 
 ### How `rustc` places fields
 
-`rustc` places the fields of a struct of the `Rust` representation one after another, each at the
-first offset its alignment allows, in an order of its choosing. The sizes it may give are those of
-the orders of the fields, which `puns` tries up to a [bound][limits#bounds-of-the-analysis]. No
-documentation states this: Rust only bounds the offsets ([`r-layout.repr.rust.layout`][rust
-layout]), and a compiler could put padding where no alignment needs it. The size that `puns` reads
-would then differ from that of every order, the struct would no longer count as the same in every
-layout, and the pun would fail to compile rather than change what it does.
-[`-Zrandomize-layout`][randomize], under which the record of verdicts runs, rearranges fields
-"within the degrees of freedom provided by the largely unspecified default representation", which
-"also affects type sizes and padding". On `nightly-2026-11-17`, it shuffles the order of the fields
-and does nothing else ([`rustc_abi`][shuffle]), so it changes no alignment; its comment says that it
-may do more in the future.
+`rustc` places the fields of a struct of the `Rust` representation one after another, in an order
+of its choosing, each at the first offset that its alignment allows. So the sizes that it may give
+are those of the orders of the fields, which `puns` tries up to a
+[bound][limits#bounds-of-the-analysis]. No documentation states this. Rust only bounds the offsets
+([`r-layout.repr.rust.layout`][rust layout]), and a compiler could put padding where no alignment
+needs it. The size that `puns` reads would then differ from that of every order. The struct would
+no longer count as the same in every layout, so the pun would fail to compile rather than change
+what it does.
+
+The [record of verdicts][testing#the-record-of-verdicts] runs under
+[`-Zrandomize-layout`][randomize]. This flag rearranges fields "within the degrees of freedom
+provided by the largely unspecified default representation", which "also affects type sizes and
+padding". On `nightly-2026-11-17`, it shuffles the order of the fields and does nothing else
+([`rustc_abi`][shuffle]), so it changes no alignment. Its comment says that it may do more in the
+future.
 
 [reference]: https://doc.rust-lang.org/1.99.0/reference/
 [`core`]: https://doc.rust-lang.org/1.99.0/core/
@@ -152,6 +179,7 @@ may do more in the future.
 [validity undef]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.undef
 [validity enum]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.enum
 [validity union]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.union
+[undefined]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined
 [validity reference]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.reference-box
 [c struct]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.struct
 [c union]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.union.size-align
@@ -167,7 +195,7 @@ may do more in the future.
 [rust struct]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.rust.layout.struct
 [struct zst]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.rust.struct-zst
 [enum struct-like]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.rust.enum-struct-like-zst
-[enum empty]: https://doc.rust-lang.org/nightly/reference/type-layout.html#r-layout.repr.rust.enum-empty-zst
+[enum empty]: https://doc.rust-lang.org/1.100.0/reference/type-layout.html#r-layout.repr.rust.enum-empty-zst
 [rust unspecified]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.rust.unspecified
 [tuple]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.tuple.def
 [inter-field]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.inter-field
@@ -180,9 +208,15 @@ may do more in the future.
 [phantom layout]: https://doc.rust-lang.org/1.99.0/core/marker/struct.PhantomData.html#layout-1
 [abi compatibility]: https://doc.rust-lang.org/1.99.0/core/primitive.fn.html#abi-compatibility
 
+[derive#enums-with-fields]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#enums-with-fields
+[model types]: https://github.com/uael/puns/blob/v0.2.3/puns-model/src/types.rs
+
 [functions#in-a-constant]: functions.md#in-a-constant
 [limits#bounds-of-the-analysis]: limits.md#bounds-of-the-analysis
 [opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [soundness#unions]: soundness.md#unions
-[testing]: testing.md
+[testing#compile-fail-tests]: testing.md#compile-fail-tests
+[testing#miri]: testing.md#miri
 [testing#the-model-check]: testing.md#the-model-check
+[testing#the-record-of-verdicts]: testing.md#the-record-of-verdicts
+[trust#attribute-macros-below-the-derive]: trust.md#attribute-macros-below-the-derive

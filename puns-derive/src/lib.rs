@@ -1988,8 +1988,10 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   of the field of that name in the struct as compiled, and the struct to have no other
       //   field. Each field has the layout of its type (`Pun`, section Safety), or a restriction
       //   of it (`Layout::restricted`), which guarantees the same values and accepts fewer. A
-      //   struct is valid if each of its fields is valid [3], and a byte that no field covers is
-      //   padding.
+      //   struct is valid if, and only if, each of its fields is valid, and a byte that no field
+      //   covers is padding. The Reference states the "only if" [3]. The derive relies on the
+      //   "if", which no documentation states (the guide of `puns`, chapter What `puns` relies
+      //   on, "A value whose fields are valid").
       //   Rules are requirements of `puns`, never of the language.
       // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules that
       //   have an expression, which `validate::check_rules` asserts against the layout. The other
@@ -2264,8 +2266,10 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     //   bytes of each variant, read from a value of it, as an unsigned integer in the byte order
     //   of the target. `item` requires the enum as compiled to have no other variant. An enum of
     //   size 0 has one variant, and no byte.
-    // - Each value that `SPEC` accepts is the bytes of a variant, so a valid `Self`. The derive
-    //   is told of no other invariant.
+    // - Each value that `SPEC` accepts is the bytes of a variant, so a valid `Self`: the
+    //   derive relies on a valid discriminant being all that such an enum requires, which no
+    //   documentation states (the guide of `puns`, chapter What `puns` relies on, "A value whose
+    //   fields are valid"). The derive is told of no other invariant.
     // - An enum without fields holds no `UnsafeCell`.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.enum:
@@ -2771,8 +2775,10 @@ fn derive_tagged(
       // - The type of each field is its home in `__PunTypes`, which `item` requires to be the type
       //   of that field of that variant in the enum as compiled, and the enum to have no other
       //   variant and no other field. Each field has the layout of its type, or a restriction of
-      //   it. An enum is valid if its tag is that of a variant and the fields of that variant are
-      //   valid [3], which is what the layout accepts.
+      //   it. An enum is valid if, and only if, its tag is that of a variant and the fields of
+      //   that variant are valid, which is what the layout accepts. The Reference states the
+      //   "only if" [3]. The derive relies on the "if", which no documentation states (the guide
+      //   of `puns`, chapter What `puns` relies on, "A value whose fields are valid").
       // - `Variants` lists the variants in order, each with its fields (see the markers above).
       //   The other lists are `()`.
       // - Each field is `Pun`, and the tag is an integer, so no byte is in an `UnsafeCell`.
@@ -3051,7 +3057,10 @@ fn derive_discovered(
       // facts of the compiler that the module documentation of `discover` lists. Each variant
       // holds its fields at the offsets observed on its sample, each with the layout of its type,
       // its home in `__PunTypes`, which `item` requires to be the type of that field in the enum
-      // as compiled, and the enum to have no other variant and no other field.
+      // as compiled, and the enum to have no other variant and no other field. The layout
+      // accepts a value whose tag is that of a variant whose fields are valid. The derive relies
+      // on such a value being valid, which no documentation states (the guide of `puns`, chapter
+      // What `puns` relies on, "A value whose fields are valid").
       // `Variants` lists the variants in order, each with its fields. The other lists are `()`.
       // Each field is `Pun`, so no byte is in an `UnsafeCell`.
       unsafe impl #impl_generics #root::Pun for #this #where_clause {

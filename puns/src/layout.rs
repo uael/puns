@@ -29,7 +29,7 @@
 //! rules, an expression of [`Op`]s. [`Enum`] and [`Variant`] are an enum with fields or a union.
 //! [`DfaState`] is a state of a `Dfa`, and [`sorted_ranges`] makes the ranges of a `Spec`.
 //!
-//! [valid]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity
+//! [valid]: crate::guide::concepts#what-is-a-valid-value
 
 use core::mem;
 
@@ -367,7 +367,8 @@ impl Spec {
   /// Returns the same scalar, whose bytes are not the value of an unsigned integer.
   ///
   /// This is the scalar of a signed or floating-point number, a `bool`, a `char` or an enum, which
-  /// a rule does not read as a field ([Fields](crate::guide::rules#fields)).
+  /// a rule does not read as a field
+  /// ([Fields in a rule](crate::guide::rules#fields-in-a-rule)).
   ///
   /// # Examples
   ///
@@ -397,7 +398,7 @@ impl Spec {
   ///   const SPEC: Spec = Spec::any::<I16be>().with_endian(Endian::Big).not_a_number();
   /// }
   ///
-  /// // A rule reads a `u16`, but neither an `i16` nor an `I16be`.
+  /// // A rule reads a `u16`, but not an `I16be`.
   /// let _ = Op::load::<u16>(0);
   /// let _ = Op::load::<I16be>(0);
   /// ```
@@ -921,7 +922,8 @@ pub(crate) enum Kind {
 /// experiments in const evaluation. There it is either a direct tag or a *niche*: a scalar among
 /// the fields of one variant, whose valid values are the tags of that variant, and whose other
 /// values are the tags of the other variants. That variant has several tags, and holds the tag in
-/// its fields. A variant that holds an [uninhabited] type has no tag, since no value of it exists.
+/// its fields. With the `Rust` representation, a variant that holds an [uninhabited] type has no
+/// tag, since no value of it exists.
 ///
 /// A union of `repr(C)` is an enum without a tag whose variants are its fields, each at offset 0.
 /// A target union is one of its fields, while a source union may hold any bytes

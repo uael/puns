@@ -1,15 +1,15 @@
 # Soundness
 
 A pun gives a value of a type only from bytes that are a [valid] value of that type. The analysis
-proves it at compile time, or a check proves it at run time, and a check reads only the bytes
-that the analysis leaves to it. `puns` never relies on a [rule] for memory safety: a rule that no
-longer holds gives wrong values, never undefined behavior.
+proves it at compile time, or a check proves it at run time. A check reads only bytes that are
+initialized in the source: those that the analysis leaves to it, and the proven parts that share a
+check with them ([Reading the bytes of the value][bytes]). `puns` never relies on a [rule] for
+memory safety: a rule that no longer holds gives wrong values or a panic, never undefined behavior.
 
 The analysis compares the layouts that the implementations of [`Pun`] give. `puns` implements
 `Pun` itself for the types of `core` that it supports, and the derive implements it for other
 types ([What the derive trusts][trust]). [What `puns` relies on][rust] lists what Rust documents
-of these layouts and the behaviors of `rustc` that no documentation states, and
-[Testing][testing] says how each is checked.
+of these layouts, and what no documentation states. [Testing][testing] says how each is checked.
 
 ## Guarantees and requirements
 
@@ -17,43 +17,50 @@ Unsafe code may rely on what a type guarantees, but never on what it [requires][
 a value that the unsafe code did not check itself. `puns` proves or checks the requirements of a
 type whenever it makes a value of that type, except that [`zeroed`] checks no rule.
 
-A requirement of the target is proven only by the source, as [Why the pair decides][pair] says:
-a `#[pun(valid(..))]` by a source whose values it accepts, and rules by the same rules. Such a
-requirement is not checked again. So if the source does not meet its own requirements, because
-safe code wrote its fields or `zeroed` made it, the target does not meet them either. A part
-proven this way is still read where it shares a check with another part ([Reading the bytes of
-the value][bytes]), and that check fails on a source whose requirement safe code broke. Where a
-union is proven by a field through a requirement and checked all the same, its later fields may
-be tried, and what they read counts as read ([Unions](#unions)).
+A requirement of the target is proven only by the source ([Why the pair decides][pair]), and is
+not checked again. So if the source does not meet its own requirements, because safe code wrote
+its fields or `zeroed` made it, the target does not meet them either. A part proven this way is
+still read where it shares a check with another part ([Reading the bytes of the value][bytes]),
+and that check fails on a source whose requirement safe code broke.
 
 ## Padding and `MaybeUninit`
 
-A byte of a struct that no field covers is *padding*, and may be uninitialized. A pun is refused
-if a byte that the target requires to be initialized may be padding in the source.
+A pun is refused if a byte that the target requires to be initialized may be [padding] in the
+source.
 
 `MaybeUninit<T>` is padding with the size and the alignment of `T`: its layout is
 [`Layout::padding`]. It is `Pun` only if `T` is, so that it never holds an `UnsafeCell`. As a
-target, it accepts any bytes. As a source, it proves only a target that accepts any bytes. So a
-`&mut MaybeUninit<T>` is made only from a source that may hold any bytes there, since what is
-written through it may be uninitialized. A `&mut T` is made from a `MaybeUninit<T>` only if `T`
-requires no byte to be initialized, since such a byte would be read from padding.
+target, it accepts any bytes. As a source, it proves only a target that accepts any bytes. What is
+written through a `&mut MaybeUninit<T>` may be uninitialized, so such a reference is made only from
+a source that accepts any bytes there, uninitialized ones included. A `&mut T` is made from a
+`MaybeUninit<T>` only if `T` requires no byte to be initialized, since such a byte would be read
+from padding.
 
-No layout that `puns` builds has an enum whose tag may be uninitialized, since the tags that it
-discovers are exact.
+The tag of an enum is never padding. With a primitive or `C` representation, Rust places the tag
+and gives it the discriminant. With the `Rust` representation, the experiments read the tag in the
+value of each variant, and a byte of padding there fails the build ([Errors of const
+evaluation][rust#errors-of-const-evaluation]).
 
 ## Unions
 
-The language has not decided which bytes a union may hold ([`r-undefined.validity.union`][union
-validity]). Some of the rules under discussion let a union hold any bytes, others require its
-bytes to be one of its fields, and safe code may write one field over another. `puns` accepts only
-what is sound under every one of these rules:
+The language has not decided which bytes a union may hold. The Reference states only this
+([`r-undefined.validity.union`][union validity]):
 
-- As a target, bytes are a union only if they are one of its fields, which requires more than some
-  of the rules and never less. A union is proven by any one field that the source proves, and is
-  otherwise checked field by field at run time.
-- As a source, nothing is known of a union, not even that its bytes are initialized, and only the
-  same union proves a union. A union may hold a value even if none of its fields has one, though
-  no value of it can be made, so [`Layout::is_inhabited`] answers for a target only.
+> Obviously, all values that can be created entirely in safe code are valid. If the union has a
+> zero-sized field, then every possible value is valid.
+
+Some of the rules under discussion let a union hold any bytes, others require its bytes to be one
+of its fields, and safe code may write one field over another. `puns` accepts only what is sound
+under every one of these rules:
+
+- As a target, bytes are a union only if they are one of its fields. Safe code makes such bytes by
+  writing that field, so they are valid under the first sentence above, and under every rule. This
+  requires more than some of the rules, and never less. A union is proven by any one field that the
+  source proves, and is otherwise checked field by field at run time.
+- As a source, nothing is known of a union, not even that its bytes are initialized. So a union
+  that holds any bytes, as the second sentence allows, is a source too. Only the same union proves
+  a union. A union may hold a value even if none of its fields has one, though no value of it can
+  be made, so [`Layout::is_inhabited`] answers for a target only.
 
 The bytes that a field *reads* are those that it checks, those that a rule of a struct in it
 loads, and every byte of a struct whose rule reads bytes by offset. A field of a target union is
@@ -63,26 +70,30 @@ this).
 
 A proven union is not read. But where parts are checked together, as the elements of an array or
 the fields of a variant of an enum checked as a whole, a proven union is checked with them, its
-fields tried in order. The pun is refused if that would read a byte that may be padding in the
-source, or a byte of the same union, of which nothing is known.
+fields tried in order. The check stops at the first field that the source proves whatever safe
+code writes. A field proven only through a requirement of the source fails its check where safe
+code broke that requirement, so the fields after it may be tried too, and the bytes that they read
+count. The pun is refused if the check would read a byte that may be padding in the source, or a
+byte of the same union, of which nothing is known.
 
 ## Uninhabited types
 
 No value of an inhabited type is a value of an [uninhabited] one, so such a pun is refused as never
-valid. A variant or a struct that holds an uninhabited type is uninhabited too. No bytes are an
-uninhabited variant of a target enum, or an uninhabited field of a target union: the analysis does
-not look at it, and a check reads nothing of it, so bytes with the tag of that variant fail the
-check whatever its other fields hold. Without this rule, a variant of a `repr(u8)` enum whose
-field is uninhabited would be proven from a variant whose field is not, because no byte of a type
-of size 0 is ever compared.
+valid. A variant or a struct that holds an uninhabited type is uninhabited too.
+
+No bytes are an uninhabited variant of a target enum, or an uninhabited field of a target union.
+The analysis does not look at such a part, and a check reads nothing of it. So bytes with the tag
+of that variant fail the check, whatever its other fields hold. Without this rule, a variant of a
+`repr(u8)` enum whose field is uninhabited would be proven from a variant whose field is not,
+because no byte of a type of size 0 is ever compared.
 
 A slice of an uninhabited type has one value, the empty one. A pun that may give it an element is
 refused, unless the source ends with a slice of the same elements at the same place.
 
 As a source, an uninhabited variant needs no proof where the target is an enum, since the two
 enums are compared variant by variant and no value is that variant. Against any other target, the
-tag of the enum is read as a scalar that may also hold the tag of that variant, and a struct that
-holds an uninhabited type is compared field by field, as any struct is.
+tag of the enum is read as a scalar that may also hold the tag of that variant. A struct that holds
+an uninhabited type is compared field by field, as any struct is.
 
 A union none of whose fields has values is not uninhabited as a source ([Unions](#unions)), and
 neither is a variant or a struct that holds it.
@@ -154,11 +165,13 @@ assert_eq!(odd.get(), 3);
 [`Pun`]: https://docs.rs/puns/0.2.3/puns/trait.Pun.html
 [`zeroed`]: https://docs.rs/puns/0.2.3/puns/fn.zeroed.html
 [bytes]: rules.md#reading-the-bytes-of-the-value
+[padding]: concepts.md#layouts-and-rules
 [limits#not-yet]: limits.md#not-yet
 [pair]: concepts.md#why-the-pair-decides
 [requirements]: concepts.md#requirements
 [rule]: rules.md
 [rust]: rust.md
+[rust#errors-of-const-evaluation]: rust.md#errors-of-const-evaluation
 [testing]: testing.md
 [trust]: trust.md
 [uninhabited]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
