@@ -238,8 +238,8 @@ or the back.
 | a typed value, checking          | [`try_pun`][try_pun], [`try_pun_ref`][try_pun_ref], [`try_pun_mut`][try_pun_mut] | | |
 | bytes, checking                  | [`from_bytes`][from_bytes], [`from_bytes_mut`][from_bytes_mut] | [`from_head`][from_head], [`from_head_mut`][from_head_mut] | [`from_tail`][from_tail], [`from_tail_mut`][from_tail_mut] |
 
-Two functions make no pun. [`zeroed`][zeroed] returns a value whose fields and elements are all zero bytes.
-[`validate_but_never`][validate_but_never] checks bytes for a type that holds [opaque
+Two functions make no pun. [`zeroed`][zeroed] returns a value whose fields and elements are all zero
+bytes. [`validate_but_never`][validate_but_never] checks bytes for a type that holds [opaque
 scalars][opaque], but makes no reference: the crate that declares these scalars proves them itself,
 and then makes the reference.
 
