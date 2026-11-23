@@ -1,6 +1,6 @@
 [package]
 name = "puns"
-version = "0.2.3"
+version = "0.2.4"
 edition.workspace = true
 rust-version = "1.99"
 license = "Apache-2.0 OR MIT"
@@ -24,7 +24,7 @@ unstable = []
 verdict = []
 
 [dependencies]
-puns-derive = { version = "=0.2.3", path = "../puns-derive" }
+puns-derive = { version = "=0.2.4", path = "../puns-derive" }
 
 [dev-dependencies]
 trybuild = "1"
