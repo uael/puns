@@ -12,6 +12,7 @@
 //! [rule]: super::rules
 //! [rust]: super::rust
 //! [rust#the-padding-of-a-new-value]: super::rust#the-padding-of-a-new-value
+//! [rust#the-tag-of-a-reprc-enum]: super::rust#the-tag-of-a-reprc-enum
 //! [testing]: super::testing
 //! [trust]: super::trust
 //! [uninhabited]: super::concepts#uninhabited-types

@@ -323,6 +323,55 @@ fn zeroed() {
   assert_eq!(puns::zeroed::<Bit>(), Bit::Zero(0));
 }
 
+/// An enum without fields of `repr(C)` alone, of which Rust gives only the size and the alignment.
+#[derive(Pun, Debug, PartialEq, Clone, Copy)]
+#[repr(C)]
+enum Level {
+  Low,
+  High,
+}
+
+/// Reads the tag of a `repr(C)` enum made at run time, which `rustc` stores as an integer, so that
+/// Miri reports it if a byte of the tag is not initialized (`docs/rust.md`, "The tag of a `repr(C)`
+/// enum").
+#[test]
+fn a_repr_c_tag_made_at_run_time() {
+  let (low, high): (core::ffi::c_int, core::ffi::c_int) = (0, 1);
+  assert_eq!(puns::as_bytes(&core::hint::black_box(Level::Low)), low.to_ne_bytes());
+  assert_eq!(puns::as_bytes(&core::hint::black_box(Level::High)), high.to_ne_bytes());
+}
+
+/// An enum of the `Rust` representation, whose tags Rust leaves to the compiler.
+#[derive(Pun, Debug, PartialEq, Clone, Copy)]
+enum Light {
+  Off,
+  On,
+}
+
+/// Zero bytes are the variant whose tag is 0, which holds no `Light`.
+#[derive(Pun, Debug, PartialEq, Clone, Copy)]
+#[repr(u8)]
+enum Lit {
+  Level(u8),
+  Lamp(Light),
+}
+
+/// Zero bytes are a valid `Lamp` through `level`, whatever a `Light` is.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+union Lamp {
+  level: u8,
+  light: Light,
+}
+
+/// Without the `unstable` feature, zero bytes that do not make a `Light` do not depend on its tags.
+#[test]
+fn zeroed_beside_an_unspecified_part() {
+  assert_eq!(puns::zeroed::<Lit>(), Lit::Level(0));
+  // SAFETY: Zero bytes are a valid `Lamp`, whose field `level` is then a `u8`.
+  assert_eq!(unsafe { puns::zeroed::<Lamp>().level }, 0);
+}
+
 // All of this is known at compile time.
 const _: () = {
   assert!(matches!(puns::try_pun::<[u8; 4], Shape>([1, 7, 1, 0]), Ok(Shape::Rect(7, true))));

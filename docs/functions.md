@@ -31,6 +31,7 @@ bytes that already have a type that proves the target with [`pun_ref`] instead.
 the `try_` functions when you read bytes: `try_pun_ref(&[1, 0])` infers its source as an
 `[i32; 2]`, because an integer literal without a suffix is an `i32` unless something says
 otherwise.
+
 [`from_head`] and [`from_head_mut`] take a value from the front of the bytes, whose length the
 `size` or `len` rule of the target gives ([`from_head`] says how many bytes it takes), and return
 the bytes that follow:

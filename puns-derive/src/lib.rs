@@ -1729,11 +1729,12 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       }
 
       impl #impl_generics __PunOffsets for #this #where_clause {
-        // SAFETY: `Self` is `Sized`, or its last field is unsized, and its probe is the probe of
-        // that field cast with `as` casts, as for `Layout::structure` below. That probe is a
-        // pointer to a slice cast with `as` casts only (`Pun`, section Safety), which compiles only
-        // if a pointer to the field carries a slice length, so the field is a slice, `str` or a
-        // struct whose last field is one of these, at any depth.
+        // SAFETY: Either `Self` is `Sized`, and `offsets` requires nothing of its probe, or its
+        // last field is unsized, and its probe is the probe of that field cast with `as` casts, as
+        // for `Layout::structure` below. That probe is a pointer to a slice cast with `as` casts
+        // only (`Pun`, section Safety), which compiles only if a pointer to the field carries a
+        // slice length, so the field is a slice, `str` or a struct whose last field is one of
+        // these, at any depth.
         // These are the requirements of `offsets`.
         const OFFSETS: [::core::primitive::usize; #count] = unsafe {
           #root::layout::Layout::offsets::<Self, #count>(<Self as #root::Pun>::PROBE)
@@ -2710,11 +2711,11 @@ fn derive_tagged(
           // enum as compiled has the representation that the derive read. This is not established:
           // an attribute macro below the derive can change it (`docs/trust.md`, "Attribute macros
           // below the derive"), and with a narrower tag, a byte of padding of the sample may be
-          // among these bytes. These are the requirements of `declared_tags`, except these two for
-          // `repr(C)` alone, and the last one in every case. The constant is evaluated at compile
-          // time, where `rustc` reports an error instead of reading an uninitialized byte. No
-          // documentation promises this behavior, which `docs/rust.md` discloses ("Errors of const
-          // evaluation").
+          // among these bytes. These are the requirements of `declared_tags`, except, with
+          // `repr(C)` alone, both of them, and in every case the second. The constant is evaluated
+          // at compile time, where `rustc` reports an error instead of reading an uninitialized
+          // byte. No documentation promises this behavior, which `docs/rust.md` discloses ("Errors
+          // of const evaluation").
           //
           // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.adt:
           //

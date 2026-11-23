@@ -35,9 +35,12 @@ target, it accepts any bytes. As a source, it proves only a target that accepts 
 written through a `&mut MaybeUninit<T>` may be uninitialized, so such a reference is made only from
 a source that accepts any bytes there, uninitialized ones included.
 
-The tag of an enum is never padding. Rust places the tag of an enum of a primitive or `C`
-representation, and the experiments that find the tag of an enum of the `Rust` representation fail
-the build on a byte of padding ([The padding of a new value][rust#the-padding-of-a-new-value]).
+The tag of an enum is never padding. The tag of an enum of a primitive representation is that
+integer, which holds its discriminant. Of the tag of a `repr(C)` enum, Rust gives only the size and
+the alignment, and `puns` relies on `rustc` storing it as an integer ([The tag of a `repr(C)`
+enum][rust#the-tag-of-a-reprc-enum]). The experiments that find the tag of an enum of the `Rust`
+representation fail the build on a byte of padding ([The padding of a new
+value][rust#the-padding-of-a-new-value]).
 
 ## Unions
 
@@ -171,6 +174,7 @@ assert_eq!(odd.get(), 3);
 [rule]: rules.md
 [rust]: rust.md
 [rust#the-padding-of-a-new-value]: rust.md#the-padding-of-a-new-value
+[rust#the-tag-of-a-reprc-enum]: rust.md#the-tag-of-a-reprc-enum
 [testing]: testing.md
 [trust]: trust.md
 [uninhabited]: concepts.md#uninhabited-types

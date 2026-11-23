@@ -298,8 +298,8 @@ unsafe impl<T: Pun> Pun for Option<T> {
 // `discover`, as for `Option<T>`. The variants `Ok` and `Err` hold the layouts of `T` and `E` at
 // the offsets observed on their samples, and the lists of variants and fields are those of this
 // layout (see `ResultOk`, `ResultErr`, `ResultOkField` and `ResultErrField`). Its values are
-// accepted as those of `Option<T>` are. `Result<T, E>` holds
-// a `T` or an `E`, and a tag, so no `UnsafeCell`.
+// accepted as those of `Option<T>` are. `Result<T, E>` holds a `T` or an `E`, and a tag, so no
+// `UnsafeCell`.
 unsafe impl<T: Pun, E: Pun> Pun for Result<T, E> {
   type Elem = ();
   type Fields = ();

@@ -101,8 +101,7 @@ links are written so:
   workflow pins the links on the branch of each release PR.
 - A link to a chapter of the reference is relative, so that GitHub stays in the revision being read,
   and the `.rs` file that includes the page defines its label as an intra-doc link
-  (`puns/src/lib.rs` for the README). crates.io resolves a relative link of the README in the
-  directory of the package, where `docs/` is not, so these links lead nowhere there.
+  (`puns/src/lib.rs` for the README). No check covers where these links lead on crates.io.
 - Each block of code names its language, and has no hidden lines (`# `), since GitHub shows them.
 
 The times published in `docs/performance.md`, the chapter "Measured performance", name the machine,

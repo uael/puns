@@ -593,6 +593,10 @@ let text: &mut str = String::from("text").leak();
 let _: &mut [[u8; 2]] = puns::head_mut(text);
 ```
 
+```text
+cannot pun: an enum of the source is only partly covered by the `&mut`: what its tag says of the bytes on one side depends on the other.
+```
+
 ### Zeros
 
 [`zeroed`] makes no pun, and its messages do not start with `cannot pun:`. Zero bytes must be a

@@ -280,8 +280,19 @@ const unsafe fn store(ptr: *mut u8, size: usize, endian: Endian, value: u128) {
   while i < size {
     let digit = if endian.is_little() { i } else { size - 1 - i };
     // SAFETY: `i < size`, and `ptr` is valid for writes of `size` bytes, by contract on the
-    // caller. So `add(i)` stays within them, and the byte there is valid for writes. A `u8` is
-    // aligned at any address. These are the requirements of `add` and of `write`.
+    // caller. So `add(i)` stays within them [1], and the byte there is valid for writes. A `u8` is
+    // aligned at any address [2].
+    //
+    // [1] Per https://doc.rust-lang.org/1.99.0/core/primitive.pointer.html#method.add:
+    //
+    //     If the computed offset is non-zero, then `self` must be derived from a pointer to some
+    //     allocation, and the entire memory range between `self` and `result` (i.e.,
+    //     `self.addr()..result`) must be in bounds of that allocation.
+    //
+    // [2] Per https://doc.rust-lang.org/1.99.0/core/ptr/fn.write.html#safety:
+    //
+    //     - `dst` must be valid for writes or `T` must be a ZST.
+    //     - `dst` must be properly aligned.
     unsafe { ptr.add(i).write(if digit < 16 { (value >> (8 * digit)) as u8 } else { 0 }) };
     i += 1;
   }
@@ -389,8 +400,19 @@ impl<E> Buf<E> {
   const fn fill(&mut self, offset: usize, len: usize, byte: u8) {
     assert!(offset + len <= size_of::<E>());
     // SAFETY: `offset + len` is at most the size of an `E`, which is asserted above. So
-    // `add(offset)` stays within `self`, and the `len` bytes from there are valid for writes. A
-    // `u8` is aligned at any address. These are the requirements of `add` and of `write_bytes`.
+    // `add(offset)` stays within `self` [1], and the `len` bytes from there are valid for writes.
+    // A `u8` is aligned at any address [2].
+    //
+    // [1] Per https://doc.rust-lang.org/1.99.0/core/primitive.pointer.html#method.add:
+    //
+    //     If the computed offset is non-zero, then `self` must be derived from a pointer to some
+    //     allocation, and the entire memory range between `self` and `result` (i.e.,
+    //     `self.addr()..result`) must be in bounds of that allocation.
+    //
+    // [2] Per https://doc.rust-lang.org/1.99.0/core/ptr/fn.write_bytes.html#safety:
+    //
+    //     - `dst` must be valid for writes of `count * size_of::<T>()` bytes.
+    //     - `dst` must be properly aligned.
     unsafe { core::ptr::write_bytes(self.0.as_mut_ptr().cast::<u8>().add(offset), byte, len) };
   }
 

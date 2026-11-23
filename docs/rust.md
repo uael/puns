@@ -72,6 +72,18 @@ No test checks this assumption. The oracles of the model check take it too
 ([`types.rs`][model types]), and so does Miri when it checks that a value is valid
 ([Miri][testing#miri]).
 
+### The tag of a `repr(C)` enum
+
+Of an enum without fields of `repr(C)` alone, and so of the tag of a `repr(C)` enum with fields,
+the Rust Reference gives the size and the alignment of a C enum of the target
+([`r-layout.repr.c.enum`][c enum]), and does not say that each of its bytes is initialized.
+`rustc` stores it as an integer of that size, which holds the discriminant, so every byte is.
+`puns` relies on this where it reads such a tag: at compile time in the derive, where a byte that
+is not initialized fails the build ([Errors of const evaluation](#errors-of-const-evaluation)), and
+at run time in a pun that reads the tag, such as `pun::<C, u32>` for a `repr(C)` enum `C` without
+fields. Miri, which reports a read of an uninitialized byte, runs the test
+`a_repr_c_tag_made_at_run_time` of `puns/tests/enums.rs`, which reads such a tag.
+
 ### The layout in const evaluation
 
 The layout of a type in const evaluation is the one that it has at run time on the target of the

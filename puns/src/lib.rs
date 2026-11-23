@@ -646,9 +646,9 @@ pub unsafe trait Scalar {
 ///
 /// `Pun` must not be implemented by hand. Its items are hidden, because they may change in any
 /// release: the layout of `Self` (`Pun::LAYOUT`, a [`Layout`]), lists of its fields, variants,
-/// element and rules, as types, for the checks at run time, and a pointer to `Self` that nothing
-/// reads (`Pun::PROBE`). A layout makes no value of a type, and stands for `Self` only through this
-/// implementation, which guarantees that:
+/// element and rules, as types, for the checks at run time, and a pointer to `Self` whose address
+/// nothing reads (`Pun::PROBE`). A layout makes no value of a type, and stands for `Self` only
+/// through this implementation, which guarantees that:
 ///
 /// - The layout is that of `Self`: its size, its alignment, the offset of each field, the values
 ///   that each scalar may hold, and its rules.
@@ -704,8 +704,9 @@ pub unsafe trait Pun {
   /// First of the rules of a struct that have an expression, `()` if none.
   #[doc(hidden)]
   type Rules: Rules;
-  /// A null pointer to `Self`, whose slice length is [`ptr::PROBE_LEN`] if `Self` is unsized.
-  /// It must be made with `as` casts only, since the pointer tricks are checked against it.
+  /// If `Self` is unsized, `slice_from_raw_parts(null(), PROBE_LEN)` cast to `*const Self` with
+  /// `as` casts only ([`ptr::PROBE_LEN`]), since the pointer tricks are checked against it.
+  /// Nothing reads it otherwise.
   #[doc(hidden)]
   const PROBE: *const Self;
   #[doc(hidden)]
@@ -1190,12 +1191,11 @@ unsafe impl<T: ?Sized + Pun> Pun for ManuallyDrop<T> {
     if T::LAYOUT.unsized_ {
       // SAFETY: `T::LAYOUT.unsized_` is `true`, so `T` is unsized, and `T::PROBE` is
       // `slice_from_raw_parts(null(), PROBE_LEN)` cast to `*const T` with `as` casts only (`Pun`,
-      // section Safety). That cast compiles only if a pointer to `T` carries a slice length, so
-      // `T` is a slice, `str`, or a struct whose last field is one of these, and so is
+      // section Safety). That cast compiles only if a pointer to `T` carries a slice length, so `T`
+      // is a slice, `str`, or a struct whose last field is one of these, and so is
       // `ManuallyDrop<T>`, a struct whose only field is a `T`. `Self::PROBE` casts `T::PROBE` again
-      // with `as`. These are the requirements of
-      // `verify`, which checks that a pointer to `ManuallyDrop<T>` is represented as a pointer to a
-      // slice.
+      // with `as`. These are the requirements of `verify`, which checks that a pointer to
+      // `ManuallyDrop<T>` is represented as a pointer to a slice.
       unsafe { ptr::verify::<Self>(Self::PROBE) };
     }
     T::LAYOUT
@@ -2470,8 +2470,9 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
   // `source`, a pointer that may write. The reference has the lifetime of the exclusive borrow
   // `value`, so nothing else reads or writes the bytes while it lives. Any `D`, padding included,
   // may be written through it. `mutable_part` found that every value of `D` is valid for what `S`
-  // has over its bytes, and that nothing of `S` outside them depends on them. So `value` is a valid
-  // `S` when the borrow ends.
+  // has over its bytes, apart from its rules, and that nothing of `S` outside them depends on them.
+  // A value that the layout of `S` accepts apart from its rules is a valid `S` (`Pun`, section
+  // Safety). So `value` is a valid `S` when the borrow ends.
   unsafe { &mut *Plan::<S, D>::cast(source).cast_mut() }
 }
 
@@ -2597,10 +2598,9 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
     //   `Plan::try_cast_by` checked the address.
     // - It is not dangling. Its extent is that of `value`. If `D` is unsized and more aligned than
     //   `S`, `Plan::check_by`, which `Plan::try_cast_by` calls, checked that its size is at most
-    //   the size of `value`. Otherwise
-    //   either `D` is sized, and its size is its extent, or `D` is unsized and its extent is
-    //   rounded up to an alignment that divides that of `S`. Either way its size is at most the
-    //   size of `value`.
+    //   the size of `value`. Otherwise either `D` is sized, and its size is its extent, or `D` is
+    //   unsized and its extent is rounded up to an alignment that divides that of `S`. Either way
+    //   its size is at most the size of `value`.
     // - It points to a valid `D`. `validate` found every part that the analysis marked to be
     //   valid. Every other part is valid in every value of `S`, since the relation records no
     //   byte that `D` requires to be initialized and that may be padding, no disjoint part, and
@@ -2746,8 +2746,7 @@ pub const fn zeroed<T: Pun + Copy>() -> T {
   // SAFETY: `zeroed` requires that bytes that are all zero are a valid `T` [1]. The first assertion
   // above found that the layout of `T` accepts them apart from its rules (`Layout::zeroable`), and
   // every value that the layout accepts apart from its rules is a valid `T` (`Pun`, section
-  // Safety). Rules are requirements of `puns`, not
-  // of the language, and the result may break them.
+  // Safety). Rules are requirements of `puns`, not of the language, and the result may break them.
   //
   // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/fn.zeroed.html:
   //

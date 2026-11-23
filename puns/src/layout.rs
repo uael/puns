@@ -732,7 +732,7 @@ pub(crate) enum Uniform {
 /// ([`Layout::is_opaque`]), and [Layouts that Rust leaves to the
 /// compiler](crate::analysis#layouts-that-rust-leaves-to-the-compiler) says what it does instead.
 #[derive(Copy, Clone, Debug)]
-#[expect(clippy::struct_excessive_bools, reason = "five facts of a layout, each asked alone")]
+#[expect(clippy::struct_excessive_bools, reason = "six facts of a layout, each asked alone")]
 pub(crate) struct Stable {
   /// The offsets of the parts and the size are the same in every layout that Rust allows, given the
   /// sizes of the parts, or every layout of the type is the same bytes (`Layout::rust`). The
@@ -751,6 +751,11 @@ pub(crate) struct Stable {
   /// For a layout that is not `fixed`, every byte is initialized in every layout that Rust allows.
   /// Unused if the layout is `fixed`.
   pub(crate) init: bool,
+  /// Rust specifies the representation of the node itself: where its parts are, given their
+  /// layouts, and the tags of an enum. This is `false` for a node of the `Rust` representation, and
+  /// for `Option` and `Result` of most types, whatever their parts are. A node that Rust specifies
+  /// may still not be `fixed`, where the size of a part is not.
+  pub(crate) specified: bool,
 }
 
 impl Stable {
@@ -760,14 +765,14 @@ impl Stable {
   /// Returns the facts of a layout for which Rust specifies at most the size: the size if `size`,
   /// and that every byte is initialized if both `size` and `init`.
   const fn opaque(size: bool, init: bool) -> Self {
-    Self { fixed: false, ordered: false, size, deep: false, init: size && init }
+    Self { fixed: false, ordered: false, size, deep: false, init: size && init, specified: false }
   }
 
   /// Returns the facts of a node whose offsets Rust computes from the sizes and alignments of its
   /// parts, as for a `repr(C)` struct, given whether the size of every part is the same in every
   /// layout (`size`), and whether every part is `deep`.
   const fn computed(size: bool, deep: bool) -> Self {
-    Self { fixed: size, ordered: size, size, deep: size && deep, init: false }
+    Self { fixed: size, ordered: size, size, deep: size && deep, init: false, specified: true }
   }
 
   /// Returns the facts of a node of the `parts`, as [`Stable::computed`] says.
@@ -2939,6 +2944,7 @@ impl Layout {
           size: true,
           deep: parts.deep,
           init: false,
+          specified: false,
         },
         ..self
       };
@@ -3944,11 +3950,13 @@ impl Layout {
   /// Returns whether bytes that are all zero are a valid value of the layout that meets its
   /// `valid(..)` ranges.
   ///
-  /// If `strict`, this is `false` for a layout that is not `fixed`, except for a struct, since the
-  /// tag values of an enum of the `Rust` representation are not specified. The fields of a struct
-  /// are zeros in every order.
+  /// If `strict`, this is `false` where zero bytes make a part whose representation Rust does not
+  /// specify ([`Stable::specified`]), other than a struct: the tags of an enum of the `Rust`
+  /// representation, and of `Option` and `Result` of most types, are not specified. The fields of a
+  /// struct are zeros in every order, and a part that zero bytes do not make, such as another field
+  /// of a union or another variant of an enum, does not count.
   pub(crate) const fn zeroable(&self, strict: bool) -> bool {
-    if strict && !self.stable.fixed && !matches!(self.kind, Kind::Struct(..)) {
+    if strict && !self.stable.specified && !matches!(self.kind, Kind::Struct(..)) {
       return false;
     }
     match self.kind {

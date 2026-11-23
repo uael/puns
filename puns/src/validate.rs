@@ -189,10 +189,9 @@ const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout:
   // `Spec::is_integer` accepts, so of at most 16 bytes, at `layout.tag.offset` within the size of
   // `T`. `Layout::uninhabited` gives `Enum::NEVER`, whose tag is a scalar of size 0 at offset 0,
   // which `Spec::is_integer` accepts. So `add` stays within the `T` at `ptr`, and the tag is valid
-  // for reads. The tag is initialized, and so
-  // is what the checks of the fields of its variant read, by contract on the caller. These are
-  // the requirements of `load` and of `validate_variants`, with `T::Variants` the list of the
-  // variants of `T`.
+  // for reads. The tag is initialized, and so is what the checks of the fields of its variant read,
+  // by contract on the caller. These are the requirements of `load` and of `validate_variants`,
+  // with `T::Variants` the list of the variants of `T`.
   unsafe {
     let tag = load(ptr.cast::<u8>().add(layout.tag.offset), spec.size, spec.endian);
     validate_variants::<C, T, T::Variants>(ptr, tag)
