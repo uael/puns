@@ -1931,8 +1931,10 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     }
   });
   // The `Rust` representation: what every order of the fields has (`Layout::rust`).
+  // Without a packing, `usize::MAX` is written `!0usize`: `::core::primitive::usize::MAX` is a
+  // path, which `extern crate other as core;` can make another value of type `usize`.
   let rust = (!(repr.c || repr.transparent)).then(|| {
-    let pack = repr.packed.clone().unwrap_or_else(|| quote!(::core::primitive::usize::MAX));
+    let pack = repr.packed.clone().unwrap_or_else(|| quote!(!0usize));
     quote!(.rust(#pack))
   });
   let id = identity(input, &root);
