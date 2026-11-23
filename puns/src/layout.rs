@@ -180,17 +180,10 @@ impl Spec {
     Self { size, endian: Endian::NATIVE, valid: Valid::Any, known: Valid::Any, number: true }
   }
 
-  /// Returns the scalar of type `T` that a pun reads as initialized bytes but never makes, an
-  /// [opaque scalar].
+  /// Returns the scalar of type `T` that accepts no value, but is known to hold initialized bytes:
+  /// an [opaque scalar], which a pun reads but never makes.
   ///
-  /// A self-relative pointer is one: its bytes are an offset, and whether it is valid depends on
-  /// where it is and on what it aims at. A pun or a check that would make one does not compile, and
-  /// a check never accepts a variant of an enum that holds one, so only the crate that declares the
-  /// scalar makes a value of it, and proves it. [`validate_but_never`](crate::validate_but_never)
-  /// checks the rest of a value that holds one, and its example declares one. An `Option` of it is
-  /// one too, if the `Option` has the size of the scalar.
-  ///
-  /// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+  /// [opaque scalar]: crate::Scalar#opaque-scalars
   ///
   /// # Panics
   ///
@@ -1622,7 +1615,7 @@ impl Field {
 /// and the offsets come from the compiler. Each layout also records which of its parts are the
 /// same in every layout that Rust allows for the type, and the identity of the type. Without the
 /// `unstable` feature ([`UNSTABLE`]), the analysis relies only on those. Two layouts are the same
-/// only if they require and guarantee the same values. A layout makes no value of a type.
+/// only if they require and guarantee the same values.
 ///
 /// # Examples
 ///

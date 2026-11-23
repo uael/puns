@@ -10,7 +10,7 @@ Rust leaves some choices of layout to the compiler ([`r-layout.guarantees`],
   4 bytes, and 6 bytes under `-Zrandomize-layout -Zlayout-seed=1` on `nightly-2026-11-17`. That
   flag does not move the fields of a tuple, though Rust allows it.
 - The tag of an enum of the `Rust` representation: where and how its discriminant is stored, and
-  its values ([`r-items.enum.discriminant.type`], [`mem::discriminant`]).
+  its values ([`r-items.enum.discriminant.repr-rust`], [`mem::discriminant`]).
 - The niches of `Option` and `Result`, except where `core` documents them.
 
 `puns` always reads the layout that `rustc` chose for the build, so a pun is sound for the build
@@ -22,7 +22,7 @@ Without the `unstable` feature, `puns` has *layout independence*: whether a pun 
 checked or refused][kinds], what it checks, and which values a check accepts are the same in
 every layout that Rust allows. A pun that would depend on an unspecified layout is refused. The
 one exception is whether an `Option` of an [opaque scalar] compiles where `core` does not
-document its niche ([Scalars that a pun never makes][never_made] says why). What such a pun
+document its niche ([Opaque scalars][opaque-scalars] says why). What such a pun
 checks and accepts does not depend on the niche.
 
 Layout independence is a property of a pun, a function and a pair, so the same type may be in a
@@ -176,7 +176,7 @@ though its kind could then depend on the layout.
 [ABI compatibility]: https://doc.rust-lang.org/1.100.0/core/primitive.fn.html#abi-compatibility
 [`-Zrandomize-layout`]: https://doc.rust-lang.org/nightly/unstable-book/compiler-flags/randomize-layout.html
 [`mem::discriminant`]: https://doc.rust-lang.org/1.100.0/core/mem/fn.discriminant.html
-[`r-items.enum.discriminant.type`]: https://doc.rust-lang.org/1.99.0/reference/items/enumerations.html#r-items.enum.discriminant.type
+[`r-items.enum.discriminant.repr-rust`]: https://doc.rust-lang.org/1.99.0/reference/items/enumerations.html#r-items.enum.discriminant.repr-rust
 [`r-layout.guarantees`]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.guarantees
 [`r-layout.repr.rust.unspecified`]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.rust.unspecified
 [`r-type.struct.layout`]: https://doc.rust-lang.org/1.99.0/reference/types/struct.html#r-type.struct.layout
@@ -191,7 +191,7 @@ though its kind could then depend on the layout.
 [`validate_but_never`]: https://docs.rs/puns/0.2.3/puns/fn.validate_but_never.html
 [errors#unspecified-layouts]: errors.md#unspecified-layouts
 [kinds]: concepts.md#proven-checked-and-refused
-[never_made]: never_made.md
+[opaque-scalars]: https://docs.rs/puns/0.2.3/puns/trait.Scalar.html#opaque-scalars
 [opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [part]: concepts.md#layouts-and-rules
 [rule]: concepts.md#layouts-and-rules

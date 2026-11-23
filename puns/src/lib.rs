@@ -7,18 +7,23 @@
 //! [opaque]: guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 //! [layouts]: guide::concepts#layouts-and-rules
 //! [unsized]: guide::limits#limits-of-rust
-//! [msrv]: guide::msrv
+//! [msrv]: guide::target#minimum-rust-version
 //! [concepts]: guide::concepts
 //! [functions]: guide::functions
 //! [formats]: guide::formats
 //! [rules]: guide::rules
 //! [limits]: guide::limits
-//! [never-made]: guide::never_made
-//! [portability]: guide::portability
+//! [performance]: guide::performance
+//! [comparison]: guide::performance#compared-with-zerocopy-and-bytemuck
+//! [costs]: guide::performance#costs
+//! [rust]: guide::rust
+//! [target]: guide::target
 //! [guide]: guide
 //! [not-yet]: guide::limits#not-yet
 //! [Compile-time errors]: guide::errors
 //! [Soundness]: guide::soundness
+//! [testing]: guide::testing
+//! [trust]: guide::trust
 //! [deriving]: guide::soundness#what-deriving-pun-means
 //! [unstable]: guide::layouts
 #![doc = include_str!("../README.md")]
@@ -330,7 +335,7 @@ pub use layout::{crc32, sum16};
 /// - No identifier in the item may start with `__Pun`, since these names are reserved.
 /// - The type as compiled must have the fields and the variants that the derive read, and each
 ///   field must have the type that the derive read, as it names in the generated code ([What the
-///   derive trusts](#what-the-derive-trusts)).
+///   derive trusts](crate::guide::trust)).
 /// - The type of every field must implement `Pun`, except in a view, where the type `T` of each
 ///   reference `&'a T` does.
 /// - The type of every field of a struct, an enum that is not a view, or a union must be at least
@@ -449,11 +454,9 @@ pub use layout::{crc32, sum16};
 ///
 /// What a pun of a type of the `Rust` representation relies on is in [How a part with an
 /// unspecified layout is
-/// proven](crate::guide::layouts#how-a-part-with-an-unspecified-layout-is-proven).
-///
-/// For an enum with fields of the `Rust` representation, the derive finds the layout that `rustc`
-/// chose by experimenting in const evaluation on a value of each variant. An experiment that fails
-/// refuses the enum, so a wrong layout is never found.
+/// proven](crate::guide::layouts#how-a-part-with-an-unspecified-layout-is-proven). How the derive
+/// finds the layout of a type, so that it depends on no path that the deriving crate can redefine,
+/// is in [What the derive trusts](crate::guide::trust).
 ///
 /// The functions of a view return what trying the variants in order would return, but check each
 /// variant at most once, and only for what is not already known about it. A variant is skipped as
@@ -467,130 +470,10 @@ pub use layout::{crc32, sum16};
 /// value of both, such as `Frame<Ipv4>` after two kinds of IPv4 packet, computes the rule once, and
 /// shares what succeeds.
 ///
-/// The build time of a view grows about in proportion to its number of variants when each starts
-/// with a different constant, and as the square of that number, or faster in a release build, when
-/// the values of each variant are also values of the next ([the measures][build time]).
+/// [Build time](crate::guide::performance#build-time) measures how the build time of a view grows
+/// with its number of variants.
 ///
 /// [`ethernet.rs`]: https://github.com/uael/puns/blob/v0.2.3/puns/examples/ethernet.rs
-/// [build time]: https://github.com/uael/puns/blob/v0.2.3/docs/performance.md#build-time
-///
-/// # Analysis
-///
-/// *This section describes what the derive assumes, and what deriving `Pun` lets other code do.
-/// Unsafe code may rely only on the documented contract of [`Pun`](trait@Pun), never on how this
-/// derive meets it, since the analysis may change.*
-///
-/// A pun only gives a value of a type from bytes that are a valid value of it, in the sense that
-/// [Soundness](crate::guide::soundness) defines.
-///
-/// Deriving `Pun` makes every field as accessible as if it were public, and lets two types that
-/// differ only in phantom parameters or lifetimes convert to each other. So a type whose private
-/// fields keep an invariant, or whose parameters mark something about its values, must not derive
-/// `Pun`, as [What deriving `Pun` means](crate::guide::soundness#what-deriving-pun-means) shows.
-/// `#[pun(valid(..))]` and rules are
-/// [requirements](crate::guide::soundness#guarantees-and-requirements), which safe code can break,
-/// so they never prove what another type guarantees.
-///
-/// Where Rust leaves a layout to the compiler, what a pun may depend on is in [Unspecified
-/// layouts and the `unstable` feature](crate::guide::layouts).
-///
-/// ## What the derive trusts
-///
-/// The derive writes `unsafe impl`s in the crate that uses it, where safe code can make any path
-/// name something else: `#[pun(crate = ..)]` names any module, `#[pun(crate)]` the root of the
-/// crate, and `extern crate other as core;` makes `::core` another crate. So what a layout is made
-/// of does not depend on any path, in the following ways:
-///
-/// - The functions that the generated code calls are associated functions of the types that the
-///   implemented traits name ([`layout::Layout`], [`layout::Spec`], [`layout::Field`]), or
-///   associated functions of [`layout::Rule`], [`layout::Op`], [`layout::Field`], [`layout::Enum`]
-///   and [`layout::Variant`], which a hidden constant of `Layout` fixes with `fn(T)` types that no
-///   path can replace. The generated code also calls `new` of [`layout::Crc`] and of the identity
-///   of a type, whose results go to these functions, so only the real types compile.
-/// - The offsets of the fields do not come from `offset_of!`, which is a macro named by a path.
-///   They are measured on the type as compiled, by projecting a pointer to it (`&raw const
-///   (*p).field`) and `byte_offset_from`, which cost nothing in const evaluation. For a struct of
-///   the `Rust` representation and for a union, which are `Sized`, the pointer is to an
-///   uninitialized value. A `repr(C)` or `repr(transparent)` struct may be unsized, so the pointer
-///   is into 4096 bytes of memory of `puns`, with a tail of no element. A `repr(C)` or
-///   `repr(transparent)` struct whose head, its size with a tail of no element, is larger than
-///   4096 bytes keeps the offsets that the representation that the derive read specifies:
-///   computed from the sizes and alignments of the fields for `repr(C)`, and 0 for
-///   `repr(transparent)`.
-/// - The tag and the size of an enum with fields and a primitive or `C` representation are those
-///   that [RFC 2195] specifies. The offsets of the fields of each variant are found on a sample of
-///   the variant, which another function of `Layout` makes, by code that matches on it, with
-///   `byte_offset_from`, a pointer method that no path names. A variant without a sample has the
-///   offsets that RFC 2195 specifies, from the sizes and alignments of its fields. With the `Rust`
-///   representation, a function of `Layout` finds the variants from samples in the same way. A fake `MaybeUninit`, or a fake
-///   result type, named by a path does not have the type that these functions take or return, and
-///   does not compile.
-/// - The tags of an enum with fields and a primitive or `C` representation are those of an enum
-///   without fields that the derive declares with the same representation and discriminants, in
-///   which it replaces `Self` with the enum. It declares it next to its implementation, where a
-///   name that a macro writes may name another item, so a discriminant may have another value
-///   there. A function of [`layout::Variant`] compares each of its tags with the first bytes of a
-///   sample of the variant, made as for the `Rust` representation, and fails the build if they
-///   differ. A variant without a sample of which a value may exist has a discriminant as [Enums
-///   with fields](#enums-with-fields) requires, which has the same value in both enums: the derive
-///   names only items that start with `__Pun` there, which it refuses in the input.
-/// - The trait that says where a field is (`Path`) is sealed, and the leaf at which a list of
-///   fields places a field is checked against the layout.
-/// - The type of each field is written once, as an associated type of a trait that the derive
-///   declares and implements for the type, where `Self` is the type, as in its declaration. The
-///   rest of the generated code names the type of a field there. A function that is never called
-///   compiles only if the type as compiled has the fields and the variants that the derive read,
-///   by name and with no other (an exhaustive pattern), and if each field has exactly the type of
-///   its associated type: a `&mut` to a `*mut` to the field admits no coercion, and no subtype. So a
-///   macro in the type of a field, which expands in the generated code, where `Self` and the names
-///   that start with `__Pun` name other items, gives the field one type, or does not compile.
-///   These names are reserved.
-///
-/// The one exception is the identity of a type, which says whether two layouts are of the same
-/// type. It is where the type is declared, written by a macro that the derive names through the
-/// path of `puns`, so a crate that redirects that path can give a type the identity of another. Two
-/// layouts count as the same type only if they are also equal, so this cannot make a wrong layout.
-/// It can make a verdict depend on how `rustc` arranged the two types in this compilation, which
-/// without the `unstable` feature no verdict otherwise does.
-///
-/// The rest of `::core` that the derive names (`Option`, `PhantomData`, `usize`, and so on) is
-/// checked by the types of the traits it implements. `::core::ptr::null()` is the probe of a sized
-/// type, which nothing reads, and `::core::panic!` is written only next to a compile error of the
-/// derive. The derive trusts the compiler for what it parses, such as `repr`.
-///
-/// An attribute macro written below `#[derive(Pun)]` is expanded after the derive has read the
-/// item, and can change the item that `rustc` compiles. The derive does not compile if such an
-/// attribute adds, removes or renames a field, changes the type of a field, or adds or removes a
-/// variant. A field added to a union adds values that the layout does not accept as a target,
-/// which is sound, and the layout of a source union guarantees nothing, so such a field is not
-/// refused. Where such an attribute changes the order of the fields or the `repr`, the layout is
-/// that of the type as compiled, or the build fails:
-///
-/// - The offsets of the fields of a struct and of a union are measured, as above, except those of
-///   a `repr(C)` or `repr(transparent)` struct whose head is larger than 4096 bytes.
-/// - The offsets of the fields of a variant of an enum with a primitive or `C` representation are
-///   measured on a sample of the variant, made as for the `Rust` representation. The tags are
-///   compared with the samples, as above, so reordered variants fail the build. In a copy of each
-///   sample, the byte after the tag that the derive read is set to 0, then to 255, and the variant
-///   of the copy, which `rustc` reads from the tag alone (`discover`, module documentation), must be
-///   the same. A tag that is wider than the one that the derive read changes there, and the build
-///   fails. A narrower one leaves a byte of padding or of a field where the derive reads its tag,
-///   and the comparison with the samples or the size of the enum fails the build.
-/// - An enum with fields of the `Rust` representation is found on samples made by the names of its
-///   variants and of their fields, and its discovery asserts that the discriminant of each sample
-///   is the index of its variant in the item that the derive read, so reordered variants fail the
-///   build.
-///
-/// What such an attribute can still change without failing the build:
-///
-/// - A variant without a sample, which holds a scalar that a pun never makes or a union none of
-///   whose fields has values, keeps the offsets that [RFC 2195] specifies, and so does every
-///   variant of an enum none of whose variants has a sample, of which no tag width is checked.
-/// - The derive takes from the `repr` that it read whether Rust specifies the layout, on which,
-///   without the `unstable` feature, a verdict may rely ([The `unstable`
-///   feature](crate::guide::layouts#the-unstable-feature)). A struct or a union whose `repr(C)`
-///   such an attribute removes has the offsets of this compilation, but is taken to have them in
-///   every compilation, which Rust does not promise.
 pub use puns_derive::Pun;
 use validate::{Checks, validate};
 
@@ -626,34 +509,56 @@ pub use core as __core;
 
 /// A type that is one scalar value, whose valid values a [`Spec`] describes.
 ///
-/// Every `Scalar` is a [`Pun`] type. The integer and floating-point types, `bool`, `char`,
-/// `NonZero`, `()`, `PhantomData` and the types of [`num`] implement it, and `#[derive(Pun)]`
-/// implements it for enums without fields.
+/// Every `Scalar` is a [`Pun`] type. `puns` implements `Scalar` for the integer and floating-point
+/// types, `bool`, `char`, `NonZero`, `()`, `PhantomData<T>` for any `T` and the types of [`num`],
+/// and `#[derive(Pun)]` for enums without fields. A type may implement it by hand by defining
+/// `SPEC` only: the other items are hidden, since `puns` sets them and may change them in any
+/// release.
+///
+/// # Opaque scalars
+///
+/// Some scalars are valid for reasons that are not in their bytes, such as a handle or an index
+/// into a table. The offset of a self-relative pointer, as in the regions of
+/// [`nearest`](https://docs.rs/nearest), is valid only at its place in a buffer and only if what it
+/// aims at is there. A crate declares such an *opaque scalar* with a `SPEC` made by
+/// [`Spec::never`].
+///
+/// As a source, an opaque scalar proves what any initialized bytes prove. `puns` never makes one,
+/// not even from a value of its own type: a pun or a check that would make one does not compile,
+/// nor does a `&mut` through which one could be written. A check never accepts an enum's variant
+/// that holds one, so a pun to the enum compiles if the source has no value of that variant, and
+/// the check fails on that variant's tag at run time.
+///
+/// Only the declaring crate makes values that hold an opaque scalar. To read one from bytes, it
+/// checks every other part, rules included, with [`validate_but_never`], then proves its scalars
+/// and makes the reference. So it must know where they are: in an enum, the tag says which variant
+/// holds them. A union has no tag, and its bytes may be valid for several of its fields, so a union
+/// cannot hold an opaque scalar: no function of `puns` compiles for a union that holds one.
+///
+/// An `Option` of an opaque scalar is one too, and compiles only if it has the scalar's size and
+/// `None` has no uninitialized byte. Neither `None` nor `Some` is checked at run time. `core`
+/// documents that size, with `None` as zero bytes, for a `NonZero` integer and a
+/// `repr(transparent)` struct around one ([Representation]). For another scalar, such as a
+/// `repr(packed)` struct around a `NonZero`, it depends on a niche that no documentation promises.
 ///
 /// # Safety
 ///
-/// `Scalar` may be implemented by hand. `SPEC` must have the size of `Self`, which is checked at
-/// compile time, and an implementation must guarantee that:
+/// `puns` checks at compile time that `SPEC` has the size of `Self`. It makes a `Self` from any
+/// bytes that `SPEC` accepts, and takes every `Self` to hold what `SPEC` is known to hold, so
+/// behavior is undefined unless:
 ///
-/// - Every value of `Self`, read as an unsigned integer with the size and byte order of `SPEC`, is
-///   a value that `SPEC` accepts. If `SPEC` is made with [`Spec::maybe_uninit`] or
-///   [`Spec::uninit`], a value of `Self` may instead hold any bytes, including uninitialized ones.
-///   If `SPEC` is made with [`Spec::never`], which accepts no value, every byte of every value of
-///   `Self` is instead initialized.
-/// - Every value that `SPEC` accepts is a [valid] `Self`, and meets every invariant that the code
+/// - Every value of `Self`, read as an unsigned integer of the size and byte order of `SPEC`, is
+///   one that `SPEC` accepts. With [`Spec::maybe_uninit`] or [`Spec::uninit`], it may be any bytes,
+///   uninitialized ones included, and with [`Spec::never`], any initialized bytes.
+/// - Every value that `SPEC` accepts is a [valid] `Self` that meets every invariant that the code
 ///   of `Self` relies on.
 /// - No byte of `Self` is inside an [`UnsafeCell`](core::cell::UnsafeCell).
 ///
-/// An implementation by hand leaves the hidden items at their defaults. If `T: Scalar`, unsafe code
-/// may assume that `T::SPEC` describes the values of `T` exactly. `puns` makes a `T` from any bytes
-/// that `SPEC` accepts, and takes the bytes of every `T` to be bytes that `SPEC` accepts, unless
-/// `SPEC` is made with [`Spec::maybe_uninit`] or [`Spec::uninit`]. It then takes them to be any
-/// bytes, uninitialized ones included. With [`Spec::never`], it takes them to be initialized bytes,
-/// and makes no `T` ([Scalars that a pun never makes](crate::guide::never_made)).
+/// Unsafe code may therefore assume that `T::SPEC` describes the values of any `T: Scalar` exactly.
 ///
 /// # Examples
 ///
-/// A type of a few bytes whose constructor checks its values:
+/// A number whose constructor checks it:
 ///
 /// ```
 /// mod percent {
@@ -696,6 +601,7 @@ pub use core as __core;
 /// ```
 ///
 /// [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
+/// [Representation]: core::option#representation
 pub unsafe trait Scalar {
   /// The size, the byte order and the valid values of `Self`.
   const SPEC: Spec;
@@ -711,30 +617,34 @@ pub unsafe trait Scalar {
   const SPECIFIED: bool = true;
 }
 
-/// A type of plain data, whose layout and valid values `puns` knows at compile time.
+/// A type whose layout and valid values `puns` knows at compile time.
 ///
-/// Every function of this crate takes `Pun` types. These are the integer and floating-point types,
-/// `bool`, `char`, `NonZero`, `()`, `PhantomData`, arrays, slices, `str`, tuples of up to 4
-/// elements, `Option` and `Result` of `Pun` types, `MaybeUninit`, `ManuallyDrop`, `Infallible`, the
-/// types of [`num`], every [`Scalar`], and the types that derive it. A tuple, struct or enum of the
+/// Every function of this crate takes `Pun` types. `puns` implements `Pun` for every [`Scalar`],
+/// and for the types of `core` that it supports: arrays, slices, `str`, tuples of up to 4 elements,
+/// `Option` and `Result` of `Pun` types, `MaybeUninit`, `ManuallyDrop` and `Infallible`.
+/// `#[derive(Pun)]` implements it for structs and enums of any representation, uninhabited ones and
+/// structs that end with a slice included, and for `repr(C)` unions. A tuple, struct or enum of the
 /// `Rust` representation has an [unspecified layout](crate::guide::layouts).
 ///
 /// # Safety
 ///
-/// `Pun` must not be implemented by hand, because its items are hidden, and may change in any
-/// release. It is implemented by `#[derive(Pun)]`, and by `puns` for the types listed above, a
-/// [`Scalar`] included.
+/// `Pun` must not be implemented by hand. Its items are hidden, because they may change in any
+/// release: the layout of `Self` (`Pun::LAYOUT`, a [`Layout`]), and lists of its fields, variants,
+/// element and rules, as types, for the checks at run time. A layout makes no value of a type, and
+/// stands for `Self` only through this implementation, which guarantees that:
 ///
-/// An implementation guarantees that the layout it describes is the layout of `Self`: its size, its
-/// alignment, the offset of each field, the values each scalar may hold, and its rules. Every value
-/// of `Self` holds what the layout says every value holds, and every value that the layout accepts
-/// is a valid `Self`. The lists of the implementation are those of the layout: its fields if it is a
-/// struct, its variants if it is an enum or a union, and its element if it is an array or a slice.
-/// `puns` reads no list of a layout of another kind, which may then be anything. No byte of `Self`
-/// is inside an [`UnsafeCell`](core::cell::UnsafeCell).
+/// - The layout is that of `Self`: its size, its alignment, the offset of each field, the values
+///   that each scalar may hold, and its rules.
+/// - Every value of `Self` holds what the layout says every value holds, and every value that the
+///   layout accepts is a valid `Self`.
+/// - The lists are the layout's: its fields if it is a struct, its variants if it is an enum or a
+///   union, and its element if it is an array or a slice. `puns` reads no other list, which may
+///   then be anything. The checks compare the rules and the place of each field with the layout,
+///   and trust the rest.
+/// - No byte of `Self` is inside an [`UnsafeCell`](core::cell::UnsafeCell).
 ///
-/// If `T: Pun`, unsafe code may assume that the layout of `T` is exact in this sense, and that `T`
-/// holds no `UnsafeCell`. The functions of `puns` are sound only under this assumption.
+/// Unsafe code may assume these of any `T: Pun`, as the functions of `puns` do for their soundness.
+/// It may rely on nothing else, such as how the derive meets them, which may change.
 ///
 /// # Examples
 ///
@@ -790,16 +700,15 @@ pub unsafe trait Pun {
   const NULL_OPTIMIZED: bool = false;
 }
 
-/// A type that is carried next to a tag of kind `K`, and the values of that tag that select it.
+/// A type carried next to a tag of kind `K`, and the values of that tag that select it.
 ///
-/// A message carries a payload next to a field that tells its type, and an enum carries a variant
-/// next to its discriminant. `K` names the kind of tag, because one type may be carried next to
-/// tags of several kinds. By convention, `K` is the type of the tag when nothing is known about
-/// what it carries. Bytes can be carried next to a tag of any kind `K`, and accept every value of
-/// that tag.
+/// A payload is carried next to the field that tells its type, as a variant is next to its
+/// discriminant. `K` names the kind of tag, because one type may be carried next to tags of several
+/// kinds. By convention, it is the tag's type when nothing is known of what the tag carries. Bytes
+/// (`[u8]`) can be carried next to a tag of any kind, and accept every value of it.
 ///
-/// `#[pun(tag(K = T))]` implements it (see [`macro@Pun`]). `Tag` is not an `unsafe` trait, because
-/// the tag is a field like any other, whose values `puns` checks or proves.
+/// `#[pun(tag(K = T))]` implements `Tag` ([`macro@Pun`]). It is not an `unsafe` trait, because the
+/// tag is a field like any other, whose values `puns` checks or proves.
 ///
 /// # Examples
 ///
@@ -832,8 +741,7 @@ pub unsafe trait Pun {
 /// assert!(puns::try_pun_ref::<_, Message<Ping>>(&[7u8, 0, 1]).is_ok());
 /// ```
 pub trait Tag<K: ?Sized>: Pun {
-  /// The type of the tag next to a `Self`. Its valid values are the values of the tag that mean
-  /// `Self`.
+  /// The type of the tag next to a `Self`, whose valid values are those that mean `Self`.
   type Tag: Pun + Copy;
 }
 
@@ -1518,8 +1426,8 @@ impl_signed_non_zero!(i8 i16 i32 i64 i128 isize);
 
 /// The reason a value cannot be reinterpreted as another type.
 ///
-/// The functions that check at run time return it: the `try_` functions, the `from_` functions,
-/// and [`validate_but_never`].
+/// The `try_` functions, the `from_` functions and [`validate_but_never`] return it when a check at
+/// run time fails. It does not say which field or rule failed.
 ///
 /// # Examples
 ///
@@ -1538,13 +1446,13 @@ impl_signed_non_zero!(i8 i16 i32 i64 i128 isize);
 /// ```
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Error {
-  /// The address of the value is not a multiple of the alignment of the target.
+  /// The address of the value is not a multiple of the target's alignment.
   Alignment,
-  /// The size of the value is not a size that the target can have, or there are fewer bytes than
-  /// the target needs.
+  /// The size of the value is not one that the target can have, or there are fewer bytes than the
+  /// target needs.
   Size,
-  /// The bytes are not a valid target, because a scalar holds a value that the target does not
-  /// accept, a `str` is not UTF-8, or a rule of the target does not hold or cannot be computed.
+  /// The bytes are not a valid target: a scalar holds a value that the target does not accept, a
+  /// `str` is not UTF-8, or a rule of the target does not hold or cannot be computed.
   Validity,
 }
 
@@ -2912,7 +2820,7 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
 /// ```
 ///
 /// [valid]: crate::guide::concepts#what-is-a-valid-value
-/// [opaque scalars]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+/// [opaque scalars]: crate::Scalar#opaque-scalars
 /// [unspecified layout]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [uninhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 /// [part]: crate::guide::concepts#layouts-and-rules

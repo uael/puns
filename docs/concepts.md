@@ -177,9 +177,9 @@ An *[unspecified layout][layouts]* is a part of a layout that Rust leaves to the
 compiler, which may choose differently in its next version, or at random under
 `-Zrandomize-layout`. Only what the Reference lists is guaranteed ([`r-layout.guarantees`]).
 
-An *[opaque scalar][never_made]* is a scalar whose validity is not in its bytes, such as
-the offset of a self-relative pointer. `puns` reads it as initialized bytes, and never makes
-one.
+An *[opaque scalar][opaque-scalars]* is a scalar whose validity is not in its bytes,
+such as the offset of a self-relative pointer. `puns` reads it as initialized bytes, and never
+makes one.
 
 A type, a variant or a field is *[uninhabited]* if it has no values. `Infallible` and an enum
 without variants are uninhabited.
@@ -197,9 +197,9 @@ without variants are uninhabited.
 [core::mem::transmute]: https://doc.rust-lang.org/1.100.0/core/intrinsics/fn.transmute.html
 [crate]: ../README.md
 [macro@Pun#views]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#views
-[never_made]: never_made.md
 [num::u16bec]: https://docs.rs/puns/0.2.3/puns/num/struct.u16bec.html
 [num::u8in]: https://docs.rs/puns/0.2.3/puns/num/struct.u8in.html
+[opaque-scalars]: https://docs.rs/puns/0.2.3/puns/trait.Scalar.html#opaque-scalars
 [properly aligned]: https://doc.rust-lang.org/1.100.0/core/ptr/index.html#alignment
 [rules]: rules.md
 [rules#extent]: rules.md#extent

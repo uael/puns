@@ -644,4 +644,4 @@ assert!(level.negative());
 [rules#fields]: rules.md#fields
 [uninhabited]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [unspecified layout]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
-[msrv]: msrv.md
+[msrv]: target.md#minimum-rust-version

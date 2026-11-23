@@ -171,13 +171,16 @@ fn ratio_number(ratio: f64) -> String {
 
 /// Returns the Markdown image of the chart, whose text says what it shows.
 ///
-/// The text is on two lines, since the lines of the document are at most 100 columns.
+/// The text is on two lines, since the lines of the document are at most 100 columns. The image
+/// names the chart by the label `chart`, which the chapter defines as its URL on
+/// `raw.githubusercontent.com`, pinned by `cargo xtask links`: docs.rs, which includes the chapter
+/// in the documentation, shows no file of the repository by a relative path.
 fn image(cases: &[Case]) -> String {
   let (lo, hi) = range(cases);
   let faster = cases.iter().filter(|case| case.ratio() < 1.0).count();
   format!(
     "![The time of each check by puns relative to the same check by hand: from {} to {} times,\n\
-     below 1 for {faster} of the {} cases](charts/checks.svg)",
+     below 1 for {faster} of the {} cases][chart]",
     ratio_number(lo),
     ratio_number(hi),
     cases.len(),

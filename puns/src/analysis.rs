@@ -59,8 +59,8 @@
 //! states of automata of the types. Where it would grow with their size, a search stops at a limit:
 //! [`PLACES`] places of fields, a budget of boxes of a scalar, a budget of runs under a pattern,
 //! and [`CUT_ELEMENTS`] elements of an array looked at one by one. These limits keep the analysis
-//! within the bound of const evaluation (see the chapter [Minimum Rust version](crate::guide::msrv)
-//! of the guide).
+//! within the bound of const evaluation (see the chapter [Rust version and
+//! targets](crate::guide::target) of the guide).
 //!
 //! # Enums and unions
 //!

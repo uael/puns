@@ -29,10 +29,12 @@ of bytes.
   - [Unspecified layouts and the `unstable` feature][unstable]
   - [The language of rules][rules]
   - [Limits, and what is not done yet][limits]
-  - [Scalars that a pun never makes][never-made]
+  - [Measured performance][performance]
   - [Soundness]
-  - [Minimum Rust version][msrv]
-  - [Portability][portability]
+  - [Testing][testing]
+  - [What the derive trusts][trust]
+  - [What `puns` relies on][rust]
+  - [Rust version and targets][target]
 - [About](#about)
   - [History](#history)
   - [How `puns` is written](#how-puns-is-written) (using AI)
@@ -331,26 +333,23 @@ compiler, but it's only on nightly.
 
 ### Performance
 
-For packets, checked puns are about as fast as the same checks written by hand: on an Apple M4
-Max at a load average of 3.5 to 3.9, on 2026-11-21 at commit `4176671`, checking Ethernet, IPv4,
-IPv6, UDP and TCP packets took between 0.55 and 1.13 times as long. Over all 33 cases, the time
-went from 0.038 times as long, for a slice of bytes read as `bool`s, to 1.52 times, for a slice of
-an enum whose tag is a niche. What you pay for is mostly build time: about 17 ms for each pair of
-types read from bytes in a debug build, and up to 24.9 s in release for a view of 64 overlapping
-variants. [`docs/performance.md`][performance] has the code, the method and the other cases, and
-the chart below shows the time of each check relative to the same check written by hand.
+Checked puns take about as long as the same checks written by hand, and what you pay for is
+mostly build time. [Performance][performance] in the guide has the measures, made on 2026-11-21 at
+commit `4176671`, with the machine code, the method and the build times, and the chart below shows
+the time of each check relative to the same check written by hand.
 
-![Time of each check by puns, relative to the same check written by hand](https://raw.githubusercontent.com/uael/puns/v0.2.3/docs/charts/checks.svg)
+[![Time of each check by puns, relative to the same check written by hand](https://raw.githubusercontent.com/uael/puns/v0.2.3/docs/charts/checks.svg)][performance]
 
 ### Safety and testing
 
 `puns` is built on `unsafe` code so that yours doesn't have to be: crates that use it, derive
-included, can keep `#![forbid(unsafe_code)]`. The [Soundness] chapter of the guide states what that
-code relies on, including three behaviors of `rustc` that no documentation guarantees, and how each
-is checked. On every pair of test types of the same size, the analysis is compared with oracles
-that don't use it, and the tests run under Miri, on 32-bit and big-endian targets as well. 172
-programs must fail to compile, each with its expected message ([`docs/testing.md`][testing]). If
-you find a soundness bug, please [open an issue][issues].
+included, can keep `#![forbid(unsafe_code)]`. The [Soundness] chapter of the guide states what a
+pun guarantees, and [What `puns` relies on][rust] what that code relies on, including behaviors of
+`rustc` that no documentation guarantees, and how each is checked. On every pair of test types of
+the same size, the analysis is compared with oracles that don't use it, and the tests run under
+Miri, on 32-bit and big-endian targets as well. 172 programs must fail to compile, each with its
+expected message ([Testing][testing]). If you find a soundness bug, please [open an
+issue][issues].
 
 ## About
 
@@ -406,18 +405,23 @@ additional terms or conditions.
 [opaque]: docs/concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [layouts]: docs/concepts.md#layouts-and-rules
 [unsized]: docs/limits.md#limits-of-rust
-[msrv]: docs/msrv.md
+[msrv]: docs/target.md#minimum-rust-version
 [concepts]: docs/concepts.md
 [functions]: docs/functions.md
 [formats]: docs/formats.md
 [rules]: docs/rules.md
 [limits]: docs/limits.md
-[never-made]: docs/never_made.md
-[portability]: docs/portability.md
+[performance]: docs/performance.md
+[comparison]: docs/performance.md#compared-with-zerocopy-and-bytemuck
+[costs]: docs/performance.md#costs
+[rust]: docs/rust.md
+[target]: docs/target.md
 [guide]: docs/README.md
 [not-yet]: docs/limits.md#not-yet
 [Compile-time errors]: docs/errors.md
 [Soundness]: docs/soundness.md
+[testing]: docs/testing.md
+[trust]: docs/trust.md
 [deriving]: docs/soundness.md#what-deriving-pun-means
 [unstable]: docs/layouts.md
 [num]: https://docs.rs/puns/0.2.3/puns/num/index.html
@@ -448,10 +452,6 @@ additional terms or conditions.
 [from_tail_mut]: https://docs.rs/puns/0.2.3/puns/fn.from_tail_mut.html
 [zeroed]: https://docs.rs/puns/0.2.3/puns/fn.zeroed.html
 [validate_but_never]: https://docs.rs/puns/0.2.3/puns/fn.validate_but_never.html
-[performance]: https://github.com/uael/puns/blob/v0.2.3/docs/performance.md
-[comparison]: https://github.com/uael/puns/blob/v0.2.3/docs/performance.md#compared-with-zerocopy-and-bytemuck
-[costs]: https://github.com/uael/puns/blob/v0.2.3/docs/performance.md#costs
-[testing]: https://github.com/uael/puns/blob/v0.2.3/docs/testing.md
 [changelog]: https://github.com/uael/puns/blob/v0.2.3/CHANGELOG.md
 [examples]: https://github.com/uael/puns/tree/v0.2.3/puns/examples
 [media]: https://github.com/uael/puns/blob/v0.2.3/puns/examples/media.rs

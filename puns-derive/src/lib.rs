@@ -1997,8 +1997,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   every layout that Rust allows.
       // - Each field is `Pun`, so no byte is inside an `UnsafeCell`.
       // The functions called are those of the types that `Layout::PIN` fixes, which no path can
-      // replace. A struct whose private fields keep an invariant must not derive `Pun` (crate
-      // documentation, section Soundness): the layout describes only what the language requires of
+      // replace. A struct whose private fields keep an invariant must not derive `Pun` (the chapter
+      // Soundness of the guide): the layout describes only what the language requires of
       // its fields.
       //
       // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.struct.size-field-offset:
@@ -2030,7 +2030,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         // `as` casts, cast again to `*const Self`. The size of the struct with 8 elements in its
         // tail must fit in an `isize`, which is not established. The derive relies on `rustc` to
         // report an error in const evaluation where it does not fit. No documentation promises this
-        // behavior, which the guide of `puns` discloses (chapter Soundness).
+        // behavior, which the guide of `puns` discloses (chapter What `puns` relies on).
         const LAYOUT: #root::layout::Layout = unsafe {
           #root::layout::Layout::structure::<Self>(
             Self::PROBE,
@@ -2245,7 +2245,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     // with the `Rust` representation, Rust does not say how the discriminant is stored. The call
     // is evaluated in the constant `SPEC`, where `rustc` reports an error instead of reading an
     // uninitialized byte. No documentation promises this behavior, which the guide of `puns`
-    // discloses (chapter Soundness).
+    // discloses (chapter What `puns` relies on).
     variants.push(quote!(unsafe { #root::layout::Spec::bits_of(Self::#variant) }));
   }
   let count = variants.len();
@@ -2739,9 +2739,9 @@ fn derive_tagged(
                 // sample whose byte `after` may have been changed, so it may be no `Self`. This
                 // constant is evaluated at compile time, where the `match`, which reads the
                 // variant, relies on the behaviors of `rustc` that `discover` relies on, and that
-                // the guide of `puns` discloses (chapter Soundness): `rustc` reports an error
-                // if the tag is not the tag of a variant, and otherwise reads the variant from the
-                // tag alone, without reading the fields.
+                // the guide of `puns` discloses (chapter What `puns` relies on): `rustc` reports
+                // an error if the tag is not the tag of a variant, and otherwise reads the variant
+                // from the tag alone, without reading the fields.
                 let read = match unsafe { &*changed.as_ptr() } {
                   #(Self::#names { .. } => #variant_indices,)*
                 };

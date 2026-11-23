@@ -9,7 +9,7 @@
 //! [`validate_but_never`]: validate_but_never
 //! [errors#unspecified-layouts]: super::errors#unspecified-layouts
 //! [kinds]: super::concepts#proven-checked-and-refused
-//! [never_made]: super::never_made
+//! [opaque-scalars]: trait@Scalar#opaque-scalars
 //! [opaque scalar]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 //! [part]: super::concepts#layouts-and-rules
 //! [rule]: super::concepts#layouts-and-rules

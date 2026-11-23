@@ -8,9 +8,9 @@
 //! [core::mem::transmute]: core::mem::transmute
 //! [crate]: crate
 //! [macro@Pun#views]: macro@Pun#views
-//! [never_made]: super::never_made
 //! [num::u16bec]: num::u16bec
 //! [num::u8in]: num::u8in
+//! [opaque-scalars]: trait@Scalar#opaque-scalars
 //! [properly aligned]: core::ptr#alignment
 //! [rules]: super::rules
 //! [rules#extent]: super::rules#extent

@@ -328,8 +328,8 @@ const unsafe fn variant<E>(ptr: *const E) -> usize {
   // - It points to a valid `E` at run time, by contract on the caller. At compile time, this is not
   //   established: the bytes at `ptr` may be no `E`, which is valid only if its tag is the tag of a
   //   variant and the fields of that variant are valid [2]. The call then relies on two behaviors
-  //   of `rustc` that the Reference does not promise, and that the guide discloses
-  //   (chapter Soundness). `rustc` reports an error if the tag is uninitialized or not the tag of a
+  //   of `rustc` that the Reference does not promise, and that the guide discloses (chapter What
+  //   `puns` relies on). `rustc` reports an error if the tag is uninitialized or not the tag of a
   //   variant that has values, and otherwise reads the variant from the tag alone, without reading
   //   the fields (`discover`, module documentation).
   //
@@ -629,8 +629,8 @@ pub const unsafe fn read<E>(sample: &MaybeUninit<E>, offset: usize, len: usize) 
   // above. So `add(offset)` stays within `sample`, and the `len` bytes from there are valid for
   // reads. `load` also requires them to be initialized, which is not established. By contract on
   // the caller, the call is evaluated at compile time, where `rustc` reports an error instead of
-  // reading an uninitialized byte. No documentation promises this behavior, which the crate
-  // documentation discloses (section Soundness).
+  // reading an uninitialized byte. No documentation promises this behavior, which the guide
+  // discloses (chapter What `puns` relies on).
   unsafe { load(sample.as_ptr().cast::<u8>().add(offset), len, Endian::NATIVE) }
 }
 

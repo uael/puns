@@ -23,7 +23,7 @@
 //! [rules#fields]: super::rules#fields
 //! [uninhabited]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 //! [unspecified layout]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
-//! [msrv]: super::msrv
+//! [msrv]: super::target#minimum-rust-version
 #![doc = include_str!("../../docs/errors.md")]
 
 // The items of the crate, which the links of this chapter name. Only rustdoc reads them.
