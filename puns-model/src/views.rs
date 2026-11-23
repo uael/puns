@@ -230,14 +230,19 @@ pub fn check_view<V: View>(lengths: &[usize], sample: bool) {
 /// Checks every ordered pair of the types, a type with itself included, as a [`Two`] with
 /// [`check_view`].
 ///
-/// The view is checked over `lengths`, with a sample of the patterns if `sample`.
+/// The view is checked over `lengths`, with a sample of the patterns if `sample`. With
+/// `sources [..]` after them, only the first variants that the marks keep are checked, with every
+/// type as the second (see [`sources!`](crate::sources!)).
 #[macro_export]
 macro_rules! view_pairs {
   ($lengths:expr, $sample:expr; $($ty:ty),+ $(,)?) => {
-    $crate::view_pairs!(@outer ($lengths, $sample); [$($ty),+]; $($ty),+);
+    $crate::view_pairs!(@sources (($lengths, $sample), [$($ty),+]); $($ty),+);
   };
-  (@outer $args:tt; $all:tt; $($a:ty),+) => {
-    $( $crate::view_pairs!(@inner $args; $a; $all); )+
+  ($lengths:expr, $sample:expr, sources [$($mark:tt)+]; $($ty:ty),+ $(,)?) => {
+    $crate::sources!(view_pairs (($lengths, $sample), [$($ty),+]); [$($mark)+]; []; $($ty),+);
+  };
+  (@sources ($args:tt, $all:tt); $($a:ty),*) => {
+    $( $crate::view_pairs!(@inner $args; $a; $all); )*
   };
   (@inner ($lengths:expr, $sample:expr); $a:ty; [$($b:ty),+]) => {
     $( $crate::views::check_view::<$crate::views::Two<'static, $a, $b>>($lengths, $sample); )+

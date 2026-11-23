@@ -6,8 +6,8 @@
 //! with a byte that may be uninitialized. At the place of the target, each holds a struct with the
 //! same rules as the target, or a struct with another rule or another extent.
 //!
-//! This file is a sample, for every push. The full check (`size1.rs`, `size2.rs`, `parts2.rs`) has
-//! every pair of these types.
+//! This file is a sample, for every push. The full check (`support/size1.rs`, `support/size2.rs`,
+//! `support/parts2.rs`) has every pair of these types.
 //!
 //! This file is not built under Miri. It checks verdicts, and `miri_sample.rs` reaches their
 //! unsafe paths.
