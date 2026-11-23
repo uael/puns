@@ -15,7 +15,7 @@
 //! [rust#the-tag-of-an-enum-of-the-rust-representation]: super::rust#the-tag-of-an-enum-of-the-rust-representation
 //! [rust#the-variant-read-from-the-tag]: super::rust#the-variant-read-from-the-tag
 //! [same]: super::layouts#the-same-type
-//! [testing]: super::testing
+//! [testing#the-derive-against-a-fake-core]: super::testing#the-derive-against-a-fake-core
 #![doc = include_str!("../../docs/trust.md")]
 
 // The items of the crate, which the links of this chapter name. Only rustdoc reads them.

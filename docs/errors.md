@@ -1,14 +1,13 @@
 # Compile-time errors
 
-A pun that `puns` [refuses][concepts#proven-checked-and-refused] does not compile. This chapter
-shows how to read the error, then each message, with code that causes it and its fix. Build with
-`cargo build` to see these errors. Most of them are panics of `const` blocks in the generic
-functions of `puns` (error E0080), which `rustc` evaluates only when it generates code for an
-instance of the function, after monomorphization. `cargo check` and editors generate no code, so
-they do not report them. A generic function that calls `puns` therefore compiles until it is
-instantiated with a pun that is refused, and the error then points inside it. The conditions
-would be trait bounds, which `cargo check` reports, if stable Rust could bound the value of a
-constant expression, as `generic_const_exprs` does on nightly ([Minimum Rust version][msrv]).
+A pun that `puns` [refuses][concepts#proven-checked-and-refused] does not compile. Most refusals are
+panics of `const` blocks in the generic functions of `puns` (error E0080), which `rustc` evaluates
+only when it generates code for an instance of the function, after monomorphization. `cargo check`
+and editors generate no code, so they do not report them, while `cargo build` does. A generic
+function that calls `puns` therefore compiles until it is instantiated with a pun that is refused,
+and the error then points inside it. The conditions would be trait bounds, which `cargo check`
+reports, if stable Rust could bound the value of a constant expression, as `generic_const_exprs`
+does on nightly ([Minimum Rust version][msrv]).
 
 ## Reading an error
 
@@ -39,7 +38,8 @@ note: the above error was encountered while instantiating `fn pun_ref::<Header, 
 ```
 
 Byte 1 of the target is the first of the three bytes of padding after `kind`. The last note
-gives the line of the call. Between the first lines and that note, `rustc` 1.100 prints 33 lines
+gives the line of the call, because each function evaluates its constant in its own body, for the
+types of that call. Between the first lines and that note, `rustc` 1.100 prints 33 lines
 that locate the failed constant inside `puns`, which can be skipped.
 
 An optimized build may inline the function into its caller before it evaluates the constant.
@@ -67,8 +67,7 @@ The message of a refused pun starts with `cannot pun:` and says why. When the ca
 byte, the message names that byte of the target. A message names only the first cause that
 `puns` finds, in this order: the sizes, an unspecified layout, padding, a source with no valid
 value, a check that the function cannot make, then the alignment. For a `&mut`, what a write
-leaves comes last. Fixing one cause may therefore reveal the next. Each message follows, with
-code that causes it and its fix, or the reason why there is none.
+leaves comes last. Fixing one cause may therefore reveal the next.
 
 ### Sizes
 
@@ -82,7 +81,7 @@ let n: u32 = puns::pun([1u8, 2, 3]);
 cannot pun: the source is smaller than the target.
 ```
 
-For a larger source, the message suggests the functions that take the first or last bytes of it:
+A larger source gives another message:
 
 ```rust,compile_fail,E0080
 let pair: [u8; 2] = puns::pun([1u8, 2, 3]);
@@ -97,7 +96,7 @@ Use `head` or `tail` (or their `_ref` and `_mut` forms) to take the first or las
 assert_eq!(puns::head::<[u8; 3], [u8; 2]>([1, 2, 3]), [1, 2]);
 ```
 
-A target that ends with a slice must reach the size of the source with whole elements:
+For a target that ends with a slice:
 
 ```rust,compile_fail,E0080
 let pairs: &[[u8; 2]] = puns::pun_ref(&[1u8, 2, 3]);
@@ -113,7 +112,7 @@ let pairs: &[[u8; 2]] = puns::head_ref(&[1u8, 2, 3]);
 assert_eq!(pairs, &[[1, 2]]);
 ```
 
-A source that ends with a slice may have a length that gives no size of the target:
+For a source that ends with a slice:
 
 ```rust,compile_fail,E0080
 let bytes: &[u8] = &[1, 2];
@@ -185,7 +184,7 @@ assert!(flagged.flag);
 ```
 
 [`validate_but_never`] checks every part of its target, and gives its own message for the same
-struct, with the same fix:
+struct:
 
 ```rust,compile_fail,E0080
 // This example is about the default build, without the `unstable` feature.
@@ -205,8 +204,7 @@ cannot pun: the type has a part with an unspecified layout (a struct, a tuple or
 Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
 ```
 
-A `&mut` is refused when what is written through it would have to leave a valid source in a
-part with an unspecified layout:
+A `&mut` gives another message:
 
 ```rust,compile_fail,E0080
 let _: &mut [u8; 2] = puns::pun_mut(&mut (true, 1u8));
@@ -227,8 +225,7 @@ let bytes: &[u8; 2] = puns::pun_ref(&(true, 1u8));
 assert_eq!(bytes, &[1, 1]);
 ```
 
-A `&mut` to the first or last bytes of the source can cover a part with an unspecified layout
-only if the target has the same type at the same place:
+A `&mut` to the first or last bytes of the source gives a third:
 
 ```rust,compile_fail,E0080
 use core::mem::MaybeUninit;
@@ -370,9 +367,7 @@ assert_eq!(puns::try_pun_ref::<[u8; 4], u32>(aligned), Ok(&0));
 assert_eq!(puns::try_pun_ref::<[u8; 4], u32>(shifted), Err(puns::Error::Alignment));
 ```
 
-[`tail_ref`] and [`tail_mut`] check no address. Their message suggests [`tail`], which copies the
-value and needs no aligned address, and [`from_tail`], which checks the address of bytes at run
-time:
+[`tail_ref`] and [`tail_mut`] check no address, and their message suggests other functions:
 
 ```rust,compile_fail,E0080
 let n: &u16 = puns::tail_ref(&[0u8; 4]);
@@ -389,8 +384,7 @@ assert_eq!(puns::tail::<[u8; 4], u16>([0, 0, 1, 0]), u16::from_ne_bytes([1, 0]))
 
 ### The last bytes of a value
 
-Where the last bytes of an unsized source start depends on its length, which is only known at
-run time:
+The functions of the back refuse an unsized source:
 
 ```rust,compile_fail,E0080
 let last: &u8 = puns::tail_ref::<[u8], u8>(&[1, 2]);
@@ -405,7 +399,7 @@ Use `from_tail` to take a value from the end of bytes.
 assert_eq!(puns::from_tail::<u8>(&[1, 2]), Ok((&[1][..], &2)));
 ```
 
-An unsized target has no size to count from the end. Name its size, as an array:
+For an unsized target, name its size, as an array:
 
 ```rust,compile_fail,E0080
 let last: &[u8] = puns::tail_ref::<[u8; 4], [u8]>(&[1, 2, 3, 4]);
@@ -420,7 +414,7 @@ let last: &[u8; 2] = puns::tail_ref(&[1u8, 2, 3, 4]);
 assert_eq!(last, &[3, 4]);
 ```
 
-[`from_tail`] gives its own message, which names [`from_head`] and [`from_bytes`]:
+[`from_tail`] gives its own message:
 
 ```rust,compile_fail,E0080
 let _ = puns::from_tail::<[u16]>(&[0; 4]);
@@ -433,8 +427,7 @@ Use `from_head` or `from_bytes`.
 
 ### Writing through `&mut`
 
-Any value of the target may be written through a `&mut`, so every value of the target must be a
-valid source. Here, it could be bytes that are not UTF-8:
+Here, a value of the target written through the `&mut` could be bytes that are not UTF-8:
 
 ```rust,compile_fail,E0080
 let mut text = String::from("text");
@@ -498,10 +491,9 @@ let drawing: &Drawing = puns::pun_ref(&Shape::Rect(3, true));
 assert!(matches!(drawing, Drawing::Rect(3, 1)));
 ```
 
-A `&mut` to the first or last bytes cannot cover a struct that has a rule, unless the target has
-the same struct there. A `&mut` to the whole struct, from [`pun_mut`], is allowed, and a write
-through it may break the rule ([Writing through `&mut`][functions#writing-through-mut]). Telling
-which fields a rule reads, so as to allow the first case too, is [not yet][limits#not-yet] done:
+A `&mut` to the first or last bytes cannot cover a struct that has a rule unless the target has the
+same struct with the same rules there ([Writes leave a valid
+source][functions#writes-leave-a-valid-source]):
 
 ```rust,compile_fail,E0080
 #[derive(puns::Pun)]
@@ -519,8 +511,7 @@ let _: &mut u8 = puns::tail_mut(&mut Ordered { a: 1, b: 2 });
 cannot pun: a struct of the source that has a rule (a size, a length, an assertion, a region) overlaps the bytes that the `&mut` covers, and a write could break the rule.
 ```
 
-A `&mut` to the first or last bytes takes an enum whole or not at all, since its tag tells what
-its other bytes may hold:
+A `&mut` to the first or last bytes takes an enum whole or not at all:
 
 ```rust,compile_fail,E0080
 #[derive(puns::Pun, Clone, Copy)]
@@ -579,12 +570,11 @@ assert_eq!(puns::zeroed::<Option<core::num::NonZero<u8>>>(), None);
 
 ## Errors of the derive
 
-The derive reports most of its errors where the fault is, and the others when the layout of the
-type is evaluated. The derive's [Compile-time errors][macro@Pun#compile-time-errors] say which
-are which, and when `cargo check` reports them. A rule that reads a field that is not an unsigned
-integer is refused, and [Fields in a rule][rules#fields-in-a-rule] shows its message and its fix.
-A getter of `#[pun(get(..))]` that reads such a field is refused where it is called, which `cargo
-check` does not report:
+The derive's [Compile-time errors][macro@Pun#compile-time-errors] say where and when each of its
+errors is reported. A rule that reads a field that is not an unsigned integer is refused, and
+[Fields in a rule][rules#fields-in-a-rule] shows its message and its fix. A getter of
+`#[pun(get(..))]` that reads such a field is refused where it is called, which `cargo check` does
+not report:
 
 ```rust,compile_fail,E0080
 #[derive(puns::Pun)]
@@ -621,24 +611,21 @@ let level: &Level = puns::from_bytes(&[0xff]).unwrap();
 assert!(level.negative());
 ```
 
-[`from_bytes`]: https://docs.rs/puns/0.2.3/puns/fn.from_bytes.html
 [`from_head`]: https://docs.rs/puns/0.2.3/puns/fn.from_head.html
 [`from_tail`]: https://docs.rs/puns/0.2.3/puns/fn.from_tail.html
 [`head_mut`]: https://docs.rs/puns/0.2.3/puns/fn.head_mut.html
 [`head_ref`]: https://docs.rs/puns/0.2.3/puns/fn.head_ref.html
 [`num::u32le`]: https://docs.rs/puns/0.2.3/puns/num/struct.u32le.html
-[`pun_mut`]: https://docs.rs/puns/0.2.3/puns/fn.pun_mut.html
 [`pun`]: https://docs.rs/puns/0.2.3/puns/fn.pun.html
 [`tail_mut`]: https://docs.rs/puns/0.2.3/puns/fn.tail_mut.html
 [`tail_ref`]: https://docs.rs/puns/0.2.3/puns/fn.tail_ref.html
-[`tail`]: https://docs.rs/puns/0.2.3/puns/fn.tail.html
 [`try_pun_ref`]: https://docs.rs/puns/0.2.3/puns/fn.try_pun_ref.html
 [`validate_but_never`]: https://docs.rs/puns/0.2.3/puns/fn.validate_but_never.html
 [`zeroed`]: https://docs.rs/puns/0.2.3/puns/fn.zeroed.html
 [concepts#proven-checked-and-refused]: concepts.md#proven-checked-and-refused
 [concepts#requirements]: concepts.md#requirements
+[functions#writes-leave-a-valid-source]: functions.md#writes-leave-a-valid-source
 [functions#writing-through-mut]: functions.md#writing-through-mut
-[limits#not-yet]: limits.md#not-yet
 [macro@Pun#compile-time-errors]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#compile-time-errors
 [opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [rules#fields-in-a-rule]: rules.md#fields-in-a-rule

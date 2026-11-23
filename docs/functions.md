@@ -1,23 +1,17 @@
 # Choosing a function
 
-A function of `puns` is chosen by what it reads, a typed value or bytes, and by how much of it:
-the whole, the front or the back ([the table of functions][crate#going-further]). The choice also
-decides whether a check at run time is possible. [`pun`], [`pun_ref`], [`pun_mut`], [`as_bytes`]
-and the functions of the front and the back check nothing, and refuse a pair that needs a check.
-The `try_` and `from_` functions check what the analysis could not prove ([Proven, checked and
-refused][concepts#proven-checked-and-refused]). Each function lists the conditions of its
-pairs under "Compile-time errors", and these are checked after monomorphization ([Compile-time
-errors][errors]). The conditions that several functions share are defined once, in [The
-conditions of the functions](#the-conditions-of-the-functions).
+A function of `puns` is chosen by what it reads and by how much of it ([the table of
+functions][crate#going-further]). The choice also decides whether a check at run time is possible.
+[`pun`], [`pun_ref`], [`pun_mut`], [`as_bytes`] and the functions of the front and the back check
+nothing, and refuse a pair that needs a check. The `try_` and `from_` functions check what the
+analysis could not prove ([Proven, checked and refused][concepts#proven-checked-and-refused]).
 
 ## Reinterpreting a value
 
-For a value that already has a type, use [`pun_ref`] or [`pun_mut`] to get a reference, or
-[`pun`] to get a copy. [`pun_ref`], [`pun_mut`], [`try_pun_ref`] and [`try_pun_mut`] return a
-reference to the same bytes as their argument. [`pun`], [`try_pun`], [`head`] and [`tail`] take
-and return values, and require both types to be `Copy`. Where [`pun`] or [`pun_ref`] is refused
-because some values of the source are not valid targets, [`try_pun`] or [`try_pun_ref`] checks
-them at run time:
+For a value that already has a type, [`pun_ref`] and [`pun_mut`] return a reference to the same
+bytes, and [`pun`] returns a copy. Where one of them is refused because some values of the source
+are not valid targets, its `try_` form does the same, and checks those values at run time. [`pun`],
+[`try_pun`], [`head`] and [`tail`] take and return values, and require both types to be `Copy`:
 
 ```rust
 // Reinterpret an `f32` as its bits. A `u32` is a `char` only if it is a Unicode scalar value.
@@ -28,9 +22,8 @@ assert_eq!(puns::try_pun::<u32, char>(0xd800), Err(puns::Error::Validity));
 
 ## Reading bytes
 
-Bytes from outside the program, such as a file or a packet, are read with the `from_` functions,
-which check them. Bytes that already have a type that proves the target are read with
-[`pun_ref`] instead, which checks nothing.
+Bytes from outside the program, such as a file or a packet, are read with the `from_` functions.
+Bytes that already have a type that proves the target are read with [`pun_ref`] instead.
 
 [`from_bytes`], [`from_bytes_mut`] and [`as_bytes`] are `try_pun_ref::<[u8], D>`,
 `try_pun_mut::<[u8], D>` and `pun_ref::<S, [u8]>` with a single type parameter. Prefer them to
@@ -74,14 +67,13 @@ let (data, checksum) = puns::from_tail::<u32le>(&file).unwrap();
 assert_eq!((data, checksum.get()), (&b"data"[..], 0x1234_5678));
 ```
 
-The `from_` functions check the size, and the address if the target needs an alignment greater
-than 1, then the values of the target that the bytes do not prove, requirements included.
+The `from_` functions check the address only if the target needs an alignment greater than 1.
 [`from_bytes`] and [`from_bytes_mut`] check the address, then the size. [`from_head`] and
 [`from_head_mut`] check that the bytes hold the fields of the target before its slice, then the
-address, then the extent that its rules give. [`from_tail`] and
-[`from_tail_mut`] check the size first, since it decides where the last bytes start, then the
-address. A view has a `from_bytes` and a `from_head` of its own ([Reading one of several
-types][crate#reading-one-of-several-types]).
+address, then the extent that its rules give. [`from_tail`] and [`from_tail_mut`] check the size
+first, since it decides where the last bytes start, then the address. All of them then check the
+values of the target that the bytes do not prove, requirements included. A view has a `from_bytes`
+and a `from_head` of its own ([Reading one of several types][crate#reading-one-of-several-types]).
 
 ## Taking the front or the back
 
@@ -99,30 +91,26 @@ assert_eq!(puns::tail::<u32be, u16be>(0x1234_5678.into()).get(), 0x5678);
 assert_eq!(puns::head::<u32le, u8>(0x1234_5678.into()), 0x78);
 ```
 
-These functions check nothing. Where the size of the front is read from the bytes, or the front
-needs a check, read the bytes with [`from_head`] instead of [`head_ref`].
+Where the size of the front is read from the bytes, or the front needs a check, read the bytes with
+[`from_head`] instead of [`head_ref`].
 
 ## Writing through `&mut`
 
-Any `D` may be written through a `&mut D`. A function that returns one must therefore hold the
-other way as well: what is written must leave a valid source ([Writes leave a valid
-source](#writes-leave-a-valid-source)).
+A function that returns a `&mut D` must also hold the other way, since what is written through it
+must leave a valid source ([Writes leave a valid source](#writes-leave-a-valid-source)).
 
-The analysis compares what may be written with the source scalar by scalar. A
-`#[pun(valid(..))]` range is part of the layout of its scalar, so it is compared like any value,
-and a write must stay in it. A rule is an expression on the whole struct, which this comparison
-does not read. So [`pun_mut`] and [`try_pun_mut`] let a write break a rule of the source, as a
-write to a field may, since a rule is a [requirement][concepts#requirements] that `puns` checks
-only when it reads bytes. To check the value again, pass its bytes, from [`as_bytes`], to
-[`from_bytes`]. [`head_mut`] and [`tail_mut`] are stricter: they refuse a source in which a
-struct that has a rule overlaps the bytes that they cover, unless the target has the same struct
-with the same rules there. A more precise analysis is [not done
-yet][limits#not-yet].
+The analysis compares what may be written with the source scalar by scalar. A `#[pun(valid(..))]`
+range is part of the layout of its scalar, so it is compared like any value, and a write must stay
+in it. A rule is an expression on the whole struct, which this comparison does not read. So
+[`pun_mut`] and [`try_pun_mut`] let a write break a rule of the source, as a write to a field may,
+since a rule is a [requirement][concepts#requirements]. To check the value again, pass its bytes,
+from [`as_bytes`], to [`from_bytes`]. [`head_mut`] and [`tail_mut`] are stricter: they refuse a source in
+which a struct that has a rule overlaps the bytes that they cover, unless the target has the same
+struct with the same rules there ([Writes leave a valid source](#writes-leave-a-valid-source)). A more precise analysis is [not done yet][limits#not-yet].
 
-Where [`pun_mut`] is refused because some values of the source are not valid targets,
-[`try_pun_mut`] checks them. Where it is refused because a `D` written through it could be an
-invalid source, as when `D` is an enum with more variants than the source, take a `&mut` to only
-the bytes that are written, with [`head_mut`] or [`tail_mut`]:
+Where [`pun_mut`] is refused because a `D` written through it could be an invalid source, as when
+`D` is an enum with more variants than the source, take a `&mut` to only the bytes that are written,
+with [`head_mut`] or [`tail_mut`]:
 
 ```rust
 use puns::Pun;
@@ -143,10 +131,6 @@ puns::head_mut::<_, [u8; 3]>(&mut pixel).reverse();
 assert_eq!(pixel, Rgba { red: 0, green: 128, blue: 255, alpha: 200 });
 ```
 
-No function makes a value that holds an [opaque
-scalar][concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types]. A function
-may read such a value, as initialized bytes.
-
 ## In a constant
 
 Every function of `puns` is a `const fn`, and so is every function that the derive generates:
@@ -154,9 +138,8 @@ bytes in a constant can be checked while the program compiles. Only the implemen
 standard traits, such as `From` and `Display`, are not, since stable Rust cannot call a trait
 method in `const`. `unwrap` is not `const` either: match on the result instead.
 
-A check of an address does not compile in a constant, because const evaluation cannot read an
-address. `core` calls reading one as an integer undefined behavior there, and says that using
-the integer stops the evaluation
+A check of an address does not compile in a constant, because `core` calls reading an address as an
+integer undefined behavior in const evaluation, and says that using the integer stops the evaluation
 ([`transmute`][core::mem::transmute#transmutation-between-pointers-and-integers]). A checked
 function therefore compiles in a constant only where it checks no address:
 
@@ -223,9 +206,10 @@ error[E0080]: evaluation panicked: the built-in save is invalid
 
 ## The conditions of the functions
 
-The page of each function lists the conditions under which a call compiles. Those that several
-functions share are defined here. The *covered bytes* are the bytes of a value of `S` that the
-target takes: all of them for [`pun`] and the other functions of a whole value, and the first or
+The page of each function lists, under "Compile-time errors", the conditions under which a call
+compiles. These are checked after monomorphization ([Compile-time errors][errors]), and those that
+several functions share are defined here. The *covered bytes* are the bytes of a value of `S` that
+the target takes: all of them for [`pun`] and the other functions of a whole value, and the first or
 last bytes for [`head`], [`tail`] and their `_ref` and `_mut` forms, as each page says.
 
 ### Sizes

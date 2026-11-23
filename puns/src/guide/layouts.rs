@@ -13,6 +13,8 @@
 //! [opaque scalar]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 //! [part]: super::concepts#layouts-and-rules
 //! [rule]: super::concepts#layouts-and-rules
+//! [rust#what-rust-documents]: super::rust#what-rust-documents
+//! [trust-identity]: super::trust#the-identity-of-a-type-and-the-compiler
 //! [unspecified layout]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 #![doc = include_str!("../../docs/layouts.md")]
 

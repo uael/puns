@@ -6,10 +6,10 @@ initialized in the source: those that the analysis leaves to it, and the proven 
 check with them ([Reading the bytes of the value][bytes]). `puns` never relies on a [rule] for
 memory safety: a rule that no longer holds gives wrong values or a panic, never undefined behavior.
 
-The analysis compares the layouts that the implementations of [`Pun`] give. `puns` implements
-`Pun` itself for the types of `core` that it supports, and the derive implements it for other
-types ([What the derive trusts][trust]). [What `puns` relies on][rust] lists what Rust documents
-of these layouts, and what no documentation states. [Testing][testing] says how each is checked.
+The analysis compares the layouts that the implementations of [`Pun`] give: those of `puns` for
+the types of `core` that it supports, and those of the derive for other types ([What the derive
+trusts][trust]). [What `puns` relies on][rust] lists what Rust documents of these layouts, and what
+no documentation states. [Testing][testing] says how each is checked.
 
 ## Guarantees and requirements
 
@@ -30,16 +30,14 @@ source.
 
 `MaybeUninit<T>` is padding with the size and the alignment of `T`: its layout is
 [`Layout::padding`]. It is `Pun` only if `T` is, so that it never holds an `UnsafeCell`. As a
-target, it accepts any bytes. As a source, it proves only a target that accepts any bytes. What is
+target, it accepts any bytes. As a source, it proves only a target that accepts any bytes, so a
+`&mut T` is made from a `MaybeUninit<T>` only if `T` requires no byte to be initialized. What is
 written through a `&mut MaybeUninit<T>` may be uninitialized, so such a reference is made only from
-a source that accepts any bytes there, uninitialized ones included. A `&mut T` is made from a
-`MaybeUninit<T>` only if `T` requires no byte to be initialized, since such a byte would be read
-from padding.
+a source that accepts any bytes there, uninitialized ones included.
 
-The tag of an enum is never padding. With a primitive or `C` representation, Rust places the tag
-and gives it the discriminant. With the `Rust` representation, the experiments read the tag in the
-value of each variant, and a byte of padding there fails the build ([Errors of const
-evaluation][rust#errors-of-const-evaluation]).
+The tag of an enum is never padding. Rust places the tag of a primitive or `C` enum, and the
+experiments that find the tag of a `Rust` enum fail the build on a byte of padding ([Errors of
+const evaluation][rust#errors-of-const-evaluation]).
 
 ## Unions
 
@@ -54,13 +52,14 @@ of its fields, and safe code may write one field over another. `puns` accepts on
 under every one of these rules:
 
 - As a target, bytes are a union only if they are one of its fields. Safe code makes such bytes by
-  writing that field, so they are valid under the first sentence above, and under every rule. This
-  requires more than some of the rules, and never less. A union is proven by any one field that the
-  source proves, and is otherwise checked field by field at run time.
-- As a source, nothing is known of a union, not even that its bytes are initialized. So a union
-  that holds any bytes, as the second sentence allows, is a source too. Only the same union proves
-  a union. A union may hold a value even if none of its fields has one, though no value of it can
-  be made, so [`Layout::is_inhabited`] answers for a target only.
+  writing that field, so the first sentence above makes them valid under every rule, though some
+  rules accept more. A union is proven by any one field that the source proves, and is otherwise
+  checked field by field at run time.
+- As a source, nothing is known of a union, not even that its bytes are initialized, since some
+  rules let it hold any bytes, as the second sentence does where it has a field of size 0. Only the
+  same union proves a union. A union may hold a value even if none of its fields has one, though no
+  value of it can be made. Such a union, and a variant or a struct that holds it, is not
+  uninhabited as a source, and [`Layout::is_inhabited`] answers for a target only.
 
 The bytes that a field *reads* are those that it checks, those that a rule of a struct in it
 loads, and every byte of a struct whose rule reads bytes by offset. A field of a target union is
@@ -68,13 +67,12 @@ checked only if no byte that it reads may be padding in the source. If some fiel
 padding and no field is proven, the pun is refused ([Not yet][limits#not-yet] says what would lift
 this).
 
-A proven union is not read. But where parts are checked together, as the elements of an array or
-the fields of a variant of an enum checked as a whole, a proven union is checked with them, its
-fields tried in order. The check stops at the first field that the source proves whatever safe
-code writes. A field proven only through a requirement of the source fails its check where safe
-code broke that requirement, so the fields after it may be tried too, and the bytes that they read
-count. The pun is refused if the check would read a byte that may be padding in the source, or a
-byte of the same union, of which nothing is known.
+A proven union is not read, except where it shares a check with other parts, as the elements of
+an array or the fields of a variant of an enum checked as a whole. Its fields are then tried in
+order, up to the first that the source proves whatever safe code writes. A field proven only
+through a requirement of the source fails where safe code broke that requirement, so the bytes that
+the fields after it read count too. The pun is refused if the check would read a byte that may be
+padding in the source, or a byte of the same union.
 
 ## Uninhabited types
 
@@ -82,8 +80,8 @@ No value of an inhabited type is a value of an [uninhabited] one, so such a pun 
 valid. A variant or a struct that holds an uninhabited type is uninhabited too.
 
 No bytes are an uninhabited variant of a target enum, or an uninhabited field of a target union.
-The analysis does not look at such a part, and a check reads nothing of it. So bytes with the tag
-of that variant fail the check, whatever its other fields hold. Without this rule, a variant of a
+The analysis does not look at such a part, and a check reads nothing of it, so bytes with the tag
+of that variant fail the check whatever its other fields hold. Without this rule, a variant of a
 `repr(u8)` enum whose field is uninhabited would be proven from a variant whose field is not,
 because no byte of a type of size 0 is ever compared.
 
@@ -92,19 +90,16 @@ refused, unless the source ends with a slice of the same elements at the same pl
 
 As a source, an uninhabited variant needs no proof where the target is an enum, since the two
 enums are compared variant by variant and no value is that variant. Against any other target, the
-tag of the enum is read as a scalar that may also hold the tag of that variant. A struct that holds
-an uninhabited type is compared field by field, as any struct is.
-
-A union none of whose fields has values is not uninhabited as a source ([Unions](#unions)), and
-neither is a variant or a struct that holds it.
+tag of the enum is read as a scalar that may also hold the tag of that variant, and a struct that
+holds an uninhabited type is compared field by field, as any struct is.
 
 ## What deriving `Pun` means
 
 `PhantomData<T>` is a scalar with no bytes, for any `T`. So types that differ only in phantom
 parameters or lifetimes have the same layout, and convert to each other freely. A type must not
 derive `Pun` if its parameters mark something about its values: a unit, an invariant lifetime that
-ties a value to a scope, or a marker of what a value was checked against. The pun itself is sound,
-but the marker no longer says anything:
+ties a value to a scope, or a marker of what a value was checked against. The pun is sound, but the
+marker no longer means anything:
 
 ```rust
 use core::marker::PhantomData;
@@ -128,11 +123,11 @@ assert_eq!(feet.value, 3);
 
 Deriving `Pun` also makes every field as accessible as if it were public. A value can be made from
 any bytes that are valid for its fields and meet its rules, reinterpreted as any type that its bytes
-are, and written through a `&mut` to another type. The functions check what the derive was told, and
-nothing that a constructor checks. So a type whose private fields keep an invariant that the derive
-does not know must not derive `Pun`: unsafe code that relies on that invariant has undefined
-behavior on a value that a pun made. For the same reason, the derive cannot make a type that
-guarantees a pattern, as `str` does: safe code can write its fields.
+are, and written through a `&mut` to another type. The functions check what the derive was told,
+never what a constructor checks. So a type whose private fields keep an invariant that the derive
+does not know must not derive `Pun`, since unsafe code that relies on that invariant has undefined
+behavior on a value that a pun made. For the same reason, a derived type cannot guarantee a
+pattern, as `str` does.
 
 ```rust
 mod even {

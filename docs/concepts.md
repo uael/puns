@@ -37,25 +37,22 @@ data that may be one of several types.
 
 ## What is a valid value?
 
-A *valid* value of a type is a value that is [valid] in the sense of the Reference, and that
-meets the invariants that its type *guarantees*, whatever code does. A `str` is UTF-8, a
-[`u8in<MIN, MAX>`][num::u8in] holds a value from `MIN` to `MAX`, and a
-[`u16bec<V>`][num::u16bec] holds `V`. The types of [`num`] keep their fields private, and their
-constructors check these invariants.
+A *valid* value of a type is [valid] in the sense of the Reference, and meets the invariants that
+its type *guarantees*, whatever code does. A `str` is UTF-8, a [`u8in<MIN, MAX>`][num::u8in] holds a
+value from `MIN` to `MAX`, and a [`u16bec<V>`][num::u16bec] holds `V`. The types of [`num`] keep
+their fields private, and their constructors check these invariants.
 
 ## Requirements
 
-What a struct asks of its values with `#[pun(valid(..))]` and with its rules is a
-*requirement*. The type does not enforce it: code can write its fields directly or through a
-pun, private fields included. `puns` checks a requirement when it reads bytes, but the
-requirement can stop holding afterwards, and it never protects a later read. A getter of
-`#[pun(get(..))]` may still panic, and the accessors of regions truncate a region that no longer
-fits.
+What a struct asks of its values with `#[pun(valid(..))]` and with its rules is a *requirement*. The
+type does not enforce it: code can write its fields directly or through a pun, private fields
+included. `puns` checks a requirement only when it reads bytes, so a getter of `#[pun(get(..))]` may
+still panic, and the accessors of regions truncate a region that no longer fits.
 
-The analysis relies only on validity. A pun makes a `D` only from bytes that are a valid `D`,
-and makes a reference to a `D` only at an address that is [properly aligned] for `D`. The
-requirements of `D` hold of the result if those of the source held: the pun checks them, or
-proves them from the source ([Why the pair decides](#why-the-pair-decides)).
+The analysis relies only on validity. A pun makes a `D` only from bytes that are a valid `D`, and a
+reference to a `D` only at an address [properly aligned] for `D`. The requirements of `D` hold of
+the result if those of the source held: the pun checks them, or proves them from the source ([Why
+the pair decides](#why-the-pair-decides)).
 
 A requirement never proves what another type guarantees. Two types have the same layout only if
 they require and guarantee the same values, and a field `#[pun(valid(0..=1))] u8` is not a
@@ -63,24 +60,19 @@ they require and guarantee the same values, and a field `#[pun(valid(0..=1))] u8
 
 ## Proven, checked and refused
 
-A pun is a pair given to a function. At compile time, `puns` puts each pun in one of three
-kinds:
+At compile time, `puns` puts each pun in one of three kinds:
 
 - *Proven*: every value of the source is a valid target, and the source proves the requirements
   of the target. Nothing is checked at run time.
-- *Checked*: some values of the source are not valid targets, or may not meet the requirements
-  of the target, and the function checks them. The `try_` and `from_` functions check at run
-  time only what the analysis could not prove, and return an [`Error`] if the bytes fail the
-  check. A check never allocates and never panics.
+- *Checked*: some values of the source are not valid targets, or may not meet the requirements of
+  the target. The `try_` and `from_` functions check at run time only what the analysis could not
+  prove, and return an [`Error`] if the bytes fail the check. A check never allocates and never
+  panics.
 - *Refused*: the pun does not compile. Either the pair can never be valid, or some part of it
   can be neither proven nor checked, such as a byte that may be padding in the source, or the
   pair needs a check and the function checks nothing.
 
-The same pair can therefore be refused by [`pun_ref`], which checks nothing, and checked by
-[`try_pun_ref`]. A pair that is proven is proven with either function.
-
-A proven pun compiles to no check, but not always to no code, since it may still compute an
-address or a length:
+A proven pun compiles to no check, though it may still compute an address or a length:
 
 ```rust
 // Proven, since every `u16` is two initialized bytes. The length of the result is computed.
@@ -90,12 +82,12 @@ assert_eq!(bytes.len(), 6);
 
 ## Why the pair decides
 
-The kind of a pun depends on its function and on both of its types, and never on one type
-alone. With the `Switch` of the [crate page][crate], `&[Switch]` as `&[bool]` is proven, while
-`&[u8]` as `&[bool]` is checked by [`try_pun_ref`] and refused by [`pun_ref`], since a byte may
-hold the value 2. At compile time, the two layouts tell what holds of every value of the
-source. What depends on one value, such as its bytes or a length that a rule reads from them,
-is left to a check at run time.
+The kind of a pun depends on its function and on both of its types, and never on one type alone.
+With the `Switch` of the [crate page][crate], `&[Switch]` as `&[bool]` is proven by [`pun_ref`] and
+[`try_pun_ref`] alike: a pair that is proven is proven with either function. `&[u8]` as `&[bool]` is refused by `pun_ref`, which checks nothing, and
+checked by `try_pun_ref`, since a byte may hold the value 2. At compile time, the two layouts tell
+what holds of every value of the source. What depends on one value, such as its bytes or a length
+that a rule reads from them, is left to a check at run time.
 
 A `#[pun(valid(..))]` of the target is proven by any source whose values it accepts, as a `bool`
 proves `#[pun(valid(0..=1))]`. The rules of a struct are proven only by the rules of the source:
@@ -131,9 +123,8 @@ let pair: &Pair = puns::pun_ref(range);
 assert_eq!((pair.a, pair.b), (1, 5));
 ```
 
-A requirement of the source proves no guarantee of the target. Bytes that a struct requires to
-be ASCII are not a `str`, because code may have written 0xff to one of them since they were
-checked:
+Bytes that a struct requires to be ASCII are not a `str`, because code may have written 0xff to one
+of them since they were checked:
 
 ```rust,compile_fail,E0080
 use puns::Pun;

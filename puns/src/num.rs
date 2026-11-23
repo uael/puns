@@ -4,8 +4,7 @@
 //!
 //! [`u16le`] is a little-endian `u16`, which stores its least significant byte first, and
 //! [`u16be`] a big-endian one, which stores it last. There are such types for the unsigned
-//! integers of 16, 24, 32, 48, 64 and 128 bits, for `i16` to `i128`, and for `f32` and `f64`, such
-//! as [`u24be`], [`i32le`] and [`f64be`].
+//! integers of 16, 24, 32, 48, 64 and 128 bits, for `i16` to `i128`, and for `f32` and `f64`.
 //!
 //! Each type is a byte array, so any bytes of its size are a valid value, and its alignment is 1:
 //! it can be at any address. A `repr(C)` struct whose fields all have alignment 1, as these types
@@ -39,9 +38,8 @@
 //!
 //! A *constant type* is an integer whose only valid value is its parameter `V`: [`u8c<V>`](u8c),
 //! and one for each unsigned type above, such as [`u32bec<V>`](u32bec). It holds a magic number, a
-//! version or a type tag. Bytes are a valid value only if they are `V` in its byte order. A pun of
-//! it as its unsigned type, such as `u32bec<V>` as `u32be`, is proven, since `V` is a valid value
-//! of that type.
+//! version or a type tag. A pun of it as its unsigned type, such as `u32bec<V>` as `u32be`, is
+//! proven, since `V` is a valid value of that type.
 //!
 //! [`u8in<MIN, MAX>`](u8in) is a `u8` from `MIN` to `MAX`.
 //!
@@ -211,7 +209,7 @@ macro_rules! ints {
       /// ```
       pub const MAX: Self = Self([0xff; $size]);
 
-      /// Creates `value` in this byte order.
+      /// Creates `value`.
       ///
       #[doc = narrower!($raw $size, concat!(
         "# Panics\n\nPanics if `value` does not fit in ", stringify!($size), " bytes.\n\n",
@@ -520,7 +518,7 @@ macro_rules! numbers {
     pub struct $name([u8; $size]);
 
     impl $name {
-      /// Creates `value` in this byte order.
+      /// Creates `value`.
       ///
       /// ```
       #[doc = concat!("use puns::num::", stringify!($name), ";")]
@@ -758,7 +756,7 @@ impl<const V: u8> fmt::Debug for u8c<V> {
   }
 }
 
-/// A `u8` from `MIN` to `MAX`, inclusive. `u8in<0, 0x7f>` is an ASCII character.
+/// A `u8` from `MIN` to `MAX`, inclusive.
 ///
 /// # Compile-time errors
 ///

@@ -68,13 +68,10 @@ assert_eq!(puns::from_bytes::<[Switch; 2]>(&[1, 0]), Ok(&[Switch::On, Switch::Of
 assert_eq!(puns::from_bytes::<[Switch; 2]>(&[1, 2]), Err(puns::Error::Validity));
 ```
 
-Every `Switch` is already a valid `bool`, and `pun_ref` returns the same memory with a new type.
-The second conversion can't be proven, because a byte can hold any value: `from_bytes` checks each
-one and returns a `Result`. `puns` calls these puns [*proven* and *checked*][kinds]. Which one a pun
-is depends on its two types and on its function, since `pun_ref` checks nothing and `from_bytes`
-checks. A pun that can be neither is *refused*, and doesn't compile. If you give `Switch` a third
-variant with the value 2, some `Switch`es aren't `bool`s, and the `pun_ref` call above stops with
-this error:
+`pun_ref` returns the same memory with a new type, and `from_bytes` returns a `Result`. `puns` calls
+these puns [*proven* and *checked*][kinds]. A pun that can be neither is *refused*, and doesn't
+compile. If you give `Switch` a third variant with the value 2, some `Switch`es aren't `bool`s, and
+the `pun_ref` call above stops with this error:
 
 ```text
 cannot pun: some values of the source are not valid for the target, or do not prove one of its rules.
@@ -89,9 +86,8 @@ each message.
 decides while the compiler generates code, which `cargo check` skips. Both report the errors of the
 derive and of types.
 
-The three examples below show what `puns` is for: reading a packet whose header holds its length and
-its checksum, reading data that is one of several types, and reading data of an old version of a
-format as the new one. Going further, after them, lists the functions, traits and modules.
+The three examples below show what `puns` is for. Going further, after them, lists the functions,
+traits and modules.
 
 ### Reading a packet
 
@@ -306,7 +302,7 @@ compares the two types of each conversion. Read on 2026-11-23, with `zerocopy` 0
 | `&[Switch]` as `&[bool]` | free ([code and machine code][comparison]) | checks every byte, and returns a `Result` |
 | A checksum | declared on the type, and checked by `from_bytes` | computed and compared by your code |
 | The rules of one type prove those of another | [yes][pairs] | no |
-| Errors | refusals reported by `cargo build`, not by `cargo check` or your editor | mostly trait bounds, which your editor reports right away |
+| Errors | refusals, which your editor doesn't report | mostly trait bounds, which your editor reports right away |
 | `Vec` and atomics | [not yet][not-yet] | `bytemuck` casts a `Vec`, `zerocopy` handles atomics |
 | Rust | [1.99][msrv] or later | 1.56 or later (`zerocopy`), 1.34 or later without features (`bytemuck`) |
 

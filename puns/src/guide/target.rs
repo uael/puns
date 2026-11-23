@@ -5,6 +5,7 @@
 //! [`sum16`]: layout::sum16
 //! [limits#limits-of-rust]: super::limits#limits-of-rust
 //! [testing#miri]: super::testing#miri
+//! [trust#sizes-and-offsets]: super::trust#sizes-and-offsets
 #![doc = include_str!("../../docs/target.md")]
 
 // The items of the crate, which the links of this chapter name. Only rustdoc reads them.

@@ -1,27 +1,22 @@
 # Measured performance
 
-A checked pun compiles to the checks of what the analysis could not prove. [Time](#time) measures
-these checks next to the same checks written by hand, and [Build time](#build-time) measures what
-the analysis costs while the program compiles.
+A checked pun compiles to the checks of what the analysis could not prove.
 
 ## Machine code
 
 The module documentation of [`puns/examples/codegen.rs`][codegen] gives the machine code of its
-functions in a table, with the target, the version of `rustc`, the profile and the command that
-writes the assembly. The example requires the `unstable` feature, since some of its types have an
-unspecified layout. The table has no date or revision of its own. Its module documentation asks
-that each change of the library compare the assembly before and after it, and update the table. A
-count of instructions is not a time, which [Time](#time) measures.
+functions, how it was measured, and the command that writes it. Its table has no date or revision
+of its own.
 
 ### Compared with `zerocopy` and `bytemuck`
 
 `zerocopy` and `bytemuck` decide what a conversion needs from each type on its own. A `bool` does
-not accept every byte, so with them, reinterpreting a `&[Switch]` as a `&[bool]` is a checked
-conversion, even when every `Switch` is 0 or 1. `puns` proves it from the two types. On 2026-11-21,
-the functions below were compiled with `zerocopy` 0.8.63, `bytemuck` 1.25.2 and `rustc` 1.100.0,
-for `aarch64-apple-darwin`, in a crate of their own built with `lto = true` and `codegen-units =
-1`, by `cargo rustc --release --lib -- --emit asm`. The revision of `puns` that it used is not
-recorded, and the assembly is not in the repository:
+not accept every byte, so with them `&[Switch]` as `&[bool]` is a checked conversion, even when
+every `Switch` is 0 or 1. `puns` proves it from the two types. On 2026-11-21, the functions below
+were compiled with `zerocopy` 0.8.63, `bytemuck` 1.25.2 and `rustc` 1.100.0, for
+`aarch64-apple-darwin`, in a crate of their own built with `lto = true` and `codegen-units = 1`, by
+`cargo rustc --release --lib -- --emit asm`. The revision of `puns` is not recorded, and the
+assembly is not in the repository:
 
 ```rust,ignore
 #[derive(puns::Pun, zerocopy::IntoBytes, zerocopy::Immutable, bytemuck::NoUninit, Clone, Copy)]
@@ -49,22 +44,20 @@ pub fn puns_slice(s: &[Switch]) -> &[bool] {
 ```
 
 `zc_slice` compiles to a loop of 9 instructions, and `bm_slice` to one of 10, each comparing every
-byte with 2. `puns_slice` compiles to `ret`. For a single `Switch` reinterpreted as a `bool`, by
-value, all three compile to `ret`, because the optimizer knows that a `Switch` is 0 or 1 and removes
-the check.
+byte with 2. `puns_slice` compiles to `ret`. By value, a single `Switch` as a `bool` compiles to
+`ret` with all three, because the optimizer knows that a `Switch` is 0 or 1 and removes the check.
 
 ## Time
 
 [`puns/benches/checks.rs`][checks] times each check made by `puns` next to the same check written
-by hand. The times below are in nanoseconds per check: the median of 5 runs of the benchmark, each
-of which takes the best of 7 samples of each case. They were measured on 2026-11-21 by `cargo bench
--p puns --features unstable --bench checks`, with the library at commit [`4176671`][commit] and
-`rustc` 1.100.0, in the `bench` profile (`opt-level = 3`, and the LTO and single codegen unit of the
-release profile of the workspace). The machine was an Apple M4 Max (14 cores, 36 GiB) on macOS
-26.7.2, at a load average between 3.5 and 3.9. From one run to the next, the time of `puns` varied
-by less than 2% in 26 of the 33 cases, and by 22% at most (`ipv6, tcp, 12 headers`). The time by
-hand varied by less than 2% in 19 cases, and by 40% at most (`ipv6, tcp, 0 headers`). The output of
-each run is in [`docs/checks-2026-11-21.txt`][record].
+by hand. Each of the 5 runs of the benchmark takes the best of 7 samples of each case. They were
+made on 2026-11-21 by `cargo bench -p puns --features unstable --bench checks`, with the library at
+commit [`4176671`][commit] and `rustc` 1.100.0, in the `bench` profile of the workspace
+(`opt-level = 3`, LTO, one codegen unit). The machine was an Apple M4 Max (14 cores, 36 GiB) on
+macOS 26.7.2, at a load average between 3.5 and 3.9. From one run to the next, the time of `puns`
+varied by less than 2% in 26 of the 33 cases, and by 22% at most (`ipv6, tcp, 12 headers`). The
+time by hand varied by less than 2% in 19 cases, and by 40% at most (`ipv6, tcp, 0 headers`). The
+output of each run is in [`docs/checks-2026-11-21.txt`][record].
 
 For the 17 cases of packets (Ethernet, IPv4, IPv6, UDP and TCP), `puns` took between 0.55 and 1.13
 times as long as the code by hand.
@@ -119,17 +112,17 @@ The size of an IPv4 case is the size of its UDP datagram or TCP segment, after t
 IPv4 header. The IPv6 cases of TCP time only the walk over the extension headers, and the IPv6 case
 of 1400 bytes computes a checksum that fails.
 
-The code by hand computes CRC-32 and CRC-32C 16 bytes at a time, unless the name of the case says a
-byte at a time. It checks a slice with an iterator, such as `bytes.iter().all(|&b| b <= 1)`. It
-computes the two CRC-16s a byte at a time, with a table, while `puns` computes every CRC 16 bytes at
-a time. So the rows of the CRC-16s compare two algorithms rather than the cost of the check.
+The code by hand checks a slice with an iterator, such as `bytes.iter().all(|&b| b <= 1)`. It
+computes CRC-32 and CRC-32C 16 bytes at a time, as `puns` computes every CRC, unless the name of
+the case says a byte at a time. It computes the two CRC-16s a byte at a time with a table, so their
+rows compare two algorithms rather than the cost of the check.
 
-`puns` checks a slice of small elements, each a few comparisons, in blocks of up to 64 bytes,
-without a branch inside a block. Such an element has 1 to 16 bytes, and is a scalar, an array of at
-most 16 such elements, or a struct of such fields whose rules compute on its fields alone, without
-a checksum, a CRC, a pattern, a walk or a division. An enum with fields is checked one element at a
-time, so a slice of `MaybeFlag`, an enum of the `Rust` representation whose tag is a niche in a
-`bool`, is slower than by hand.
+`puns` checks a slice of small elements in blocks of up to 64 bytes, without a branch inside a
+block. Such an element has 1 to 16 bytes, and is a scalar, an array of at most 16 such elements, or
+a struct of such fields whose rules compute on its fields alone, without a checksum, a CRC, a
+pattern, a walk or a division. An enum with fields is checked one element at a time, so a slice of
+`MaybeFlag`, an enum of the `Rust` representation whose tag is a niche in a `bool`, is slower than
+by hand.
 
 ## Build time
 
@@ -142,7 +135,7 @@ These times were measured on 2026-11-21, with the library at commit [`4176671`][
 not in the repository.
 
 Each struct has five fields, among them an enum and a `bool`. Reading each of 100 structs from
-bytes adds 1.7 s to a debug build, and 0.74 s to a release build: about 17 ms and 7 ms for each
+bytes adds 1.7 s to a debug build and 0.74 s to a release build, about 17 ms and 7 ms for each
 pair of types.
 
 | Structs | debug, declared | debug, read | release, declared | release, read |
@@ -154,7 +147,7 @@ A view enum compares its variants with each other. Where each variant starts wit
 constant, it tells most of them apart by that constant, and its build grows about in proportion to
 its number of variants. Where the values of each variant are also values of the next one, the
 analysis compares more pairs, and the build grows as the square of the number of variants, or
-faster in a release build: 24.9 s for 64 variants.
+faster in a release build.
 
 | Variants | distinct, debug | distinct, release | overlapping, debug | overlapping, release |
 |---:|---:|---:|---:|---:|
@@ -168,10 +161,11 @@ faster in a release build: 24.9 s for 64 variants.
 
 Without a checksum or a walk inside a walk, the time of a check grows in proportion to the size of
 the value, or, for a `size` or `len` rule, to the number of bytes given. A walk takes up to a number
-of steps that grows with that size ([Walks][walks]). So a checksum or another walk inside a walk
-multiplies the time by the size, at each level. Each checked pun is code specialized for its two
-types. It relies on inlining, which a debug build mostly does not do, so measure the checks in
-release.
+of steps that grows with that size ([Walks][walks]), so a checksum or another walk inside a walk
+multiplies the time by the size at each level.
+
+Each checked pun is code specialized for its two types, and relies on inlining, which a debug build
+mostly does not do. Measure the checks in release.
 
 > **Warning:** Walks nest up to 4 deep, so a checksum inside the deepest one takes time in
 > proportion to the fifth power of the size. Limit the size of the untrusted bytes that such a

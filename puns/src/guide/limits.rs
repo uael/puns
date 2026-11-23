@@ -10,14 +10,14 @@
 //! [`Pun`]: trait@Pun#safety
 //! [`pun_mut`]: pun_mut
 //! [`pun_ref`]: pun_ref
-//! [`Scalar`]: Scalar
 //! [`tail_mut`]: tail_mut
 //! [`tail`]: tail
 //! [concepts#why-the-pair-decides]: super::concepts#why-the-pair-decides
 //! [errors]: super::errors
-//! [errors#unspecified-layouts]: super::errors#unspecified-layouts
 //! [errors#values-and-padding]: super::errors#values-and-padding
+//! [formats#a-byte-order-that-the-value-gives]: super::formats#a-byte-order-that-the-value-gives
 //! [functions#writing-through-mut]: super::functions#writing-through-mut
+//! [functions#writes-leave-a-valid-source]: super::functions#writes-leave-a-valid-source
 //! [kinds]: super::concepts#proven-checked-and-refused
 //! [layouts#the-same-type]: super::layouts#the-same-type
 //! [layouts#what-a-check-may-read]: super::layouts#what-a-check-may-read
@@ -26,7 +26,6 @@
 //! [macro@Pun#get]: macro@Pun#get
 //! [macro@Pun#how-the-derive-reads-a-type]: macro@Pun#how-the-derive-reads-a-type
 //! [macro@Pun#views]: macro@Pun#views
-//! [opaque scalar]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 //! [rules]: super::rules
 //! [rules#extent]: super::rules#extent
 //! [rules#fields-in-a-rule]: super::rules#fields-in-a-rule

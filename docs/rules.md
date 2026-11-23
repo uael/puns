@@ -1,12 +1,11 @@
 # The language of rules
 
 The [rules][concepts#layouts-and-rules] of a struct are the expressions of its
-[`size`][macro@Pun#size] and [`assert`][macro@Pun#assert] attributes, and of
-[`len`][macro@Pun#len] and [`regions`][macro@Pun#regions] on its last field. They give the
-[extent](#extent) of a value, the length of its trailing slice, the size of a
-[region](#regions), or a condition such as a checksum, the relations that binary formats store
-in their headers. This chapter specifies these expressions. [Describing a
-format][formats] shows them in use.
+[`size`][macro@Pun#size] and [`assert`][macro@Pun#assert] attributes, and of [`len`][macro@Pun#len]
+and [`regions`][macro@Pun#regions] on its last field. They give the [extent](#extent) of a value,
+the length of its trailing slice, the size of a [region](#regions), or a condition such as a
+checksum, the relations that binary formats store in their headers. [Describing a format][formats]
+shows them in use.
 
 A rule is a [requirement][concepts#requirements]. It is checked when a value of the
 struct is made from another type, as by [`try_pun`] or [`from_head`], unless the source proves
@@ -22,17 +21,16 @@ below](#functions), and no method. A path to a `const fn`, as `self::f(3)`, is a
 
 ## Extent
 
-The [extent][concepts#layouts-and-rules] of a value does not count the padding that may
-follow its trailing slice, while [`size_of_val`] counts it. When a function returns a reference
-to the bytes of its argument, and the target ends with a slice, the length of that slice is
-chosen so that the result covers the extent of the argument.
+Unlike the [extent][concepts#layouts-and-rules] of a value, [`size_of_val`] counts the padding that
+may follow its trailing slice. When a function returns a reference to the bytes of its argument, and
+the target ends with a slice, the length of that slice is chosen so that the result covers the
+extent of the argument.
 
 ## Regions
 
-The methods of [regions][concepts#layouts-and-rules] ([`regions`][macro@Pun#regions]) do
-not trust the fields that give the sizes, since safe code may change the fields of a value after
-it is checked. A region that does not fit in the field is truncated, and a region whose
-expression fails takes the rest of the field.
+The methods of [regions][concepts#layouts-and-rules] ([`regions`][macro@Pun#regions]) do not trust
+the fields that give the sizes, which are [requirements][concepts#requirements]. A region that does
+not fit in the field is truncated, and a region whose expression fails takes the rest of the field.
 
 ## Values and types
 
@@ -113,9 +111,9 @@ Besides its fields, a rule is made of:
 
 ## How a rule fails
 
-Where Rust would panic, the rule fails, which means that it does not hold: on an overflow of
-`+`, `-` or `*`, a difference below zero included, a division or remainder by zero, a shift by
-128 or more, and a read outside the value. `<<` drops the bits it shifts out, as in Rust, so
+Where Rust would panic, the rule fails, which means that it does not hold: on an overflow of `+`,
+`-` or `*`, a difference below zero included, a division or remainder by zero, a shift by 128 or
+more, and a read or a range outside the value. `<<` drops the bits it shifts out, as in Rust, so
 `(1 << 127) << 1` is `0`.
 
 As in Rust, the right side of `&&` and `||` is computed only if the left side does not decide,
@@ -146,15 +144,41 @@ assert!(puns::try_pun::<_, Span>([3u8, 1]).is_err());
 
 ## Reading the bytes of the value
 
-A rule can read the bytes of the value beyond its fields, with the [functions](#functions),
-whose `start`, `end` and `offset` count bytes from the start of the value. A read or a range
-outside the value fails. A `size` or `len` rule can read them too, and [`from_head`] evaluates
-it over the bytes that are there. So, with `length` the second byte of a WebSocket frame, `size
-= 2 + if length & 0x7f == 126 { 2 + be(2, 2) } else if length & 0x7f == 127 { 8 + be(2, 8) }
-else { length & 0x7f }` takes the unmasked frames, those of a server, from a stream
-([`transport.rs`] adds the key of a masked frame), and an MQTT packet is `size = 1 +
-leb128_len(1) + leb128(1)`. `from_head` then validates the value that it takes as a whole, rule
-included, over the bytes of that value only, so a rule that reads beyond what it sizes fails.
+A rule can read the bytes of the value beyond its fields, with the [functions](#functions), whose
+`start`, `end` and `offset` count bytes from the start of the value. A `size` or `len` rule can read
+them too, and [`from_head`] evaluates it over the bytes that are there. An MQTT packet is
+`size = 1 + leb128_len(1) + leb128(1)`, and a WebSocket frame from a server, which is not masked,
+gives its length in 7, 16 or 64 bits ([`transport.rs`] adds the key of a masked frame):
+
+```rust
+use puns::Pun;
+
+#[derive(Pun)]
+#[repr(C)]
+#[pun(size = 2 + if length & 0x7f == 126 {
+  2 + be(2, 2)
+} else if length & 0x7f == 127 {
+  8 + be(2, 8)
+} else {
+  length & 0x7f
+})]
+struct Frame {
+  head: u8,
+  length: u8,
+  rest: [u8],
+}
+
+// A frame of 2 bytes of text, then the first byte of the next frame.
+let (frame, next) = puns::from_head::<Frame>(&[0x81, 2, b'h', b'i', 0x81]).unwrap();
+assert_eq!((&frame.rest, next), (&b"hi"[..], &[0x81][..]));
+// A length of 126 says that the length is in the next two bytes.
+let mut long = [0; 4 + 300];
+long[..4].copy_from_slice(&[0x82, 126, 1, 44]);
+assert_eq!(puns::from_head::<Frame>(&long).unwrap().0.rest.len(), 2 + 300);
+```
+
+`from_head` then validates the value that it takes as a whole, rule included, over the bytes of
+that value only, so a rule that reads beyond what it sizes fails.
 
 A trailer is therefore a region, and "the last 4 bytes are the CRC of what comes before" is an
 assertion. A checksum that covers several layers is an assertion of the struct that holds them
@@ -183,10 +207,9 @@ that may be padding in the source.
   [`crc32`][fn@crc32] computes it.
 - `crc::<WIDTH, POLY, INIT, REFLECT, XOROUT>(start, end)`: a CRC of 1 to 64 bits whose input and
   output are reflected alike, given by its parameters in the catalogue of parametrised CRC
-  algorithms (see [`layout::Crc`]). A CRC that reflects only one of them, such as
-  CRC-12/UMTS, has no such parameters. `WIDTH` is
-  1 to 64, and the other parameters fit in that width. `crc::<16, 0x8005, 0xffff, true, 0>` is
-  the Modbus CRC, and `crc::<32, 0x1edc6f41, 0xffffffff, true, 0xffffffff>` is CRC-32C.
+  algorithms (see [`layout::Crc`]). A CRC that reflects only one of them, such as CRC-12/UMTS, has
+  no such parameters. The other parameters fit in `WIDTH` bits. `crc::<16, 0x8005, 0xffff, true, 0>`
+  is the Modbus CRC, and `crc::<32, 0x1edc6f41, 0xffffffff, true, 0xffffffff>` is CRC-32C.
 - `crc32(start, end, from, to)` and `crc::<..>(start, end, from, to)`: the same, with the bytes
   from `from` to `to` read as zeros, for a CRC over the header that holds it (GPT).
 - `sum16(start, end)`: the ones' complement sum of the 16-bit words from `start` to `end`, as
@@ -196,13 +219,12 @@ that may be padding in the source.
   checksum, as in OSPF and IS-IS.
 - `adler32(start, end)`: Adler-32.
 - `sum(start, end)`: the sum of the bytes (tar).
-- `matches(DFA, start, end)`: whether an automaton accepts the bytes from `start` to `end`.
-  `DFA` is a `&'static` [`layout::Dfa`]: `Dfa::ASCII`, `Dfa::DIGITS`, `Dfa::OCTAL`, `Dfa::HEX`,
-  `Dfa::UTF8`, `Dfa::UTF8_NO_NUL`, or one of your own. The automaton has 1 to 64 states, and the
-  edges of each state are sorted and disjoint. `matches` states a pattern that the struct
-  requires of its bytes, and like any rule, it proves nothing about them, and is proven only by
-  the same rule. A type that guarantees a pattern, as `str` does, cannot be derived, since safe
-  code can write its fields.
+- `matches(DFA, start, end)`: whether an automaton accepts the bytes from `start` to `end`. `DFA` is
+  a `&'static` [`layout::Dfa`]: `Dfa::ASCII`, `Dfa::DIGITS`, `Dfa::OCTAL`, `Dfa::HEX`, `Dfa::UTF8`,
+  `Dfa::UTF8_NO_NUL`, or one of your own. The automaton has 1 to 64 states, and the edges of each
+  state are sorted and disjoint. `matches` states a pattern that the struct requires of its bytes,
+  and like any rule, it proves nothing about them. A type that guarantees a pattern, as `str` does,
+  cannot be derived, since safe code can write its fields.
 - `walk(START, |at| COND, |at| NEXT)`: see [Walks](#walks).
 
 ## Walks

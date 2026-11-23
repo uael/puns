@@ -3,8 +3,8 @@
 ## Minimum Rust version
 
 `puns` needs Rust 1.99 or later, because its design depends on what stable Rust can do in
-`const`. The table lists what such a design can use, and the first stable release that provides
-it. `puns` is built without the first three rows, which no stable release provides.
+`const`. The table lists what such a design can use, and the release that made it stable. `puns`
+does without the first three rows, which are not stable.
 
 | Feature | Stable |
 |---|---|
@@ -15,7 +15,7 @@ it. `puns` is built without the first three rows, which no stable release provid
 | dereferencing a raw pointer in a `const fn` | [1.58][1.58] |
 | [`offset_of!`][offset_of] on sized fields, also in unsized structs | [1.77][1.77] |
 | inline `const { .. }` in generic code | [1.79][1.79] |
-| `&raw const`, which gives the place of a field without a macro whose path the user's crate could redefine | [1.82][1.82] |
+| `&raw const`, which [the derive][trust#sizes-and-offsets] uses instead of `offset_of!` | [1.82][1.82] |
 | `&mut` in a `const fn` | [1.83][1.83] |
 | [`size_of_val_raw`] and [`align_of_val_raw`] in `const` | [1.99][1.99] |
 
@@ -23,9 +23,8 @@ The last row sets the minimum version. `puns` reads the layout of an unsized typ
 ends with a slice or a `str`, in `const` from a raw pointer with an arbitrary length.
 `size_of_val` cannot do this, because it needs a reference, and a reference needs a valid value.
 On 1.98, `puns` does not build, because `layout_for_ptr` and its use in `const` are unstable there.
-CI builds the library and its examples on 1.99, which evaluates their refusals too.
-
-Const evaluation is also bounded ([Limits of Rust][limits#limits-of-rust]).
+CI builds the library and its examples on 1.99, which evaluates their refusals too. Const
+evaluation is also bounded ([Limits of Rust][limits#limits-of-rust]).
 
 ## Targets
 
@@ -47,8 +46,8 @@ compile time. The code assumes the following of `usize`:
   where `usize` cannot count that far. A `const` assertion checks that the blocks between two
   folds cannot overflow.
 - An operation of a rule is computed in a register where its values fit, and on 128 bits
-  otherwise. The register has 64 bits where `usize` has 64 bits, and 32 bits otherwise. Every
-  width computes the same values, so the choice changes only the speed, and tests check both.
+  otherwise. The register has 64 bits where `usize` has 64, and 32 bits otherwise. Every width
+  computes the same values, so the choice changes only the speed, and tests check both.
 
 What `unsafe` code assumes of the target (the alignment of a primitive, the width of `usize` and
 of `isize`, the byte order) is asserted in a `const` where it is used, or derived from the target.
@@ -73,4 +72,5 @@ of `isize`, the byte order) is asserted in a `const` where it is used, or derive
 [`layout::Crc`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Crc.html
 [`sum16`]: https://docs.rs/puns/0.2.3/puns/layout/fn.sum16.html
 [limits#limits-of-rust]: limits.md#limits-of-rust
+[trust#sizes-and-offsets]: trust.md#sizes-and-offsets
 [testing#miri]: testing.md#miri
