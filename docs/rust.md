@@ -130,6 +130,10 @@ be. Code that relies on them runs only at compile time:
   representation with the first bytes of the samples. An attribute macro below the derive that
   narrows the tag leaves padding among these bytes, which fails the build ([Attribute macros below
   the derive][trust#attribute-macros-below-the-derive]).
+- The derive relies on the second where it checks the width of the tag of an enum of the `Rust`
+  representation that it read: it changes a byte past that tag in a sample, then reads the
+  variant. A byte that is part of the tag gives another variant, which fails the check, or a tag
+  of no variant, which fails the build.
 - An `Option` of an [opaque scalar] relies on the first to refuse a `None` with an uninitialized
   byte.
 - The derive relies on the third for an unsized struct whose trailing slice has elements so large

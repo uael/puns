@@ -1729,9 +1729,11 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       }
 
       impl #impl_generics __PunOffsets for #this #where_clause {
-        // SAFETY: `Self` is `Sized`, or its last field is unsized, so that it is a slice, `str` or
-        // a struct whose last field is one of these, at any depth (`Pun`, section Safety), and its
-        // probe is the probe of that field cast with `as` casts, as for `Layout::structure` below.
+        // SAFETY: `Self` is `Sized`, or its last field is unsized, and its probe is the probe of
+        // that field cast with `as` casts, as for `Layout::structure` below. That probe is a
+        // pointer to a slice cast with `as` casts only (`Pun`, section Safety), which compiles only
+        // if a pointer to the field carries a slice length, so the field is a slice, `str` or a
+        // struct whose last field is one of these, at any depth.
         // These are the requirements of `offsets`.
         const OFFSETS: [::core::primitive::usize; #count] = unsafe {
           #root::layout::Layout::offsets::<Self, #count>(<Self as #root::Pun>::PROBE)

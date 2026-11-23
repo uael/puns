@@ -1796,8 +1796,10 @@ impl Layout {
   /// # Safety
   ///
   /// The call must be evaluated at compile time, in a `const` item or block. The experiments read
-  /// bytes that may be uninitialized, which is undefined behavior at run time, and an error of
-  /// const evaluation at compile time.
+  /// bytes that may be uninitialized, and the variants of values whose tags may be invalid, which
+  /// is undefined behavior at run time, and an error of const evaluation at compile time, which
+  /// no documentation promises ([Errors of const
+  /// evaluation](crate::reference::rust#errors-of-const-evaluation)).
   #[doc(hidden)]
   #[must_use]
   pub const unsafe fn discover<E, const V: usize>(
@@ -1834,7 +1836,7 @@ impl Layout {
     // SAFETY: `sample` is valid for reads of the bytes of an `E`, and aligned, by contract on the
     // caller, and so is the `MaybeUninit<E>` cast from it, which has the size and alignment of an
     // `E` [1]. A `MaybeUninit<E>` may hold any bytes, uninitialized ones included [2], so the copy
-    // that `read` makes is valid. These are the requirements of `read`.
+    // that `read` makes is valid. These are the requirements of `read` [3].
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/union.MaybeUninit.html#layout-1:
     //
@@ -1844,11 +1846,28 @@ impl Layout {
     //
     //     `MaybeUninit<T>` has no validity requirements – any sequence of bytes of the
     //     appropriate length, initialized or uninitialized, are a valid representation.
+    //
+    // [3] Per https://doc.rust-lang.org/1.99.0/core/ptr/fn.read.html#safety:
+    //
+    //     - `src` must be valid for reads or `T` must be a ZST.
+    //     - `src` must be properly aligned. [...]
+    //     - `src` must point to a properly initialized value of type `T`.
     let mut copy = unsafe { core::ptr::read(sample.cast::<mem::MaybeUninit<E>>()) };
     if at < size_of::<E>() {
-      // SAFETY: `at` is less than the size of an `E`, so `add(at)` stays within `copy`, and the
-      // byte there is valid for writes. A `u8` is aligned at any address. These are the
-      // requirements of `add` and of `write`.
+      // SAFETY: `at` is less than the size of an `E`, so `add(at)` stays within `copy`, a local of
+      // the size of an `E` [1]. The byte there is valid for writes, and a `u8` is aligned at any
+      // address [2].
+      //
+      // [1] Per https://doc.rust-lang.org/1.99.0/core/primitive.pointer.html#method.add:
+      //
+      //     If the computed offset is non-zero, then `self` must be derived from a pointer to
+      //     some allocation, and the entire memory range between `self` and `result` (i.e.,
+      //     `self.addr()..result`) must be in bounds of that allocation.
+      //
+      // [2] Per https://doc.rust-lang.org/1.99.0/core/ptr/fn.write.html#safety:
+      //
+      //     - `dst` must be valid for writes or `T` must be a ZST.
+      //     - `dst` must be properly aligned.
       unsafe { copy.as_mut_ptr().cast::<u8>().add(at).write(byte) };
     }
     copy
@@ -2621,8 +2640,8 @@ impl Layout {
   ///
   /// `layout` is the enum that its representation specifies ([`Enum::new`]) or, for the `Rust`
   /// representation, the one that `rustc` laid out. As a source, a value of the enum is known by
-  /// its tag, and by the bytes that every variant initializes of which a value may exist, which
-  /// includes a variant that holds a union whose fields have no values
+  /// its tag, and by the bytes that every variant of which a value may exist initializes
+  /// (`Layout::may_exist`), which includes a variant that holds a union whose fields have no values
   /// ([Unions](crate::reference::soundness#unions)). As a target, the enum is
   /// proven variant by variant where the source proves each variant it may be, and otherwise it is
   /// checked at run time, its tag first, then what the fields of its variant require.
@@ -2835,8 +2854,9 @@ impl Layout {
   ///
   /// Rust says only that each field of such a struct is at a multiple of its alignment, and that
   /// the fields do not overlap. `rustc` places the fields one after another, each at the first
-  /// offset its alignment allows, in an order of its choosing, and `-Zrandomize-layout` draws this
-  /// order at random. The layout records what is the same in every order:
+  /// offset its alignment allows, in an order of its choosing, and `-Zrandomize-layout` draws the
+  /// order of the fields of a struct at random, though not of a tuple. The layout records what is
+  /// the same in every order:
   ///
   /// - The whole layout, if every order makes the same bytes and no rule reads the bytes by offset.
   ///   This is so if one field has a size, which is then at offset 0. It is also so if the struct
@@ -4506,7 +4526,7 @@ impl Dfa {
     //     - The memory referenced by the returned slice must not be mutated for the duration of
     //       lifetime `'a`, except inside an `UnsafeCell`.
     //     - The total size `len * size_of::<T>()` of the slice must be no larger than
-    //       `isize::MAX`, and adding that size to `data` must not "wrap around" the address
+    //       `isize::MAX`, and adding that size to `data` must not “wrap around” the address
     //       space.
     //
     // [2] Per https://doc.rust-lang.org/1.99.0/core/ptr/index.html#safety:
@@ -4645,7 +4665,8 @@ pub enum Op {
   /// Replaces a start and an end with this CRC of the bytes between them.
   Crc(&'static Crc),
   /// Replaces four offsets with this CRC of the bytes between the first two, with the bytes between
-  /// the last two read as zeros, for a CRC that covers the field that holds it.
+  /// the last two read as zeros, for a CRC that covers the field that holds it. Fails if either
+  /// range has its start after its end, or its end past the value.
   CrcZeros(&'static Crc),
   /// Replaces a start and an end with this checksum of the bytes between them.
   Checksum(Checksum),

@@ -31,7 +31,7 @@ The library: `#![no_std]`, no dependency but the derive.
 - [`narrow`](src/narrow.rs) computes the range of every value of a rule, so that each operation
   runs in a register where it fits, with the same results as on `u128`.
 - [`view`](src/view.rs) decides each variant of a view enum once, from its base: the first later
-  variant whose type accepts every value of the type of the variant.
+  variant to which `pun_ref` of the variant is proven, and from which `try_pun_ref` to it compiles.
 - [`discover`](src/discover.rs) finds the layouts of enums of the `Rust` representation by
   experiments, and names the facts of the compiler that they rely on.
   [`std_enums`](src/std_enums.rs) applies it to `Option` and `Result`.

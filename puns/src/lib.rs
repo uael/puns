@@ -174,10 +174,10 @@ pub use layout::{crc32, sum16};
 ///
 /// The functions of a view return what trying the variants in order would return, but check each
 /// variant at most once, and only for what is not already known about it. A variant is skipped as
-/// soon as the bytes do not match its first constrained scalar, such as an EtherType. A variant
-/// whose values are all values of a later one, from which what is left to check of it can be
-/// checked, is decided after it: it fails if that one fails, and is checked only for what that one
-/// does not prove. In the view `AnyFrame` of [`ethernet.rs`], a
+/// soon as the bytes do not match its first constrained scalar, such as an EtherType. A variant is
+/// decided after its *base*: the first later variant to which [`pun_ref`] of it is proven, and from
+/// which [`try_pun_ref`] to it compiles. It fails if its base fails, and is checked only for what
+/// its base does not prove. In the view `AnyFrame` of [`ethernet.rs`], a
 /// variant of `Frame<Ipv4<Udp>>`, an Ethernet frame that holds UDP over IPv4, comes before one of
 /// `Frame<Ipv4>`. A UDP frame is then checked for its protocol, without the IPv4 checksum that the
 /// `Frame<Ipv4>` variant checks, so a wrong IPv4 checksum is computed once. Where two variants
@@ -775,9 +775,10 @@ impl<K: Pun + Copy> Tag<K> for [u8] {
 ///
 /// # Safety
 ///
-/// An implementation must ensure that the list, from `Self` through `Next`, is the fields of the
-/// layout of its type, in the order of their declarations, and that it ends with `()`, whose
-/// `FIELD` is `None`. Only `#[derive(Pun)]` and this crate implement this trait.
+/// An implementation must ensure that the list, from `Self` through `Next` up to the first item
+/// whose `FIELD` is `None`, is the fields of the layout of its type, in the order of their
+/// declarations. `()` has the `FIELD` `None`, and ends every list that reaches it. Only
+/// `#[derive(Pun)]` and this crate implement this trait.
 #[doc(hidden)]
 pub unsafe trait Fields {
   type Type: ?Sized + Pun;
@@ -1187,10 +1188,12 @@ unsafe impl<T: ?Sized + Pun> Pun for ManuallyDrop<T> {
   const PROBE: *const Self = T::PROBE as *const Self;
   const LAYOUT: Layout = {
     if T::LAYOUT.unsized_ {
-      // SAFETY: `T::LAYOUT.unsized_` is `true`, so `T` is a slice, `str`, or a struct whose last
-      // field is one of these (see `ptr::metadata`), and so is `ManuallyDrop<T>`, a struct whose
-      // only field is a `T`. `T::PROBE` is `slice_from_raw_parts(null(), PROBE_LEN)`, cast with
-      // `as` casts only, and `Self::PROBE` casts it again with `as`. These are the requirements of
+      // SAFETY: `T::LAYOUT.unsized_` is `true`, so `T` is unsized, and `T::PROBE` is
+      // `slice_from_raw_parts(null(), PROBE_LEN)` cast to `*const T` with `as` casts only (`Pun`,
+      // section Safety). That cast compiles only if a pointer to `T` carries a slice length, so
+      // `T` is a slice, `str`, or a struct whose last field is one of these, and so is
+      // `ManuallyDrop<T>`, a struct whose only field is a `T`. `Self::PROBE` casts `T::PROBE` again
+      // with `as`. These are the requirements of
       // `verify`, which checks that a pointer to `ManuallyDrop<T>` is represented as a pointer to a
       // slice.
       unsafe { ptr::verify::<Self>(Self::PROBE) };
@@ -2161,7 +2164,7 @@ const unsafe fn pun_unchecked<S: Copy, D: Copy>(value: S) -> D {
   //
   // [2] Per https://doc.rust-lang.org/1.99.0/reference/items/unions.html#r-items.union.fields.read:
   //
-  //     Reading a union field reads the bits of the union at the field's type.
+  //     Reading a union field reads the bits of the union at the field’s type.
   unsafe { Overlay { source: value }.target }
 }
 
@@ -2593,7 +2596,8 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
     // - It is aligned. Either the analysis found `D` no more aligned than `S`, or
     //   `Plan::try_cast_by` checked the address.
     // - It is not dangling. Its extent is that of `value`. If `D` is unsized and more aligned than
-    //   `S`, `Plan::try_cast_by` checked that its size is at most the size of `value`. Otherwise
+    //   `S`, `Plan::check_by`, which `Plan::try_cast_by` calls, checked that its size is at most
+    //   the size of `value`. Otherwise
     //   either `D` is sized, and its size is its extent, or `D` is unsized and its extent is
     //   rounded up to an alignment that divides that of `S`. Either way its size is at most the
     //   size of `value`.

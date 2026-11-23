@@ -11,9 +11,9 @@
 //!   Examples of such scalars are an EtherType and a version. These comparisons of the same bytes,
 //!   one for each variant, become one decision of the optimizer. A VLAN frame meets the EtherTypes
 //!   of IPv4 and of ARP as in a `match`.
-//! - A variant has a *base*. It is the first later variant whose type accepts every value of the
-//!   type of the variant, over the same bytes, and from which what is left to check of the variant
-//!   can be checked (`base_of`). The analysis decides it at compile time, as it
+//! - A variant has a *base*. It is the first later variant to which [`pun_ref`](crate::pun_ref) of
+//!   the variant is proven, and from which [`try_pun_ref`](crate::try_pun_ref) to the variant
+//!   compiles, over the same bytes for `from_head`. The analysis decides it at compile time, as it
 //!   decides that `pun_ref` is proven. `Frame<Ipv4>` accepts every `Frame<Ipv4<Udp>>`, and `Frame`
 //!   accepts both. The base is decided first. Bytes that are not a value of the base are not a
 //!   value of the variant either. For bytes that are, the variant is checked only for what its base
@@ -208,8 +208,8 @@ where
 {
   /// The index of the base for `from_bytes`, or `NONE`, and what is left to check of `I` from it.
   ///
-  /// The base is the first later variant whose type accepts every value of the type of `I`, over
-  /// the same bytes, and from which what is left to check of `I` can be checked.
+  /// The base is the first later variant to which `pun_ref` of `I` is proven, and from which
+  /// `try_pun_ref` to `I` compiles.
   const WHOLE: (usize, Marks) = {
     let index = <V::List as Get<I>>::INDEX;
     base(&V::List::TREE, index, index + 1, false)
@@ -450,9 +450,8 @@ where
 /// Returns the index of the base of the variant `I`, or `usize::MAX` if it has none.
 ///
 /// `HEAD` selects the base for `from_head`, which must also take the same bytes as `I`.
-/// Otherwise it is the base for `from_bytes`. The base is the first later variant whose type
-/// accepts every value of the type of `I`, over the same bytes, and from which what is left to
-/// check of `I` can be checked.
+/// Otherwise it is the base for `from_bytes`. The base is the first later variant to which
+/// `pun_ref` of `I` is proven, and from which `try_pun_ref` to `I` compiles.
 #[must_use]
 pub const fn base_of<V: ?Sized + Views, I: Index, const HEAD: bool>() -> usize
 where

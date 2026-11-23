@@ -191,10 +191,10 @@ all: that of UDP and TCP covers the addresses of the IP header, so it is one of 
 A rule that reads bytes by offset (`le`, `be`, a variable-length integer, a checksum, a CRC,
 `matches`, or a `walk` whose expressions do) may read the padding of its struct too. Such a rule is
 checked when the source does not prove it. A proven one is checked too where its struct shares a
-check with a part that is not proven: in a variant of an enum that is checked as a whole, in an
-element of an array whose other elements are checked, and where every part of the target is checked
-([Not yet][limits#not-yet]). Wherever the rule is checked, the pun is refused if its struct has a
-byte that may be padding in the source.
+check with a part that is not proven, in the places that [Not yet][limits#not-yet] lists: in a
+variant of an enum that is checked as a whole, in an element of an array whose other elements are
+checked, past the first 1,024 parts, and where every part of the target is checked. Wherever the
+rule is checked, the pun is refused if its struct has a byte that may be padding in the source.
 
 ## Functions
 

@@ -57,8 +57,9 @@ The functions that the generated code calls to make a layout are associated func
 [`Varint`] and the identity of a type, and methods of the values that they return. A hidden constant
 of `Layout` fixes these types with `fn(T)` types that no path can replace, so a path that names a
 module or another type for one of them does not compile. The description of an enum of the `Rust`
-representation, whose type the generated code names, is what a function of `Layout` returns, so
-only the real type compiles.
+representation, whose type the generated code names, is what a function of `Layout` returns, and
+the samples of an enum (`layout::Samples`) are what functions of `Layout` take, so only the real
+types compile.
 
 Nothing else that the derive names through the path of `puns` makes a layout. A trait that it
 implements through the path is the trait of `puns`: otherwise the type does not implement that

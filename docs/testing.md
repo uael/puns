@@ -48,8 +48,8 @@ and `Result`, and the tests of the layout that `rustc` chose. CI also builds the
 
 ## Compile-fail tests
 
-178 programs in [`puns/tests/`][compile-fail] must fail to compile, each with its expected message:
-the 167 of `compile-fail` with and without the feature, the 3 of `compile-fail-kept` without it, and
+180 programs in [`puns/tests/`][compile-fail] must fail to compile, each with its expected message:
+the 168 of `compile-fail` with and without the feature, the 4 of `compile-fail-kept` without it, and
 the 8 of `compile-fail-unstable` with it. 3 others must compile. `discover_reads_padding`,
 `discover_invalid_tag` and `structure_too_large` check the three [errors of const
 evaluation][rust#errors-of-const-evaluation] that `puns` relies on.

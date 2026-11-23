@@ -796,10 +796,9 @@ fn link_labels(text: &str) -> Vec<String> {
 /// The README is the start of the documentation of the crate (`#![doc = include_str!(..)]` in
 /// `lib.rs`), so the links that it defines are defined in all of that documentation. A label that
 /// the README defines and the rest of it also defines or uses would make one of the two links point
-/// to the target of the other, as `[reference]` once sent the Rust Reference to docs.rs. The one
-/// label that `lib.rs` defines on purpose is that of a relative link of the README, to a chapter
-/// of the reference, which rustdoc does not resolve: `lib.rs` defines it before the README, as an
-/// intra-doc link, and the first definition counts.
+/// to the target of the other. The labels that `lib.rs` defines on purpose are those of the
+/// relative links of the README, to the chapters of the reference, which rustdoc does not resolve:
+/// `lib.rs` defines each before the README, as an intra-doc link, and the first definition counts.
 #[test]
 #[cfg_attr(
   miri,
@@ -847,8 +846,7 @@ fn heading_ids(text: &str) -> Vec<String> {
 }
 
 /// A README heading with the same id as a heading elsewhere in the crate documentation takes that
-/// id, and the other becomes `id-1`: a link to `#soundness` once led to a short section of the
-/// README instead of the chapter of `lib.rs`.
+/// id, and the other becomes `id-1`, so a link to the other one would lead to the README instead.
 #[test]
 #[cfg_attr(
   miri,

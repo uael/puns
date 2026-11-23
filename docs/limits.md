@@ -13,8 +13,9 @@ the message of each [refused][kinds] pun is in [Compile-time errors][errors].
 - **No function that a type chooses.** The check of a [rule][rules] is `const fn` code in `puns`,
   generic over the type it checks, and stable Rust cannot call there a function that the type
   chooses. A call through a function pointer is refused ("function pointer calls are not allowed in
-  constant functions"). A call of a trait method is refused too (E0015, "cannot call non-const
-  associated function"), since const traits are unstable (E0658, "const trait impls are
+  constant functions"). A call of a trait method or of an associated function of a trait is
+  refused too (E0015, "cannot call non-const method" or "cannot call non-const associated
+  function"), since const traits are unstable (E0658, "const trait impls are
   experimental"). The messages are the same on Rust 1.99.0 and 1.100.0. A function of the user could
   be called only if the check stopped being `const`, or behind a check that runs only outside of
   `const`, which stable Rust cannot express. So a rule calls only the functions of rules. A
