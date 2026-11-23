@@ -17,7 +17,6 @@ use puns::{Error, Pun};
 /// An enum with a variant that holds a type without values. No value is that variant.
 #[derive(Pun, Clone, Copy, Debug, PartialEq)]
 #[repr(u8)]
-#[expect(dead_code, reason = "no value is `B`, which is the point")]
 enum Never {
   A(u8),
   B(Infallible),

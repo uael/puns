@@ -172,6 +172,41 @@ pub const fn sample<T: crate::Pun>() -> MaybeUninit<T> {
   value
 }
 
+/// Returns whether [`sample`] makes a value of the type of `layout` rather than panic: whether the
+/// type has values, and its sample holds no scalar that a pun never makes.
+pub const fn has_sample(layout: &Layout) -> bool {
+  layout.is_inhabited() && writes(layout)
+}
+
+/// Returns whether `write` of `layout` writes a value rather than panic.
+const fn writes(layout: &Layout) -> bool {
+  match layout.kind {
+    Kind::Scalar(spec) => !matches!(spec.valid, Valid::Never),
+    Kind::Array(elem, len) => len == 0 || elem.size == 0 || writes(elem),
+    Kind::Struct(fields, _) => {
+      let mut i = 0;
+      while i < fields.len() {
+        if !writes(fields[i].layout) {
+          return false;
+        }
+        i += 1;
+      }
+      true
+    }
+    Kind::Enum(layout) => {
+      let mut i = 0;
+      while i < layout.variants.len() {
+        if layout.variants[i].is_present() {
+          return writes(layout.variants[i].layout);
+        }
+        i += 1;
+      }
+      false
+    }
+    Kind::Slice(_) | Kind::Pattern(_) => false,
+  }
+}
+
 /// Writes the least value of `layout` at `ptr`, and leaves its padding as it is.
 ///
 /// # Panics
