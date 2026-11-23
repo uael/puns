@@ -5,17 +5,11 @@
 [![crates.io](https://img.shields.io/crates/v/puns)](https://crates.io/crates/puns/0.2.4)
 [![license](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)](#license)
 
-Type punning proven at compile time: a safe alternative to `transmute` and to hand-written parsing
-of bytes.
-
 > **Notes:** `puns` is written using AI, see [How `puns` is written](#how-puns-is-written). And
 > the first release came out in November 2026: expect the API to change before 1.0.
 
-Use `puns` to read binary formats in place, or to reinterpret plain data as another type, when you
-want the compiler to prove what it can. Use [`zerocopy`][zerocopy] or [`bytemuck`][bytemuck] for
-what `puns` doesn't do ([compared below](#compared-with-other-crates)), for an older Rust, or when
-you need a crate that has been reviewed for years. To decode data into owned values,
-[`binrw`][binrw], [`deku`][deku] or [`nom`][nom] are a better fit.
+Type punning proven at compile time: a safe alternative to `transmute` and to hand-written parsing
+of bytes.
 
 - [Overview](#overview)
   - [Reading a packet](#reading-a-packet)
@@ -28,6 +22,19 @@ you need a crate that has been reviewed for years. To decode data into owned val
   - [Performance](#performance)
   - [Safety and testing](#safety-and-testing)
 - [The guide][guide]
+  - [How `puns` decides][concepts]
+  - [Choosing a function][functions]
+  - [Describing a format][formats]
+  - [Compile-time errors]
+  - [Unspecified layouts and the `unstable` feature][unstable]
+  - [The language of rules][rules]
+  - [Limits, and what is not done yet][limits]
+  - [Measured performance][performance]
+  - [Soundness]
+  - [Testing][testing]
+  - [What the derive trusts][trust]
+  - [What `puns` relies on][rust]
+  - [Rust version and targets][target]
 - [About](#about)
   - [History](#history)
   - [How `puns` is written](#how-puns-is-written) (using AI)
@@ -278,6 +285,12 @@ with `cargo run --example media` from a clone of the repository.
 
 ### Compared with other crates
 
+Use `puns` to read binary formats in place, or to reinterpret plain data as another type, when you
+want the compiler to prove what it can. Use [`zerocopy`][zerocopy] or [`bytemuck`][bytemuck] for
+what `puns` doesn't do, for an older Rust, or when you need a crate that has been reviewed for
+years. To decode data into owned values, [`binrw`][binrw], [`deku`][deku] or [`nom`][nom] are a
+better fit.
+
 `puns` takes many ideas and implementation details from [`zerocopy`][zerocopy] and
 [`bytemuck`][bytemuck]. Their traits describe what each type accepts on its own, while `puns`
 compares the two types of each conversion. Read on 2026-11-23, with `zerocopy` 0.8.64 and
@@ -384,28 +397,34 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 `puns` by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
 additional terms or conditions.
 
-[valid]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#what-is-a-valid-value
-[kinds]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#proven-checked-and-refused
-[pairs]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#why-the-pair-decides
-[requirements]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#requirements
-[opaque]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#opaque-scalars
-[layouts]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#layouts-and-rules
-[unsized]: https://github.com/uael/puns/blob/v0.2.4/docs/limits.md#limits-of-rust
-[msrv]: https://github.com/uael/puns/blob/v0.2.4/docs/target.md#minimum-rust-version
-[rules]: https://github.com/uael/puns/blob/v0.2.4/docs/rules.md
-[performance]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md
-[comparison]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md#compared-with-zerocopy-and-bytemuck
-[costs]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md#costs
-[rust]: https://github.com/uael/puns/blob/v0.2.4/docs/rust.md
-[guide]: https://github.com/uael/puns/blob/v0.2.4/docs/README.md
-[not-decided]: https://github.com/uael/puns/blob/v0.2.4/docs/limits.md#not-decided
-[not-yet]: https://github.com/uael/puns/blob/v0.2.4/docs/limits.md#not-yet
-[Compile-time errors]: https://github.com/uael/puns/blob/v0.2.4/docs/errors.md
-[Soundness]: https://github.com/uael/puns/blob/v0.2.4/docs/soundness.md
-[testing]: https://github.com/uael/puns/blob/v0.2.4/docs/testing.md
-[deriving]: https://github.com/uael/puns/blob/v0.2.4/docs/soundness.md#what-deriving-pun-means
+[valid]: docs/concepts.md#what-is-a-valid-value
+[kinds]: docs/concepts.md#proven-checked-and-refused
+[pairs]: docs/concepts.md#why-the-pair-decides
+[requirements]: docs/concepts.md#requirements
+[opaque]: docs/concepts.md#opaque-scalars
+[layouts]: docs/concepts.md#layouts-and-rules
+[unsized]: docs/limits.md#limits-of-rust
+[msrv]: docs/target.md#minimum-rust-version
+[rules]: docs/rules.md
+[performance]: docs/performance.md
+[comparison]: docs/performance.md#compared-with-zerocopy-and-bytemuck
+[costs]: docs/performance.md#costs
+[rust]: docs/rust.md
+[guide]: docs/README.md
+[concepts]: docs/concepts.md
+[functions]: docs/functions.md
+[formats]: docs/formats.md
+[limits]: docs/limits.md
+[trust]: docs/trust.md
+[target]: docs/target.md
+[not-decided]: docs/limits.md#not-decided
+[not-yet]: docs/limits.md#not-yet
+[Compile-time errors]: docs/errors.md
+[Soundness]: docs/soundness.md
+[testing]: docs/testing.md
+[deriving]: docs/soundness.md#what-deriving-pun-means
 [view]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#views
-[unstable]: https://github.com/uael/puns/blob/v0.2.4/docs/layouts.md
+[unstable]: docs/layouts.md
 [num]: https://docs.rs/puns/0.2.4/puns/num/index.html
 [layout]: https://docs.rs/puns/0.2.4/puns/layout/index.html
 [derive]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html

@@ -8,16 +8,13 @@
 //! [`BRANCHES`], which holds what no release contains, and is linked as it is.
 //!
 //! The chapters of the guide are files of `docs/`, which rustdoc includes as the guide's modules,
-//! as it includes the README as the crate page. A link between chapters is relative, so that
-//! GitHub stays in the revision being read. rustdoc does not resolve such a link, so the `.rs` file
-//! that includes a Markdown file defines the same label before the include, as an intra-doc link:
-//! of two definitions of a label, the first counts. A relative link of an included file is
-//! therefore a definition (`[label]: target`), and the `.rs` file must define its label.
-//!
-//! The README has no relative link. crates.io resolves one in the directory of the package
-//! (`puns/`, `puns-derive/`) on the default branch, where `docs/` is not, so the README names each
-//! file of the repository by its URL at the tag, and `puns/src/lib.rs` defines the same label as
-//! an intra-doc link for docs.rs.
+//! as it includes the README as the crate page. A link between them is relative, so that GitHub
+//! stays in the revision being read. rustdoc does not resolve such a link, so the `.rs` file that
+//! includes a Markdown file defines the same label before the include, as an intra-doc link: of
+//! two definitions of a label, the first counts. A relative link of an included file is therefore
+//! a definition (`[label]: target`), and the `.rs` file must define its label. crates.io resolves
+//! a relative link of the README in the directory of the package on the default branch, where
+//! `docs/` is not, so these links lead nowhere there.
 //!
 //! GitHub highlights a block of code only if its info string starts with a language, while
 //! rustdoc takes a block with none for Rust. So each block of these files names its language:
@@ -214,11 +211,6 @@ fn targets(
         }
       }
     } else if !link.contains("://") && !link.starts_with("mailto:") {
-      if file == Path::new(README) {
-        faults.push(fault(&format!(
-          "a relative link of the README leads nowhere on crates.io: write it as {blob}{path}"
-        )));
-      }
       if let Some((rs, defined)) = &rustdoc {
         match &label {
           None => faults.push(fault(&format!(

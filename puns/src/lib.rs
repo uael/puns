@@ -1,6 +1,5 @@
-// The README is the crate page. Its links to the guide name files of the repository at the tag of
-// the release, which GitHub and crates.io both resolve, and rustdoc keeps the first definition of a
-// link, so these, before it, make them intra-doc.
+// The README is the crate page. Its links to the guide are relative, for GitHub, and rustdoc keeps
+// the first definition of a link, so these, before it, make them intra-doc.
 //! [valid]: guide::concepts#what-is-a-valid-value
 //! [kinds]: guide::concepts#proven-checked-and-refused
 //! [pairs]: guide::concepts#why-the-pair-decides
@@ -15,6 +14,12 @@
 //! [costs]: guide::performance#costs
 //! [rust]: guide::rust
 //! [guide]: guide
+//! [concepts]: guide::concepts
+//! [functions]: guide::functions
+//! [formats]: guide::formats
+//! [limits]: guide::limits
+//! [trust]: guide::trust
+//! [target]: guide::target
 //! [not-decided]: guide::limits#not-decided
 //! [not-yet]: guide::limits#not-yet
 //! [Compile-time errors]: guide::errors

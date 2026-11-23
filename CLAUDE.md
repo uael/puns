@@ -99,10 +99,10 @@ with `-D warnings` checks the intra-doc links. The links are written so:
   tag, so that it leads to the same version on GitHub, crates.io and docs.rs. A link to the `wip`
   branch, which keeps the prototypes for history, is the one exception. The release workflow pins
   the links on the branch of each release PR.
-- A link between chapters is relative, and the `.rs` file that includes a chapter defines its
-  label as an intra-doc link. The README has no relative link, since crates.io would resolve it
-  elsewhere: it names each file of the repository by its URL at the tag, and `puns/src/lib.rs`
-  defines the same label as an intra-doc link.
+- A link to a chapter of the guide is relative, so that GitHub stays in the revision being read,
+  and the `.rs` file that includes the page defines its label as an intra-doc link
+  (`puns/src/lib.rs` for the README). crates.io resolves a relative link of the README in the
+  directory of the package, where `docs/` is not, so these links lead nowhere there.
 - Each block of code names its language, and has no hidden lines (`# `), since GitHub shows them.
 
 The times published in `docs/performance.md`, the chapter "Measured performance", name the machine,
