@@ -2667,8 +2667,9 @@ fn derive_tagged(
       unsafe impl #root::Scalar for #tag {
         const SPEC: #root::layout::Spec = {
           let merged: &'static ([(u128, u128); #count], usize) = const {
-            // SAFETY: As for `TAGS` below, every byte of a value of `#tag` is initialized, which is
-            // what `bits_of` requires.
+            // SAFETY: `bits_of` requires every byte of a value of `#tag` to be initialized. As for
+            // `TAGS` below, this holds with a primitive representation, and is not established
+            // with `repr(C)` alone, where the error of const evaluation is relied on.
             &#root::layout::Spec::sorted_ranges([
               #(unsafe { #root::layout::Spec::bits_of(#tag::#names) }),*
             ])
@@ -2695,20 +2696,23 @@ fn derive_tagged(
         const TAGS: [::core::primitive::u128; #count] = {
           let tags =
           // SAFETY (of the generated code): `#tag` is an enum without fields, `repr(C)` or of a
-          // primitive representation, without `align`. Such an enum is an integer that holds its
-          // discriminant (`docs/rust.md`, "What Rust documents"), so every byte of it is
-          // initialized. Each sample is a value of a variant of the enum, which starts with its
-          // tag, the enum with all fields removed [1] [2]. With an integer, the tag is that
-          // integer, as `#tag` is. With `repr(C)` alone, the discriminants are implicit [3] [4], so
-          // the tag and `#tag` are the same enum without fields. Either way, the first
+          // primitive representation, without `align`. With a primitive representation, such an
+          // enum is that integer, which holds its discriminant (`docs/rust.md`, "What Rust
+          // documents"), so every byte of it is initialized. With `repr(C)` alone, Rust gives only
+          // its size and alignment, those of a C enum of the target, so that every byte of it is
+          // initialized is not established. Each sample is a value of a variant of the enum, which
+          // starts with its tag, the enum with all fields removed [1] [2]. With an integer, the tag
+          // is that integer, as `#tag` is. With `repr(C)` alone, the discriminants are implicit [3]
+          // [4], so the tag and `#tag` are the same enum without fields. Either way, the first
           // `size_of::<#tag>()` bytes of a sample are its tag, an integer, so initialized, if the
-          // enum as compiled has the representation that the derive read. This is not
-          // established: an attribute macro below the derive can change it (`docs/trust.md`,
-          // "Attribute macros below the derive"), and with a narrower tag, a byte of padding of
-          // the sample may be among these bytes. These are the requirements of `declared_tags`,
-          // except that one. The constant is evaluated at compile time, where `rustc` reports an
-          // error instead of reading an uninitialized byte. No documentation promises this
-          // behavior, which `docs/rust.md` discloses ("Errors of const evaluation").
+          // enum as compiled has the representation that the derive read. This is not established:
+          // an attribute macro below the derive can change it (`docs/trust.md`, "Attribute macros
+          // below the derive"), and with a narrower tag, a byte of padding of the sample may be
+          // among these bytes. These are the requirements of `declared_tags`, except these two for
+          // `repr(C)` alone, and the last one in every case. The constant is evaluated at compile
+          // time, where `rustc` reports an error instead of reading an uninitialized byte. No
+          // documentation promises this behavior, which `docs/rust.md` discloses ("Errors of const
+          // evaluation").
           //
           // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.adt:
           //

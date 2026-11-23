@@ -652,15 +652,16 @@ pub unsafe trait Scalar {
 ///
 /// - The layout is that of `Self`: its size, its alignment, the offset of each field, the values
 ///   that each scalar may hold, and its rules.
-/// - Every value of `Self` holds what the layout says every value holds, and every value that the
-///   layout accepts is a valid `Self`.
+/// - Every value of `Self` holds what the layout says every value holds, apart from its rules, and
+///   every value that the layout accepts apart from its rules is a valid `Self`. Rules are
+///   requirements of `puns`, not of the language: safe code may make a value that breaks them.
 /// - The lists are the layout's: its fields if it is a struct, its variants if it is an enum or a
 ///   union, and its element if it is an array or a slice. `puns` reads no other list, which may
 ///   then be anything. The checks compare the rules and the place of each field with the layout,
 ///   and trust the rest.
 /// - No byte of `Self` is inside an [`UnsafeCell`](core::cell::UnsafeCell).
-/// - `PROBE` is a null pointer, made with `as` casts only, and if `Self` is unsized, its slice
-///   length is `PROBE_LEN`: it is `slice_from_raw_parts(null(), PROBE_LEN)` cast to `*const Self`.
+/// - If `Self` is unsized, `PROBE` is `slice_from_raw_parts(null(), PROBE_LEN)` cast to
+///   `*const Self` with `as` casts only. Nothing reads the `PROBE` of a sized `Self`.
 ///
 /// Unsafe code may assume these of any `T: Pun`, as the functions of `puns` do for their soundness.
 /// It may rely on nothing else, such as how the derive meets them, which may change.
@@ -2285,7 +2286,8 @@ pub const fn pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D 
   // writes through it are allowed. The reference has the lifetime of the exclusive borrow `value`,
   // so nothing else reads or writes the bytes while it lives. What may be written through it is any
   // `D`, padding included. `Plan::MUTABLE` is `true` (`mutable`): every value of `D`, padding
-  // included, is a valid `S`. So `value` is a valid `S` when the borrow ends.
+  // included, is accepted by the layout of `S` apart from its rules, so it is a valid `S` (`Pun`,
+  // section Safety). So `value` is a valid `S` when the borrow ends.
   unsafe { &mut *Plan::<S, D>::cast(source).cast_mut() }
 }
 
@@ -2681,7 +2683,8 @@ pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Res
 ///
 /// A call [compiles] only under the conditions [layout independence], and if:
 ///
-/// - A `T` whose bytes are all zero is a [valid] `T`, apart from its rules.
+/// - A `T` whose bytes are all zero is a [valid] `T` and meets its `valid(..)` ranges. Its rules
+///   are not checked.
 /// - `T` holds no [opaque scalar] where the zero bytes would make one, since `puns` never makes
 ///   one.
 ///
@@ -2724,11 +2727,22 @@ pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Res
 #[must_use]
 pub const fn zeroed<T: Pun + Copy>() -> T {
   const {
-    assert!(T::LAYOUT.zeroable(), "zero is not a valid value of this type");
+    assert!(
+      T::LAYOUT.zeroable(false),
+      "zero is not a valid value of this type, or does not meet its `valid(..)` ranges"
+    );
+    assert!(
+      layout::UNSTABLE || T::LAYOUT.zeroable(true),
+      "zero is a value of this type only by the tags that `rustc` chose for an enum of the `Rust` \
+       representation, `Option` or `Result` in it: another compiler, or `-Zrandomize-layout`, \
+       could choose others.\nAdd `#[repr(u8)]` to the enum, or enable the `unstable` feature of \
+       `puns`."
+    );
   };
-  // SAFETY: `zeroed` requires that bytes that are all zero are a valid `T` [1]. The assertion above
-  // found that the layout of `T` accepts them (`Layout::zeroable`), and every value that the
-  // layout accepts is a valid `T` (`Pun`, section Safety). Rules are requirements of `puns`, not
+  // SAFETY: `zeroed` requires that bytes that are all zero are a valid `T` [1]. The first assertion
+  // above found that the layout of `T` accepts them apart from its rules (`Layout::zeroable`), and
+  // every value that the layout accepts apart from its rules is a valid `T` (`Pun`, section
+  // Safety). Rules are requirements of `puns`, not
   // of the language, and the result may break them.
   //
   // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/fn.zeroed.html:

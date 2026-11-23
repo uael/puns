@@ -1,0 +1,30 @@
+error[E0080]: evaluation panicked: zero is not a valid value of this type, or does not meet its `valid(..)` ranges
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `puns::zeroed::<Level>::{constant#0}` failed here
+  |
+ ::: src/lib.rs
+  |
+  | /     assert!(
+  | |       T::LAYOUT.zeroable(false),
+  | |       "zero is not a valid value of this type, or does not meet its `valid(..)` ranges"
+  | |     );
+  | |_____- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  | /   const {
+  | |     assert!(
+  | |       T::LAYOUT.zeroable(false),
+  | |       "zero is not a valid value of this type, or does not meet its `valid(..)` ranges"
+... |
+  | |     );
+  | |   };
+  | |___^
+
+note: the above error was encountered while instantiating `fn puns::zeroed::<Level>`
+  --> tests/compile-fail/zeroed_valid_range.rs:10:11
+   |
+10 |   let _ = puns::zeroed::<Level>();
+   |           ^^^^^^^^^^^^^^^^^^^^^^^

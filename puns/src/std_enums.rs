@@ -154,8 +154,9 @@ impl<T: Pun> Found for Option<T> {
   const SAMPLES: [MaybeUninit<Self>; 2] = if T::LAYOUT.is_inhabited() {
     // SAFETY: `Layout::sample::<T>()` is a valid `T`, as `assume_init` requires. It writes the
     // least valid value of each scalar in the layout of `T`, the tag and the fields of its first
-    // variant that has values, and leaves padding as it is. Every value that the layout accepts is
-    // a valid `T` (`Pun`, section Safety). `T` has values: the condition checks it.
+    // variant that has values, and leaves padding as it is. Every value that the layout accepts,
+    // apart from its rules, is a valid `T` (`Pun`, section Safety). `T` has values: the condition
+    // checks it.
     [Layout::wrap(None), Layout::wrap(Some(unsafe { Layout::sample::<T>().assume_init() }))]
   } else {
     [Layout::wrap(None), Layout::uninit()]

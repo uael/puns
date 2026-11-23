@@ -2370,8 +2370,8 @@ impl Layout {
   ///
   /// Panics in any of the following cases.
   ///
-  /// - A field other than the last is unsized, two fields overlap or are not sorted by offset, or a
-  ///   sized field ends past the size of `T`.
+  /// - A field other than the last is unsized, two fields overlap or are not sorted by offset, a
+  ///   field ends past the size of `T`, or a field of size 0 is past the start of an unsized one.
   /// - A rule is not well formed, as `#[derive(Pun)]` writes it: it reads a field past the sized
   ///   fields, goes past a [limit of the evaluator], or is a `size` or `len` rule that reads the
   ///   size of the value.
@@ -2434,6 +2434,8 @@ impl Layout {
     rules: &'static [Rule],
   ) -> Self {
     let (mut i, mut end, mut leaves) = (0, 0, (!rules.is_empty()) as usize);
+    // The greatest offset of a field of size 0, which `end` does not count.
+    let mut reach = 0;
     let mut has_rules = !rules.is_empty();
     let (mut all_any, mut all_pad) = (true, true);
     let mut tail: Option<&Field> = None;
@@ -2450,6 +2452,8 @@ impl Layout {
         all_any &= field.offset == end && matches!(field.layout.uniform, Uniform::Any);
         all_pad &= matches!(field.layout.uniform, Uniform::Pad);
         end = field.offset + field.layout.size;
+      } else if field.offset > reach {
+        reach = field.offset;
       }
       i += 1;
     }
@@ -2469,7 +2473,7 @@ impl Layout {
         //     `dyn Trait`, then the size of the entire value (dynamic tail length + statically
         //     sized prefix) must fit in `isize`.
         let (size, align) = unsafe { (mem::size_of_val_raw(probe), mem::align_of_val_raw(probe)) };
-        assert!(end <= size, "field out of bounds");
+        assert!(end <= size && reach <= size, "field out of bounds");
         let uniform = match (all_any && end == size, all_pad) {
           _ if size == 0 => Uniform::Any,
           (true, _) => Uniform::Any,
@@ -2507,6 +2511,7 @@ impl Layout {
         // `<[E] as Pun>::PROBE` is `slice_from_raw_parts(null(), PROBE_LEN)`. These are the
         // requirements of `verify`.
         unsafe { ptr::verify::<T>(probe) };
+        assert!(reach <= field.offset, "field out of bounds");
         // SAFETY: This satisfies the safety contract of `align_of_val_raw`, which is that of
         // `size_of_val_raw` quoted above. The tail of `T` is a slice or a `str`. The tail of
         // `probe` has `PROBE_LEN` (3) elements, and a value of `T` whose tail has 8 elements fits
@@ -2713,6 +2718,8 @@ impl Layout {
             "a field overlaps the tag"
           );
           end = field_end;
+        } else {
+          assert!(field.offset <= size, "fields overlap or are out of bounds");
         }
         j += 1;
       }
@@ -3914,23 +3921,24 @@ impl Layout {
     self.size
   }
 
-  /// Returns whether bytes that are all zero are a valid value of the layout.
+  /// Returns whether bytes that are all zero are a valid value of the layout that meets its
+  /// `valid(..)` ranges.
   ///
-  /// Without the `unstable` feature, this is `false` for a layout that is not `fixed`, except for a
-  /// struct, since the tag values of an enum of the `Rust` representation are not specified. The
-  /// fields of a struct are zeros in every order.
-  pub(crate) const fn zeroable(&self) -> bool {
-    if !UNSTABLE && !self.stable.fixed && !matches!(self.kind, Kind::Struct(..)) {
+  /// If `strict`, this is `false` for a layout that is not `fixed`, except for a struct, since the
+  /// tag values of an enum of the `Rust` representation are not specified. The fields of a struct
+  /// are zeros in every order.
+  pub(crate) const fn zeroable(&self, strict: bool) -> bool {
+    if strict && !self.stable.fixed && !matches!(self.kind, Kind::Struct(..)) {
       return false;
     }
     match self.kind {
       Kind::Scalar(spec) => spec.contains(0),
-      Kind::Array(elem, len) => len == 0 || elem.zeroable(),
-      Kind::Slice(elem) => elem.zeroable(),
+      Kind::Array(elem, len) => len == 0 || elem.zeroable(strict),
+      Kind::Slice(elem) => elem.zeroable(strict),
       Kind::Struct(fields, _) => {
         let mut i = 0;
         while i < fields.len() {
-          if !fields[i].layout.zeroable() {
+          if !fields[i].layout.zeroable(strict) {
             return false;
           }
           i += 1;
@@ -3942,7 +3950,7 @@ impl Layout {
       Kind::Enum(layout) if layout.union => {
         let mut i = 0;
         while i < layout.variants.len() {
-          if layout.variants[i].is_present() && layout.variants[i].layout.zeroable() {
+          if layout.variants[i].is_present() && layout.variants[i].layout.zeroable(strict) {
             return true;
           }
           i += 1;
@@ -3956,7 +3964,7 @@ impl Layout {
           if layout.variants[i].tags().has(0) && layout.variants[i].is_present() {
             let (fields, mut j) = (layout.variants[i].fields(), 0);
             while j < fields.len() {
-              if !fields[j].layout.zeroable() {
+              if !fields[j].layout.zeroable(strict) {
                 return false;
               }
               j += 1;

@@ -124,7 +124,8 @@ be. Code that relies on them runs only at compile time:
   check its representation ([Pointers to unsized types](#pointers-to-unsized-types)). A byte of the
   pointer that is not initialized fails the build.
 - The derive relies on the first to refuse an enum without fields whose `align` gives it padding,
-  since it reads each variant from all of its bytes.
+  since it reads each variant from all of its bytes, and where it reads the bytes of an enum
+  without fields of `repr(C)` alone, which Rust does not say are all initialized.
 - The derive relies on the first where it compares the tags of an enum of a primitive or `C`
   representation with the first bytes of the samples. An attribute macro below the derive that
   narrows the tag leaves padding among these bytes, which fails the build ([Attribute macros below

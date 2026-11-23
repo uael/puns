@@ -595,14 +595,36 @@ let _: &mut [[u8; 2]] = puns::head_mut(text);
 
 ### Zeros
 
-[`zeroed`] makes no pun, and its message does not start with `cannot pun:`:
+[`zeroed`] makes no pun, and its messages do not start with `cannot pun:`. Zero bytes must be a
+valid value of the type and meet its `valid(..)` ranges:
 
 ```rust,compile_fail,E0080
 let _ = puns::zeroed::<core::num::NonZero<u8>>();
 ```
 
 ```text
-error[E0080]: evaluation panicked: zero is not a valid value of this type
+error[E0080]: evaluation panicked: zero is not a valid value of this type, or does not meet its `valid(..)` ranges
+```
+
+Without the `unstable` feature, zero bytes must not be a value only by the tag that `rustc` gives a
+variant of an enum of the `Rust` representation:
+
+```rust,compile_fail,E0080
+// This example is about the default build, without the `unstable` feature.
+const _: () = assert!(!puns::layout::UNSTABLE);
+
+#[derive(puns::Pun, Clone, Copy)]
+enum Light {
+  Off,
+  On,
+}
+
+let _ = puns::zeroed::<Light>();
+```
+
+```text
+error[E0080]: evaluation panicked: zero is a value of this type only by the tags that `rustc` chose for an enum of the `Rust` representation, `Option` or `Result` in it: another compiler, or `-Zrandomize-layout`, could choose others.
+Add `#[repr(u8)]` to the enum, or enable the `unstable` feature of `puns`.
 ```
 
 ```rust

@@ -1,0 +1,34 @@
+error[E0080]: evaluation panicked: zero is a value of this type only by the tags that `rustc` chose for an enum of the `Rust` representation, `Option` or `Result` in it: another compiler, or `-Zrandomize-layout`, could choose others.
+              Add `#[repr(u8)]` to the enum, or enable the `unstable` feature of `puns`.
+    --> $RUST/core/src/panic.rs
+     |
+     = note: evaluation of `puns::zeroed::<Light>::{constant#0}` failed here
+     |
+    ::: src/lib.rs
+     |
+     | /     assert!(
+     | |       layout::UNSTABLE || T::LAYOUT.zeroable(true),
+     | |       "zero is a value of this type only by the tags that `rustc` chose for an enum of the `Rust` \
+     | |        representation, `Option` or `Result` in it: another compiler, or `-Zrandomize-layout`, \
+     | |        could choose others.\nAdd `#[repr(u8)]` to the enum, or enable the `unstable` feature of \
+     | |        `puns`."
+     | |     );
+     | |_____- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  | /   const {
+  | |     assert!(
+  | |       T::LAYOUT.zeroable(false),
+  | |       "zero is not a valid value of this type, or does not meet its `valid(..)` ranges"
+... |
+  | |     );
+  | |   };
+  | |___^
+
+note: the above error was encountered while instantiating `fn puns::zeroed::<Light>`
+  --> tests/compile-fail-kept/zeroed_unspecified.rs:10:11
+   |
+10 |   let _ = puns::zeroed::<Light>();
+   |           ^^^^^^^^^^^^^^^^^^^^^^^
