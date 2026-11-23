@@ -5,11 +5,13 @@
 
 pub mod concepts;
 pub mod errors;
+pub mod formats;
 pub mod functions;
 pub mod limitations;
 pub mod msrv;
 pub mod never_made;
 pub mod portability;
+pub mod rules;
 pub mod soundness;
 pub mod unstable;
 

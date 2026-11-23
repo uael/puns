@@ -26,15 +26,15 @@
 //! or a trailing slice. The compiler runs the analysis once for each pair that a function of
 //! `puns` is used with.
 //!
-//! A struct that derives `Pun` may state *[rules](macro@Pun#expressions)*: expressions on its
-//! fields and its bytes that its values must meet. A rule is an assertion, the size of a value, the
-//! length of its trailing slice, or the size of a region. The *[extent](macro@Pun#attributes)* of a
-//! value is its size up to the end of its trailing slice, without the padding that may follow the
-//! slice, and a `size` rule gives it. A *[region](macro@Pun#attributes)* is a named part of the
-//! last field of a struct. A rule gives its size, and a method of the same name returns it.
+//! A struct that derives `Pun` may state *[rules](super::rules)*: expressions on its fields and its
+//! bytes that its values must meet. A rule is an assertion, the size of a value, the length of its
+//! trailing slice, or the size of a region. The *[extent](super::rules#extent)* of a value is its
+//! size up to the end of its trailing slice, without the padding that may follow the slice, and a
+//! `size` rule gives it. A *[region](super::rules#regions)* is a named part of the last field of a
+//! struct. A rule gives its size, and a method of the same name returns it.
 //!
-//! An enum whose variants each hold a reference is a *[view](macro@Pun)*. It reads data that may be
-//! one of several types.
+//! An enum whose variants each hold one shared reference is a *[view](macro@Pun#views)*. It reads
+//! data that may be one of several types.
 //!
 //! ## What is a valid value?
 //!

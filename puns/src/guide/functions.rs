@@ -1,7 +1,7 @@
 //! # Choosing a function
 //!
 //! A function of `puns` is chosen by what it reads, a typed value or bytes, and by how much of it:
-//! the whole, the front or the back ([the table of functions](crate#reference)). The choice also
+//! the whole, the front or the back ([the table of functions](crate#going-further)). The choice also
 //! decides whether a check at run time is possible. [`pun`], [`pun_ref`], [`pun_mut`], [`as_bytes`]
 //! and the functions of the front and the back check nothing, and refuse a pair that needs a check.
 //! The `try_` and `from_` functions check what the analysis could not prove ([Proven, checked and

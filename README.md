@@ -8,12 +8,45 @@
 Type punning proven at compile time: a safe alternative to `transmute` and to hand-written parsing
 of bytes.
 
-> **Note:** `puns` is written using AI. See [How `puns` is written](#how-puns-is-written).
+## Contents
+
+- [Overview](#overview)
+  - [Reading a packet](#reading-a-packet)
+  - [Reading one of several types](#reading-one-of-several-types)
+  - [Reading an old version of a format](#reading-an-old-version-of-a-format)
+  - [Going further](#going-further)
+- [When to use `puns`](#when-to-use-puns)
+  - [Compared with other crates](#compared-with-other-crates)
+  - [Caveats](#caveats)
+  - [Performance](#performance)
+  - [Safety and testing](#safety-and-testing)
+- [The guide][guide]
+  - [How `puns` decides][concepts]
+  - [Choosing a function][functions]
+  - [Describing a format][formats]
+  - [Compile-time errors]
+  - [The language of rules][rules]
+  - [The `unstable` feature][unstable]
+  - [Limitations][limitations]
+  - [Scalars that a pun never makes][never-made]
+  - [Soundness]
+  - [Minimum Rust version][msrv]
+  - [Portability][portability]
+- [About](#about)
+  - [History](#history)
+  - [How `puns` is written](#how-puns-is-written) (using AI)
+  - [License](#license)
+
+## Overview
+
+> **Note:** `puns` is written using AI. See [How `puns` is written](#how-puns-is-written). The first
+> release came out in November 2026: expect the API to change before 1.0.
 
 `puns` lets you reinterpret a value of one type, the *source*, as a value of another type, the
-*target*, or bytes as a typed value, without writing `unsafe`. It compares the [layouts] of the
-two types, which include their [valid][valid] values, while your code compiles, and whatever it can
-prove, it doesn't check at run time:
+*target*, or bytes as a typed value, without writing `unsafe`. `puns` is `no_std`, never allocates,
+and needs Rust 1.99 or later ([why][msrv]). It compares the [layouts] of the two types, which
+include their [valid][valid] values, while your code compiles, and whatever it can prove, it doesn't
+check at run time:
 
 ```rust
 use puns::Pun;
@@ -56,82 +89,11 @@ each message.
 decides while the compiler generates code, which `cargo check` skips. Both report the errors of the
 derive and of types.
 
-```sh
-cargo add puns
-```
+The three examples below show what `puns` is for: reading a packet whose header holds its length and
+its checksum, reading data that is one of several types, and reading data of an old version of a
+format as the new one. Going further, after them, lists the functions, traits and modules.
 
-`puns` is `no_std`, never allocates, and needs Rust 1.99 or later ([why][msrv]). The first release
-came out in November 2026: expect the API to change before 1.0.
-
-## Contents
-
-- [When to use it](#when-to-use-it)
-- [Reference](#reference)
-- [Reading a packet](#reading-a-packet)
-- [Reading one of several types](#reading-one-of-several-types)
-- [Reading an old version of a format](#reading-an-old-version-of-a-format)
-- [Compared with other crates](#compared-with-other-crates)
-- [Caveats](#caveats)
-- [Performance](#performance)
-- [Safety and testing](#safety-and-testing)
-- [History](#history)
-- [How `puns` is written](#how-puns-is-written)
-- [License](#license)
-- [The guide][guide]
-  - [How `puns` decides][concepts]
-  - [Choosing a function][functions]
-  - [Compile-time errors]
-  - [The `unstable` feature][unstable]
-  - [Limitations][limitations]
-  - [Scalars that a pun never makes][never-made]
-  - [Soundness]
-  - [Minimum Rust version][msrv]
-  - [Portability][portability]
-
-## When to use it
-
-Use `puns` to read binary formats in place, or to reinterpret plain data as another type, when you
-want the compiler to prove what it can. Use [`zerocopy`][zerocopy] or [`bytemuck`][bytemuck] for
-what `puns` doesn't do ([compared below](#compared-with-other-crates)), for an older Rust, or when
-you need a crate that has been reviewed for years. To decode data into owned values,
-[`binrw`][binrw], [`deku`][deku] or [`nom`][nom] are a better fit.
-
-## Reference
-
-The functions of `puns` are in this table. Each row says what is read, a typed value or bytes, and
-whether the function checks at run time. Each column says how much is read: the whole, the front,
-or the back.
-
-|                                  | Whole                              | Front                          | Back                           |
-|----------------------------------|------------------------------------|--------------------------------|--------------------------------|
-| a typed value, checking nothing  | [`pun`][pun], [`pun_ref`][pun_ref], [`pun_mut`][pun_mut], [`as_bytes`][as_bytes] | [`head`][head], [`head_ref`][head_ref], [`head_mut`][head_mut] | [`tail`][tail], [`tail_ref`][tail_ref], [`tail_mut`][tail_mut] |
-| a typed value, checking          | [`try_pun`][try_pun], [`try_pun_ref`][try_pun_ref], [`try_pun_mut`][try_pun_mut] | | |
-| bytes, checking                  | [`from_bytes`][from_bytes], [`from_bytes_mut`][from_bytes_mut] | [`from_head`][from_head], [`from_head_mut`][from_head_mut] | [`from_tail`][from_tail], [`from_tail_mut`][from_tail_mut] |
-
-Two functions make no pun. [`zeroed`][zeroed] returns a value whose fields are all zero bytes.
-[`validate_but_never`][validate_but_never] checks bytes for a type that holds [opaque
-scalars][opaque], but makes no reference: the crate that declares these scalars proves them itself,
-and then makes the reference.
-
-- [`Pun`][trait-pun] is the trait of the types that `puns` works with, which are plain data: structs
-  and enums of any representation, `repr(C)` unions, tuples of up to 4 elements, arrays, slices,
-  structs that end with a slice, `str`, `MaybeUninit`, and [uninhabited][opaque] types.
-- [`#[derive(Pun)]`][derive] implements `Pun`, and also describes what the bytes of a value say
-  about it: its size, the length of its trailing slice, and conditions such as a checksum.
-- [`Scalar`][Scalar] is the trait of a type that is one scalar value, such as a number whose
-  constructor checks it. [`Tag`][Tag] is the trait of a type carried next to a tag, such as the
-  payload of a message, and gives the values of the tag that select it.
-- [`Error`][error-type] says which check failed: the alignment, the size, or the values.
-- [`num`][num] has numbers of a fixed byte order, and integers restricted to some values.
-- [`layout`][layout] has the types that describe a layout, and the checksums.
-- The [guide] explains the rest as a book, in the chapters that the [contents](#contents) list.
-
-The tests and the [examples] of the repository show more uses. The examples read parts of more
-than 40 formats, from TLS and DNS to ELF and SQLite, and each one says which parts of its format it
-doesn't cover, and why. The shortest, [`media.rs`][media], reads WAVE files and MP4 boxes. Run it
-with `cargo run --example media` from a clone of the repository.
-
-## Reading a packet
+### Reading a packet
 
 Binary formats fix the byte order of their integers, while a `u16` has the byte order of the
 machine. [`puns::num`][num] therefore has a type for each byte order: `u16be` is a big-endian `u16`,
@@ -189,8 +151,8 @@ assert_eq!(buffer[1], 63);
 ```
 
 Rules can also compute other checksums, read variable-length integers and `walk` a chain of
-headers. Other attributes cover bit fields, restricted values and regions, and the [derive's
-documentation][derive] lists them all.
+headers ([The language of rules][rules]). Other attributes cover bit fields, restricted values and
+regions, and the [derive's documentation][derive] lists them all.
 
 A rule is a [requirement][requirements] of the format, not a guarantee of the type: it holds when
 `puns` reads the bytes, but the fields stay writable. If the router set `length` to 10, `payload`
@@ -200,7 +162,7 @@ holds gives wrong values, never undefined behavior.
 `puns` [can't build][unsized] a new value of an unsized type like `Packet`. To send one, you write
 its bytes yourself.
 
-## Reading one of several types
+### Reading one of several types
 
 When the data can be one of several types, derive `Pun` on an enum of references, which `puns` calls
 a *view*. Its `from_bytes` and `from_head` return the first variant that the bytes match:
@@ -248,7 +210,7 @@ assert!(Message::from_bytes(&[3]).is_err());
 `u8c<1>` is a byte whose only valid value is 1, and `puns` skips a variant as soon as its tag
 doesn't match. [`link.rs`][link] reads Bluetooth HCI packets this way.
 
-## Reading an old version of a format
+### Reading an old version of a format
 
 If every value of an old version of a format is also a valid value of the new one, `puns` can
 prove it, and you can reinterpret old data as the new version without any check. Nothing is moved or
@@ -288,7 +250,50 @@ it, since you could then write a key into an `OldItem`.) `puns` can't check what
 because it matches variants by their tag. If version 2 gave tag 1 to the key, this would still
 compile and reinterpret the old potion as a key, so keep the tags of existing variants.
 
-## Compared with other crates
+### Going further
+
+The functions of `puns` are in this table. Each row says what is read, a typed value or bytes, and
+whether the function checks at run time. Each column says how much is read: the whole, the front,
+or the back.
+
+|                                  | Whole                              | Front                          | Back                           |
+|----------------------------------|------------------------------------|--------------------------------|--------------------------------|
+| a typed value, checking nothing  | [`pun`][pun], [`pun_ref`][pun_ref], [`pun_mut`][pun_mut], [`as_bytes`][as_bytes] | [`head`][head], [`head_ref`][head_ref], [`head_mut`][head_mut] | [`tail`][tail], [`tail_ref`][tail_ref], [`tail_mut`][tail_mut] |
+| a typed value, checking          | [`try_pun`][try_pun], [`try_pun_ref`][try_pun_ref], [`try_pun_mut`][try_pun_mut] | | |
+| bytes, checking                  | [`from_bytes`][from_bytes], [`from_bytes_mut`][from_bytes_mut] | [`from_head`][from_head], [`from_head_mut`][from_head_mut] | [`from_tail`][from_tail], [`from_tail_mut`][from_tail_mut] |
+
+Two functions make no pun. [`zeroed`][zeroed] returns a value whose fields are all zero bytes.
+[`validate_but_never`][validate_but_never] checks bytes for a type that holds [opaque
+scalars][opaque], but makes no reference: the crate that declares these scalars proves them itself,
+and then makes the reference.
+
+- [`Pun`][trait-pun] is the trait of the types that `puns` works with, which are plain data: structs
+  and enums of any representation, `repr(C)` unions, tuples of up to 4 elements, arrays, slices,
+  structs that end with a slice, `str`, `MaybeUninit`, and [uninhabited][opaque] types.
+- [`#[derive(Pun)]`][derive] implements `Pun`, and also describes what the bytes of a value say
+  about it: its size, the length of its trailing slice, and conditions such as a checksum.
+- [`Scalar`][Scalar] is the trait of a type that is one scalar value, such as a number whose
+  constructor checks it. [`Tag`][Tag] is the trait of a type carried next to a tag, such as the
+  payload of a message, and gives the values of the tag that select it.
+- [`Error`][error-type] says which check failed: the alignment, the size, or the values.
+- [`num`][num] has numbers of a fixed byte order, and integers restricted to some values.
+- [`layout`][layout] has the types that describe a layout, and the checksums.
+- The [guide] explains the rest as a book, in the chapters that the [contents](#contents) list.
+
+The tests and the [examples] of the repository show more uses. The examples read parts of more
+than 40 formats, from TLS and DNS to ELF and SQLite, and each one says which parts of its format it
+doesn't cover, and why. The shortest, [`media.rs`][media], reads WAVE files and MP4 boxes. Run it
+with `cargo run --example media` from a clone of the repository.
+
+## When to use `puns`
+
+Use `puns` to read binary formats in place, or to reinterpret plain data as another type, when you
+want the compiler to prove what it can. Use [`zerocopy`][zerocopy] or [`bytemuck`][bytemuck] for
+what `puns` doesn't do ([compared below](#compared-with-other-crates)), for an older Rust, or when
+you need a crate that has been reviewed for years. To decode data into owned values,
+[`binrw`][binrw], [`deku`][deku] or [`nom`][nom] are a better fit.
+
+### Compared with other crates
 
 `puns` takes many ideas and implementation details from [`zerocopy`][zerocopy] and
 [`bytemuck`][bytemuck]. Their traits describe what each type accepts on its own, while `puns`
@@ -307,7 +312,7 @@ compares the two types of each conversion. Read on 2026-11-23, with `zerocopy` 0
 Rust's own [Safe Transmute][safe transmute] project compares the two types as well, inside the
 compiler, but it's only on nightly.
 
-## Caveats
+### Caveats
 
 - Deriving `Pun` bypasses your constructors. Any code can then make a value of the type from bytes
   and read or write its fields, private ones included: don't derive it on a type with a private
@@ -325,7 +330,7 @@ compiler, but it's only on nightly.
   ([details][costs]).
 - An [`Error`][error-type] doesn't tell you which field or rule failed.
 
-## Performance
+### Performance
 
 For packets, checked puns are about as fast as the same checks written by hand: on an Apple M4
 Max at a load average of 3.5 to 3.9, on 2026-11-21 at commit `4176671`, checking Ethernet, IPv4,
@@ -338,7 +343,7 @@ the chart below shows the time of each check relative to the same check written 
 
 ![Time of each check by puns, relative to the same check written by hand](https://raw.githubusercontent.com/uael/puns/v0.2.3/docs/charts/checks.svg)
 
-## Safety and testing
+### Safety and testing
 
 `puns` is built on `unsafe` code so that yours doesn't have to be: crates that use it, derive
 included, can keep `#![forbid(unsafe_code)]`. The [Soundness] chapter of the guide states what that
@@ -348,7 +353,9 @@ that don't use it, and the tests run under Miri, on 32-bit and big-endian target
 programs must fail to compile, each with its expected message ([`docs/testing.md`][testing]). If
 you find a soundness bug, please [open an issue][issues].
 
-## History
+## About
+
+### History
 
 I started this crate in November 2023 under the name `mutant`. I was working on Bluetooth at the
 time, which involves a lot of packing and unpacking of protocol data, and I was impressed by how
@@ -368,7 +375,7 @@ stabilizations that `puns` could not do without:
 
 `mutant` was taken, so the crate is now `puns`, and the [changelog] lists everything since.
 
-## How `puns` is written
+### How `puns` is written
 
 The current code, tests and documentation of `puns` were all written using AI (Claude models),
 under my supervision, based on prototypes I wrote by hand between 2023 and 2025. The [`wip`][wip]
@@ -384,7 +391,7 @@ I hope more of it gets reviewed by people over time, and that some of them help 
 Reviews, questions and tests that break it are all welcome. If that doesn't happen, `puns` stays as
 it is, and this section will say so.
 
-## License
+### License
 
 Licensed under either of [Apache License, Version 2.0][apache] or [MIT license][mit] at your
 option.
@@ -403,6 +410,8 @@ additional terms or conditions.
 [msrv]: https://docs.rs/puns/0.2.3/puns/guide/msrv/index.html
 [concepts]: https://docs.rs/puns/0.2.3/puns/guide/concepts/index.html
 [functions]: https://docs.rs/puns/0.2.3/puns/guide/functions/index.html
+[formats]: https://docs.rs/puns/0.2.3/puns/guide/formats/index.html
+[rules]: https://docs.rs/puns/0.2.3/puns/guide/rules/index.html
 [limitations]: https://docs.rs/puns/0.2.3/puns/guide/limitations/index.html
 [never-made]: https://docs.rs/puns/0.2.3/puns/guide/never_made/index.html
 [portability]: https://docs.rs/puns/0.2.3/puns/guide/portability/index.html
