@@ -5,7 +5,8 @@ mod fake {
   pub use puns::{At, Fields, Path, Pun, RuleAt, __site, steps};
   pub mod layout {
     pub use puns::layout::{
-      Endian, Enum, Field, Id, Layout, Rule, Spec, Variant, merge_ranges, range, tail_offset,
+      Checksum, Crc, Endian, Enum, Field, Id, Layout, Rule, Spec, Variant, Varint, merge_ranges,
+      range, tail_offset,
     };
     #[expect(non_snake_case, reason = "a module that stands for the type `Op`")]
     pub mod Op {

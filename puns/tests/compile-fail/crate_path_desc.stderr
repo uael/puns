@@ -1,0 +1,18 @@
+error[E0308]: mismatched types
+  --> tests/compile-fail/crate_path_desc.rs:40:10
+   |
+40 | #[derive(puns::Pun, Clone, Copy)]
+   |          ^^^^^^^^^ expected `Desc<2>`, found `puns::layout::Desc<2>`
+   |
+   = note: `puns::layout::Desc<2>` and `Desc<2>` have similar names, but are actually distinct types
+note: `puns::layout::Desc<2>` is defined in crate `puns`
+  --> src/discover.rs
+   |
+   | pub struct Desc<const V: usize> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: `Desc<2>` is defined in the current crate
+  --> tests/compile-fail/crate_path_desc.rs:11:5
+   |
+11 |     pub struct Desc<const V: usize>;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

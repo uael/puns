@@ -1,9 +1,14 @@
 error[E0080]: evaluation panicked: the bytes before the fields of an enum of the `Rust` representation are not an integer: unsupported layout
+ --> tests/compile-fail/rust_enum_wide_tag.rs:8:10
+  |
+8 | #[derive(puns::Pun, Clone, Copy)]
+  |          ^^^^^^^^^ evaluation of `<Shape as _::__PunDiscover>::DESC` failed inside this call
+  |
+note: inside `puns::layout::Layout::discover::<Shape, 2>`
  --> src/layout.rs
   |
-  |   const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
-  |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Shape as puns::layout::Discover<2>>::DESC` failed inside this call
-  |
+  |     unsafe { crate::discover::discover(samples, fields) }
+  |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::discover::discover::<Shape, 2>`
  --> $RUST/core/src/panic.rs
   |

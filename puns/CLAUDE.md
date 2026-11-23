@@ -78,6 +78,10 @@ What `unsafe` code assumes of the target is run under Miri on a target where the
 not hold (32 bits, big-endian). A new `unsafe` block that reads a type at an address comes with the
 test that stresses it (an over-aligned type, an integer wider than `isize`, the other byte order).
 
+`Layout::PIN` fixes the types whose functions make a layout, so a new type whose functions the
+derive calls goes there. The cases `crate_path_*` of `tests/compile-fail` test that no path of
+`#[pun(crate = ..)]` replaces one, and `fakecore` in `puns-model` that `::core` does not.
+
 Every opaque scalar of the repository is declared through the public API only (`Scalar`,
 `Spec::never`), as another crate would. Most share `tests/support/never.rs`, which the compile-fail
 cases include by `#[path]`.

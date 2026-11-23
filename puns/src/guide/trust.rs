@@ -2,6 +2,7 @@
 // definition of a link, so these, before it, make its links to items and chapters intra-doc.
 //! [enums]: macro@Pun#enums-with-fields
 //! [least]: macro@Pun#enums-with-fields
+//! [`Checksum`]: layout::Checksum
 //! [`Crc`]: layout::Crc
 //! [`Enum`]: layout::Enum
 //! [`Field`]: layout::Field
@@ -9,6 +10,7 @@
 //! [`Op`]: layout::Op
 //! [`Rule`]: layout::Rule
 //! [`Spec`]: layout::Spec
+//! [`Varint`]: layout::Varint
 //! [`Variant`]: layout::Variant
 //! [independence]: super::layouts#layout-independence
 //! [opaque scalar]: super::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types

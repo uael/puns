@@ -51,11 +51,21 @@ read. So reordered variants fail the build.
 
 ## The generated code
 
-The generated code calls associated functions of the types that the implemented traits name
-([`Layout`] and [`Spec`]), and of [`Rule`], [`Op`], [`Field`], [`Enum`] and [`Variant`], which a
-hidden constant of `Layout` fixes with `fn(T)` types that no path can replace. It also calls `new`
-of [`Crc`] and of the identity of a type, whose results go to these functions, so only the real
-types compile.
+The functions that the generated code calls to make a layout are associated functions of
+[`Layout`], [`Spec`], [`Rule`], [`Op`], [`Field`], [`Enum`], [`Variant`], [`Crc`], [`Checksum`],
+[`Varint`] and the identity of a type, and methods of the values that they return. A hidden constant
+of `Layout` fixes these types with `fn(T)` types that no path can replace, so a path that names a
+module or another type for one of them does not compile. The description of an enum of the `Rust`
+representation, whose type the generated code names, is what a function of `Layout` returns, so
+only the real type compiles.
+
+Nothing else that the derive names through the path of `puns` makes a layout. A trait that it
+implements through the path is the trait of `puns`: otherwise the type does not implement that
+trait of `puns`, or the implementation of `Pun` does not compile. The lists of fields and of rules
+that it writes as types are checked against the layout. The functions of a view, the accessors of
+the regions and the getters call functions named through the path, in code that holds no `unsafe`
+block. A path that names other functions there changes what they return, but whatever it is, it is
+a valid value of its type.
 
 The trait that says where a field is, `Path`, is sealed, and the leaf at which a list of fields
 places a field is checked against the layout.
@@ -123,6 +133,7 @@ What such an attribute can still change without failing the build:
 [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
 [enums]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#enums-with-fields
 [least]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#enums-with-fields
+[`Checksum`]: https://docs.rs/puns/0.2.3/puns/layout/enum.Checksum.html
 [`Crc`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Crc.html
 [`Enum`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Enum.html
 [`Field`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Field.html
@@ -130,6 +141,7 @@ What such an attribute can still change without failing the build:
 [`Op`]: https://docs.rs/puns/0.2.3/puns/layout/enum.Op.html
 [`Rule`]: https://docs.rs/puns/0.2.3/puns/layout/enum.Rule.html
 [`Spec`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Spec.html
+[`Varint`]: https://docs.rs/puns/0.2.3/puns/layout/enum.Varint.html
 [`Variant`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Variant.html
 [independence]: layouts.md#layout-independence
 [opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types

@@ -1701,25 +1701,6 @@ pub const fn tail_offset(end: usize, align: usize, pack: usize) -> usize {
   }
 }
 
-/// An enum of the `Rust` representation whose layout `#[derive(Pun)]` finds by experiments on a
-/// sample of each of its `V` variants, as the module documentation of `discover` explains.
-#[doc(hidden)]
-pub trait Discover<const V: usize>: Sized {
-  /// A sample of each variant, in the order of declarations, or anything for a variant that has
-  /// no value.
-  const SAMPLES: [mem::MaybeUninit<Self>; V];
-  /// The fields of each variant, at the offsets observed on its sample.
-  const FIELDS: [&'static [Field]; V];
-  /// The layout that the experiments find.
-  ///
-  /// It is a constant, so the experiments are evaluated at compile time only. They read bytes
-  /// that may be uninitialized, which is undefined behavior at run time, and an error of const
-  /// evaluation at compile time.
-  // SAFETY: `DESC` is an associated constant, so the call is evaluated at compile time, which is
-  // what `discover` requires.
-  const DESC: Desc<V> = unsafe { crate::discover::discover(&Self::SAMPLES, &Self::FIELDS) };
-}
-
 /// The tag of a union and of an enum without variants, a scalar of size 0.
 const NO_TAG: Layout = Layout::scalar::<()>(Spec::any::<()>());
 
@@ -1733,22 +1714,49 @@ fn pin<T>(_: T) {}
 pub const UNSTABLE: bool = cfg!(feature = "unstable");
 
 impl Layout {
-  /// The types that the code of `#[derive(Pun)]` names by a path, pinned to the types of this
-  /// crate.
+  /// The types whose functions the code of `#[derive(Pun)]` calls to make a layout, pinned to the
+  /// types of this crate.
   ///
-  /// The generated code names `Rule`, `Op`, `Field`, `Enum` and `Variant` by their path in the
-  /// crate that `#[pun(crate = ..)]` names, which safe code can make name something else. It calls
-  /// only associated functions of these types, and of `Layout` and `Spec`, which the traits it
-  /// implements name. It also writes this constant with the same paths, as a tuple of `fn` types,
-  /// so a path that names another type does not compile, because a `fn` type is not a path, and
-  /// nothing can replace it.
+  /// The generated code names these types by their path in the crate that `#[pun(crate = ..)]`
+  /// names, which safe code can make name something else. It also writes this constant with the
+  /// same paths, as a tuple of `fn` types, so a path that names another type does not compile,
+  /// because a `fn` type is not a path, and nothing can replace it. The functions that make a layout
+  /// are associated functions of these types, and methods of the values that they return. The other
+  /// types that this code names by a path are fixed by the types of these functions: the
+  /// description of an enum of the `Rust` representation is the type that [`Layout::discover`]
+  /// returns. The rest of what the generated code names through the path is fixed by the traits
+  /// that it implements, checked against the layout, or makes no layout ("What the derive trusts" in
+  /// the documentation of `#[derive(Pun)]`).
   #[doc(hidden)]
   #[expect(
     clippy::type_complexity,
     reason = "the derive writes this tuple of `fn` types out, with the paths it is told"
   )]
-  pub const PIN: (fn(Rule), fn(Op), fn(Field), fn(Enum), fn(Variant)) =
-    (pin::<Rule>, pin::<Op>, pin::<Field>, pin::<Enum>, pin::<Variant>);
+  pub const PIN: (
+    fn(Layout),
+    fn(Spec),
+    fn(Id),
+    fn(Rule),
+    fn(Op),
+    fn(Field),
+    fn(Enum),
+    fn(Variant),
+    fn(Crc),
+    fn(Checksum),
+    fn(Varint),
+  ) = (
+    pin::<Layout>,
+    pin::<Spec>,
+    pin::<Id>,
+    pin::<Rule>,
+    pin::<Op>,
+    pin::<Field>,
+    pin::<Enum>,
+    pin::<Variant>,
+    pin::<Crc>,
+    pin::<Checksum>,
+    pin::<Varint>,
+  );
 
   /// Returns an uninitialized `T`, for `#[derive(Pun)]`, which finds the offsets of the fields of
   /// `T` by projecting a pointer to it.
@@ -1774,6 +1782,34 @@ impl Layout {
     // `slice_from_raw_parts(null(), PROBE_LEN)` cast with `as` casts only, which are the
     // requirements of `verify`, and so of `in_buffer`.
     unsafe { ptr::in_buffer(probe) }
+  }
+
+  /// Returns what the experiments find of the layout of the enum `E` of the `Rust`
+  /// representation, for `#[derive(Pun)]`, as the module documentation of `discover` explains.
+  ///
+  /// `samples` holds a sample of each of the `V` variants, in the order of declarations, or
+  /// anything for a variant that has no value. `fields` holds the fields of each variant, at the
+  /// offsets observed on its sample.
+  ///
+  /// # Panics
+  ///
+  /// Panics, with the reason, if the experiments find no layout of a shape that `rustc` gives, or
+  /// if a sample is not its own variant.
+  ///
+  /// # Safety
+  ///
+  /// The call must be evaluated at compile time, in a `const` item or block. The experiments read
+  /// bytes that may be uninitialized, which is undefined behavior at run time, and an error of
+  /// const evaluation at compile time.
+  #[doc(hidden)]
+  #[must_use]
+  pub const unsafe fn discover<E, const V: usize>(
+    samples: &[mem::MaybeUninit<E>; V],
+    fields: &[&[Field]; V],
+  ) -> Desc<V> {
+    // SAFETY: The call is evaluated at compile time, by contract on the caller, which is what
+    // `discover` requires.
+    unsafe { crate::discover::discover(samples, fields) }
   }
 
   /// Returns a pointer to the sample of the variant `index` in `samples`, or a null pointer if the
@@ -1834,7 +1870,7 @@ impl Layout {
 
   /// Returns a `T` that is valid in the sense of the Reference, whose rules may not hold, made from
   /// its layout alone, for the samples of the variants of an enum of the `Rust` representation
-  /// (`Discover`).
+  /// (`Layout::discover`).
   ///
   /// Every scalar holds the least of its values, and padding is uninitialized.
   ///
@@ -1848,7 +1884,7 @@ impl Layout {
     crate::discover::sample::<T>()
   }
 
-  /// Returns `value` as a sample, for `Discover`.
+  /// Returns `value` as a sample, for `Layout::discover`.
   #[doc(hidden)]
   #[must_use]
   pub const fn wrap<T>(value: T) -> mem::MaybeUninit<T> {
