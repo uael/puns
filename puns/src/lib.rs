@@ -1,3 +1,26 @@
+// The README is the crate page. Its links to the guide are relative, for GitHub, and rustdoc keeps
+// the first definition of a link, so these, before it, make them intra-doc.
+//! [valid]: guide::concepts#what-is-a-valid-value
+//! [kinds]: guide::concepts#proven-checked-and-refused
+//! [pairs]: guide::concepts#why-the-pair-decides
+//! [requirements]: guide::concepts#requirements
+//! [opaque]: guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
+//! [layouts]: guide::concepts#layouts-and-rules
+//! [unsized]: guide::limitations#limits
+//! [msrv]: guide::msrv
+//! [concepts]: guide::concepts
+//! [functions]: guide::functions
+//! [formats]: guide::formats
+//! [rules]: guide::rules
+//! [limitations]: guide::limitations
+//! [never-made]: guide::never_made
+//! [portability]: guide::portability
+//! [guide]: guide
+//! [not-yet]: guide::limitations#not-done-yet
+//! [Compile-time errors]: guide::errors
+//! [Soundness]: guide::soundness
+//! [deriving]: guide::soundness#what-deriving-pun-means
+//! [unstable]: guide::unstable
 #![doc = include_str!("../README.md")]
 #![cfg_attr(not(test), no_std)]
 // Every public item has documentation, as docs.rs counts it. CI checks that each item that rustdoc

@@ -1,7 +1,7 @@
-//! # The guide
-//!
-//! The chapters of the guide are listed in reading order in the [contents](crate#contents) of
-//! the crate page.
+// The guide's page is docs/README.md, read on GitHub as well. Rustdoc keeps the first definition
+// of a link, so this one, before it, makes its link to the crate page intra-doc.
+//! [crate#contents]: crate#contents
+#![doc = include_str!("../docs/README.md")]
 
 pub mod concepts;
 pub mod errors;

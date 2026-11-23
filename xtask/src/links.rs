@@ -2,14 +2,18 @@
 //!
 //! The README is read in three places: on GitHub, on crates.io, and on docs.rs, where it is the top
 //! of the crate documentation. Every link of it to docs.rs, to crates.io, or to a file of the
-//! repository names the version of `puns` in `puns/Cargo.toml`, or its tag `v{version}`. So
-//! whichever page a reader starts from, each link leads to the same version. A link without a
-//! version would lead elsewhere: `docs.rs/puns/latest` is the newest stable release, and
-//! `blob/main` is the code after it. The one exception is a branch of [`BRANCHES`], which holds
-//! what no release contains, and is linked as it is. crates.io resolves a relative link to the
-//! default branch, so the README holds no relative link. The files of `docs/` are read on GitHub
-//! only, where a relative link stays in the revision being read, so their links to the repository
-//! are relative, and only their links to docs.rs are pinned.
+//! repository by its URL names the version of `puns` in `puns/Cargo.toml`, or its tag
+//! `v{version}`. A link without a version would lead elsewhere: `docs.rs/puns/latest` is the
+//! newest stable release, and `blob/main` is the code after it. The one exception is a branch of
+//! [`BRANCHES`], which holds what no release contains, and is linked as it is.
+//!
+//! The chapters of the guide are files of `docs/`, which rustdoc includes as the guide's modules,
+//! as it includes the README as the crate page. A link between them is relative, so that GitHub
+//! stays in the revision being read. rustdoc does not resolve such a link, so the `.rs` file that
+//! includes a Markdown file defines the same label before the include, as an intra-doc link: of
+//! two definitions of a label, the first counts. A relative link of an included file is therefore
+//! a definition (`[label]: target`), and the `.rs` file must define its label. crates.io resolves
+//! a relative link of the README to the default branch of the repository.
 //!
 //! `cargo xtask links` writes the version into the links. A release PR changes the version, and
 //! the workflow `release-plz.yml` runs it on the branch of the PR. With `--check`, it fails if a
@@ -152,7 +156,8 @@ fn targets(
   let tree = format!("https://github.com/uael/puns/tree/v{version}/");
   let raw = format!("https://raw.githubusercontent.com/uael/puns/v{version}/");
   let dir = file.parent().unwrap_or_else(|| Path::new(""));
-  for link in links(text) {
+  let rustdoc = includer(root, file);
+  for (label, link) in links(text) {
     let fault = |what: &str| format!("{}: {link}: {what}", file.display());
     let (path, anchor) = link.split_once('#').map_or((link.as_str(), None), |(p, a)| (p, Some(a)));
     if let Some(page) = path.strip_prefix(&docs) {
@@ -188,11 +193,21 @@ fn targets(
         }
       }
     } else if !link.contains("://") && !link.starts_with("mailto:") {
-      if file == Path::new(README) {
-        faults.push(fault("crates.io and docs.rs do not resolve a relative link"));
-      } else {
-        repository(root, &dir.join(path), anchor, Kind::Either, &fault, faults);
+      if let Some((rs, defined)) = &rustdoc {
+        match &label {
+          None => faults.push(fault(&format!(
+            "a relative link of a file that {} includes must be a definition, `[label]: target`, \
+             whose label it defines for rustdoc",
+            rs.display()
+          ))),
+          Some(label) if !defined.contains(&key(label)) => faults.push(fault(&format!(
+            "rustdoc does not resolve it: define `[{label}]` in {} before the include",
+            rs.display()
+          ))),
+          Some(_) => {}
+        }
       }
+      repository(root, &dir.join(path), anchor, Kind::Either, &fault, faults);
     }
   }
   Ok(())
@@ -237,9 +252,40 @@ fn repository(
   }
 }
 
-/// Returns the targets of the links of a Markdown text: inline (`[text](target)`, images too) and
-/// by reference (`[label]: target`), outside blocks of code.
-fn links(text: &str) -> Vec<String> {
+/// Returns the `.rs` file that includes `file` as documentation, and the labels that it defines
+/// before the include, or `None` if no file includes it: the README is included by
+/// `puns/src/lib.rs`, `docs/README.md` by `puns/src/guide.rs`, and `docs/{name}.md` by
+/// `puns/src/guide/{name}.rs`.
+fn includer(root: &Path, file: &Path) -> Option<(PathBuf, BTreeSet<String>)> {
+  let rs = if file == Path::new(README) {
+    PathBuf::from("puns/src/lib.rs")
+  } else if file == Path::new(DOCS).join(README) {
+    PathBuf::from("puns/src/guide.rs")
+  } else {
+    let name = file.file_stem()?.to_str()?;
+    PathBuf::from(format!("puns/src/guide/{name}.rs"))
+  };
+  let source = fs::read_to_string(root.join(&rs)).ok()?;
+  let name = file.file_name()?.to_str()?;
+  // The include: `include_str!("../README.md")`, `include_str!("../../docs/{name}")`.
+  let at = source.find(&format!("/{name}\")"))?;
+  let defined = source[..at]
+    .lines()
+    .filter_map(|line| line.strip_prefix("//! ["))
+    .filter_map(|line| line.split_once("]: "))
+    .map(|(label, _)| key(label))
+    .collect();
+  Some((rs, defined))
+}
+
+/// A label as `CommonMark` matches it: case and runs of white space do not count.
+fn key(label: &str) -> String {
+  label.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// Returns the links of a Markdown text, outside blocks of code: inline (`[text](target)`, images
+/// too), with no label, and by reference (`[label]: target`), with their label.
+fn links(text: &str) -> Vec<(Option<String>, String)> {
   let mut out = vec![];
   let mut code = false;
   for line in text.lines() {
@@ -250,17 +296,20 @@ fn links(text: &str) -> Vec<String> {
     if code {
       continue;
     }
-    if line.starts_with('[')
-      && let Some((_, target)) = line.split_once("]: ")
+    // A definition is a label and its target. A line that starts with a link and a colon, such as
+    // `[text][label]: and so on`, is not one.
+    if let Some(line) = line.strip_prefix('[')
+      && let Some((label, target)) = line.split_once("]: ")
+      && !label.contains(['[', ']'])
     {
-      out.push(target.trim().to_string());
+      out.push((Some(label.to_string()), target.trim().to_string()));
       continue;
     }
     let mut rest = line;
     while let Some(at) = rest.find("](") {
       let after = &rest[at + 2..];
       let end = after.find(')').unwrap_or(after.len());
-      out.push(after[..end].to_string());
+      out.push((None, after[..end].to_string()));
       rest = &after[end..];
     }
   }

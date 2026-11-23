@@ -400,27 +400,27 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 `puns` by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
 additional terms or conditions.
 
-[valid]: https://docs.rs/puns/0.2.3/puns/guide/concepts/index.html#what-is-a-valid-value
-[kinds]: https://docs.rs/puns/0.2.3/puns/guide/concepts/index.html#proven-checked-and-refused
-[pairs]: https://docs.rs/puns/0.2.3/puns/guide/concepts/index.html#why-the-pair-decides
-[requirements]: https://docs.rs/puns/0.2.3/puns/guide/concepts/index.html#requirements
-[opaque]: https://docs.rs/puns/0.2.3/puns/guide/concepts/index.html#unspecified-layouts-opaque-scalars-and-uninhabited-types
-[layouts]: https://docs.rs/puns/0.2.3/puns/guide/concepts/index.html#layouts-and-rules
-[unsized]: https://docs.rs/puns/0.2.3/puns/guide/limitations/index.html#limits
-[msrv]: https://docs.rs/puns/0.2.3/puns/guide/msrv/index.html
-[concepts]: https://docs.rs/puns/0.2.3/puns/guide/concepts/index.html
-[functions]: https://docs.rs/puns/0.2.3/puns/guide/functions/index.html
-[formats]: https://docs.rs/puns/0.2.3/puns/guide/formats/index.html
-[rules]: https://docs.rs/puns/0.2.3/puns/guide/rules/index.html
-[limitations]: https://docs.rs/puns/0.2.3/puns/guide/limitations/index.html
-[never-made]: https://docs.rs/puns/0.2.3/puns/guide/never_made/index.html
-[portability]: https://docs.rs/puns/0.2.3/puns/guide/portability/index.html
-[guide]: https://docs.rs/puns/0.2.3/puns/guide/index.html
-[not-yet]: https://docs.rs/puns/0.2.3/puns/guide/limitations/index.html#not-done-yet
-[Compile-time errors]: https://docs.rs/puns/0.2.3/puns/guide/errors/index.html
-[Soundness]: https://docs.rs/puns/0.2.3/puns/guide/soundness/index.html
-[deriving]: https://docs.rs/puns/0.2.3/puns/guide/soundness/index.html#what-deriving-pun-means
-[unstable]: https://docs.rs/puns/0.2.3/puns/guide/unstable/index.html
+[valid]: docs/concepts.md#what-is-a-valid-value
+[kinds]: docs/concepts.md#proven-checked-and-refused
+[pairs]: docs/concepts.md#why-the-pair-decides
+[requirements]: docs/concepts.md#requirements
+[opaque]: docs/concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
+[layouts]: docs/concepts.md#layouts-and-rules
+[unsized]: docs/limitations.md#limits
+[msrv]: docs/msrv.md
+[concepts]: docs/concepts.md
+[functions]: docs/functions.md
+[formats]: docs/formats.md
+[rules]: docs/rules.md
+[limitations]: docs/limitations.md
+[never-made]: docs/never_made.md
+[portability]: docs/portability.md
+[guide]: docs/README.md
+[not-yet]: docs/limitations.md#not-done-yet
+[Compile-time errors]: docs/errors.md
+[Soundness]: docs/soundness.md
+[deriving]: docs/soundness.md#what-deriving-pun-means
+[unstable]: docs/unstable.md
 [num]: https://docs.rs/puns/0.2.3/puns/num/index.html
 [layout]: https://docs.rs/puns/0.2.3/puns/layout/index.html
 [derive]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html

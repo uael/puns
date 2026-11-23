@@ -796,26 +796,31 @@ fn link_labels(text: &str) -> Vec<String> {
 /// The README is the start of the documentation of the crate (`#![doc = include_str!(..)]` in
 /// `lib.rs`), so the links that it defines are defined in all of that documentation. A label that
 /// the README defines and the rest of it also defines or uses would make one of the two links point
-/// to the target of the other, as `[reference]` once sent the Rust Reference to docs.rs.
+/// to the target of the other, as `[reference]` once sent the Rust Reference to docs.rs. The one
+/// label that `lib.rs` defines on purpose is that of a relative link of the README, to a chapter
+/// of the guide, which rustdoc does not resolve: `lib.rs` defines it before the README, as an
+/// intra-doc link, and the first definition counts.
 #[test]
 #[cfg_attr(
   miri,
   ignore = "text of the documentation, without unsafe code: half an hour each under Miri"
 )]
-fn the_readme_defines_no_label_of_the_crate_documentation() {
+fn the_crate_documentation_redefines_only_the_relative_links_of_the_readme() {
   let readme = include_str!("../README.md");
-  let defined: Vec<String> = readme
+  let defined: Vec<(String, &str)> = readme
     .lines()
     .filter_map(|line| line.strip_prefix('[')?.split_once("]: "))
-    .map(|(label, _)| label.to_lowercase())
+    .map(|(label, target)| (label.to_lowercase(), target))
     .collect();
   let crate_docs = include_str!("lib.rs")
     .lines()
     .filter_map(|line| line.strip_prefix("//!"))
     .collect::<Vec<_>>()
     .join("\n");
-  let shared: Vec<String> =
-    link_labels(&crate_docs).into_iter().filter(|label| defined.contains(label)).collect();
+  let shared: Vec<String> = link_labels(&crate_docs)
+    .into_iter()
+    .filter(|label| defined.iter().any(|(l, target)| l == label && target.contains("://")))
+    .collect();
   assert!(shared.is_empty(), "labels of both the README and `lib.rs`: {shared:?}");
 }
 
