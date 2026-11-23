@@ -13,7 +13,7 @@ use puns::{
   },
 };
 
-use crate::{Bytes, Oracle, Uninit, Valid, all, int, require, require_whole};
+use crate::{Bytes, Mode, Oracle, Uninit, Unions, Valid, all, int, require, require_whole};
 
 /// Declares a struct whose oracle combines the oracles of its fields, at the offsets that the
 /// compiler gives.
@@ -24,8 +24,8 @@ macro_rules! model_struct {
     pub struct $name { $(pub $field: $ty),* }
 
     impl Oracle for $name {
-      fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
-        all(&[$(<$ty as Oracle>::check(b, off + offset_of!($name, $field), reads, target)),*])
+      fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+        all(&[$(<$ty as Oracle>::check(b, off + offset_of!($name, $field), reads, mode)),*])
       }
     }
   };
@@ -40,7 +40,7 @@ macro_rules! model_fieldless {
     pub enum $name { $($variant $(= $value)?),+ }
 
     impl Oracle for $name {
-      fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+      fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
         let size = size_of::<$name>();
         let v = int(b, off, size, crate::NATIVE_LITTLE, reads)?;
         Ok([$($name::$variant),+].iter().any(|variant| {
@@ -138,9 +138,9 @@ pub struct SoftBit {
 }
 
 impl Oracle for SoftBit {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let v = int(b, off, 1, true, reads)?;
-    if target { require(off, "SoftBit", Ok(v <= 1)) } else { Ok(true) }
+    if mode.required { require(off, "SoftBit", Ok(v <= 1)) } else { Ok(true) }
   }
 }
 
@@ -155,12 +155,12 @@ pub struct SoftTrue {
 }
 
 impl Oracle for SoftTrue {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let v = int(b, off, 1, true, reads)?;
     if v > 1 {
       return Ok(false);
     }
-    if target { require(off, "SoftTrue", Ok(v == 1)) } else { Ok(true) }
+    if mode.required { require(off, "SoftTrue", Ok(v == 1)) } else { Ok(true) }
   }
 }
 
@@ -173,9 +173,9 @@ pub struct Third {
 }
 
 impl Oracle for Third {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let v = int(b, off, 1, true, reads)?;
-    if target { require(off, "v % 3 == 0", Ok(v % 3 == 0)) } else { Ok(true) }
+    if mode.required { require(off, "v % 3 == 0", Ok(v % 3 == 0)) } else { Ok(true) }
   }
 }
 
@@ -271,9 +271,9 @@ pub struct NotOneOne {
 }
 
 impl Oracle for NotOneOne {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let v = int(b, off, 2, false, reads)?;
-    if target { require(off, "be(0, 2) != 0x0101", Ok(v != 0x0101)) } else { Ok(true) }
+    if mode.required { require(off, "be(0, 2) != 0x0101", Ok(v != 0x0101)) } else { Ok(true) }
   }
 }
 
@@ -307,17 +307,17 @@ macro_rules! model_tagged {
   (@oracle $name:ident, $tag_size:literal, $($variant:ident($($ty:ty = $sample:expr),*) = $tag:literal),+) => {
 
     impl Oracle for $name {
-      fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+      fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
         let tag = int(b, off, $tag_size, crate::NATIVE_LITTLE, reads)?;
         $(
           if tag == $tag {
             // The offsets of the fields, from a value of the variant.
             let sample = $name::$variant($($sample),*);
             let offsets: Vec<usize> = model_tagged!(@offsets sample, $name::$variant, $($ty),*);
-            let checks: Vec<fn(&Bytes, usize, &mut [bool], bool) -> Valid> =
+            let checks: Vec<fn(&Bytes, usize, &mut [bool], Mode) -> Valid> =
               vec![$(<$ty as Oracle>::check),*];
             let results: Vec<Valid> =
-              offsets.iter().zip(&checks).map(|(o, check)| check(b, off + o, reads, target)).collect();
+              offsets.iter().zip(&checks).map(|(o, check)| check(b, off + o, reads, mode)).collect();
             return all(&results);
           }
         )+
@@ -356,12 +356,12 @@ pub enum OptSoftBit {
 }
 
 impl Oracle for OptSoftBit {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     match int(b, off, 1, true, reads)? {
       0 => Ok(true),
       1 => {
         let v = int(b, off + 1, 1, true, reads)?;
-        if target { require(off + 1, "OptSoftBit::Some", Ok(v <= 1)) } else { Ok(true) }
+        if mode.required { require(off + 1, "OptSoftBit::Some", Ok(v <= 1)) } else { Ok(true) }
       }
       _ => Ok(false),
     }
@@ -500,9 +500,9 @@ pub struct ReadsPad {
 }
 
 impl Oracle for ReadsPad {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
-    let fields = all(&[u8::check(b, off, reads, target), u16::check(b, off + 2, reads, target)]);
-    if !target {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    let fields = all(&[u8::check(b, off, reads, mode), u16::check(b, off + 2, reads, mode)]);
+    if !mode.required {
       return fields;
     }
     // What the rule reads.
@@ -584,9 +584,9 @@ unsafe impl puns::Scalar for Zero {
 }
 
 impl Oracle for Zero {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     // As a source, anything; what a target requires, a requirement of the library.
-    if !target {
+    if !mode.required {
       return Ok(true);
     }
     require(off, "Zero", int(b, off, 1, true, reads).map(|v| v == 0))
@@ -611,10 +611,10 @@ unsafe impl puns::Scalar for Opaque {
 }
 
 impl Oracle for Opaque {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     // As a target, a requirement that no byte meets, which reads none: only the crate of the
     // scalar makes one. As a source, an initialized byte.
-    if target {
+    if mode.required {
       return require(off, "Opaque", Ok(false));
     }
     int(b, off, 1, true, reads)?;
@@ -638,9 +638,9 @@ unsafe impl puns::Scalar for OpaqueNz {
 }
 
 impl Oracle for OpaqueNz {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     // As `Opaque`; as a source, a byte that is not zero.
-    if target {
+    if mode.required {
       return require(off, "OpaqueNz", Ok(false));
     }
     Ok(int(b, off, 1, true, reads)? != 0)
@@ -648,10 +648,10 @@ impl Oracle for OpaqueNz {
 }
 
 impl Oracle for Option<OpaqueNz> {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     // As `Opaque`: `None` is zero and `Some` any other byte, so as a source, any initialized byte.
     const { assert!(size_of::<Option<OpaqueNz>>() == 1, "`None` is the niche of `OpaqueNz`") };
-    if target {
+    if mode.required {
       return require(off, "Option<OpaqueNz>", Ok(false));
     }
     int(b, off, 1, true, reads)?;
@@ -688,18 +688,18 @@ pub enum MaybeOpaque {
 }
 
 impl Oracle for MaybeOpaque {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     // The tag, then the byte of `Full`; the second byte of `Empty` is padding.
     match int(b, off, 1, true, reads)? {
       0 => Ok(true),
-      1 => Opaque::check(b, off + 1, reads, target),
+      1 => Opaque::check(b, off + 1, reads, mode),
       _ => Ok(false),
     }
   }
 }
 
 impl<T: Pun + Copy + 'static> Oracle for core::mem::MaybeUninit<T> {
-  fn check(_: &Bytes, _: usize, _: &mut [bool], _: bool) -> Valid {
+  fn check(_: &Bytes, _: usize, _: &mut [bool], _: Mode) -> Valid {
     Ok(true)
   }
 }
@@ -726,7 +726,7 @@ pub enum Never {
 }
 
 impl Oracle for Never {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     // `A(u8)`: the tag, then the byte; the tag of `B` is no value.
     let tag = int(b, off, 1, true, reads)?;
     if tag != 0 {
@@ -761,7 +761,7 @@ pub enum MaybeFlag {
 }
 
 impl Oracle for MaybeFlag {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     Ok(int(b, off, 1, true, reads)? <= 2)
   }
 }
@@ -776,7 +776,7 @@ pub enum NzOpt {
 }
 
 impl Oracle for NzOpt {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     int(b, off, 1, true, reads)?;
     Ok(true)
   }
@@ -790,7 +790,7 @@ pub enum Pair {
 }
 
 impl Oracle for Pair {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     let (a, b_) = (Pair::A(0), Pair::B(0));
     let (Pair::A(x), Pair::B(y)) = (&a, &b_) else { unreachable!() };
     match int(b, off, 1, true, reads)? {
@@ -812,13 +812,13 @@ pub enum NestPair {
 }
 
 impl Oracle for NestPair {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let (inner, other) = (NestPair::Inner(Pair::A(0)), NestPair::Other);
     let _ = other;
     let NestPair::Inner(pair) = &inner else { unreachable!() };
     let at = off + offset_in(&inner, pair);
     match int(b, at, 1, true, reads)? {
-      0 | 1 => Pair::check(b, at, reads, target),
+      0 | 1 => Pair::check(b, at, reads, mode),
       2 => Ok(true),
       _ => Ok(false),
     }
@@ -836,7 +836,7 @@ pub enum Mixed {
 }
 
 impl Oracle for Mixed {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     let (both, byte) = (Mixed::Both(0, false), Mixed::Byte(0));
     let (Mixed::Both(x, flag), Mixed::Byte(y)) = (&both, &byte) else { unreachable!() };
     match int(b, off + offset_in(&both, flag), 1, true, reads)? {
@@ -856,7 +856,7 @@ pub enum Single {
 }
 
 impl Oracle for Single {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     let only = Single::Only(0, false);
     let Single::Only(x, flag) = &only;
     let (x, flag) = (offset_in(&only, x), offset_in(&only, flag));
@@ -877,7 +877,7 @@ pub enum Flags2 {
 }
 
 impl Oracle for Flags2 {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     let a = Flags2::A(false, false);
     let Flags2::A(first, second) = &a else { unreachable!() };
     match int(b, off + offset_in(&a, first), 1, true, reads)? {
@@ -899,7 +899,7 @@ pub enum Letter {
 }
 
 impl Oracle for Letter {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     let v = int(b, off, 4, crate::NATIVE_LITTLE, reads)?;
     Ok(v <= 0xd7ff || (0xe000..=0x11_0001).contains(&v))
   }
@@ -914,7 +914,7 @@ pub enum Wid {
 }
 
 impl Oracle for Wid {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     let a = Wid::A(0);
     let Wid::A(x) = &a else { unreachable!() };
     match int(b, off, 2, crate::NATIVE_LITTLE, reads)? {
@@ -934,7 +934,7 @@ pub enum OneOfTwo {
 }
 
 impl Oracle for OneOfTwo {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
     let a = OneOfTwo::A(0);
     let OneOfTwo::A(x) = &a else { unreachable!() };
     match int(b, off, 1, true, reads)? {
@@ -946,39 +946,49 @@ impl Oracle for OneOfTwo {
 
 // --- Unions --------------------------------------------------------------------------------------
 //
-// The validity of unions is not settled by the language: the oracle takes the rule that every
-// proposal allows, valid if valid for one field. What the library knows of a union as a source is
-// nothing, which is less than that.
+// The validity of unions is not settled by the language. The oracle decides under the two ends
+// (`Unions`): valid if valid for one field, the rule that every proposal allows, and valid whatever
+// the bytes, the rule that Miri implements. A source is a value under either, and a target must be
+// valid under the rule of each value of the source. This is what the library documents: as a
+// target, one of its fields, and as a source, nothing is known, not even that its bytes are
+// initialized.
 
 /// The oracle of a field of a union.
-type Check = fn(&Bytes, usize, &mut [bool], bool) -> Valid;
+type Check = fn(&Bytes, usize, &mut [bool], Mode) -> Valid;
 
-/// Returns whether one of the fields of a union is valid, trying the oracles of `checks` in order.
+/// Returns whether one of the fields of a union is valid, under `Unions::Field`, or `true` under
+/// `Unions::Bytes`.
 ///
-/// The bytes read are those of the fields tried, up to the first valid one. The bytes of the
-/// fields after it are not read, because they may be padding of that value. A field decided by an
-/// uninitialized byte decides the union. The fields of each union of the model start with the same
-/// bytes, so an uninitialized byte decides the same for every field.
+/// Under `Unions::Field`, the bytes read are those of every field. A field decided by an
+/// uninitialized byte does not decide the union if another field is valid: the bytes of a value
+/// that one field does not cover may be padding of that value, and validity does not depend on the
+/// order in which a check tries the fields. What a check reads is not judged here, but by Miri on
+/// the values that the model makes. Under `Unions::Bytes`, no byte is read.
 ///
-/// With `target`, the result is recorded as one requirement of the union ([`require_whole`]).
+/// With `mode.required`, the result is recorded as one requirement of the union
+/// ([`require_whole`]).
 ///
 /// # Errors
 ///
-/// Returns [`Uninit`] if a field is decided by an uninitialized byte before a field is valid.
-pub fn any(b: &Bytes, off: usize, reads: &mut [bool], target: bool, checks: &[Check]) -> Valid {
+/// Returns [`Uninit`] if no field is valid and a field is decided by an uninitialized byte.
+pub fn any(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode, checks: &[Check]) -> Valid {
+  if mode.unions == Unions::Bytes {
+    return Ok(true);
+  }
   let mut one = || {
+    let (mut valid, mut uninit) = (false, false);
     for check in checks {
-      match check(b, off, reads, target) {
-        Ok(true) => return Ok(true),
+      match check(b, off, reads, mode) {
+        Ok(true) => valid = true,
         Ok(false) => {}
-        Err(Uninit) => return Err(Uninit),
+        Err(Uninit) => uninit = true,
       }
     }
-    Ok(false)
+    if valid || !uninit { Ok(valid) } else { Err(Uninit) }
   };
   // What a union requires is that one of its fields is valid, requirements included: one
   // requirement, not those of each field, which a value that is another field need not meet.
-  if target { require_whole(off, "one of the fields of a union", one) } else { one() }
+  if mode.required { require_whole(off, "one of the fields of a union", one) } else { one() }
 }
 
 /// A union of a `bool` and of a number up to 3.
@@ -992,8 +1002,8 @@ pub union ChoiceU {
 }
 
 impl Oracle for ChoiceU {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
-    any(b, off, reads, target, &[bool::check, <u8in<0, 3>>::check])
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    any(b, off, reads, mode, &[bool::check, <u8in<0, 3>>::check])
   }
 }
 
@@ -1006,8 +1016,8 @@ pub union FlagsU {
 }
 
 impl Oracle for FlagsU {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
-    any(b, off, reads, target, &[<[bool; 2]>::check, <NonZero<u16>>::check])
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    any(b, off, reads, mode, &[<[bool; 2]>::check, <NonZero<u16>>::check])
   }
 }
 
@@ -1022,8 +1032,8 @@ pub union PaddedU {
 }
 
 impl Oracle for PaddedU {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
-    any(b, off, reads, target, &[u8::check, <(u8, u16)>::check])
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    any(b, off, reads, mode, &[u8::check, <(u8, u16)>::check])
   }
 }
 
@@ -1047,9 +1057,9 @@ pub struct ThirdSoft {
 }
 
 impl Oracle for ThirdSoft {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let v = int(b, off, 1, true, reads)?;
-    if !target {
+    if !mode.required {
       return Ok(true);
     }
     all(&[
@@ -1068,9 +1078,9 @@ pub struct Fifth {
 }
 
 impl Oracle for Fifth {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let v = int(b, off, 1, true, reads)?;
-    if target { require(off, "Fifth: v % 5", Ok(v % 5 == 0)) } else { Ok(true) }
+    if mode.required { require(off, "Fifth: v % 5", Ok(v % 5 == 0)) } else { Ok(true) }
   }
 }
 
@@ -1084,9 +1094,9 @@ pub struct LastNotFf1 {
 }
 
 impl Oracle for LastNotFf1 {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let v = int(b, off, 1, true, reads)?;
-    if target { require(off, "LastNotFf1: last byte", Ok(v != 0xff)) } else { Ok(true) }
+    if mode.required { require(off, "LastNotFf1: last byte", Ok(v != 0xff)) } else { Ok(true) }
   }
 }
 
@@ -1103,10 +1113,10 @@ pub struct LastNotFf2 {
 }
 
 impl Oracle for LastNotFf2 {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     int(b, off, 1, true, reads)?;
     let last = int(b, off + 1, 1, true, reads)?;
-    if target { require(off, "LastNotFf2: last byte", Ok(last != 0xff)) } else { Ok(true) }
+    if mode.required { require(off, "LastNotFf2: last byte", Ok(last != 0xff)) } else { Ok(true) }
   }
 }
 
@@ -1120,12 +1130,12 @@ pub struct NotOneOneNz {
 }
 
 impl Oracle for NotOneOneNz {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let v = int(b, off, 2, false, reads)?;
     if v >> 8 == 0 {
       return Ok(false);
     }
-    if target { require(off, "NotOneOneNz: not 0x0101", Ok(v != 0x0101)) } else { Ok(true) }
+    if mode.required { require(off, "NotOneOneNz: not 0x0101", Ok(v != 0x0101)) } else { Ok(true) }
   }
 }
 
@@ -1180,7 +1190,7 @@ pub enum RustThird {
 }
 
 impl Oracle for RustThird {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let (a, b_) = (RustThird::A(Third { v: 0 }), RustThird::B(0));
     let (RustThird::A(x), RustThird::B(y)) = (&a, &b_) else { unreachable!() };
     let samples = [(a, offset_in(&a, x)), (b_, offset_in(&b_, y))];
@@ -1188,7 +1198,7 @@ impl Oracle for RustThird {
     // of its bytes are initialized, as `rust_variant` requires. If `rustc` gave the enum another
     // layout, a byte could be padding, which Miri reports.
     match unsafe { rust_variant(samples, b, off, reads) }? {
-      Some((0, at)) => Third::check(b, off + at, reads, target),
+      Some((0, at)) => Third::check(b, off + at, reads, mode),
       Some((_, at)) => int(b, off + at, 1, true, reads).map(|_| true),
       None => Ok(false),
     }
@@ -1203,7 +1213,7 @@ pub enum RustThirdSoft {
 }
 
 impl Oracle for RustThirdSoft {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let (a, b_) = (RustThirdSoft::A(ThirdSoft { v: 0 }), RustThirdSoft::B(0));
     let (RustThirdSoft::A(x), RustThirdSoft::B(y)) = (&a, &b_) else { unreachable!() };
     let samples = [(a, offset_in(&a, x)), (b_, offset_in(&b_, y))];
@@ -1211,7 +1221,7 @@ impl Oracle for RustThirdSoft {
     // both of its bytes are initialized, as `rust_variant` requires. If `rustc` gave the enum
     // another layout, a byte could be padding, which Miri reports.
     match unsafe { rust_variant(samples, b, off, reads) }? {
-      Some((0, at)) => ThirdSoft::check(b, off + at, reads, target),
+      Some((0, at)) => ThirdSoft::check(b, off + at, reads, mode),
       Some((_, at)) => int(b, off + at, 1, true, reads).map(|_| true),
       None => Ok(false),
     }
@@ -1228,9 +1238,9 @@ pub struct ThirdUninit {
 }
 
 impl Oracle for ThirdUninit {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let v = int(b, off, 1, true, reads)?;
-    if target { require(off, "ThirdUninit: v % 3", Ok(v % 3 == 0)) } else { Ok(true) }
+    if mode.required { require(off, "ThirdUninit: v % 3", Ok(v % 3 == 0)) } else { Ok(true) }
   }
 }
 
@@ -1245,9 +1255,9 @@ pub struct ThirdSoftUninit {
 }
 
 impl Oracle for ThirdSoftUninit {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     let v = int(b, off, 1, true, reads)?;
-    if !target {
+    if !mode.required {
       return Ok(true);
     }
     all(&[
@@ -1266,7 +1276,481 @@ pub union ThirdU {
 }
 
 impl Oracle for ThirdU {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], target: bool) -> Valid {
-    any(b, off, reads, target, &[Third::check, bool::check])
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    any(b, off, reads, mode, &[Third::check, bool::check])
   }
 }
+
+// --- Parts without values, unions that may hold anything, niches in arrays ------------------------
+//
+// A part without values has no value whatever its bytes, and its oracle reads none of them: no
+// check needs to. A union none of whose fields has values may still hold any bytes under the rule
+// that Miri implements, so a value that holds it may exist as a source, though none can be made.
+
+impl Oracle for core::convert::Infallible {
+  fn check(_: &Bytes, _: usize, _: &mut [bool], _: Mode) -> Valid {
+    Ok(false)
+  }
+}
+
+/// A struct of 1 byte without values: a field without values of size 0, then a byte.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+pub struct Void1 {
+  pub n: core::convert::Infallible,
+  pub x: u8,
+}
+
+impl Oracle for Void1 {
+  fn check(_: &Bytes, _: usize, _: &mut [bool], _: Mode) -> Valid {
+    Ok(false)
+  }
+}
+
+/// A struct of 2 bytes without values: two `bool`s, then a field without values.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+pub struct VoidBools {
+  pub a: bool,
+  pub b: bool,
+  pub n: core::convert::Infallible,
+}
+
+impl Oracle for VoidBools {
+  fn check(_: &Bytes, _: usize, _: &mut [bool], _: Mode) -> Valid {
+    Ok(false)
+  }
+}
+
+/// A union none of whose fields has values, of size 0.
+///
+/// No value of it can be made, and under the rule that Miri implements every value of it exists.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+pub union HollowU {
+  pub a: core::convert::Infallible,
+}
+
+impl Oracle for HollowU {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    any(b, off, reads, mode, &[core::convert::Infallible::check])
+  }
+}
+
+model_struct!(
+  /// A struct of a union without values and a byte: a value exists only under the rule that Miri
+  /// implements.
+  #[repr(C)]
+  struct HollowByte {
+    u: HollowU,
+    x: u8,
+  }
+);
+
+/// A union of a byte and of `()`: any byte, or uninitialized, under every rule.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+pub union ByteUnit {
+  pub any: u8,
+  pub none: (),
+}
+
+impl Oracle for ByteUnit {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    any(b, off, reads, mode, &[u8::check, <()>::check])
+  }
+}
+
+/// A union whose first field has no value, and whose second is a `bool`.
+///
+/// A check need not read the bytes of the first field, and the second byte may be uninitialized
+/// in a source.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+pub union VoidFirstU {
+  pub void: VoidBools,
+  pub flag: bool,
+}
+
+impl Oracle for VoidFirstU {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    any(b, off, reads, mode, &[VoidBools::check, bool::check])
+  }
+}
+
+/// A union of two `bool`s and of one: the second byte of a value of `first` may be uninitialized.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+pub union FirstU {
+  pub both: [bool; 2],
+  pub first: bool,
+}
+
+impl Oracle for FirstU {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    any(b, off, reads, mode, &[<[bool; 2]>::check, bool::check])
+  }
+}
+
+/// An enum whose second variant has no value, though it holds a `bool`.
+///
+/// Its second byte is padding in `A`. No bytes are `B`, and a check need not read its `bool`.
+#[derive(Pun, Clone, Copy)]
+#[repr(u8)]
+pub enum HalfNever {
+  A,
+  B(bool, core::convert::Infallible),
+}
+
+impl Oracle for HalfNever {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
+    Ok(int(b, off, 1, true, reads)? == 0)
+  }
+}
+
+/// An enum whose first variant holds a union without values: a value of it may exist.
+///
+/// The second byte is padding in `A` and `C`.
+#[derive(Pun, Clone, Copy)]
+#[repr(u8)]
+pub enum MaybeHollow {
+  A(HollowU) = 0,
+  B(u8) = 1,
+  C = 2,
+}
+
+impl Oracle for MaybeHollow {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    match int(b, off, 1, true, reads)? {
+      0 => HollowU::check(b, off + 1, reads, mode),
+      1 => int(b, off + 1, 1, true, reads).map(|_| true),
+      2 => Ok(true),
+      _ => Ok(false),
+    }
+  }
+}
+
+/// `MaybeHollow` without its variant `A`.
+#[derive(Pun, Clone, Copy)]
+#[repr(u8)]
+pub enum NotHollow {
+  B(u8) = 1,
+  C = 2,
+}
+
+impl Oracle for NotHollow {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
+    match int(b, off, 1, true, reads)? {
+      1 => int(b, off + 1, 1, true, reads).map(|_| true),
+      2 => Ok(true),
+      _ => Ok(false),
+    }
+  }
+}
+
+/// An enum of the `Rust` representation whose niche is in an array: `B` is 2 in the first `bool`
+/// of `A`, and its second byte is padding.
+#[derive(Pun, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlagsArr {
+  A([bool; 2]),
+  B,
+}
+
+impl Oracle for FlagsArr {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], _: Mode) -> Valid {
+    let a = FlagsArr::A([false; 2]);
+    let FlagsArr::A(flags) = &a else { unreachable!() };
+    let at = off + offset_in(&a, flags);
+    match int(b, at, 1, true, reads)? {
+      0 | 1 => int(b, at + 1, 1, true, reads).map(|v| v <= 1),
+      2 => Ok(true),
+      _ => Ok(false),
+    }
+  }
+}
+
+/// The oracle of a niche in an array, in its first element: `None` is 0 there, and the second
+/// byte of `None` is padding.
+impl Oracle for Option<[NonZero<u8>; 2]> {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    const { assert!(size_of::<Option<[NonZero<u8>; 2]>>() == 2, "the niche is in the array") };
+    if int(b, off, 1, true, reads)? == 0 {
+      return Ok(true);
+    }
+    <[NonZero<u8>; 2]>::check(b, off, reads, mode)
+  }
+}
+
+model_struct!(
+  /// A byte, a `bool`, then a byte that may be uninitialized: the bytes of a `FirstU` that is
+  /// `first`, after a tag.
+  #[repr(C)]
+  struct TagFlag {
+    t: u8,
+    f: bool,
+    z: core::mem::MaybeUninit<u8>,
+  }
+);
+
+/// An enum whose first variant holds a `FirstU`, checked as a whole from a source that is not an
+/// enum.
+#[derive(Pun, Clone, Copy)]
+#[repr(u8)]
+pub enum UnionIn {
+  A(FirstU) = 0,
+  B = 1,
+}
+
+impl Oracle for UnionIn {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    match int(b, off, 1, true, reads)? {
+      0 => FirstU::check(b, off + 1, reads, mode),
+      1 => Ok(true),
+      _ => Ok(false),
+    }
+  }
+}
+
+model_struct!(
+  /// A `FirstU`, then two bytes: as `[FirstU; 2]`, the first element is the same union, and the
+  /// second is checked.
+  #[repr(C)]
+  struct UnionBytes {
+    u: FirstU,
+    b: [u8; 2],
+  }
+);
+
+model_struct!(
+  /// Two `ByteUnit`s.
+  #[repr(C)]
+  struct UnitPair {
+    x: ByteUnit,
+    y: ByteUnit,
+  }
+);
+
+/// A union whose first field is an enum whose tag accepts every initialized value of 2 bytes, and
+/// whose second field takes any bytes.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+pub union OptOrUnits {
+  pub opt: Option<NonZero<u16>>,
+  pub pair: UnitPair,
+}
+
+impl Oracle for OptOrUnits {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    any(b, off, reads, mode, &[<Option<NonZero<u16>>>::check, UnitPair::check])
+  }
+}
+
+/// An enum whose first variant holds an `OptOrUnits` at offset 2, after a byte of padding.
+#[derive(Pun, Clone, Copy)]
+#[repr(u8)]
+pub enum HoldsUnits {
+  V(OptOrUnits),
+  X,
+}
+
+impl Oracle for HoldsUnits {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    const { assert!(size_of::<HoldsUnits>() == 4, "the union is at offset 2") };
+    match int(b, off, 1, true, reads)? {
+      0 => OptOrUnits::check(b, off + 2, reads, mode),
+      1 => Ok(true),
+      _ => Ok(false),
+    }
+  }
+}
+
+model_struct!(
+  /// A tag, a byte, then an array of two `ByteUnit`s: under `HoldsUnits`, the array is cut by the
+  /// period of its elements.
+  #[repr(C)]
+  struct UnitsArray {
+    tag: u8,
+    pad: u8,
+    u: [ByteUnit; 2],
+  }
+);
+
+model_struct!(
+  /// `UnitsArray` with two fields for the array.
+  #[repr(C)]
+  struct UnitsFields {
+    tag: u8,
+    pad: u8,
+    a: ByteUnit,
+    b: ByteUnit,
+  }
+);
+
+/// A union whose first field is a tuple, whose layout Rust leaves to the compiler, and whose second
+/// field takes any bytes.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+pub union TupleOrUnits {
+  pub tuple: (bool, u8),
+  pub pair: UnitPair,
+}
+
+impl Oracle for TupleOrUnits {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    any(b, off, reads, mode, &[<(bool, u8)>::check, UnitPair::check])
+  }
+}
+
+/// An enum whose first variant holds a `TupleOrUnits`.
+#[derive(Pun, Clone, Copy)]
+#[repr(u8)]
+pub enum HoldsTuple {
+  V(TupleOrUnits),
+  X,
+}
+
+impl Oracle for HoldsTuple {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    match int(b, off, 1, true, reads)? {
+      0 => TupleOrUnits::check(b, off + 1, reads, mode),
+      1 => Ok(true),
+      _ => Ok(false),
+    }
+  }
+}
+
+/// An enum whose first variant holds a tuple of a `bool` and of a byte that a pun never makes.
+///
+/// No bytes are a target `A`, and a check need not read its `bool`.
+#[derive(Pun, Clone, Copy)]
+#[repr(u8)]
+pub enum TupleNever {
+  A((bool, Opaque)),
+  B,
+}
+
+impl Oracle for TupleNever {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    const { assert!(size_of::<TupleNever>() == 3, "the tuple is at offset 1") };
+    match int(b, off, 1, true, reads)? {
+      0 => <(bool, Opaque)>::check(b, off + 1, reads, mode),
+      1 => Ok(true),
+      _ => Ok(false),
+    }
+  }
+}
+
+model_struct!(
+  /// A tag, then two `ByteUnit`s, which may be uninitialized.
+  #[repr(C)]
+  struct TagUnits {
+    tag: u8,
+    rest: [ByteUnit; 2],
+  }
+);
+
+/// A union whose first field is a struct with a rule that loads its field, and whose second field
+/// takes any byte.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+pub union RuleOrUnit {
+  pub third: Third,
+  pub byte: ByteUnit,
+}
+
+impl Oracle for RuleOrUnit {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    any(b, off, reads, mode, &[Third::check, ByteUnit::check])
+  }
+}
+
+/// An enum whose first variant holds a `RuleOrUnit`.
+#[derive(Pun, Clone, Copy)]
+#[repr(u8)]
+pub enum HoldsRule {
+  V(RuleOrUnit),
+  X,
+}
+
+impl Oracle for HoldsRule {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    match int(b, off, 1, true, reads)? {
+      0 => RuleOrUnit::check(b, off + 1, reads, mode),
+      1 => Ok(true),
+      _ => Ok(false),
+    }
+  }
+}
+
+model_struct!(
+  /// A tag, then a `ByteUnit`, which may be uninitialized.
+  #[repr(C)]
+  struct TagUnit {
+    tag: u8,
+    b: ByteUnit,
+  }
+);
+
+/// A struct with a requirement on its first byte, `valid(2..=3)`, then a `ByteUnit`.
+///
+/// Safe code can make a value that breaks the requirement.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+pub struct SoftUnit {
+  #[pun(valid(2..=3))]
+  pub x: u8,
+  pub rest: ByteUnit,
+}
+
+impl Oracle for SoftUnit {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    let x = int(b, off, 1, true, reads)?;
+    let rest = ByteUnit::check(b, off + 1, reads, mode);
+    if !mode.required {
+      return rest;
+    }
+    all(&[require(off, "SoftUnit: 2..=3", Ok((2..=3).contains(&x))), rest])
+  }
+}
+
+/// A union whose first field is a `SoftUnit`, proven by the same struct only where the source
+/// meets its requirement, and whose second field reads two `bool`s.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+pub union SoftOrFlags {
+  pub soft: SoftUnit,
+  pub flags: [bool; 2],
+}
+
+impl Oracle for SoftOrFlags {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    any(b, off, reads, mode, &[SoftUnit::check, <[bool; 2]>::check])
+  }
+}
+
+/// An enum whose first variant holds a `SoftOrFlags`.
+#[derive(Pun, Clone, Copy)]
+#[repr(u8)]
+pub enum HoldsSoft {
+  V(SoftOrFlags),
+  X,
+}
+
+impl Oracle for HoldsSoft {
+  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+    match int(b, off, 1, true, reads)? {
+      0 => SoftOrFlags::check(b, off + 1, reads, mode),
+      1 => Ok(true),
+      _ => Ok(false),
+    }
+  }
+}
+
+model_struct!(
+  /// A tag, then a `SoftUnit`.
+  #[repr(C)]
+  struct TagSoft {
+    tag: u8,
+    s: SoftUnit,
+  }
+);
