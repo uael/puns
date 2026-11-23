@@ -38,7 +38,7 @@ target, it accepts any bytes. As a source, it proves only a target that accepts 
 written through it may be uninitialized. A `&mut T` is made from a `MaybeUninit<T>` only if `T`
 requires no byte to be initialized, since such a byte would be read from padding.
 
-The tag of an enum is never a scalar that may be uninitialized, since the tags that `puns`
+No layout that `puns` builds has an enum whose tag may be uninitialized, since the tags that it
 discovers are exact.
 
 ## Unions

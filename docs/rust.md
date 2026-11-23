@@ -107,8 +107,8 @@ through a union, since no stable `const fn` gives the address on Rust 1.99. Of t
 > was originally created from an integer. [...] (And even outside `const`, such transmutation is
 > touching on many unspecified aspects of the Rust memory model and should be avoided. [...])
 
-So it is not undefined behavior at run time, but no documentation promises that the integer is the
-address. The integer is never made into a pointer again, and a check of an address does not compile
+At run time, `core` does not call it undefined behavior but says to avoid it, and no documentation
+promises that the integer is the address. The integer is never made into a pointer again, and a check of an address does not compile
 in a constant ([In a constant][functions#in-a-constant]). The tests run it under Miri with strict
 provenance ([Testing][testing]).
 
@@ -122,12 +122,16 @@ layout]), and a compiler could put padding where no alignment needs it. The size
 would then differ from that of every order, the struct would no longer count as the same in every
 layout, and the pun would fail to compile rather than change what it does.
 [`-Zrandomize-layout`][randomize], under which the record of verdicts runs, rearranges fields
-"within the degrees of freedom provided by the largely unspecified default representation".
+"within the degrees of freedom provided by the largely unspecified default representation", which
+"also affects type sizes and padding". On `nightly-2026-11-17`, it shuffles the order of the fields
+and does nothing else ([`rustc_abi`][shuffle]), so it changes no alignment; its comment says that it
+may do more in the future.
 
 [reference]: https://doc.rust-lang.org/1.99.0/reference/
 [`core`]: https://doc.rust-lang.org/1.99.0/core/
 [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
 [randomize]: https://doc.rust-lang.org/nightly/unstable-book/compiler-flags/randomize-layout.html
+[shuffle]: https://github.com/rust-lang/rust/blob/5df8c02afdf6b882bc301442cea70f026e3d3974/compiler/rustc_abi/src/layout.rs#L616-L638
 [transmute]: https://doc.rust-lang.org/1.99.0/core/mem/fn.transmute.html#transmutation-between-pointers-and-integers
 [size]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.properties.size
 [primitive size]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.primitive.size
