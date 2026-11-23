@@ -1742,7 +1742,10 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       }
 
       // SAFETY: `OFFSETS` projects a pointer to a `Self` onto each field that `Fields` lists, in
-      // that order, so it holds the offset of each of these fields in the struct as compiled.
+      // that order, so it holds the offset of each of these fields in the struct as compiled. It
+      // is measured in const evaluation and used at run time, which relies on the layout being the
+      // same in both, which no documentation states (`docs/rust.md`, "The layout in const
+      // evaluation").
       #[allow(non_upper_case_globals)]
       unsafe impl #memory_generics #root::layout::Offsets<__PunMemory, #count> for #this
         #where_clause
@@ -2280,7 +2283,12 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     // - A valid value of an enum without fields is one of its variants [1]. `SPEC` accepts the
     //   bytes of each variant, read from a value of it, as an unsigned integer in the byte order
     //   of the target. `item` requires the enum as compiled to have no other variant. An enum of
-    //   size 0 has one variant, and no byte.
+    //   size 0 has one variant, and no byte. That a value made at run time holds the same bytes as
+    //   the value read in const evaluation is not established: for the `Rust` representation,
+    //   `puns` takes the layout in const evaluation to be the one at run time (`docs/rust.md`,
+    //   "The layout in const evaluation"), and with `repr(C)` alone, that every byte of the value
+    //   is initialized relies on `rustc` storing it as an integer (`docs/rust.md`, "The tag of a
+    //   `repr(C)` enum").
     // - Each value that `SPEC` accepts is the bytes of a variant, so a valid `Self`: the derive
     //   relies on a valid discriminant being all that such an enum requires, which no documentation
     //   states (`docs/rust.md`, "A value whose fields are valid"). The derive is told of no other
@@ -2788,17 +2796,19 @@ fn derive_tagged(
 
       // SAFETY: For every enum that `derive_tagged` accepts, the layout meets the `# Safety` of
       // `Pun`:
-      // - The enum is `repr(C)` or of a primitive representation, whose layout Rust specifies
-      //   [1] [2]. Its tag is `#tag`, an enum without fields of the same representation and
-      //   discriminants, whose values `TAGS` compares with those of the enum, and fails the build
-      //   if they differ, and whose width `TAGS` checks on copies of the samples whose byte after
-      //   the tag is changed. Each variant is a `repr(C)` struct, after the tag or in a union next
-      //   to it. The offsets of its fields are measured on its sample, or, for a variant without
-      //   one, computed by `Layout::repr_c` as `repr(C)` specifies, from the representation that
-      //   the derive read, which it trusts to be that of the enum as compiled there ("What the
-      //   derive trusts"). `Layout::enumeration` asserts the result against the size and the
-      //   alignment of the enum, and asserts that the tag and the fields are within it and do not
-      //   overlap.
+      // - The enum is `repr(C)` or of a primitive representation, whose layout Rust specifies [1]
+      //   [2], except, with `repr(C)` alone, that every byte of the tag of a value made at run time
+      //   is initialized: this is not established, and relies on `rustc` storing the tag as an
+      //   integer (`docs/rust.md`, "The tag of a `repr(C)` enum"). Its tag is `#tag`, an enum
+      //   without fields of the same representation and discriminants, whose values `TAGS` compares
+      //   with those of the enum, and fails the build if they differ, and whose width `TAGS` checks
+      //   on copies of the samples whose byte after the tag is changed. Each variant is a `repr(C)`
+      //   struct, after the tag or in a union next to it. The offsets of its fields are measured on
+      //   its sample, or, for a variant without one, computed by `Layout::repr_c` as `repr(C)`
+      //   specifies, from the representation that the derive read, which it trusts to be that of
+      //   the enum as compiled there ("What the derive trusts"). `Layout::enumeration` asserts the
+      //   result against the size and the alignment of the enum, and asserts that the tag and the
+      //   fields are within it and do not overlap.
       // - The type of each field is its home in `__PunTypes`, which `item` requires to be the type
       //   of that field of that variant in the enum as compiled, and the enum to have no other
       //   variant and no other field. Each field has the layout of its type, or a restriction of

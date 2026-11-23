@@ -65,8 +65,9 @@ compile without the feature is one of these, or relies on an unspecified layout.
 analysis that changes a verdict of `tests/seeds.txt` is written again with `PUNS_BLESS=1` and read,
 since the record must be the same under every seed (CI runs three).
 
-The trybuild test has a passing case (`tests/compile-pass/`), so that trybuild builds instead of
-checking. Miri ignores it. Generate its `.stderr` files with the pinned stable.
+The trybuild test has passing cases (`tests/compile-pass/` and `tests/compile-pass-kept/`), so that
+trybuild builds instead of checking. Miri ignores it. Generate its `.stderr` files with the pinned
+stable.
 
 Each Miri run of the tests is five jobs in CI. Without the feature, there are three parts of about
 the same time: two name their files, and the third takes all the remaining files. With the feature,

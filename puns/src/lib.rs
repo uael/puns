@@ -646,8 +646,8 @@ pub unsafe trait Scalar {
 ///
 /// `Pun` must not be implemented by hand. Its items are hidden, because they may change in any
 /// release: the layout of `Self` (`Pun::LAYOUT`, a [`Layout`]), lists of its fields, variants,
-/// element and rules, as types, for the checks at run time, and a pointer to `Self` whose address
-/// nothing reads (`Pun::PROBE`). A layout makes no value of a type, and stands for `Self` only
+/// element and rules, as types, for the checks at run time, and a pointer to `Self` that is never
+/// dereferenced (`Pun::PROBE`). A layout makes no value of a type, and stands for `Self` only
 /// through this implementation, which guarantees that:
 ///
 /// - The layout is that of `Self`: its size, its alignment, the offset of each field, the values
@@ -2685,10 +2685,13 @@ pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Res
 ///
 /// # Compile-time errors
 ///
-/// A call [compiles] only under the conditions [layout independence], and if:
+/// A call [compiles] only if:
 ///
 /// - A `T` whose bytes are all zero is a [valid] `T` and meets its `valid(..)` ranges. Its rules
 ///   are not checked.
+/// - Without the `unstable` feature, the zero bytes make no part whose representation Rust leaves
+///   to the compiler, other than a struct: an enum of the `Rust` representation, or `Option` or
+///   `Result` of most types ([layout independence]).
 /// - `T` holds no [opaque scalar] where the zero bytes would make one, since `puns` never makes
 ///   one.
 ///

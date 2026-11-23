@@ -2818,7 +2818,8 @@ impl Layout {
     let Kind::Struct(fields, _) = self.kind else { panic!("not a struct") };
     let stable = Stable::of_parts(fields);
     if self.rules_read_bytes() && !stable.deep {
-      return Stable::opaque(stable.size, false);
+      // Rust still specifies where the fields are.
+      return Stable { specified: true, ..Stable::opaque(stable.size, false) };
     }
     stable
   }

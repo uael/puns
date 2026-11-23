@@ -487,6 +487,10 @@ let mut shape = Shape::Rect(3, true);
 let _: &mut Drawing = puns::pun_mut(&mut shape);
 ```
 
+```text
+cannot pun: some values of the target are not valid for the source (or are padding where the source is not), and could be written through the `&mut`.
+```
+
 ```rust
 #[derive(puns::Pun, Clone, Copy)]
 #[repr(u8)]
@@ -610,8 +614,8 @@ let _ = puns::zeroed::<core::num::NonZero<u8>>();
 error[E0080]: evaluation panicked: zero is not a valid value of this type, or does not meet its `valid(..)` ranges
 ```
 
-Without the `unstable` feature, zero bytes must not be a value only by the tag that `rustc` gives a
-variant of an enum of the `Rust` representation:
+Without the `unstable` feature, zero bytes must not be a value only by the tags that `rustc` chose
+for an enum of the `Rust` representation, `Option` or `Result`:
 
 ```rust,compile_fail,E0080
 // This example is about the default build, without the `unstable` feature.
