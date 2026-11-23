@@ -11,24 +11,42 @@
 Type punning proven at compile time: a safe alternative to `transmute` and to hand-written parsing
 of bytes.
 
-- [Overview](#overview): [Reading a packet](#reading-a-packet), [Reading one of several
-  types](#reading-one-of-several-types), [Reading an old version of a
-  format](#reading-an-old-version-of-a-format)
-- [When to use `puns`](#when-to-use-puns): [Compared with other
-  crates](#compared-with-other-crates), [Caveats](#caveats), [Performance](#performance), [Safety
-  and testing](#safety-and-testing)
-- [Going further](#going-further): [Functions and types](#functions-and-types), [The
-  reference](#the-reference), [Examples](#examples)
-- [About](#about): [History](#history), [How `puns` is written](#how-puns-is-written) (using AI),
-  [License](#license)
+- [Overview](#overview)
+  - [Reading a packet](#reading-a-packet)
+  - [Reading one of several types](#reading-one-of-several-types)
+  - [Reading an old version of a format](#reading-an-old-version-of-a-format)
+  - [Going further](#going-further)
+- [When to use `puns`](#when-to-use-puns)
+  - [Compared with other crates](#compared-with-other-crates)
+  - [Caveats](#caveats)
+  - [Performance](#performance)
+  - [Safety and testing](#safety-and-testing)
+- [The reference][reference]
+  - [How `puns` decides][concepts]
+  - [The API][functions]
+  - [In practice][formats]
+  - [Compile-time errors]
+  - [Unspecified layouts and the `unstable` feature][unstable]
+  - [The language of rules][rules]
+  - [Limits, and what is not done yet][limits]
+  - [Measured performance][performance]
+  - [Soundness]
+  - [Testing][testing]
+  - [What the derive trusts][trust]
+  - [What `puns` relies on][rust]
+  - [Rust version and targets][target]
+- [About](#about)
+  - [History](#history)
+  - [How `puns` is written](#how-puns-is-written) (using AI)
+  - [License](#license)
 
 ## Overview
 
 `puns` lets you reinterpret a value of one type, the *source*, as a value of another type, the
 *target*, or bytes as a typed value, without writing `unsafe`. `puns` is a `no_std` crate that
-never allocates, and it needs Rust 1.99 or later (see [Minimum Rust version][msrv]). While your
-code compiles, `puns` compares the [layouts] of the two types, which include their [valid] values.
-When it can prove the whole conversion, there's nothing left to check at run time:
+never allocates, and it needs Rust 1.99 or later (see [Minimum Rust version][msrv]). While your code
+compiles, it compares the [layouts] of the two types, which include their [valid][valid] values.
+When it can prove the whole conversion, nothing is left to check at run time:
 
 ```rust
 use puns::Pun;
@@ -52,8 +70,8 @@ assert_eq!(puns::from_bytes::<[Switch; 2]>(&[1, 2]), Err(puns::Error::Validity))
 
 `pun_ref` returns the same memory with a new type, and `from_bytes` returns a `Result`. `puns` calls
 these puns [*proven* and *checked*][kinds]. A pun that can be neither is *refused*, and doesn't
-compile. Give `Switch` a third variant with the value 2, and some `Switch`es aren't `bool`s
-anymore, so the `pun_ref` call above stops with this error:
+compile. If you give `Switch` a third variant with the value 2, some `Switch`es aren't `bool`s, and
+the `pun_ref` call above stops with this error:
 
 ```text
 cannot pun: some values of the source are not valid for the target, or do not prove one of its rules.
@@ -61,19 +79,15 @@ Use a `try_*` function to check them at run time.
 This is at byte 0 of the target.
 ```
 
-`try_pun_ref` would check the same conversion at run time instead. `cargo build` reports
-refusals, but `cargo check`, and so your editor, doesn't. [Compile-time errors] says why, and
-explains each message.
+`cargo build` reports refusals, but `cargo check`, and therefore your editor, doesn't. [Compile-time
+errors] says why, and explains each message.
 
 ### Reading a packet
 
-Binary formats fix the byte order of their integers, while a `u16` has the byte order of the
-machine. So [`puns::num`][num] has a type for each byte order, such as `u16be` for a big-endian
-`u16`, and `get` returns its value. These types have an alignment of 1, so a `repr(C)` struct made
-of them and of bytes has no padding, and can be at any address in a buffer.
-
-Formats also store the length of their data, and often a checksum of it. You write those relations
-on the struct as *rules*:
+Binary formats fix the byte order of their integers, so [`puns::num`][num] has integers of each
+byte order, such as `u16be` and `u32le`, which can sit at any address. Formats also usually store
+the length of their data and a checksum of it. With `puns`, you write those relations on the struct
+as *rules*:
 
 ```rust
 use puns::{Pun, num::{u16be, u32be}};
@@ -120,19 +134,15 @@ packet.ttl -= 1;
 assert_eq!(buffer[1], 63);
 ```
 
-A rule is a [requirement][requirements] of the format, not a guarantee of the type. `puns` checks
-it when it reads bytes, but the fields stay writable: if the router set `length` to 10, `payload`
-would still have 3 bytes. `puns` never relies on a rule for memory safety, so a rule that no
-longer holds gives wrong values or a panic, never undefined behavior ([Soundness]).
-
 Rules can also compute other checksums, read variable-length integers and `walk` a chain of
-headers ([The language of rules][rules]). The [derive's page][derive] lists every attribute.
+headers ([The language of rules][rules]), and the [derive's documentation][derive] lists the other
+attributes. A rule is checked when `puns` reads the bytes, and the fields stay writable afterwards:
+`puns` never relies on a rule for memory safety ([requirements]).
 
 ### Reading one of several types
 
-When the data can be one of several types, derive `Pun` on an enum of references, which `puns`
-calls a [*view*][view]. Its `from_bytes` and `from_head` return the first variant that the bytes
-match:
+When the data can be one of several types, derive `Pun` on an enum of references, which `puns` calls
+a [*view*][view]. Its `from_bytes` and `from_head` return the first variant that the bytes match:
 
 ```rust
 use puns::{Pun, num::{u8c, u16le}};
@@ -174,14 +184,14 @@ assert!(rest.is_empty());
 assert!(Message::from_bytes(&[3]).is_err());
 ```
 
-`u8c<1>` is a byte whose only valid value is 1, so `puns` skips a variant as soon as its tag
+`u8c<1>` is a byte whose only valid value is 1, and `puns` skips a variant as soon as its tag
 doesn't match. [`link.rs`][link] reads Bluetooth HCI packets this way.
 
 ### Reading an old version of a format
 
-When every value of the old version of a format is also a valid value of the new one, `puns`
-proves it, and you can reinterpret old data as the new version without any check. Nothing is moved
-or converted, so whatever the two versions share must keep the same layout:
+Here, every value of the old version of a format is also a valid value of the new one, and `puns`
+proves it, so you can reinterpret old data as the new version without any check. Nothing is moved
+or converted, which means that whatever the two versions share must keep the same layout:
 
 ```rust
 use puns::{Pun, num::u16le};
@@ -212,9 +222,45 @@ let items: &[Item] = puns::pun_ref(old);
 assert_eq!(items[1], Item::Potion { heal: 25, cursed: false });
 ```
 
-If version 2 ever drops a variant or narrows a field, this stops compiling. But `puns` matches
-variants only by their tag: if version 2 gave tag 1 to the key, this would still compile, and read
-the old potion as a key. So keep the tags of the variants you already have.
+If version 2 ever drops a variant or narrows a field, this stops compiling. `puns` matches variants
+by their tag, so keep the tags of existing variants: if version 2 gave tag 1 to the key, the old
+potion would read as a key.
+
+### Going further
+
+The functions of `puns` are in this table. Each row says what is read, a typed value or bytes, and
+whether the function checks at run time. Each column says how much is read: the whole, the front,
+or the back.
+
+|                                  | Whole                              | Front                          | Back                           |
+|----------------------------------|------------------------------------|--------------------------------|--------------------------------|
+| a typed value, checking nothing  | [`pun`][pun], [`pun_ref`][pun_ref], [`pun_mut`][pun_mut], [`as_bytes`][as_bytes] | [`head`][head], [`head_ref`][head_ref], [`head_mut`][head_mut] | [`tail`][tail], [`tail_ref`][tail_ref], [`tail_mut`][tail_mut] |
+| a typed value, checking          | [`try_pun`][try_pun], [`try_pun_ref`][try_pun_ref], [`try_pun_mut`][try_pun_mut] | | |
+| bytes, checking                  | [`from_bytes`][from_bytes], [`from_bytes_mut`][from_bytes_mut] | [`from_head`][from_head], [`from_head_mut`][from_head_mut] | [`from_tail`][from_tail], [`from_tail_mut`][from_tail_mut] |
+
+Two functions make no pun. [`zeroed`][zeroed] returns a value whose fields are all zero bytes.
+[`validate_but_never`][validate_but_never] checks bytes for a type that holds [opaque
+scalars][opaque], but makes no reference: the crate that declares these scalars proves them itself,
+and then makes the reference.
+
+- [`Pun`][trait-pun] is the trait of the types that `puns` works with: numbers and other scalars,
+  arrays, slices, `str`, tuples and other types of `core`, and the types that derive it. Its page
+  has the full list.
+- [`#[derive(Pun)]`][derive] implements `Pun`, and also describes what the bytes of a value say
+  about it: its size, the length of its trailing slice, and conditions such as a checksum.
+- [`Scalar`][Scalar] is the trait of a type that is one scalar value, such as a number whose
+  constructor checks it. [`Tag`][Tag] is the trait of a type carried next to a tag, such as the
+  payload of a message, and gives the values of the tag that select it.
+- [`Error`][error-type] says which check failed: the alignment, the size, or the values.
+- [`num`][num] has numbers of a fixed byte order, and integers restricted to some values.
+- [`layout`][layout] has the types that describe a layout, and the checksums.
+- The [reference] explains how `puns` decides, teaches the attributes and the rules from examples,
+  and says what its soundness rests on.
+
+The tests and the [examples] of the repository show more uses. The examples read parts of more
+than 40 formats, from TLS and DNS to ELF and SQLite, and each one says which parts of its format it
+doesn't cover, and why. The shortest, [`media.rs`][media], reads WAVE files and MP4 boxes. Run it
+with `cargo run --example media` from a clone of the repository.
 
 ## When to use `puns`
 
@@ -248,24 +294,22 @@ Rust's own Safe Transmute project compares the two types as well, inside the com
 ### Caveats
 
 - Deriving `Pun` bypasses your constructors. Any code can then make a value of the type from bytes
-  and read or write its fields, private ones included, so don't derive it on a type with a private
+  and read or write its fields, private ones included: don't derive it on a type with a private
   invariant ([details][deriving]).
-- Without a `repr`, the compiler chooses the layout of a type, and `puns` refuses a pun that
-  depends on that choice unless you turn on the [`unstable` feature][unstable]. Even with
-  `repr(C)`, the byte order of a `u32` and the alignment of a `u64` vary between targets, and so do
-  the offsets of the fields that follow. For data that leaves the program, use the types of
-  [`puns::num`][num], like `u32be`.
-- A checksum inside a `walk` multiplies the cost of a check by the size of the data, and each
-  extra level of nesting multiplies it again. Limit the size of untrusted input for such types
-  ([details][costs]).
-- An [`Error`][error-type] doesn't tell you which field or rule failed.
+- Without a `repr`, the compiler is free to change the layout of a type, and `puns` refuses
+  anything that depends on it unless you turn on the [`unstable` feature][unstable]. For data that
+  leaves the program, use the integers of [`puns::num`][num], like `u32be`, whose byte order is the
+  same on every target.
+
+[Limits, and what is not done yet][limits] lists the other limits, and [Compile-time
+errors] what to expect of the messages.
 
 ### Performance
 
-A checked pun takes about as long as the same check written by hand, and what you pay for is
-mostly build time. The chart shows the time of each check relative to the same check by hand,
-measured on 2026-11-21 at commit `4176671`. [Measured performance][performance] gives the machine,
-how each time was measured, the machine code and the build times.
+Checked puns take about as long as the same checks written by hand, and what you pay for is
+mostly build time. The chart shows the time of each check relative to the same check written by
+hand, measured on 2026-11-21 at commit `4176671`. [Performance][performance] has the method, the
+machine code and the build times.
 
 [![Time of each check by puns, relative to the same check written by hand](https://raw.githubusercontent.com/uael/puns/v0.2.4/docs/charts/checks.svg)][performance]
 
@@ -273,62 +317,12 @@ how each time was measured, the machine code and the build times.
 
 `puns` is built on `unsafe` code so that yours doesn't have to be: crates that use it, derive
 included, can keep `#![forbid(unsafe_code)]`. [Soundness] states what a pun guarantees, and [What
-`puns` relies on][rust] lists what its code relies on, including behaviors of `rustc` that no
-documentation guarantees, and how each one is checked. The analysis is compared with oracles that
-don't use it on every pair of test types of the same size, and the tests run under Miri, on 32-bit
-and big-endian targets as well ([Testing][testing]). If you find a soundness bug, please [open an
-issue][issues].
+`puns` relies on][rust] what that code relies on, including behaviors of `rustc` that no
+documentation guarantees.
 
-## Going further
-
-### Functions and types
-
-Each row of this table says what a function reads, a typed value or bytes, and whether it checks
-at run time. Each column says how much it reads: the whole, the front, or the back.
-
-| | Whole | Front | Back |
-|---|---|---|---|
-| A typed value, checking nothing | [`pun`], [`pun_ref`], [`pun_mut`], [`as_bytes`] | [`head`], [`head_ref`], [`head_mut`] | [`tail`], [`tail_ref`], [`tail_mut`] |
-| A typed value, checking | [`try_pun`], [`try_pun_ref`], [`try_pun_mut`] | | |
-| Bytes, checking | [`from_bytes`], [`from_bytes_mut`] | [`from_head`], [`from_head_mut`] | [`from_tail`], [`from_tail_mut`] |
-
-- [`Pun`][trait-pun] is the trait of the types that `puns` works with: numbers and other scalars,
-  arrays, slices, `str`, tuples and other types of `core`, and the types that derive it.
-- [`#[derive(Pun)]`][derive] implements `Pun`, and also describes what the bytes of a value say
-  about it: its size, the length of its trailing slice, and conditions such as a checksum.
-- [`Scalar`][Scalar] is the trait of a type that is one scalar value, such as a number whose
-  constructor checks it. [`Tag`][Tag] is the trait of a type carried next to a tag, such as the
-  payload of a message.
-- [`Error`][error-type] says which check failed: the alignment, the size, or the values.
-- [`num`][num] has numbers of a fixed byte order, and integers restricted to some values.
-- [`layout`][layout] has the types that describe a layout, and the checksums.
-
-### The reference
-
-The chapters of the [reference], in reading order:
-
-| Chapter | What it holds |
-|---|---|
-| [How `puns` decides][concepts] | The terms: pun, layout, rule, valid value, requirement, the three kinds of pun, and why the pair of types decides. |
-| [The API][functions] | Which function to use, reading bytes, the front and the back, writing through `&mut`, constants, and the conditions of the functions. |
-| [In practice][formats] | Describing a binary format with the derive, one relation at a time. |
-| [Compile-time errors] | How to read an error, and each message with the code that causes it and its fix. |
-| [Unspecified layouts and the `unstable` feature][unstable] | What Rust leaves to the compiler, what `puns` refuses without the feature, and when to turn it on. |
-| [The language of rules][rules] | The expressions of rules: fields, values, functions, walks, and how a rule fails. |
-| [Limits, and what is not done yet][limits] | What Rust prevents, the bounds of the analysis, what is planned, and what is not decided. |
-| [Measured performance][performance] | Machine code, the time of checks next to checks by hand, build times, and costs. |
-| [Soundness] | What a pun guarantees, padding, unions, uninhabited types, and what deriving `Pun` means. |
-| [Testing][testing] | The model check, Miri, the record of verdicts, the compile-fail tests, the tests of the derive, and the commands that run them. |
-| [What the derive trusts][trust] | What the generated code relies on, and what the deriving crate can't redirect. |
-| [What `puns` relies on][rust] | What Rust documents, and what no documentation states, each with what checks it. |
-| [Rust version and targets][target] | Why Rust 1.99, and what the code assumes of the target. |
-
-### Examples
-
-The tests and the [examples] of the repository show more uses. The examples read parts of more
-than 40 formats, from TLS and DNS to ELF and SQLite, and each one says which parts of its format it
-doesn't cover, and why. The shortest, [`media.rs`][media], reads WAVE files and MP4 boxes. Run it
-with `cargo run --example media` from a clone of the repository.
+On every pair of test types of the same size, the analysis is compared with oracles that don't use
+it, and the tests run under Miri, on 32-bit and big-endian targets as well ([Testing][testing]). If
+you find a soundness bug, please [open an issue][issues].
 
 ## About
 
@@ -381,12 +375,12 @@ additional terms or conditions.
 [kinds]: docs/concepts.md#proven-checked-and-refused
 [pairs]: docs/concepts.md#why-the-pair-decides
 [requirements]: docs/concepts.md#requirements
+[opaque]: docs/concepts.md#opaque-scalars
 [layouts]: docs/concepts.md#layouts-and-rules
 [msrv]: docs/target.md#minimum-rust-version
 [rules]: docs/rules.md
 [performance]: docs/performance.md
 [comparison]: docs/performance.md#compared-with-zerocopy-and-bytemuck
-[costs]: docs/performance.md#costs
 [rust]: docs/rust.md
 [reference]: docs
 [concepts]: docs/concepts.md
@@ -410,25 +404,27 @@ additional terms or conditions.
 [Scalar]: https://docs.rs/puns/0.2.4/puns/trait.Scalar.html
 [Tag]: https://docs.rs/puns/0.2.4/puns/trait.Tag.html
 [error-type]: https://docs.rs/puns/0.2.4/puns/enum.Error.html
-[`pun`]: https://docs.rs/puns/0.2.4/puns/fn.pun.html
-[`pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.pun_ref.html
-[`pun_mut`]: https://docs.rs/puns/0.2.4/puns/fn.pun_mut.html
-[`as_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.as_bytes.html
-[`try_pun`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
-[`try_pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_ref.html
-[`try_pun_mut`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_mut.html
-[`head`]: https://docs.rs/puns/0.2.4/puns/fn.head.html
-[`head_ref`]: https://docs.rs/puns/0.2.4/puns/fn.head_ref.html
-[`head_mut`]: https://docs.rs/puns/0.2.4/puns/fn.head_mut.html
-[`tail`]: https://docs.rs/puns/0.2.4/puns/fn.tail.html
-[`tail_ref`]: https://docs.rs/puns/0.2.4/puns/fn.tail_ref.html
-[`tail_mut`]: https://docs.rs/puns/0.2.4/puns/fn.tail_mut.html
-[`from_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes.html
-[`from_bytes_mut`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes_mut.html
-[`from_head`]: https://docs.rs/puns/0.2.4/puns/fn.from_head.html
-[`from_head_mut`]: https://docs.rs/puns/0.2.4/puns/fn.from_head_mut.html
-[`from_tail`]: https://docs.rs/puns/0.2.4/puns/fn.from_tail.html
-[`from_tail_mut`]: https://docs.rs/puns/0.2.4/puns/fn.from_tail_mut.html
+[pun]: https://docs.rs/puns/0.2.4/puns/fn.pun.html
+[pun_ref]: https://docs.rs/puns/0.2.4/puns/fn.pun_ref.html
+[pun_mut]: https://docs.rs/puns/0.2.4/puns/fn.pun_mut.html
+[as_bytes]: https://docs.rs/puns/0.2.4/puns/fn.as_bytes.html
+[try_pun]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
+[try_pun_ref]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_ref.html
+[try_pun_mut]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_mut.html
+[head]: https://docs.rs/puns/0.2.4/puns/fn.head.html
+[head_ref]: https://docs.rs/puns/0.2.4/puns/fn.head_ref.html
+[head_mut]: https://docs.rs/puns/0.2.4/puns/fn.head_mut.html
+[tail]: https://docs.rs/puns/0.2.4/puns/fn.tail.html
+[tail_ref]: https://docs.rs/puns/0.2.4/puns/fn.tail_ref.html
+[tail_mut]: https://docs.rs/puns/0.2.4/puns/fn.tail_mut.html
+[from_bytes]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes.html
+[from_bytes_mut]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes_mut.html
+[from_head]: https://docs.rs/puns/0.2.4/puns/fn.from_head.html
+[from_head_mut]: https://docs.rs/puns/0.2.4/puns/fn.from_head_mut.html
+[from_tail]: https://docs.rs/puns/0.2.4/puns/fn.from_tail.html
+[from_tail_mut]: https://docs.rs/puns/0.2.4/puns/fn.from_tail_mut.html
+[zeroed]: https://docs.rs/puns/0.2.4/puns/fn.zeroed.html
+[validate_but_never]: https://docs.rs/puns/0.2.4/puns/fn.validate_but_never.html
 [changelog]: https://github.com/uael/puns/blob/v0.2.4/CHANGELOG.md
 [examples]: https://github.com/uael/puns/tree/v0.2.4/puns/examples
 [media]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/media.rs

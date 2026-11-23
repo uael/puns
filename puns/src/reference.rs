@@ -1,7 +1,7 @@
-//! The chapters of the reference, the files of `docs/` in the repository, which [the table of the
-//! crate page][table] lists in reading order.
+//! The chapters of the reference, the files of `docs/` in the repository, which the [contents]
+//! of the crate page list in reading order.
 //!
-//! [table]: crate#the-reference
+//! [contents]: crate
 
 pub mod concepts;
 pub mod errors;

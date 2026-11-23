@@ -4,12 +4,12 @@
 //! [kinds]: reference::concepts#proven-checked-and-refused
 //! [pairs]: reference::concepts#why-the-pair-decides
 //! [requirements]: reference::concepts#requirements
+//! [opaque]: reference::concepts#opaque-scalars
 //! [layouts]: reference::concepts#layouts-and-rules
 //! [msrv]: reference::target#minimum-rust-version
 //! [rules]: reference::rules
 //! [performance]: reference::performance
 //! [comparison]: reference::performance#compared-with-zerocopy-and-bytemuck
-//! [costs]: reference::performance#costs
 //! [rust]: reference::rust
 //! [reference]: mod@reference
 //! [concepts]: reference::concepts
