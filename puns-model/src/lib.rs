@@ -34,7 +34,7 @@
 //! An oracle decides under either end ([`Unions`]): a union is one of its fields, or any bytes,
 //! initialized or not, as Miri implements. The values of a source are its values under either
 //! rule. A pun must make a valid target of each value under the first rule under which that value
-//! is a source ([`rule_of`]): a value that is a source only if a union may hold any bytes is judged
+//! is a source (`rule_of`): a value that is a source only if a union may hold any bytes is judged
 //! with the unions of the target holding any bytes too. A check must accept a value that is a valid
 //! target with every union one of its fields, since that is how `puns` checks a union. So a union
 //! without values may hold a value in a source, and a union of the source is read as nothing, as

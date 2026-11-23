@@ -81,7 +81,8 @@ jobs:
 
   # The sample of the model check that every push runs (the exhaustive one is `model.yml`): about
   # as long to build as everything else, so jobs of its own. `miri_sample` and `parts` are each
-  # about twenty seconds of build, a job each; the other files together are less. Together they
+  # about twenty seconds of build, a job each; the shapes are a job each way too; the other files
+  # together are less. Together they
   # are `cargo test -p puns-model`, without the `unstable` feature, then with it (`puns` takes
   # the layout that `rustc` chose: other verdicts, of other code).
   model:
@@ -94,22 +95,28 @@ jobs:
           - name: puns
             id: model-puns
             tests: --test miri_sample
-          - name: rules, unsized, views, never made, shapes
+          - name: rules, unsized, views, never made
             id: model-rules
             tests: >-
               --lib --test core_shadowed --test regressions --test rules --test dst --test views
-              --test opaque --test shapes
+              --test opaque
+          - name: shapes
+            id: model-shapes
+            tests: --test shapes
           - name: parts
             id: model-parts
             tests: --test parts
           - name: unstable, puns
             id: model-unstable-puns
             tests: --features unstable --test miri_sample
-          - name: unstable, rules, unsized, views, never made, shapes
+          - name: unstable, rules, unsized, views, never made
             id: model-unstable-rules
             tests: >-
               --features unstable --lib --test core_shadowed --test regressions --test rules
-              --test dst --test views --test opaque --test shapes
+              --test dst --test views --test opaque
+          - name: unstable, shapes
+            id: model-unstable-shapes
+            tests: --features unstable --test shapes
           - name: unstable, parts
             id: model-unstable-parts
             tests: --features unstable --test parts
@@ -366,9 +373,9 @@ jobs:
           # The model check under Miri: a selection of pairs that runs every unsafe path it
           # reaches (see `puns-model/tests/miri_sample.rs`); the verdicts of every pair are the
           # job of the full native run, in `model.yml`.
-          # In six jobs: each of the two tests of the selection (told apart by name), the unit tests
-          # with the regressions and the view enums, the parts with the unsized types, and the
-          # shapes, for what a check of them reads, in two parts of about the same time.
+          # In seven jobs: each of the two tests of the selection (told apart by name), the unit
+          # tests with the regressions and the view enums, the parts with the unsized types, and the
+          # shapes, for what a check of them reads, in three parts of about the same time.
           - name: model, puns
             id: model
             args: -p puns-model --test miri_sample
@@ -392,10 +399,15 @@ jobs:
             args: -p puns-model --test shapes
             filter: -- --exact array_under_an_enum
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
+          - name: model, shapes, union next to a check
+            id: model
+            args: -p puns-model --test shapes
+            filter: -- --exact union_next_to_a_check
+            flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
           - name: model, shapes
             id: model
             args: -p puns-model --test shapes
-            filter: -- --skip array_under_an_enum
+            filter: -- --skip array_under_an_enum --skip union_next_to_a_check
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
     steps:
       - uses: actions/checkout@v4
