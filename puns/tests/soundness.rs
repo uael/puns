@@ -182,6 +182,74 @@ fn self_in_a_field_is_the_type() {
   assert_eq!(puns::pun::<Choice, [u8; 2]>(Choice::A(true, PhantomData)), [0, 1]);
 }
 
+/// Checks that a macro in the type of a field names one type, the type of the field in the item,
+/// wherever the generated code uses it.
+///
+/// `this!()` is `Self`, which the derive cannot see in the tokens of the item: it is the struct in
+/// the item, and other types in the items that the derive generates. The type of `on` in `Tail`
+/// used to be `bool` in the layout and `u8` in the list of fields, which the check of `from_bytes`
+/// reads, so a `bool` of 2 was valid. Where a macro names another type in the generated code than
+/// in the item, or an attribute changes the item after the derive read it, the derive does not
+/// compile: the cases `derive_field_type_shadowed` and `derive_item_rewritten` in `compile-fail/`.
+#[test]
+fn a_macro_in_a_field_names_the_type_of_the_field() {
+  macro_rules! this {
+    () => {
+      Self
+    };
+  }
+  macro_rules! byte {
+    () => {
+      u8
+    };
+  }
+  trait Pick {
+    type Out;
+  }
+  impl<T> Pick for T {
+    type Out = u8;
+  }
+  #[derive(Pun)]
+  #[repr(C)]
+  struct Tail {
+    on: <this!() as Pick>::Out,
+    rest: [byte!()],
+  }
+  // Not the impl above, since `Tail` is unsized.
+  impl Pick for Tail {
+    type Out = bool;
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C, packed)]
+  struct Packed<T> {
+    on: bool,
+    more: T,
+  }
+  #[derive(Pun, Clone, Copy, Debug)]
+  #[repr(u8)]
+  enum Choice {
+    A(byte!()),
+    B { on: bool },
+  }
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Either {
+    on: bool,
+    byte: byte!(),
+  }
+  assert!(puns::from_bytes::<Tail>(&[1, 7]).unwrap().on);
+  assert_eq!(puns::from_bytes::<Tail>(&[2, 7]).err(), Some(Error::Validity));
+  assert!(puns::try_pun::<[u8; 3], Packed<[byte!(); 2]>>([1, 2, 3]).is_ok_and(|packed| packed.on));
+  assert!(puns::try_pun::<[u8; 3], Packed<[byte!(); 2]>>([2, 2, 3]).is_err());
+  assert!(matches!(puns::try_pun::<[u8; 2], Choice>([0, 9]), Ok(Choice::A(9))));
+  assert!(matches!(puns::try_pun::<[u8; 2], Choice>([1, 1]), Ok(Choice::B { on: true })));
+  assert_eq!(puns::try_pun::<[u8; 2], Choice>([1, 2]).err(), Some(Error::Validity));
+  assert_eq!(puns::pun::<Choice, [u8; 2]>(Choice::A(9)), [0, 9]);
+  assert_eq!(puns::pun::<Choice, [u8; 2]>(Choice::B { on: true }), [1, 1]);
+  // SAFETY: `byte` is a `u8`, valid for every byte.
+  assert_eq!(puns::try_pun::<u8, Either>(2).map(|either| unsafe { either.byte }), Ok(2));
+}
+
 /// Checks that a part that is proven without being read is not read by the check of another part,
 /// and is checked where its bytes are initialized.
 ///

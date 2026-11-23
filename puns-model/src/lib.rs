@@ -167,6 +167,13 @@
 //! minutes to build and a few minutes to run. The workflow `model.yml` runs it without and with the
 //! `unstable` feature, every night and on demand.
 //!
+//! One `rustc` builds each test file, and its memory grows with the pairs of the file: about 14 GiB
+//! for every pair of the types of 2 bytes, more than a runner of CI has. So the largest checks are
+//! cut along their sources ([`sources!`]): `tests/support/size2.rs` runs in `tests/size2_1.rs` to
+//! `tests/size2_5.rs`, and so on, and `tests/sources.rs` checks that the files of each check keep
+//! every source once. `model.yml` builds the files in groups, a job for each group and each feature
+//! set (`.github/model-tests.sh`).
+//!
 //! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
 
 pub mod types;
@@ -1343,14 +1350,18 @@ pub fn finish(title: &str) {
 /// Checks every ordered pair of the types, a type with itself included, with [`check_pair`] and
 /// [`check_part`].
 ///
-/// The first argument is the `limit` of both functions.
+/// The first argument is the `limit` of both functions. With `sources [..]` after it, only the
+/// sources that the marks keep are checked, against every type (see [`sources!`]).
 #[macro_export]
 macro_rules! all_pairs {
   ($limit:expr; $($ty:ty),+ $(,)?) => {
-    $crate::all_pairs!(@outer $limit; [$($ty),+]; $($ty),+);
+    $crate::all_pairs!(@sources ($limit, [$($ty),+]); $($ty),+);
   };
-  (@outer $limit:expr; $all:tt; $($s:ty),+) => {
-    $( $crate::all_pairs!(@inner $limit; $s; $all); )+
+  ($limit:expr, sources [$($mark:tt)+]; $($ty:ty),+ $(,)?) => {
+    $crate::sources!(all_pairs ($limit, [$($ty),+]); [$($mark)+]; []; $($ty),+);
+  };
+  (@sources ($limit:expr, $all:tt); $($s:ty),*) => {
+    $( $crate::all_pairs!(@inner $limit; $s; $all); )*
   };
   (@inner $limit:expr; $s:ty; [$($d:ty),+]) => {
     $( $crate::check_pair::<$s, $d>($limit); $crate::check_part::<$s, $d>($limit); )+
@@ -1370,13 +1381,41 @@ macro_rules! pairs {
 /// Checks the parts of every source of the first list as every target of the second, with
 /// [`check_part`].
 ///
-/// The targets are meant to be smaller than the sources.
+/// The targets are meant to be smaller than the sources. With `sources [..]` after the limit, only
+/// the sources that the marks keep are checked (see [`sources!`]).
 #[macro_export]
 macro_rules! part_pairs {
   ($limit:expr; [$($s:ty),+ $(,)?]; $targets:tt) => {
-    $( $crate::part_pairs!(@inner $limit; $s; $targets); )+
+    $crate::part_pairs!(@sources ($limit, $targets); $($s),+);
+  };
+  ($limit:expr, sources [$($mark:tt)+]; [$($s:ty),+ $(,)?]; $targets:tt) => {
+    $crate::sources!(part_pairs ($limit, $targets); [$($mark)+]; []; $($s),+);
+  };
+  (@sources ($limit:expr, $targets:tt); $($s:ty),*) => {
+    $( $crate::part_pairs!(@inner $limit; $s; $targets); )*
   };
   (@inner $limit:expr; $s:ty; [$($d:ty),+ $(,)?]) => {
     $( $crate::check_part::<$s, $d>($limit); )+
+  };
+}
+
+/// Keeps the types of a list whose mark is `x`, and calls `$crate::$m!(@sources $args; ..)` with
+/// them.
+///
+/// The marks repeat along the list: with `[_ x _]`, the second type of every three is kept. The
+/// exhaustive check is cut along its sources this way, since one `rustc` that builds every pair of
+/// the types of 2 bytes needs more memory than a runner of CI has: each file of a part
+/// (`tests/size2_1.rs`...) keeps the sources of its marks against every target, and the files of
+/// the parts keep each source once between them (`tests/sources.rs`).
+#[macro_export]
+macro_rules! sources {
+  ($m:ident $args:tt; [x $($mark:tt)*]; [$($kept:ty),*]; $ty:ty $(, $rest:ty)*) => {
+    $crate::sources!($m $args; [$($mark)* x]; [$($kept,)* $ty]; $($rest),*);
+  };
+  ($m:ident $args:tt; [_ $($mark:tt)*]; $kept:tt; $ty:ty $(, $rest:ty)*) => {
+    $crate::sources!($m $args; [$($mark)* _]; $kept; $($rest),*);
+  };
+  ($m:ident $args:tt; $marks:tt; [$($kept:ty),*];) => {
+    $crate::$m!(@sources $args; $($kept),*);
   };
 }

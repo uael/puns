@@ -16,17 +16,41 @@ fakecore = { path = "fakecore" }
 # The model check of `puns` with its `unstable` feature, which takes the layout that `rustc` chose:
 # CI runs the sample both ways, `model.yml` the exhaustive check both ways.
 unstable = ["puns/unstable"]
-# The exhaustive model check (`tests/size*.rs` and `tests/parts2.rs`...): thousands of pairs, which
+# The exhaustive model check (`tests/size*.rs`, `tests/parts2_1.rs`...): thousands of pairs, which
 # take minutes to build, so not built by `cargo test`. `model.yml` runs it every night:
 # `cargo test --profile model -p puns-model --features full`.
 full = []
 
 [[test]]
-name = "size1"
+name = "size1_1"
 required-features = ["full"]
 
 [[test]]
-name = "size2"
+name = "size1_2"
+required-features = ["full"]
+
+[[test]]
+name = "size1_3"
+required-features = ["full"]
+
+[[test]]
+name = "size2_1"
+required-features = ["full"]
+
+[[test]]
+name = "size2_2"
+required-features = ["full"]
+
+[[test]]
+name = "size2_3"
+required-features = ["full"]
+
+[[test]]
+name = "size2_4"
+required-features = ["full"]
+
+[[test]]
+name = "size2_5"
 required-features = ["full"]
 
 [[test]]
@@ -34,7 +58,11 @@ name = "size3"
 required-features = ["full"]
 
 [[test]]
-name = "size4"
+name = "size4_1"
+required-features = ["full"]
+
+[[test]]
+name = "size4_2"
 required-features = ["full"]
 
 [[test]]
@@ -42,11 +70,23 @@ name = "size8"
 required-features = ["full"]
 
 [[test]]
-name = "views_full"
+name = "views_full_1"
 required-features = ["full"]
 
 [[test]]
-name = "parts2"
+name = "views_full_2"
+required-features = ["full"]
+
+[[test]]
+name = "views_full_3"
+required-features = ["full"]
+
+[[test]]
+name = "parts2_1"
+required-features = ["full"]
+
+[[test]]
+name = "parts2_2"
 required-features = ["full"]
 
 [[test]]
@@ -54,11 +94,19 @@ name = "parts3"
 required-features = ["full"]
 
 [[test]]
-name = "parts4"
+name = "parts4_1"
+required-features = ["full"]
+
+[[test]]
+name = "parts4_2"
 required-features = ["full"]
 
 [[test]]
 name = "parts8"
+required-features = ["full"]
+
+[[test]]
+name = "sources"
 required-features = ["full"]
 
 [lints]

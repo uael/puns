@@ -930,6 +930,11 @@
 //!   or 16 bytes, since `rustc` makes no other size, or the enum is refused. If `rustc` places the
 //!   fields of a variant without values before the fields of the other variants, the build fails,
 //!   because `puns` cannot observe where those fields are and does not guess.
+//! - In an enum with fields and a primitive or `C` representation, a variant that holds a scalar
+//!   that a pun never makes, or a union none of whose fields has values, has no sample from which
+//!   `puns` reads its tag. Its discriminant must hold no macro and no attribute, or it must have
+//!   none after a variant whose tag is known, or the enum is refused ([What the derive
+//!   trusts](macro@Pun#what-the-derive-trusts)).
 //!
 //! ## Not done yet
 //!
@@ -1348,6 +1353,8 @@ pub use layout::{crc32, sum16};
 /// For every type:
 ///
 /// - No identifier in the item starts with `__Pun`, since these names are reserved.
+/// - The type as compiled has the fields and the variants that the derive read, and each field has
+///   the type that the derive read, as it names in the generated code ("What the derive trusts").
 /// - Every `#[pun(..)]` option is one of those above, on an item that it applies to, and none is on
 ///   a variant or on a field of a view. An option is given once, except `bound`, `assert`, `tag`
 ///   and `get`, which add to what they gave before.
@@ -1459,11 +1466,28 @@ pub use layout::{crc32, sum16};
 ///   `byte_offset_from`, a pointer method that no path names. A fake `MaybeUninit`, or a fake
 ///   result type, named by a path does not have the type that these functions take or return, and
 ///   does not compile.
+/// - The tags of an enum with fields and a primitive or `C` representation are those of an enum
+///   without fields that the derive declares with the same representation and discriminants, in
+///   which it replaces `Self` with the enum. It declares it next to its implementation, where a
+///   name that a macro writes may name another item, so a discriminant may have another value
+///   there. A function of [`layout::Variant`] compares each of its tags with the first bytes of a
+///   sample of the variant, made as for the `Rust` representation, and fails the build if they
+///   differ. A variant without a sample of which a value may exist, because it holds a scalar that
+///   a pun never makes or a union none of whose fields has values, must have a discriminant that
+///   holds no macro and no attribute, or none after a variant whose tag is known, since Rust then
+///   gives it the tag before it plus one. Such a discriminant has the same value in both enums: the
+///   derive names only items that start with `__Pun` there, which it refuses in the input.
 /// - The trait that says where a field is (`Path`) is sealed, and the leaf at which a list of
 ///   fields places a field is checked against the layout.
-/// - Names that start with `__Pun` are reserved. In the type of a field, the derive replaces `Self`
-///   with the type that it names, because the generated code writes that type inside other items,
-///   where `Self` names another type.
+/// - The type of each field is written once, as an associated type of a trait that the derive
+///   declares and implements for the type, where `Self` is the type, as in its declaration. The
+///   rest of the generated code names the type of a field there. A function that is never called
+///   compiles only if the type as compiled has the fields and the variants that the derive read,
+///   by name and with no other (an exhaustive pattern), and if each field has exactly the type of
+///   its associated type: a `&mut` to a `*mut` to the field admits no coercion, and no subtype. So a
+///   macro in the type of a field, which expands in the generated code, where `Self` and the names
+///   that start with `__Pun` name other items, gives the field one type, or does not compile.
+///   These names are reserved.
 ///
 /// The one exception is the identity of a type, which says whether two layouts are of the same
 /// type. It is where the type is declared, written by a macro that the derive names through the
@@ -1475,9 +1499,32 @@ pub use layout::{crc32, sum16};
 /// The rest of `::core` that the derive names (`Option`, `PhantomData`, `usize`, and so on) is
 /// checked by the types of the traits it implements. `::core::ptr::null()` is the probe of a sized
 /// type, which nothing reads, and `::core::panic!` is written only next to a compile error of the
-/// derive. The derive trusts the compiler for what it parses, such as `repr`. It also trusts that
-/// the type of a field is the same type wherever the derive writes it, which a procedural macro in
-/// the type of a field that expands to a different type at each expansion would break.
+/// derive. The derive trusts the compiler for what it parses, such as `repr`.
+///
+/// An attribute macro written below `#[derive(Pun)]` is expanded after the derive has read the
+/// item, and can change the item that `rustc` compiles. The derive does not compile if such an
+/// attribute adds, removes or renames a field, changes the type of a field, or adds or removes a
+/// variant. A field added to a union adds values that the layout does not accept as a target,
+/// which is sound, and the layout of a source union guarantees nothing, so such a field is not
+/// refused. The derive does not see the order of the fields or the `repr` of the item as compiled,
+/// so the following changes are not refused:
+///
+/// - The offsets of a `repr(C)` struct, and of the fields of a variant of an enum with a primitive
+///   or `C` representation, follow the order of the fields that the derive read. An attribute that
+///   reorders the fields gives the type another layout than the one that the derive states.
+/// - The tags of such an enum are compared with samples of its variants, as above, so an attribute
+///   that reorders its variants fails the build where a variant has a sample. The tag of a variant
+///   without a sample and without a discriminant follows the order of the variants that the derive
+///   read.
+/// - The derive computes the layout of a struct, an enum or a union from the `repr` that it read,
+///   such as `repr(C)`, `packed` or the integer of the tag of an enum. An attribute that changes it
+///   gives the type another layout.
+///
+/// The offsets of a struct of the `Rust` representation are measured on the item, so reordering
+/// its fields does not change them. An enum with fields of the `Rust` representation is found on
+/// samples made by the names of its variants and of their fields, and its discovery asserts that
+/// the discriminant of each sample is the index of its variant in the item that the derive read,
+/// so reordering its variants makes it fail to compile.
 ///
 /// # Examples
 ///

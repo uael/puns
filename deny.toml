@@ -12,7 +12,7 @@ allow = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
-# The crates that are not published (the model check, `fakecore`, `xtask`) depend on the others
+# The crates that are not published (the model check, `fakecore`, `rewrite`, `xtask`) depend on the others
 # by path only.
 allow-wildcard-paths = true
 

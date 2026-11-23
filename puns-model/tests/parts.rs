@@ -3,8 +3,8 @@
 //!
 //! Natively, this file checks a sample of each size of source, with targets of every smaller size.
 //! Under Miri, it checks a selection that reaches the unsafe paths. The full check, behind the
-//! `full` feature, runs every pair of the model natively, in `parts2.rs`, `parts3.rs`, `parts4.rs`
-//! and `parts8.rs`.
+//! `full` feature, runs every pair of the model natively, in `parts2_*.rs`, `parts3.rs`,
+//! `parts4_*.rs` and `parts8.rs`.
 
 #[cfg(not(miri))]
 use core::num::NonZero;

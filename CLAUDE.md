@@ -74,13 +74,18 @@ in the log of the job, since the time that Miri reports for a test is not that o
 Under Miri, a test that loops runs a fraction of its iterations (`cfg!(miri)`), since Miri is there
 for each unsafe path, not each value. The full model check is exhaustive. It is behind the `full`
 feature of `puns-model`, and runs in `.github/workflows/model.yml` every night and on demand. Run
-it when `rust-toolchain` changes. Under Miri, the model check runs a selection of pairs that reaches
-every unsafe path, not every pair. `puns-model/tests/miri_sample.rs` names the unsafe path that each
-pair reaches. Of the examples, only `ethernet` runs under Miri, since the others reach the same
-unsafe code of the library. A test file that is not for Miri starts with `#![cfg(not(miri))]` and
-says why. CI gives Miri the other ones by name, since Miri takes a second to start each test binary,
-even one that runs nothing. Each pair of types in a test of the model is an instance of the
-analysis, about a tenth of a second of build, so keep the tests that every push builds small.
+it when `rust-toolchain` changes. One `rustc` builds each test file, and must fit in the memory of a
+runner (16 GB): the largest checks are cut along their sources into several files
+(`puns-model/tests/support/`, "What runs where" in the docs of `puns-model`), and the files are
+built in groups, a job each (`.github/model-tests.sh`). A type added to the model adds pairs to
+these files: measure the peak memory of their `rustc`. Under Miri, the model check runs a selection
+of pairs that reaches every unsafe path, not every pair. `puns-model/tests/miri_sample.rs` names the
+unsafe path that each pair reaches. Of the examples, only `ethernet` runs under Miri, since the
+others reach the same unsafe code of the library. A test file that is not for Miri starts with
+`#![cfg(not(miri))]` and says why. CI gives Miri the other ones by name, since Miri takes a second
+to start each test binary, even one that runs nothing. Each pair of types in a test of the model is
+an instance of the analysis, about a tenth of a second of build, so keep the tests that every push
+builds small.
 
 What `unsafe` code assumes of the target (the alignment of a primitive, the width of `usize` and of
 `isize`, the byte order) is asserted in a `const` where it is used, or derived from the target, and
@@ -141,7 +146,9 @@ the crate docs and `README.md` consistent with the code.
 - **`puns-derive/`**: `#[derive(Pun)]`, re-exported as `puns::Pun`.
 - **`puns-model/`**: the model check of the analysis against oracles that do not use it (not
   published, and using the test-only `verdict` feature of `puns`), with `fakecore/`, a `core` whose
-  items give wrong answers, for what the derive must not trust.
+  items give wrong answers, for what the derive must not trust, and `rewrite/`, an attribute that
+  changes an item after the derive has read it, for a compile-fail case of `puns` (a
+  dev-dependency by path, which `cargo publish` leaves out).
 - **`xtask/`**: dev automation (fmt, lint, build times, the chart of check times, the links of the
   README).
 
@@ -153,7 +160,8 @@ Merging that PR publishes to crates.io and creates a GitHub release with a `v<ve
 
 - Config: `release-plz.toml`
 - Workflow: `.github/workflows/release-plz.yml`
-- Only `puns` and `puns-derive` are published; `xtask`, `puns-model` and `fakecore` are excluded
+- Only `puns` and `puns-derive` are published; `xtask`, `puns-model`, `fakecore` and `rewrite`
+  are excluded
 - `puns` owns the changelog and git tags (`v{{ version }}`); `puns-derive` has no changelog or tags
   of its own
 - Both crates are released under the same version (`version_group` in `release-plz.toml`): the

@@ -1,9 +1,9 @@
 //! Checks view enums against trying each of their variants in turn (`puns_model::views`).
 //!
 //! Natively, the views are every pair of a few types of 1 and 2 bytes, chains of bases, and
-//! unsized types for what `from_head` takes. The full check (`views_full.rs`) has every pair of the
-//! types of 1 and 2 bytes of the model. Under Miri, a selection of views reaches each unsafe path
-//! of `puns::view`.
+//! unsized types for what `from_head` takes. The full check (`support/views_full.rs`) has every
+//! pair of the types of 1 and 2 bytes of the model. Under Miri, a selection of views reaches each
+//! unsafe path of `puns::view`.
 
 use core::num::NonZero;
 

@@ -24,6 +24,7 @@
 !.github/workflows/
 !.github/**/*.yml
 !.github/tests.sh
+!.github/model-tests.sh
 
 # Rust
 !Cargo.toml
@@ -60,9 +61,13 @@
 !puns-model/Cargo.toml
 !puns-model/src/
 !puns-model/tests/
+!puns-model/tests/support/
 !puns-model/fakecore/
 !puns-model/fakecore/Cargo.toml
 !puns-model/fakecore/src/
+!puns-model/rewrite/
+!puns-model/rewrite/Cargo.toml
+!puns-model/rewrite/src/
 !puns-model/**/*.rs
 
 # Rust (xtask)

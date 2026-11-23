@@ -63,6 +63,10 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - What a layout is made of depends on no path that the deriving crate can redefine, though the
   generated code names `::core` and the root of `puns` ("What the derive trusts" in the
   documentation of `#[derive(Pun)]`). `fakecore` in `puns-model` tests that the derive meets it.
+- The derive writes the type of each field once, in a trait of its generated code (`homes` in
+  `puns-derive`), and a function that is never called fails to compile unless the item as
+  compiled has those fields and variants, of those types. The order of the fields and the `repr`
+  are taken from the tokens that the derive read ("What the derive trusts").
 - Every scalar that a pun never makes in the repository is declared through the public API only,
   as another crate would declare it, with `Scalar` and `Spec::never`. Most of them share
   [`tests/support/never.rs`](tests/support/never.rs).
