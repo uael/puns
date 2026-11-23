@@ -1,71 +1,35 @@
 //! Layouts of types as values, and the checksums that rules compute.
 //!
-//! Every [`Pun`](crate::Pun) type has a layout, a constant of type [`Layout`]. A layout is what
-//! `puns` knows about a type: its size, its alignment, where its fields are, and which values are
-//! [valid]. It is a tree, whose leaves are scalars ([`Spec`]) and tails of bytes that an automaton
-//! accepts ([`Dfa`]), and whose nodes are arrays, slices, structs ([`Field`], with their
-//! [`Rule`]s), and enums with fields and unions ([`Enum`], [`Variant`]). A byte of a struct that no
-//! field covers is padding.
-//!
-//! The analysis of `puns` is ordinary `const fn` code that compares two layouts and decides at
-//! compile time whether a pun is proven, checked or refused. At run time, the validation checks
-//! what the analysis could not prove, as the layouts describe it.
+//! A *layout* is what `puns` knows about a type: its size, its alignment, where its fields are,
+//! and which values are [valid]. It is a `const` value, a tree whose leaves are scalars ([`Spec`])
+//! and tails of bytes that an automaton accepts ([`Dfa`]), and whose nodes are arrays, slices,
+//! structs ([`Field`], with their [`Rule`]s), and enums with fields and unions ([`Enum`],
+//! [`Variant`]). A layout is also an automaton written as a tree, whose states are its positions:
+//! the analysis walks the layouts of the source and the target together, position by position.
 //!
 //! `#[derive(Pun)]` and the implementations of [`Scalar`](crate::Scalar) make layouts with the
-//! functions of this module. A layout stands for a type only through an implementation of `Pun`,
-//! which is an `unsafe trait`.
+//! functions of this module. These are `const fn`s, meant to be evaluated in constants, where a
+//! panic is a compile error.
 //!
-//! The functions of this module are `const fn`s, meant to be evaluated in constants, where a panic
-//! is a compile error.
+//! # For users
 //!
-//! The module also holds what the rules of `#[derive(Pun)]` compute: the checksums [`crc32`],
-//! [`sum16`], [`Crc`] and [`Checksum`], and the variable-length integers of [`Varint`].
+//! Most code needs this module only to declare a `Scalar`, or to compute what rules compute:
 //!
-//! # Nodes
+//! - [`Spec`] describes the values of a scalar, the `SPEC` of a `Scalar`, and [`Endian`] its byte
+//!   order.
+//! - [`Dfa`] is an automaton over bytes, which `matches(DFA, start, end)` runs in a rule.
+//! - [`crc32`], [`sum16`], [`Crc`] and [`Checksum`] are the checksums of rules, and [`Varint`]
+//!   names the variable-length integers that rules read.
+//! - [`UNSTABLE`] is whether the `unstable` feature is enabled.
 //!
-//! `const fn`s build a layout from what the compiler says about the type, such as `size_of`, the
-//! offsets of the fields, and `size_of_val_raw`. A node is one of the following:
+//! # For the code that the derive generates
 //!
-//! - A **scalar** ([`Spec`]) is a number of bytes in a byte order, with a sorted list of valid
-//!   ranges. A scalar that restricts its values is 1 to 16 bytes, while one that accepts any bytes
-//!   may have any size. `bool` is `0..=1`, `char` is two ranges, and `NonZero` is `1..`. An enum
-//!   without fields is the values of its variants, read from the compiler whatever its `repr`. A
-//!   scalar has two sets of values, the values that it *accepts* and the values that it is *known*
-//!   to hold, which [`Spec`] defines.
-//! - A **struct** has its fields ([`Field`]) at their offsets, which come from the compiler for
-//!   any `repr`. The bytes that no field covers are padding. A struct may have rules ([`Rule`]).
-//! - An **enum** with fields ([`Enum`]) has a tag, a scalar at a fixed place, and each [`Variant`]
-//!   has its tags and a struct of its fields. The representations that Rust specifies (`repr(C)`,
-//!   `repr(u8)` and the other primitive representations, [RFC 2195]) are made of `repr(C)` structs,
-//!   so the derive computes their layouts from the sizes and alignments of the fields, as `repr(C)`
-//!   lays out a struct, and the result is checked against the size and alignment of the enum. For
-//!   an enum of the `Rust` representation, experiments in const evaluation find the layout that
-//!   `rustc` chose. That layout has either a direct tag or a *niche* in the fields of one variant.
-//!   With a niche, that variant has several tags, the values of the scalar that holds the niche,
-//!   and it holds the tag in its fields. A variant that holds a type without values has no tag,
-//!   since no value of it exists.
-//! - A **union** (`repr(C)`) is an enum without a tag whose variants are its fields, each at offset
-//!   0. A value of it must be one of its fields ([Unions](crate::guide::soundness#unions)).
-//! - A type **without values** is an enum without variants ([`Layout::uninhabited`]), such as
-//!   `Infallible`. No value has its layout ([`Layout::is_inhabited`]), so as a source, a variant of
-//!   an enum without values needs no proof where the variants of two enums are related.
-//! - `MaybeUninit<T>` is padding with the size of `T`.
-//! - An **array** is the layout of an element and a count, and a **slice** is the layout of an
-//!   element alone, since its length is not part of its type.
-//! - A **pattern** is a tail of bytes that an automaton ([`Dfa`]) accepts, and `str` is the 8-state
-//!   automaton of UTF-8. An automaton is known by its states and edges. Its `id`, a field that safe
-//!   code can write, only serves to tell two automata apart, and two patterns are the same layout
-//!   only if their automata are the same, state by state. A value is checked with `str::from_utf8`
-//!   only where the automaton is the UTF-8 one, which is decided at compile time.
-//! - A **scalar that a pun never makes** ([`Spec::never`]), such as the offset of a self-relative
-//!   pointer, is initialized bytes as a source, and accepts no value as a target. What makes a
-//!   value of it valid is not in the layout.
+//! The rest is what the code of `#[derive(Pun)]` calls, for its auditor. [`Layout`] is the layout
+//! of a type, made by its functions. [`Field`] is a field of a struct, and [`Rule`] one of its
+//! rules, an expression of [`Op`]s. [`Enum`] and [`Variant`] are an enum with fields or a union.
+//! [`DfaState`] is a state of a `Dfa`, and [`sorted_ranges`] makes the ranges of a `Spec`.
 //!
-//! A layout is an automaton written as a tree, where a position in it is a state. The analysis
-//! walks the layouts of the source and the target together, position by position.
-//!
-//! [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
-//! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
+//! [valid]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity
 
 use core::mem;
 
@@ -139,18 +103,24 @@ pub(crate) enum Valid {
 /// The size, the byte order and the valid values of a scalar.
 ///
 /// A `Spec` is the [`SPEC`](crate::Scalar::SPEC) of a [`Scalar`](crate::Scalar) type, from which
-/// [`Layout::scalar`] makes the layout of that type. The value of a scalar is its bytes, read as an
-/// unsigned integer in its byte order, and a scalar that restricts its values is 1 to 16 bytes.
+/// [`Layout::scalar`] makes the layout of that type. A scalar is a number of bytes in a byte order,
+/// whose value is its bytes read as an unsigned integer in that order, with a sorted list of valid
+/// ranges: `bool` is `0..=1`, `char` is two ranges, and `NonZero` is `1..`. A scalar that restricts
+/// its values is 1 to 16 bytes, while one that accepts any bytes may have any size.
 ///
-/// A `Spec` holds two sets of values. The values it *accepts* are what a target requires, so a pun
-/// makes a value of the scalar only from one of these. The values it is *known* to hold are what
-/// every value of the type guarantees, whatever safe code does, so a source proves these values,
-/// and no others. Both sets are the same, with three exceptions. A field restricted by
-/// `#[pun(valid(..))]` ([`Layout::restricted`]) accepts fewer values than it is known to hold
-/// ([Guarantees and requirements](crate::guide::soundness#guarantees-and-requirements)). A scalar
-/// that may be uninitialized ([`Spec::maybe_uninit`]) accepts some values, but is known to hold
-/// anything, padding included. A scalar that a pun never makes ([`Spec::never`]) accepts no value,
-/// but is known to hold initialized bytes.
+/// A `Spec` holds two sets of values. The values that it *accepts* are what a target
+/// [requires][requirement], so a pun makes a value of the scalar only from one of these. The values
+/// that it is *known* to hold are what every value of the type guarantees, whatever safe code does,
+/// so a source proves these values and no others. The two sets are the same, except that:
+///
+/// - a field restricted by `#[pun(valid(..))]` ([`Layout::restricted`]) accepts fewer values than
+///   it is known to hold;
+/// - a scalar that may be uninitialized ([`Spec::maybe_uninit`]) accepts some values, but is known
+///   to hold anything, padding included;
+/// - an [opaque scalar] ([`Spec::never`]) accepts no value, but is known to hold initialized bytes.
+///
+/// [requirement]: crate::guide::concepts#requirements
+/// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 ///
 /// # Examples
 ///
@@ -190,7 +160,7 @@ pub(crate) const fn max_value(size: usize) -> u128 {
 impl Spec {
   /// Returns the scalar of the size of `T` that accepts any initialized bytes.
   ///
-  /// The scalar is in the byte order of the target, and rules read it as an unsigned integer unless
+  /// It is in the byte order of the target, and rules read it as an unsigned integer unless
   /// [`Spec::not_a_number`] says otherwise.
   ///
   /// # Examples
@@ -210,24 +180,22 @@ impl Spec {
     Self { size, endian: Endian::NATIVE, valid: Valid::Any, known: Valid::Any, number: true }
   }
 
-  /// Returns the `Spec` of a scalar of type `T` that a pun reads as initialized bytes, but never
-  /// makes, because what makes a value of it valid is not in its bytes.
+  /// Returns the scalar of type `T` that a pun reads as initialized bytes but never makes, an
+  /// [opaque scalar].
   ///
-  /// A self-relative pointer is such a scalar: its bytes are an offset, and whether it is valid
-  /// depends on where it is and on what it aims at. A pun proves from such a scalar what
-  /// initialized bytes prove. A pun or a check that would make one does not compile, and a check
-  /// never accepts a variant of an enum that holds one: only the crate that declares the scalar
-  /// makes a value of it, and proves it.
-  /// [`validate_but_never`](crate::validate_but_never) checks the rest of a value that holds one.
-  /// A rule cannot name it as a field, since it is not a number, though a rule that reads bytes at
-  /// an offset reads its bytes as any others. An `Option` of it is such a scalar too, if the
-  /// `Option` has the size of the scalar ([Scalars that a pun never
-  /// makes](crate::guide::never_made)).
+  /// A self-relative pointer is one: its bytes are an offset, and whether it is valid depends on
+  /// where it is and on what it aims at. A pun or a check that would make one does not compile, and
+  /// a check never accepts a variant of an enum that holds one, so only the crate that declares the
+  /// scalar makes a value of it, and proves it. [`validate_but_never`](crate::validate_but_never)
+  /// checks the rest of a value that holds one, and its example declares one. An `Option` of it is
+  /// one too, if the `Option` has the size of the scalar.
+  ///
+  /// [opaque scalar]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
   ///
   /// # Panics
   ///
-  /// Panics if `T` has a size of 0. A pun relates bytes, so it would make such a scalar from no
-  /// bytes at all. In the `SPEC` of a [`Scalar`](crate::Scalar), this is an error at compile time.
+  /// Panics if `T` has a size of 0, since a pun would make such a scalar from no bytes. In the
+  /// `SPEC` of a [`Scalar`](crate::Scalar), this is a compile error.
   ///
   /// # Examples
   ///
@@ -240,9 +208,6 @@ impl Spec {
   /// // Its bytes are initialized: a value that holds one is plain.
   /// assert!(Layout::scalar::<u32>(spec).is_plain());
   /// ```
-  ///
-  /// The scalar of a type is declared with [`Scalar`](crate::Scalar), as in the example of
-  /// [`validate_but_never`](crate::validate_but_never).
   #[inline]
   #[must_use]
   pub const fn never<T>() -> Self {
@@ -265,10 +230,10 @@ impl Spec {
     Self { size, endian: Endian::NATIVE, valid: Valid::Any, known: Valid::Any, number: true }
   }
 
-  /// Returns the scalar of the size of `T` that accepts any bytes, uninitialized bytes included.
+  /// Returns the scalar of the size of `T` that accepts any bytes, uninitialized ones included.
   ///
-  /// Nothing is known about what a source holds there, not even that it is initialized, so the
-  /// scalar is padding.
+  /// Nothing is known of what a source holds there, not even that it is initialized, so the scalar
+  /// is padding.
   ///
   /// # Examples
   ///
@@ -289,10 +254,8 @@ impl Spec {
   /// Returns the scalar of the size of `T` whose value, read as an unsigned integer in the byte
   /// order `endian`, is in one of `ranges`.
   ///
-  /// The ranges are inclusive, and must be sorted, disjoint and not adjacent. [`sorted_ranges`]
-  /// makes them from a list of values. They are both what the scalar accepts and what every value
-  /// of it is known to hold, since the type guarantees them. A single range that covers every value
-  /// accepts any initialized bytes, as [`Spec::any`] does.
+  /// The ranges are as [`Spec::with_ranges`] takes them, and [`sorted_ranges`] makes them from a
+  /// list of values.
   ///
   /// # Panics
   ///
@@ -315,16 +278,15 @@ impl Spec {
 
   /// Returns the same scalar, whose values are those of `ranges`.
   ///
-  /// The ranges are inclusive. They are both what the scalar accepts and what every value of it is
-  /// known to hold, since the type guarantees them. A single range that covers every value accepts
-  /// any initialized bytes, as [`Spec::any`] does. To make a field that requires values which its
-  /// type does not guarantee, use [`Layout::restricted`].
+  /// The ranges are inclusive, sorted, disjoint and not adjacent. They are both what the scalar
+  /// accepts and what it is known to hold, since the type guarantees them, and a single range of
+  /// every value accepts any initialized bytes, as [`Spec::any`] does. To make a field require
+  /// values that its type does not guarantee, use [`Layout::restricted`].
   ///
   /// # Panics
   ///
-  /// Panics if the scalar is not 1 to 16 bytes, if `ranges` is empty, or if a range is empty or
-  /// holds a value too large for the scalar. Also panics if the ranges are not sorted, or if two of
-  /// them overlap or are adjacent.
+  /// Panics if the scalar is not 1 to 16 bytes, if `ranges` is empty, if a range is empty or holds
+  /// a value too large for the scalar, or if the ranges are not sorted, overlap or are adjacent.
   ///
   /// # Examples
   ///
@@ -365,16 +327,15 @@ impl Spec {
 
   /// Returns the same scalar, in which a source may hold uninitialized bytes.
   ///
-  /// A target still requires what `self` accepts, initialized bytes whose value is one of its
-  /// values. Nothing is known about what a source holds there, not even that it is initialized.
-  ///
-  /// This describes bytes that are either a scalar or padding, with no way to tell which. Requiring
-  /// the values of the scalar is sound in either case, and so is knowing nothing.
+  /// A target still requires initialized bytes whose value `self` accepts, while a source may hold
+  /// anything, as in [`Spec::uninit`]. This describes bytes that are either the scalar or padding,
+  /// with no way to tell which: requiring the values of the scalar is sound in either case, and so
+  /// is knowing nothing.
   ///
   /// # Panics
   ///
   /// Panics if `self` does not restrict its values: if it accepts any initialized bytes, or
-  /// uninitialized bytes.
+  /// uninitialized ones.
   ///
   /// # Examples
   ///
@@ -412,13 +373,13 @@ impl Spec {
 
   /// Returns the same scalar, whose bytes are not the value of an unsigned integer.
   ///
-  /// This is the scalar of a signed or floating-point number, a `bool`, a `char` or an enum. The
-  /// expressions of `#[pun(..)]` compute on unsigned integers, and do not read such a scalar.
+  /// This is the scalar of a signed or floating-point number, a `bool`, a `char` or an enum, which
+  /// a rule does not read as a field ([Fields](crate::guide::rules#fields)).
   ///
   /// # Examples
   ///
-  /// The `Spec` of `i16` is `Spec::any::<i16>().not_a_number()`. A type of two bytes that are a
-  /// signed number is declared the same way, and a rule then does not read it:
+  /// The `Spec` of `i16` is `Spec::any::<i16>().not_a_number()`, and a signed number of two bytes
+  /// of your own is declared the same way:
   ///
   /// ```should_panic
   /// use puns::{
@@ -959,12 +920,21 @@ pub(crate) enum Kind {
 
 /// The tag and the variants of an enum with fields, or the fields of a union.
 ///
-/// [`Layout::enumeration`] makes the layout of an enum from it. `#[derive(Pun)]` also makes the
-/// layout of a union from one, with functions of its own. The tag of an enum is a scalar at a fixed
-/// place, whose value tells the variant. Where Rust specifies the representation of the enum, the
-/// tag is where the representation puts it. With the `Rust` representation, it is where `rustc` put
-/// it, as `#[derive(Pun)]` finds it, and it may then be a niche, a scalar among the fields of one
-/// variant, whose valid values are that variant and whose other values are the other variants.
+/// [`Layout::enumeration`] makes the layout of an enum from it, and `#[derive(Pun)]` makes that of
+/// a union from one with functions of its own. The *tag* of an enum is a scalar at a fixed place,
+/// whose value tells the variant, and each [`Variant`] has its tags and a struct of its fields.
+/// Where Rust specifies the representation of the enum, the tag is where the representation puts
+/// it. With the `Rust` representation, it is where `rustc` put it, as `#[derive(Pun)]` finds it by
+/// experiments in const evaluation. There it is either a direct tag or a *niche*: a scalar among
+/// the fields of one variant, whose valid values are the tags of that variant, and whose other
+/// values are the tags of the other variants. That variant has several tags, and holds the tag in
+/// its fields. A variant that holds an [uninhabited] type has no tag, since no value of it exists.
+///
+/// A union of `repr(C)` is an enum without a tag whose variants are its fields, each at offset 0.
+/// A target union is one of its fields, while a source union may hold any bytes
+/// ([Unions](crate::guide::soundness#unions)).
+///
+/// [uninhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
 ///
 /// # Examples
 ///
@@ -1024,14 +994,11 @@ impl Enum {
   /// out as [RFC 2195] describes.
   ///
   /// The tag is the scalar `tag`, whose valid values are the tags of the `variants`. Each variant
-  /// is a `repr(C)` struct of its fields, called its *shadow*, and `shadows` holds the size and
-  /// alignment of the shadow of each variant.
-  ///
-  /// With `repr(C)`, the tag is `outside` the shadows. The shadows then start at the offset
-  /// `fields`, which must be [`Enum::fields`] of `tag` and `shadows`, and a field is at that offset
+  /// is a `repr(C)` struct of its fields, its *shadow*, and `shadows` holds the size and alignment
+  /// of each shadow. With `repr(C)`, the tag is `outside` the shadows, which start at the offset
+  /// `fields`: this must be [`Enum::fields`] of `tag` and `shadows`, and a field is at that offset
   /// plus its offset in its shadow. With an integer type alone, the tag is the first field of each
-  /// shadow, and `fields` must be 0. In both cases, the offsets of the fields of `variants` are
-  /// counted from the start of the enum.
+  /// shadow, and `fields` must be 0.
   ///
   /// [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
   ///
@@ -1139,10 +1106,9 @@ impl Enum {
   const NEVER: Self =
     Self { tag: Field::new(0, &NO_TAG), variants: &[], specified: (0, 1), union: false };
 
-  /// Returns the offset of the variant fields of a `repr(C)` enum, whose tag is outside the
-  /// `shadows` ([`Enum::new`]).
-  ///
-  /// This is the size of `tag`, rounded up to the greatest alignment of a shadow.
+  /// Returns the offset of the fields of the variants of a `repr(C)` enum, whose tag is outside the
+  /// `shadows` ([`Enum::new`]): the size of `tag`, rounded up to the greatest alignment of a
+  /// shadow.
   ///
   /// # Panics
   ///
@@ -1174,8 +1140,8 @@ impl Enum {
 
 /// A variant of an enum with fields, or a field of a union.
 ///
-/// A variant holds its tags, and the layout of the enum when it is this variant, a struct of its
-/// fields at their offsets from the start of the enum ([`Layout::variant`]).
+/// A variant holds its tags, and the layout of the enum when it is this variant: a struct of its
+/// fields ([`Layout::variant`]), whose offsets are counted from the start of the enum.
 ///
 /// # Examples
 ///
@@ -1342,8 +1308,7 @@ impl Variant {
   ///
   /// `tag` is the value of the enum's tag for this variant, read as an unsigned integer in the byte
   /// order of the tag, and `layout` is the [`Layout::variant`] of its fields.
-  /// [`Layout::enumeration`] checks that `tag` is a valid value of the tag, and that no other
-  /// variant has it.
+  /// [`Layout::enumeration`] checks the tags.
   ///
   /// # Examples
   ///
@@ -1562,8 +1527,6 @@ pub struct Field {
 impl Field {
   /// Returns the field at `offset` in its struct, of the layout `layout`.
   ///
-  /// The offset of the field of a variant is counted from the start of its enum.
-  ///
   /// # Examples
   ///
   /// ```
@@ -1591,9 +1554,11 @@ impl Field {
   /// the field guarantees.
   ///
   /// This is what `#[pun(valid(..))]` makes of a field, with a `layout` made by
-  /// [`Layout::restricted`]. Since safe code may write any value of its type to the field, the
-  /// field is required to hold the values of `layout`, but is known to hold only what its type
-  /// guarantees.
+  /// [`Layout::restricted`]. The field is required to hold the values of `layout`, but is known to
+  /// hold only what its type guarantees, since safe code may write any value of its type to it: a
+  /// [requirement], not a guarantee.
+  ///
+  /// [requirement]: crate::guide::concepts#requirements
   ///
   /// # Panics
   ///
@@ -1653,16 +1618,11 @@ impl Field {
 
 /// The layout of a type: its size, its alignment, its parts, and its valid values.
 ///
-/// Every [`Pun`](crate::Pun) type has a layout, which `#[derive(Pun)]` makes with the functions
-/// below, and the analysis compares layouts at compile time.
-///
 /// The layout of a type is the one that `rustc` chose for the build, since the size, the alignment
-/// and the offsets come from the compiler. Each layout also records which parts of it are the same
-/// in every layout that Rust allows for the type, and the identity of the type. Without the
-/// `unstable` feature ([`UNSTABLE`]), the analysis relies only on those.
-///
-/// A layout makes no value of a type. It stands for a type only through an implementation of `Pun`,
-/// an `unsafe trait` that guarantees that the layout describes the type.
+/// and the offsets come from the compiler. Each layout also records which of its parts are the
+/// same in every layout that Rust allows for the type, and the identity of the type. Without the
+/// `unstable` feature ([`UNSTABLE`]), the analysis relies only on those. Two layouts are the same
+/// only if they require and guarantee the same values. A layout makes no value of a type.
 ///
 /// # Examples
 ///
@@ -1773,18 +1733,8 @@ fn pin<T>(_: T) {}
 
 /// Whether the `unstable` feature is enabled.
 ///
-/// Rust leaves part of some layouts to the compiler, which may choose differently in its next
-/// version, or at random under `-Zrandomize-layout`, as [Unspecified
-/// layouts](crate::guide::layouts) lists.
-///
-/// Without the `unstable` feature, nothing that `puns` does depends on a layout that Rust leaves to
-/// the compiler, so whether a pun compiles, what it checks, and which values it accepts are the
-/// same in every layout that Rust allows. Only the message of a refusal may differ.
-///
-/// With the `unstable` feature, `puns` uses the layout that `rustc` chose for the build, as it is,
-/// and a pun is still sound for the build that compiles it. Everything that compiles without the
-/// feature also compiles with it and does the same, and more compiles. See [The `unstable`
-/// feature](crate::guide::layouts#the-unstable-feature).
+/// [Unspecified layouts and the `unstable` feature](crate::guide::layouts) says what the feature
+/// changes.
 pub const UNSTABLE: bool = cfg!(feature = "unstable");
 
 impl Layout {
@@ -2016,7 +1966,7 @@ impl Layout {
 
   /// Returns the layout of the scalar type `T`, whose values `spec` describes.
   ///
-  /// The size is that of `spec`, and the alignment that of `T`.
+  /// Its size is that of `spec`, and its alignment that of `T`.
   ///
   /// # Panics
   ///
@@ -2069,16 +2019,15 @@ impl Layout {
   /// Returns the same scalar, which requires its value to be in one of `ranges`, as a field with
   /// `#[pun(valid(..))]` does.
   ///
-  /// This is a requirement, not a guarantee, which means that a target requires the values of
-  /// `ranges`, but a source is known to hold only what the type of the scalar guarantees, since
-  /// safe code may write any value of the type. [`Field::restricted`] makes the field. The ranges
-  /// are as [`Spec::with_ranges`] takes them, and must all be values of the scalar.
+  /// A target requires the values of `ranges`, while a source is known to hold only what the type
+  /// of the scalar guarantees ([`Field::restricted`] makes the field). The ranges are as
+  /// [`Spec::with_ranges`] takes them, and must all be values of the scalar.
   ///
   /// # Panics
   ///
-  /// Panics if `self` is not a scalar, is a scalar that accepts uninitialized bytes
-  /// ([`Spec::uninit`]), or is not 1 to 16 bytes. Also panics if `ranges` are not as
-  /// [`Spec::with_ranges`] requires, or hold a value that the scalar does not accept.
+  /// Panics if `self` is not a scalar of 1 to 16 bytes, or accepts uninitialized bytes
+  /// ([`Spec::uninit`]). Also panics if `ranges` are not as [`Spec::with_ranges`] requires, or hold
+  /// a value that the scalar does not accept.
   ///
   /// # Examples
   ///
@@ -2128,9 +2077,8 @@ impl Layout {
   /// Returns the layout of the unsized type `T`, whose values are the bytes that `dfa` accepts, as
   /// `str` is.
   ///
-  /// `T` must be a slice of bytes, or a type with the layout of one, such as a `repr(transparent)`
-  /// struct of a `[u8]`. The size of the layout is 0, the offset of its bytes, and its alignment is
-  /// 1.
+  /// `T` must be a slice of bytes, or have the layout of one, as a `repr(transparent)` struct of a
+  /// `[u8]` does. The layout has size 0, the offset of its bytes, and alignment 1.
   ///
   /// # Panics
   ///
@@ -2201,10 +2149,11 @@ impl Layout {
     }
   }
 
-  /// Returns the layout of a type with the size and alignment of `T`, whose bytes are all padding.
+  /// Returns the layout of a type with the size and alignment of `T`, whose bytes are all padding,
+  /// as those of `MaybeUninit<T>` are.
   ///
-  /// This is the layout of `MaybeUninit<T>`. As a target, it accepts any bytes. As a source, it
-  /// proves nothing except a target that accepts any bytes.
+  /// As a target, it accepts any bytes. As a source, it proves nothing but a target that accepts
+  /// any bytes.
   ///
   /// # Examples
   ///
@@ -2232,12 +2181,11 @@ impl Layout {
     }
   }
 
-  /// Returns whether the validation has nothing to check of a value of the layout.
+  /// Returns whether a check of a value of the layout has nothing to read.
   ///
-  /// This is so if the layout has no scalar that accepts only some values (or none), no pattern, no
-  /// enum with fields, no union, no type without values, and no rule. Any bytes that are
-  /// initialized wherever the layout is not padding are then a valid value, and a check of such a
-  /// value reads nothing.
+  /// A layout is free if it has none of the parts that a check reads: a scalar that accepts only
+  /// some values or none, a pattern, an enum with fields, a union, an uninhabited type, or a rule.
+  /// Any bytes that are initialized wherever the layout is not padding are then a valid value.
   ///
   /// # Examples
   ///
@@ -2255,11 +2203,11 @@ impl Layout {
     self.leaves == 0
   }
 
-  /// Returns whether every byte of every value of the layout is initialized.
+  /// Returns whether every byte of every value of the layout is initialized, so that the value can
+  /// be read as bytes.
   ///
-  /// Such a value can be read as bytes. An enum with fields is never plain, since which of its
-  /// bytes are padding depends on its tag, and neither is a union, a type without values, or an
-  /// unsized type.
+  /// An enum with fields is never plain, since which of its bytes are padding depends on its tag,
+  /// and neither is a union, an uninhabited type, or an unsized type.
   ///
   /// # Examples
   ///
@@ -2310,9 +2258,8 @@ impl Layout {
     }
   }
 
-  /// Returns the layout of an array of `len` elements of the layout `elem`.
-  ///
-  /// The elements are one after another, the size of `elem` apart.
+  /// Returns the layout of an array of `len` elements of the layout `elem`, one after another, the
+  /// size of `elem` apart.
   ///
   /// # Panics
   ///
@@ -2350,7 +2297,8 @@ impl Layout {
 
   /// Returns the layout of the slice `[T]`, whose elements have the layout `elem`.
   ///
-  /// The size of the layout is 0, the offset of the first element.
+  /// The length is not part of the type, so the layout is that of the element alone. Its size is
+  /// 0, the offset of the first element.
   ///
   /// # Panics
   ///
@@ -2400,14 +2348,10 @@ impl Layout {
 
   /// Returns the layout of the struct `T`, of the fields `fields` and the rules `rules`.
   ///
-  /// `fields` are the fields of `T`, as [`Layout::sort_fields`] returns them, and `rules` are what
-  /// a value of `T` requires beyond the validity of its fields. A rule is a requirement, never a
-  /// guarantee, because safe code may write the fields of a value so that its rules do not hold.
-  ///
-  /// The size and alignment of `T` come from the compiler. If the last field is unsized, so is `T`,
-  /// and the size of a value of `T` whose tail has up to 8 elements is compared with the size that
-  /// the layout computes (the offset of the tail, plus its elements, rounded up to the alignment of
-  /// `T`).
+  /// `fields` are as [`Layout::sort_fields`] returns them, and the bytes that they do not cover are
+  /// padding. Their offsets, and the size and alignment of `T`, come from the compiler for any
+  /// `repr`. If the last field is unsized, so is `T`, and the size of a value of `T` whose tail has
+  /// up to 8 elements is compared with the one that the layout computes ([`Layout::size`]).
   ///
   /// # Panics
   ///
@@ -2416,8 +2360,8 @@ impl Layout {
   /// - A field other than the last is unsized, two fields overlap or are not sorted by offset, or a
   ///   sized field ends past the size of `T`.
   /// - A rule is not well formed, as `#[derive(Pun)]` writes it: it reads a field past the sized
-  ///   fields, has too many operations or variables, nests its walks too deeply, needs too deep a
-  ///   stack, or is a size or a length that reads the size of the value.
+  ///   fields, goes past a [limit of the evaluator], or is a `size` or `len` rule that reads the
+  ///   size of the value.
   /// - `T` is sized, has a `len` rule, and its last field is not an array.
   /// - The size of `T` is not the one that the layout computes, as for a `packed` struct that ends
   ///   with an aligned unsized field.
@@ -2434,6 +2378,8 @@ impl Layout {
   ///   only. Otherwise `probe` may be any pointer, which is not read.
   /// - If `T` is unsized, the size of a value of `T` whose tail has 8 elements is at most
   ///   `isize::MAX`.
+  ///
+  /// [limit of the evaluator]: crate::guide::rules#limits-of-the-evaluator
   ///
   /// # Examples
   ///
@@ -2590,10 +2536,9 @@ impl Layout {
 
   /// Returns the layout of a variant of the enum `T`, of the fields `fields`.
   ///
-  /// `fields` are the fields of the variant, as [`Layout::sort_fields`] returns them, with their
-  /// offsets from the start of the enum. The layout is a struct with the size and alignment of `T`,
-  /// in which every byte that no field covers is padding, and [`Layout::enumeration`] checks the
-  /// fields against the enum.
+  /// `fields` are as [`Layout::sort_fields`] returns them ([`Variant`] says where they are). The
+  /// layout is a struct with the size and alignment of `T`, whose bytes that no field covers are
+  /// padding, and [`Layout::enumeration`] checks the fields against the enum.
   ///
   /// # Examples
   ///
@@ -2656,12 +2601,10 @@ impl Layout {
   /// Returns the layout of the enum with fields `T`, whose tag and variants `layout` describes.
   ///
   /// `layout` is the enum that its representation specifies ([`Enum::new`]) or, for the `Rust`
-  /// representation, the one that `rustc` laid out.
-  ///
-  /// As a source, a value of the enum is known by its tag, and by the bytes that every variant with
-  /// values initializes. As a target, the enum is proven variant by variant where the source proves
-  /// each variant it may be, and otherwise it is checked as a whole at run time, its tag first,
-  /// then what the fields of its variant require.
+  /// representation, the one that `rustc` laid out. As a source, a value of the enum is known by
+  /// its tag, and by the bytes that every inhabited variant initializes. As a target, the enum is
+  /// proven variant by variant where the source proves each variant it may be, and otherwise it is
+  /// checked at run time, its tag first, then what the fields of its variant require.
   ///
   /// # Panics
   ///
@@ -2671,8 +2614,8 @@ impl Layout {
   /// - `T` is not laid out as `layout` says: the size of `T` is not the one that `layout`
   ///   specifies, rounded up to the alignment of `T`, or `T` is less aligned than `layout`
   ///   specifies.
-  /// - A value of the tag of a variant is not a valid value of the tag, the values of the tag of a
-  ///   variant are not sorted, or two variants share a value of the tag.
+  /// - A tag of a variant is not a valid value of the tag, the tags of a variant are not sorted, or
+  ///   two variants share a tag.
   /// - A variant does not have the size of `T`, one of its fields is unsized, overlaps the one
   ///   before it, or ends past the size of `T`, or a field overlaps the tag in a variant that does
   ///   not hold it.
@@ -3065,13 +3008,15 @@ impl Layout {
     }
   }
 
-  /// Returns whether no part of the layout, at any depth, depends on a layout that Rust leaves to
-  /// the compiler.
+  /// Returns whether no part of the layout, at any depth, has an [unspecified layout].
   ///
-  /// A struct whose field orders all make the same bytes counts, as `(u8, u8)` does, though which
-  /// byte holds which field depends on the compiler. What
-  /// [`validate_but_never`](crate::validate_but_never) checks of a value of such a layout is the
-  /// same in every layout that Rust allows. The answer does not depend on the `unstable` feature.
+  /// A struct whose orders of fields all make the same bytes counts as specified, as `(u8, u8)`
+  /// does, though which byte holds which field depends on the compiler. What
+  /// [`validate_but_never`](crate::validate_but_never) checks of a value of a specified layout is
+  /// the same in every layout that Rust allows. The answer does not depend on the `unstable`
+  /// feature.
+  ///
+  /// [unspecified layout]: crate::guide::layouts
   ///
   /// # Examples
   ///
@@ -3265,12 +3210,10 @@ impl Layout {
     layout.variants[variant].ranges
   }
 
-  /// Returns the layout of the type `T`, which has no value, like `Infallible` and an enum without
-  /// variants.
+  /// Returns the layout of `T`, an enum without variants such as `Infallible`, which is
+  /// [uninhabited] and has size 0. No value has this layout.
   ///
-  /// The layout is an enum without variants. No value of a type that has values is a value of this
-  /// one. As a source, a variant of an enum that holds it needs no proof where the variants of two
-  /// enums are related, since no value is that variant.
+  /// [uninhabited]: crate::guide::concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types
   ///
   /// # Examples
   ///
@@ -3300,17 +3243,13 @@ impl Layout {
   }
 
   /// Returns whether a value of the layout can be made, valid under every rule that the language
-  /// may settle for unions.
+  /// may settle for unions ([Unions](crate::guide::soundness#unions)).
   ///
-  /// This is the question for a target. As a source, a value may exist where none can be made: a
-  /// union may hold any bytes under one of these rules, even if none of its fields has values.
-  ///
-  /// A type without values has none, and neither does an enum whose variants have none, nor a
-  /// struct, or an array of at least one element, that holds a type without values. A slice has
-  /// values, since it may be empty, and so does an array of no elements, whose one value is empty.
-  /// So a struct that ends with a slice or a string has values if its sized fields do, and one that
-  /// ends with a struct has values if that struct does. A union has values if one of its fields
-  /// has.
+  /// An uninhabited type has no value, nor has an enum whose variants have none, or a struct or an
+  /// array of at least one element that holds an uninhabited type. A slice has values, since it may
+  /// be empty, and so has an array of no elements, whose one value is empty. So a struct that ends
+  /// with a slice or a `str` has values if its sized fields have, and one that ends with a struct
+  /// if that struct has. A union has values if one of its fields has.
   ///
   /// # Examples
   ///
@@ -3570,9 +3509,9 @@ impl Layout {
 
   /// Returns the fields of a struct, given in declaration order, numbered and sorted by offset.
   ///
-  /// Each field gets its index in declaration order, and the number of leaves of the fields
-  /// declared before it. The sort is stable, so fields at the same offset, which all have a size of
-  /// 0 except for one, keep their declaration order.
+  /// Each field gets its index in declaration order, and the number of parts that a check reads
+  /// ([`Layout::is_free`]) in the fields declared before it. The sort is stable, so fields at the
+  /// same offset, which all have size 0 but one, keep their declaration order.
   ///
   /// # Examples
   ///
@@ -3639,7 +3578,7 @@ impl Layout {
 
   /// Returns the size of the type if it is `Sized`, and otherwise the offset of its tail.
   ///
-  /// The size of an unsized value is this offset, plus the size of its tail, rounded up to the
+  /// The size of an unsized value is this offset plus the size of its tail, rounded up to the
   /// alignment of the type.
   ///
   /// # Examples
@@ -4160,9 +4099,15 @@ const fn same_valid(a: Valid, b: Valid, endian_a: Endian, endian_b: Endian) -> b
 /// An automaton has 1 to 64 states, the first of which is the initial one. It accepts bytes if,
 /// from the initial state, each byte leads by an edge to a next state, and the state reached after
 /// the last byte accepts. [`Layout::pattern`] makes the layout of a type whose values are the bytes
-/// that an automaton accepts. A rule of `#[derive(Pun)]` can require bytes of a struct to be
-/// accepted by one, with `matches(DFA, start, end)`, which, like any rule, proves nothing about
-/// them.
+/// that an automaton accepts, and `matches(DFA, start, end)` runs one in a rule
+/// ([Functions](crate::guide::rules#functions)).
+///
+/// An automaton is known by its states and edges. Its `id`, a field that safe code can write, only
+/// tells two automata apart early: two pattern types whose automata have different `id`s are
+/// different layouts, which saves comparing their states, and two patterns are the same layout
+/// only if their automata also have the same states and edges. Bytes are checked as UTF-8 by
+/// `str::from_utf8` only for an automaton with the `id`, states and edges of [`Dfa::UTF8`], which
+/// is decided at compile time.
 ///
 /// # Examples
 ///
@@ -4195,12 +4140,7 @@ const fn same_valid(a: Valid, b: Valid, endian_a: Endian, endian_b: Endian) -> b
 /// ```
 #[derive(Debug, PartialEq, Eq)]
 pub struct Dfa {
-  /// A number that tells automata apart. The automata of this crate are numbered 1 to 6.
-  ///
-  /// Two pattern types whose automata have different `id`s are different layouts, which saves
-  /// comparing their states. Nothing else is taken from the `id`. Two automata are the same only if
-  /// their states and edges are, and bytes are checked as UTF-8 by `str::from_utf8` only for an
-  /// automaton with the `id`, states and edges of [`Dfa::UTF8`].
+  /// A number that tells automata apart. Those of this crate are 1 to 6.
   pub id: u32,
   /// The states, the first of which is the initial one. An edge leads to the index of a state in
   /// this slice.
@@ -4223,14 +4163,14 @@ pub struct DfaState {
   /// Whether bytes that end in this state are accepted.
   pub accept: bool,
   /// The edges, each `(first byte, last byte, next state)`, where a byte from the first to the
-  /// last, inclusive, leads to the next state. The edges are sorted and disjoint. A byte that no
-  /// edge covers is not accepted.
+  /// last, inclusive, leads to the next state. They are sorted and disjoint. A byte that no edge
+  /// covers is not accepted.
   pub edges: &'static [(u8, u8, u8)],
 }
 
 impl Dfa {
   /// UTF-8, as the Unicode Standard defines it (table 3-7, "Well-Formed UTF-8 Byte Sequences"), the
-  /// values of `str`.
+  /// values of `str`, in 8 states.
   pub const UTF8: &'static Dfa = &Dfa {
     id: 1,
     states: &[
@@ -4264,19 +4204,19 @@ impl Dfa {
     ],
   };
 
-  /// ASCII, the bytes below `0x80`.
+  /// ASCII: any number of bytes below `0x80`, none included.
   pub const ASCII: &'static Dfa =
     &Dfa { id: 2, states: &[DfaState { accept: true, edges: &[(0x00, 0x7f, 0)] }] };
 
-  /// Decimal digits, `0` to `9`.
+  /// Any number of decimal digits, `0` to `9`, none included.
   pub const DIGITS: &'static Dfa =
     &Dfa { id: 3, states: &[DfaState { accept: true, edges: &[(b'0', b'9', 0)] }] };
 
-  /// Octal digits, `0` to `7`.
+  /// Any number of octal digits, `0` to `7`, none included.
   pub const OCTAL: &'static Dfa =
     &Dfa { id: 4, states: &[DfaState { accept: true, edges: &[(b'0', b'7', 0)] }] };
 
-  /// Hexadecimal digits, of either case.
+  /// Any number of hexadecimal digits, of either case, none included.
   pub const HEX: &'static Dfa = &Dfa {
     id: 5,
     states: &[DfaState {
@@ -4489,25 +4429,12 @@ impl Dfa {
 
 /// An operation of the expression of a [`Rule`], in postfix order.
 ///
-/// An expression is a sequence of operations over a stack of values and a set of variables. It
-/// means what the same Rust expression would mean if every integer were a `u128`, and where every
-/// value is known to fit in a register, it is computed there, with the same results. A binary
-/// operation replaces the two values at the top of the stack with its result, the value pushed
-/// first being its left side. A comparison gives 1 if it holds, and 0 otherwise.
-///
-/// Where Rust would panic, the rule that holds the expression fails: on an overflow, a difference
-/// below zero, a division or remainder by zero, a shift by 128 or more, and a read outside the
-/// value. What Rust does not compute, the right side of a `&&` or `||` that the left side decides
-/// and the branch of an `if` that is not taken, is not computed either ([`Op::Shortcut`],
-/// [`Op::Then`], [`Op::Else`]). So `kind != 7 || be(40, 2) == 0` holds for a value that is not of
-/// kind 7, however short, while `be(40, 2) == 0 || kind != 7` fails for one that is too short.
-/// Everything that is computed counts toward the value of the expression, so its first failure is
-/// the failure of the expression, and the evaluation stops there. `<<` drops the bits it shifts
-/// out, as in Rust.
-///
-/// An expression has at most 256 operations, needs a stack of at most 16 values, has at most 8
-/// variables, and nests at most 4 walks. [`Layout::structure`] checks that the expressions of its
-/// rules are well formed.
+/// An expression is operations over a stack of values and a set of variables, and [The language
+/// of rules](crate::guide::rules) specifies what it means, how it fails, and its limits, which
+/// [`Layout::structure`] checks. A binary operation replaces the two values at the top of the
+/// stack with its result, the value pushed first being its left side. A comparison gives 1 if it
+/// holds, and 0 otherwise. An operation on the bytes from a start offset to an end offset fails if
+/// the start is after the end, or the end is past the value.
 ///
 /// # Examples
 ///
@@ -4536,60 +4463,53 @@ pub enum Op {
   Lit(u128),
   /// Pushes the unsigned integer of `size` bytes at `offset` in the struct, a field.
   Load {
-    /// Where the integer is, in bytes from the start of the struct.
+    /// In bytes from the start of the struct.
     offset: usize,
-    /// Its size in bytes.
+    /// In bytes.
     size: u8,
-    /// `true` if it is big-endian, `false` if little-endian.
+    /// Whether the integer is big-endian.
     big: bool,
   },
-  /// Pushes the extent of the value in bytes, `size_of_val(self)` in a rule. The extent is its size
-  /// up to the end of its slice, without the padding that may follow the slice. A `size` or `len`
-  /// rule, which defines it, does not read it.
+  /// Pushes the [extent](crate::guide::rules#extent) of the value in bytes, `size_of_val(self)` in
+  /// a rule.
   Size,
   /// Replaces an offset with the unsigned integer of `size` bytes at that offset in the value.
   /// Fails if these bytes are not all within the value.
   At {
-    /// The size in bytes of the integer.
+    /// In bytes.
     size: u8,
-    /// `true` if it is big-endian, `false` if little-endian.
+    /// Whether the integer is big-endian.
     big: bool,
   },
   /// Replaces an offset with the variable-length integer of the form `form` at that offset in the
-  /// value or, with `length`, with its length in bytes. Fails if the integer does not end within
+  /// value, or, with `length`, with its length in bytes. Fails if the integer does not end within
   /// the value, does not fit in a `u128`, or is in LEB128 and longer than 19 bytes.
   Varint {
     /// The form of the integer.
     form: Varint,
-    /// `true` for its length in bytes, `false` for its value.
+    /// Whether the result is its length in bytes rather than its value.
     length: bool,
   },
-  /// Replaces two offsets, a start and an end, with the Ethernet CRC-32 ([`crc32`]) of the bytes
-  /// between them. Fails if the start is after the end, or the end is past the value.
+  /// Replaces two offsets, a start and an end, with the [`crc32`] of the bytes between them.
   Crc32,
-  /// Replaces two offsets, a start and an end, with the ones' complement sum of the big-endian
-  /// 16-bit words between them ([`sum16`]), which is the IP checksum before it is complemented.
-  /// Fails as [`Op::Crc32`] does.
+  /// Replaces a start and an end with the [`sum16`] of the bytes between them, the IP checksum
+  /// before it is complemented.
   Sum16,
-  /// Replaces two offsets, a start and an end, with this CRC of the bytes between them. Fails as
-  /// [`Op::Crc32`] does.
+  /// Replaces a start and an end with this CRC of the bytes between them.
   Crc(&'static Crc),
   /// Replaces four offsets with this CRC of the bytes between the first two, with the bytes between
-  /// the last two read as zeros, for a CRC that covers the field that holds it. Fails as
-  /// [`Op::Crc32`] does, for either pair.
+  /// the last two read as zeros, for a CRC that covers the field that holds it.
   CrcZeros(&'static Crc),
-  /// Replaces two offsets, a start and an end, with this checksum of the bytes between them. Fails
-  /// as [`Op::Crc32`] does.
+  /// Replaces a start and an end with this checksum of the bytes between them.
   Checksum(Checksum),
-  /// Replaces two offsets, a start and an end, with 1 if the automaton accepts the bytes between
-  /// them, and 0 otherwise. Fails as [`Op::Crc32`] does. This is a pattern that the struct requires
-  /// of these bytes, which, like any rule, proves nothing about them.
+  /// Replaces a start and an end with 1 if the automaton accepts the bytes between them, and 0
+  /// otherwise.
   Matches(&'static Dfa),
-  /// `+`. Fails if the sum overflows.
+  /// `+`. Fails on an overflow.
   Add,
-  /// `-`. Fails if the difference is below zero.
+  /// `-`. Fails below zero.
   Sub,
-  /// `*`. Fails if the product overflows.
+  /// `*`. Fails on an overflow.
   Mul,
   /// `/`, rounded down. Fails if the right side is zero.
   Div,
@@ -4620,53 +4540,45 @@ pub enum Op {
   /// `&&`, after its [`Op::Shortcut`] and its right side. Replaces the left side, which did not
   /// decide, and the right side with the right side, as 1 or 0.
   Both,
-  /// `||`, after its [`Op::Shortcut`] and its right side, as [`Op::Both`].
+  /// `||`, as [`Op::Both`].
   Either,
   /// Follows the left side of a `&&` (`either: false`) or of a `||` (`either: true`). If the left
-  /// side is `either`, it decides, so it becomes the value, as 1 or 0, and the `len` operations
-  /// that follow, the right side and the [`Op::Both`] or [`Op::Either`], are not computed.
+  /// side is `either`, it decides: it becomes the value, as 1 or 0, and the `len` operations that
+  /// follow, the right side and the [`Op::Both`] or [`Op::Either`], are not computed.
   Shortcut {
-    /// The value of the left side that decides, `true` for a `||` and `false` for a `&&`.
+    /// The value of the left side that decides.
     either: bool,
-    /// The number of operations that follow, and that are not computed if the left side decides.
+    /// The operations not computed if it decides.
     len: u16,
   },
   /// `!` on a `bool`, which replaces 0 with 1, and any other value with 0. `#[derive(Pun)]` writes
   /// `!` on an integer, which is bitwise, as an [`Op::Xor`] with `u128::MAX`.
   Not,
   /// Follows the condition of an `if`. If the condition is false, the operations that follow, as
-  /// many as the `u16` says, are not computed. They are the branch of the `if` and its
-  /// [`Op::Else`]. A placeholder stands for the value of the branch, which [`Op::Select`] does not
-  /// take.
+  /// many as the `u16` says, are not computed: the branch and its [`Op::Else`]. A placeholder
+  /// stands for the value of the branch.
   Then(u16),
   /// Follows the branch of an `if` that is taken when its condition is true. The operations that
   /// follow, as many as the `u16` says, are the `else` branch, and are not computed. A placeholder
   /// stands for its value.
   Else(u16),
-  /// Follows an [`Op::Then`] and an [`Op::Else`], and their branches. Replaces a condition and two
-  /// values with the first value if the condition is true, and with the second otherwise. Only that
-  /// value was computed.
+  /// Follows the branches of an `if`. Replaces a condition and two values with the first value if
+  /// the condition is true, and with the second otherwise. Only that value was computed.
   Select,
-  /// Takes a value off the stack, which becomes the variable with this index. As in Rust, what a
-  /// `let` binds is computed whether it is used or not.
+  /// Takes a value off the stack into the variable of this index. As in Rust, what a `let` binds
+  /// is computed whether it is used or not.
   Set(u8),
-  /// Pushes the variable with this index.
+  /// Pushes the variable of this index.
   Get(u8),
-  /// Replaces a value with what it becomes when it is replaced by the expression `next` for as long
-  /// as the expression `cond` holds for it. In both expressions, the value is the variable `var`.
-  ///
-  /// A walk reaches something at an offset that depends on what comes before it: after options, or
-  /// at the end of a chain of headers. A walk takes at most `8 * size + 128` steps, one for each
-  /// bit of the `size` bytes that the expression may read and of a `u128`. These bytes are the
-  /// value, or, for a `size` or `len` rule, which tells how large the value is, the bytes from the
-  /// start of the value to the end of the input. It fails if `cond` still holds after them, or if
-  /// `cond` or `next` fails.
+  /// Replaces a value with what it becomes when it is replaced by `next` for as long as `cond`
+  /// holds for it. In both expressions, the value is the variable `var`. Fails as a
+  /// [walk](crate::guide::rules#walks) does.
   Walk {
-    /// The variable that holds the value, in `cond` and in `next`.
+    /// The variable of the value.
     var: u8,
-    /// The expression that must hold for the value for the walk to take a step.
+    /// What must hold for a step.
     cond: &'static [Op],
-    /// The expression of what the value becomes at each step.
+    /// What the value becomes at a step.
     next: &'static [Op],
   },
 }
@@ -4731,11 +4643,10 @@ impl Op {
     unsafe { load(core::ptr::from_ref::<T>(value).cast(), size_of::<T>(), Endian::NATIVE) }
   }
 
-  /// Returns the operation that pushes the value of the field of type `T` at `offset`.
+  /// Returns the operation that pushes the field of type `T` at `offset`, read in its byte order.
   ///
   /// `T` must be an unsigned integer, or a sized struct whose only field with a size is one and is
-  /// as large as the struct ([`Spec::not_a_number`] says what is not an integer). The operation
-  /// reads it in its byte order.
+  /// as large as the struct ([`Spec::not_a_number`] says what is not an integer).
   ///
   /// # Panics
   ///
@@ -4880,13 +4791,13 @@ impl Op {
 /// algorithms][catalogue].
 ///
 /// The parameters are the `width` in bits, the polynomial `poly` without its high bit, the value
-/// `init` that the register starts with, whether the bits are `reflect`ed, and `xorout`, with which
-/// the result is combined by XOR. With reflected bits, each byte is taken least significant bit
-/// first, and the result is read the same way. `crc::<WIDTH, POLY, INIT, REFLECT, XOROUT>(start,
-/// end)` in a rule of `#[derive(Pun)]` is this CRC of the bytes from `start` to `end`.
+/// `init` that the register starts with, whether the bits are `reflect`ed, and `xorout`, which is
+/// combined with the result by XOR. With reflected bits, each byte is taken least significant bit
+/// first, and the result is read the same way. In a rule, `crc::<WIDTH, POLY, INIT, REFLECT,
+/// XOROUT>(start, end)` is this CRC of the bytes from `start` to `end`.
 ///
-/// A `Crc` holds 32 KiB of tables, or 2 KiB on a 16-bit target, made in const evaluation, so it is
-/// meant to be a constant.
+/// A `Crc` holds 32 KiB of tables, or 2 KiB on a 16-bit target, of which a CRC of at most 32 bits
+/// uses half. They are made in const evaluation, so a `Crc` is meant to be a constant.
 ///
 /// [catalogue]: https://reveng.sourceforge.io/crc-catalogue/all.htm
 ///
@@ -4948,9 +4859,6 @@ impl Crc {
   pub const CRC32: Self = Self::new(32, 0x04c1_1db7, 0xffff_ffff, true, 0xffff_ffff);
 
   /// Returns the CRC of these parameters ([`Crc`]).
-  ///
-  /// The tables of a `Crc` take 32 KiB, of which a CRC of up to 32 bits uses 16 KiB, or 2 KiB on a
-  /// 16-bit target. A `Crc` is meant to be a constant, made in const evaluation.
   ///
   /// # Panics
   ///
@@ -5228,10 +5136,8 @@ impl Crc {
   }
 }
 
-/// A checksum of bytes, which [`Op::Checksum`] computes.
-///
-/// It is `sum(start, end)`, `fletcher16(start, end)` or `adler32(start, end)` in a rule of
-/// `#[derive(Pun)]`.
+/// A checksum of bytes, which [`Op::Checksum`] computes: `sum(start, end)`, `fletcher16(start,
+/// end)` or `adler32(start, end)` in a rule.
 ///
 /// # Examples
 ///
@@ -5295,12 +5201,9 @@ impl Checksum {
   }
 }
 
-/// A form of variable-length integer, which [`Op::Varint`] reads.
-///
-/// It is `leb128(offset)`, `quic(offset)` or `vlq(offset)` in a rule of `#[derive(Pun)]`, and
-/// `leb128_len(offset)`, `quic_len(offset)` or `vlq_len(offset)` for its length in bytes. A longer
-/// encoding than needed is read as it is, except that LEB128 is read up to 19 bytes, the most that
-/// a `u128` needs, so a longer one fails even if its value fits.
+/// A form of variable-length integer, which [`Op::Varint`] reads: `leb128(offset)`,
+/// `quic(offset)` or `vlq(offset)` in a rule, and `leb128_len(offset)`, `quic_len(offset)` or
+/// `vlq_len(offset)` for its length in bytes.
 ///
 /// # Examples
 ///
@@ -5434,14 +5337,8 @@ pub(crate) const fn same_ops(a: &[Op], b: &[Op]) -> bool {
 
 /// A rule of a struct, what a value requires beyond the validity of its fields.
 ///
-/// A rule is checked when a value of the struct is made from another type, as by `try_pun` or
-/// `from_head`, unless the source has the same rules at the same place. A `size` or `len` rule also
-/// tells `from_head` how long a value is. A rule is a requirement, not a guarantee. Safe code may
-/// write the fields of a value so that its rules do not hold, and unsafe code must not rely on a
-/// rule of a value that it did not check.
-///
-/// `#[derive(Pun)]` makes the rules of `#[pun(size = ..)]` and `#[pun(assert(..))]` on a struct,
-/// and of `#[pun(len = ..)]` and `#[pun(regions(..))]` on its last field.
+/// `#[derive(Pun)]` makes the rules of `size` and `assert` on a struct, and of `len` and `regions`
+/// on its last field. [The language of rules](crate::guide::rules) specifies them.
 ///
 /// # Examples
 ///
@@ -5463,8 +5360,7 @@ pub(crate) const fn same_ops(a: &[Op], b: &[Op]) -> bool {
 /// ```
 #[derive(Copy, Clone, Debug)]
 pub enum Rule {
-  /// The extent of the value in bytes, up to the end of its slice and without the padding that may
-  /// follow it, is the value of the expression.
+  /// The [extent](crate::guide::rules#extent) of the value is the value of the expression.
   Size(&'static [Op]),
   /// The length of the tail of the value, an array, a slice or a `str`, is the value of the
   /// expression.
@@ -5472,7 +5368,7 @@ pub enum Rule {
   /// The value of the expression is not 0.
   Assert(&'static [Op]),
   /// The tail of the value has a region of as many bytes as the value of the expression, or of
-  /// whatever remains of the tail for `None`. The regions follow each other from the start of the
+  /// what remains of the tail for `None`. The regions follow each other from the start of the
   /// tail, in the order of the rules.
   Region(Option<&'static [Op]>),
 }
@@ -5731,7 +5627,7 @@ const fn effect(op: Op) -> (usize, usize) {
   }
 }
 
-/// The evaluator of an expression: a stack of values, and variables.
+/// The evaluator of the expressions of rules: a stack of values, and variables.
 ///
 /// The machine is given one operation at a time, each a constant of the instance of the function
 /// that applies it (`validate::steps`), so there is no interpreter. Once inlined there, what
@@ -6105,11 +6001,10 @@ pub(crate) const fn binary(op: Op, a: u128, b: u128) -> Option<u128> {
   }
 }
 
-/// Returns the CRC-32 of `bytes`, as Ethernet, zlib and PNG compute it.
+/// Returns the CRC-32 of `bytes`, [`Crc::CRC32`], computed sixteen bytes at a time.
 ///
-/// This is [`Crc::CRC32`], computed sixteen bytes at a time. The frame check sequence of an
-/// Ethernet frame is the CRC-32 of what is before it, least significant byte first. In a rule of
-/// `#[derive(Pun)]`, `crc32(start, end)` is this CRC of the bytes from `start` to `end`.
+/// The frame check sequence of an Ethernet frame is the CRC-32 of what is before it, least
+/// significant byte first.
 ///
 /// # Examples
 ///
@@ -6183,11 +6078,11 @@ const fn crc32_inline(bytes: &[u8]) -> u32 {
 
 /// Returns the ones' complement sum of the big-endian 16-bit words of `bytes`.
 ///
-/// A last byte alone is the high byte of a word. The sum is 0 for no bytes or only zero bytes, else
-/// the value of `1..=0xffff` that is congruent to the sum of the words modulo `0xffff`. The
-/// checksums of IP, UDP and TCP are the complement of this sum, so over data that holds its own
-/// checksum, the sum is `0xffff`. In a rule of `#[derive(Pun)]`, `sum16(start, end)` is this sum of
-/// the bytes from `start` to `end`.
+/// A last byte alone is the high byte of a word. The sum is 0 for no bytes or only zero bytes, and
+/// otherwise the value of `1..=0xffff` that is congruent to the sum of the words modulo `0xffff`.
+/// The checksums of IP, UDP and TCP are the complement of this sum, so over data that holds its own
+/// checksum, the sum is `0xffff`. In a rule, `sum16(start, end)` is this sum of the bytes from
+/// `start` to `end`.
 ///
 /// # Examples
 ///
