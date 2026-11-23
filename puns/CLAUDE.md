@@ -65,8 +65,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   documentation of `#[derive(Pun)]`). `fakecore` in `puns-model` tests that the derive meets it.
 - The derive writes the type of each field once, in a trait of its generated code (`homes` in
   `puns-derive`), and a function that is never called fails to compile unless the item as
-  compiled has those fields and variants, of those types. The order of the fields and the `repr`
-  are taken from the tokens that the derive read ("What the derive trusts").
+  compiled has those fields and variants, of those types. The offsets of the fields are measured
+  on the item as compiled (`Layout::measure_base`, the samples of the variants), except where
+  "What the derive trusts" says that the `repr` that the derive read gives them.
 - Every scalar that a pun never makes in the repository is declared through the public API only,
   as another crate would declare it, with `Scalar` and `Spec::never`. Most of them share
   [`tests/support/never.rs`](tests/support/never.rs).

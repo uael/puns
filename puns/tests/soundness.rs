@@ -250,6 +250,135 @@ fn a_macro_in_a_field_names_the_type_of_the_field() {
   assert_eq!(puns::try_pun::<u8, Either>(2).map(|either| unsafe { either.byte }), Ok(2));
 }
 
+/// Checks that the offsets of the fields of a struct are those of the struct as compiled, measured
+/// on it, where an attribute below `#[derive(Pun)]` changed the struct after the derive read it.
+///
+/// The derive used to compute the offsets of a `repr(C)` struct from the order of the fields and
+/// the `repr` that it read, so a `bool` was read where the struct as compiled has a `u8`, and a
+/// `bool` of 2 was valid.
+#[test]
+fn offsets_are_those_of_the_struct_as_compiled() {
+  use core::mem::offset_of;
+  /// Returns the bytes of a value whose byte `at` is `byte` and whose other bytes are 0.
+  fn bytes<const N: usize>(at: usize, byte: u8) -> [u8; N] {
+    let mut bytes = [0; N];
+    bytes[at] = byte;
+    bytes
+  }
+  // The fields reversed: `{ b: u8, a: bool }`.
+  #[derive(Pun, Clone, Copy)]
+  #[rewrite::reverse]
+  #[repr(C)]
+  struct Reversed {
+    a: bool,
+    b: u8,
+  }
+  // `repr(C)` removed: the compiler chooses the order.
+  #[derive(Pun, Clone, Copy)]
+  #[rewrite::repr()]
+  #[repr(C)]
+  struct Bare {
+    a: u8,
+    b: u32,
+    c: bool,
+  }
+  // `packed` added: `c` at 3 rather than 4.
+  #[derive(Pun, Clone, Copy)]
+  #[rewrite::repr(C, packed)]
+  #[repr(C)]
+  struct Packed {
+    a: u8,
+    b: u16,
+    c: bool,
+  }
+  // `packed` removed: `c` at 4 rather than 3.
+  #[derive(Pun, Clone, Copy)]
+  #[rewrite::repr(C)]
+  #[repr(C, packed)]
+  struct Unpacked {
+    a: u8,
+    b: u16,
+    c: bool,
+  }
+  // Generic, the fields reversed: `{ b: T, a: bool }`.
+  #[derive(Pun, Clone, Copy)]
+  #[rewrite::reverse]
+  #[repr(C)]
+  struct Pair<T> {
+    a: bool,
+    b: T,
+  }
+  // Unsized, `packed` added: `c` at 3 rather than 4, the tail at 4 rather than 5.
+  #[derive(Pun)]
+  #[rewrite::repr(C, packed)]
+  #[repr(C)]
+  struct Tail {
+    a: u8,
+    b: u16,
+    c: bool,
+    rest: [u8],
+  }
+  // Larger than the memory in which the derive measures: the offsets of `repr(C)`.
+  #[derive(Pun)]
+  #[repr(C)]
+  struct Large {
+    head: [u8; 5000],
+    on: bool,
+  }
+
+  let at = offset_of!(Reversed, a);
+  assert_eq!(at, 1);
+  assert!(puns::try_pun::<[u8; 2], Reversed>(bytes(at, 1)).is_ok_and(|value| value.a));
+  assert!(puns::try_pun::<[u8; 2], Reversed>(bytes(at, 2)).is_err());
+  let at = offset_of!(Bare, c);
+  assert!(puns::try_pun::<[u8; 8], Bare>(bytes(at, 1)).is_ok_and(|value| value.c));
+  assert!(puns::try_pun::<[u8; 8], Bare>(bytes(at, 2)).is_err());
+  let at = offset_of!(Packed, c);
+  assert_eq!(at, 3);
+  assert!(puns::try_pun::<[u8; 4], Packed>(bytes(at, 1)).is_ok_and(|value| value.c));
+  assert!(puns::try_pun::<[u8; 4], Packed>(bytes(at, 2)).is_err());
+  let at = offset_of!(Unpacked, c);
+  assert_eq!(at, 4);
+  assert!(puns::try_pun::<[u8; 6], Unpacked>(bytes(at, 1)).is_ok_and(|value| value.c));
+  assert!(puns::try_pun::<[u8; 6], Unpacked>(bytes(at, 2)).is_err());
+  let at = offset_of!(Pair<u16>, a);
+  assert_eq!(at, 2);
+  assert!(puns::try_pun::<[u8; 4], Pair<u16>>(bytes(at, 1)).is_ok_and(|value| value.a));
+  assert!(puns::try_pun::<[u8; 4], Pair<u16>>(bytes(at, 2)).is_err());
+  let tail = puns::from_bytes::<Tail>(&[0, 0, 0, 1, 7]).unwrap();
+  assert!(tail.c && tail.rest == [7]);
+  assert!(puns::from_bytes::<Tail>(&[0, 0, 0, 2, 7]).is_err());
+  let mut large = [0; 5001];
+  large[5000] = 1;
+  assert!(puns::from_bytes::<Large>(&large).unwrap().on);
+  large[5000] = 2;
+  assert!(puns::from_bytes::<Large>(&large).is_err());
+}
+
+/// Checks that the offsets of the fields of a variant of an enum with a primitive representation
+/// are those of the enum as compiled, measured on a sample of the variant, where an attribute
+/// below `#[derive(Pun)]` reversed them after the derive read the enum.
+///
+/// A tag that such an attribute makes wider than the one that the derive read is refused: the case
+/// `derive_enum_tag_rewritten` in `compile-fail/`.
+#[test]
+fn variant_offsets_are_those_of_the_enum_as_compiled() {
+  // The fields of `A` reversed: `A { b: u8, a: bool }`, `a` at 2.
+  #[derive(Pun, Clone, Copy)]
+  #[rewrite::reverse]
+  #[repr(u8)]
+  enum Reversed {
+    A { a: bool, b: u8 },
+    B,
+  }
+  assert!(matches!(
+    puns::try_pun::<[u8; 3], Reversed>([0, 2, 1]),
+    Ok(Reversed::A { a: true, b: 2 })
+  ));
+  assert!(puns::try_pun::<[u8; 3], Reversed>([0, 1, 2]).is_err());
+  assert!(matches!(puns::try_pun::<[u8; 3], Reversed>([1, 9, 9]), Ok(Reversed::B)));
+}
+
 /// Checks that a part that is proven without being read is not read by the check of another part,
 /// and is checked where its bytes are initialized.
 ///
@@ -280,19 +409,16 @@ fn a_part_that_is_proven_unread_is_not_read_by_a_check() {
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "reinterpreted, not read")]
   enum Strict {
     A(Flags, bool),
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "made by a pun only")]
   enum Loose {
     A(Flags, u8),
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "reinterpreted, not read")]
   enum Shape {
     A(u8),
     B(u8),
@@ -317,7 +443,6 @@ fn a_part_that_is_proven_unread_is_not_read_by_a_check() {
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "reinterpreted, not read")]
   enum Holds {
     A(Padded),
   }
@@ -379,7 +504,6 @@ fn a_period_does_not_cut_an_enum() {
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "made by a pun only")]
   enum Target {
     V(Either),
     X,
@@ -392,7 +516,6 @@ fn a_period_does_not_cut_an_enum() {
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "made by a pun only")]
   enum Tagged {
     V(Strict),
     X,
@@ -460,14 +583,12 @@ fn a_rule_reads_the_fields_that_it_loads() {
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "made by a pun only")]
   enum Target {
     V(Rule),
     X,
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "made by a pun only")]
   enum Free {
     V(Unruled),
     X,
@@ -589,7 +710,6 @@ fn a_part_left_to_the_compiler_is_checked_only_from_initialized_bytes() {
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "made by a pun only")]
   enum Target {
     V(Either),
     X,
@@ -641,14 +761,12 @@ fn a_union_proven_through_a_requirement_is_checked_past_it() {
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "made by a pun only")]
   enum TargetSoft {
     V(EitherSoft),
     X,
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "made by a pun only")]
   enum TargetRuled {
     V(EitherRuled),
     X,

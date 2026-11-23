@@ -1455,15 +1455,21 @@ pub use layout::{crc32, sum16};
 ///   path can replace. The generated code also calls `new` of [`layout::Crc`] and of the identity
 ///   of a type, whose results go to these functions, so only the real types compile.
 /// - The offsets of the fields do not come from `offset_of!`, which is a macro named by a path.
-///   With `repr(C)`, they are what `repr(C)` specifies, computed from the sizes and alignments of
-///   the fields. With `repr(transparent)`, the field with a size is at 0. Otherwise, the struct is
-///   `Sized`, and the offsets are found by projecting a pointer to an uninitialized value (`&raw
-///   const (*p).field`), which costs nothing in const evaluation, whatever the size.
-/// - The variants of an enum with fields and a primitive or `C` representation are laid out as [RFC
-///   2195] specifies, from the sizes and alignments of their fields. With the `Rust`
-///   representation, a function of `Layout` finds them from samples that another function of
-///   `Layout` makes, and the offsets in those samples are found by code that matches on them, with
-///   `byte_offset_from`, a pointer method that no path names. A fake `MaybeUninit`, or a fake
+///   They are measured on the type as compiled, by projecting a pointer to it (`&raw const
+///   (*p).field`) and `byte_offset_from`, which cost nothing in const evaluation. For a struct of
+///   the `Rust` representation and for a union, which are `Sized`, the pointer is to an
+///   uninitialized value. A `repr(C)` or `repr(transparent)` struct may be unsized, so the pointer
+///   is into 4096 bytes of memory of `puns`, with a tail of no element. A `repr(C)` or
+///   `repr(transparent)` struct whose head, its size with a tail of no element, is larger than
+///   4096 bytes keeps the offsets that the representation that the derive read specifies:
+///   computed from the sizes and alignments of the fields for `repr(C)`, and 0 for
+///   `repr(transparent)`.
+/// - The tag and the size of an enum with fields and a primitive or `C` representation are those
+///   that [RFC 2195] specifies. The offsets of the fields of each variant are found on a sample of
+///   the variant, which another function of `Layout` makes, by code that matches on it, with
+///   `byte_offset_from`, a pointer method that no path names. A variant without a sample has the
+///   offsets that RFC 2195 specifies, from the sizes and alignments of its fields. With the `Rust`
+///   representation, a function of `Layout` finds the variants from samples in the same way. A fake `MaybeUninit`, or a fake
 ///   result type, named by a path does not have the type that these functions take or return, and
 ///   does not compile.
 /// - The tags of an enum with fields and a primitive or `C` representation are those of an enum
@@ -1506,25 +1512,38 @@ pub use layout::{crc32, sum16};
 /// attribute adds, removes or renames a field, changes the type of a field, or adds or removes a
 /// variant. A field added to a union adds values that the layout does not accept as a target,
 /// which is sound, and the layout of a source union guarantees nothing, so such a field is not
-/// refused. The derive does not see the order of the fields or the `repr` of the item as compiled,
-/// so the following changes are not refused:
+/// refused. Where such an attribute changes the order of the fields or the `repr`, the layout is
+/// that of the type as compiled, or the build fails:
 ///
-/// - The offsets of a `repr(C)` struct, and of the fields of a variant of an enum with a primitive
-///   or `C` representation, follow the order of the fields that the derive read. An attribute that
-///   reorders the fields gives the type another layout than the one that the derive states.
-/// - The tags of such an enum are compared with samples of its variants, as above, so an attribute
-///   that reorders its variants fails the build where a variant has a sample. The tag of a variant
-///   without a sample and without a discriminant follows the order of the variants that the derive
-///   read.
-/// - The derive computes the layout of a struct, an enum or a union from the `repr` that it read,
-///   such as `repr(C)`, `packed` or the integer of the tag of an enum. An attribute that changes it
-///   gives the type another layout.
+/// - The offsets of the fields of a struct and of a union are measured, as above, except those of
+///   a `repr(C)` or `repr(transparent)` struct whose head is larger than 4096 bytes.
+/// - The offsets of the fields of a variant of an enum with a primitive or `C` representation are
+///   measured on a sample of the variant, made as for the `Rust` representation. The tags are
+///   compared with the samples, as above, so reordered variants fail the build. In a copy of each
+///   sample, the byte after the tag that the derive read is set to 0, then to 255, and the variant
+///   of the copy, which `rustc` reads from the tag alone (`discover`, module documentation), must be
+///   the same. A tag that is wider than the one that the derive read changes there, and the build
+///   fails. A narrower one leaves a byte of padding or of a field where the derive reads its tag,
+///   and the comparison with the samples or the size of the enum fails the build.
+/// - An enum with fields of the `Rust` representation is found on samples made by the names of its
+///   variants and of their fields, and its discovery asserts that the discriminant of each sample
+///   is the index of its variant in the item that the derive read, so reordered variants fail the
+///   build.
 ///
-/// The offsets of a struct of the `Rust` representation are measured on the item, so reordering
-/// its fields does not change them. An enum with fields of the `Rust` representation is found on
-/// samples made by the names of its variants and of their fields, and its discovery asserts that
-/// the discriminant of each sample is the index of its variant in the item that the derive read,
-/// so reordering its variants makes it fail to compile.
+/// What such an attribute can still change without failing the build:
+///
+/// - A variant without a sample, which holds a scalar that a pun never makes or a union none of
+///   whose fields has values, keeps the offsets that [RFC 2195] specifies, and so does every
+///   variant of an enum none of whose variants has a sample, of which no tag width is checked.
+/// - The derive takes from the `repr` that it read whether Rust specifies the layout, on which,
+///   without the `unstable` feature, a verdict may rely ([The `unstable`
+///   feature](crate#the-unstable-feature)). A struct or a union whose `repr(C)` such an attribute
+///   removes has the offsets of this compilation, but is taken to have them in every compilation,
+///   which Rust does not promise.
+///
+/// Measuring the offsets of the fields of a variant binds them in a pattern, which the `dead_code`
+/// lint counts as reading them: a field of a variant of an enum with a primitive or `C`
+/// representation is never reported as never read.
 ///
 /// # Examples
 ///

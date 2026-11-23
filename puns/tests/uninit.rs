@@ -130,7 +130,6 @@ fn a_variant_without_values_is_not_read() {
 
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "made by a pun only, and no value is `Never`")]
   enum Tagged {
     Unit,
     Never(bool, Infallible),
@@ -183,7 +182,6 @@ fn a_union_of_a_source_may_hold_a_value() {
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "reinterpreted, not read")]
   enum Source5 {
     A(Hollow) = 0,
     B(u8) = 1,
@@ -191,7 +189,6 @@ fn a_union_of_a_source_may_hold_a_value() {
   }
   #[derive(Pun, Clone, Copy)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "reinterpreted, not read")]
   enum Plain5 {
     A(Infallible) = 0,
     B(u8) = 1,

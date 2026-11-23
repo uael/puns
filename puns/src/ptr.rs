@@ -198,6 +198,67 @@ pub const unsafe fn field<T: ?Sized + Pun, F: ?Sized + Pun>(
   from_raw_parts(unsafe { ptr.cast::<u8>().add(offset) }, len)
 }
 
+/// The size of [`BUFFER`]: the largest head of a type whose fields [`in_buffer`] lets the derive
+/// measure.
+pub const BUFFER_SIZE: usize = 4096;
+
+/// Memory into which `#[derive(Pun)]` projects pointers to a type, to measure the offsets of its
+/// fields on the type as compiled (`Layout::measure_base`). Nothing reads it or writes it: a
+/// projection with `&raw const` makes a pointer without an access. It is a promoted constant, so
+/// it is an allocation of const evaluation only.
+const BUFFER: &[core::mem::MaybeUninit<u64>; BUFFER_SIZE / 8] =
+  &[core::mem::MaybeUninit::uninit(); BUFFER_SIZE / 8];
+
+/// Returns a pointer to a `T` at the start of [`BUFFER`], whose slice tail, if any, has no element,
+/// or a null pointer if such a `T` is larger than [`BUFFER_SIZE`].
+///
+/// Every place of that `T` is in the allocation of `BUFFER`, so `&raw const (*ptr).field` and
+/// `byte_offset_from` on the result are defined, in const evaluation as at run time.
+///
+/// # Safety
+///
+/// The caller must ensure that either `T` is `Sized`, or `T` is a struct whose last field is a
+/// slice, `str`, or a struct whose last field is one of these, at any depth, and `probe` meets the
+/// requirements of [`verify`] for `T`.
+pub const unsafe fn in_buffer<T: ?Sized>(probe: *const T) -> *const T {
+  let addr = BUFFER.as_ptr().cast::<u8>();
+  let thin = size_of::<*const T>() == size_of::<*const u8>();
+  if thin {
+    // A thin pointer: `T` is `Sized`, by contract on the caller, since a slice-tailed type has
+    // wide pointers.
+    // SAFETY: `T` is `Sized`, so `size_of_val_raw` is always safe to call [1].
+    //
+    // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/fn.size_of_val_raw.html:
+    //
+    //     If `T` is `Sized`, this function is always safe to call.
+    let fits = unsafe { core::mem::size_of_val_raw(probe) } <= BUFFER_SIZE;
+    let addr = if fits { addr } else { core::ptr::null() };
+    // SAFETY: A `*const T` has the size of a `*const u8`, which is checked above, and the bytes
+    // of `addr`, a pointer, are initialized, so they are a valid `*const T` (see `Cast`).
+    unsafe { Cast::<*const u8, *const T> { from: addr }.to }
+  } else {
+    // SAFETY: `T` is unsized, so by contract on the caller, it is slice-tailed and `probe` meets
+    // the requirements of `verify`.
+    unsafe { verify(probe) };
+    // SAFETY: `verify` accepted `probe`, so a `*const T` is represented as a `*const [u8]`, as
+    // `raw_with_len` requires. A `T` whose tail has no element is not larger than one with
+    // `PROBE_LEN` elements, which fits in an `isize` by contract on the caller of `verify`, as
+    // `size_of_val_raw` requires [1].
+    //
+    // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/fn.size_of_val_raw.html:
+    //
+    //     If the unsized tail of `T` is: a slice `[U]`, `str`, or a trait object
+    //     `dyn Trait`, then the size of the entire value (dynamic tail length + statically
+    //     sized prefix) must fit in `isize`.
+    let fits = unsafe { core::mem::size_of_val_raw(raw_with_len(probe, 0)) } <= BUFFER_SIZE;
+    let slice = core::ptr::slice_from_raw_parts(if fits { addr } else { core::ptr::null() }, 0);
+    // SAFETY: `verify` accepted `probe`, so a `*const T` is represented as a `*const [u8]` whose
+    // length is the length of the tail. So the bytes of `slice`, which are initialized, are a
+    // `*const T` at the address of `slice` whose tail has no element (see `Cast`).
+    unsafe { Cast::<*const [u8], *const T> { from: slice }.to }
+  }
+}
+
 /// Returns whether `addr` is a multiple of `align`.
 ///
 /// `align` must be a power of two, or the result is meaningless. The address is reinterpreted as an

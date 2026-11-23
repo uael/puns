@@ -85,14 +85,12 @@ fn an_option_of_one_is_one() {
 fn a_variant_that_holds_one_in_a_tuple_is_checked_from_initialized_bytes() {
   #[derive(puns::Pun, Clone, Copy, Debug)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "made by a pun only")]
   enum Before {
     A((bool, Off)),
     B,
   }
   #[derive(puns::Pun, Clone, Copy, Debug)]
   #[repr(u8)]
-  #[expect(dead_code, reason = "made by a pun only")]
   enum After {
     A((Off, bool)),
     B,
