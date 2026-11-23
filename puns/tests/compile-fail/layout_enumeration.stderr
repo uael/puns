@@ -39,8 +39,8 @@ error[E0080]: evaluation panicked: struct is too large
 note: inside `puns::layout::Enum::new`
   --> src/layout.rs
    |
-   |       (tail_offset(size, align, usize::MAX), align)
-   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |       (tail_offset(size, align), align)
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::layout::tail_offset`
   --> $RUST/core/src/panic.rs
    |
@@ -66,7 +66,7 @@ note: inside `puns::layout::Layout::enumeration::<Shape>`
    |
    | /     assert!(
    | |       align_of::<T>() >= layout.specified.1
-   | |         && size == tail_offset(layout.specified.0, align_of::<T>(), usize::MAX),
+   | |         && size == tail_offset(layout.specified.0, align_of::<T>()),
    | |       "the enum is not laid out as its representation specifies"
    | |     );
    | |_____- in this macro invocation

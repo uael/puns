@@ -75,7 +75,7 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - The derive writes the type of each field once, in a trait of its generated code (`homes` in
   `puns-derive`), and a function that is never called fails to compile unless the item as
   compiled has those fields and variants, of those types. The offsets of the fields are measured
-  on the item as compiled (`Layout::measure_base`, the samples of the variants), except where
+  on the item as compiled (`Layout::offsets`, the samples of the variants), except where
   "What the derive trusts" says that the `repr` that the derive read gives them.
 - Every opaque scalar in the repository is declared through the public API only, as another crate
   would declare it, with `Scalar` and `Spec::opaque`. Most of them share

@@ -1134,10 +1134,10 @@ impl Enum {
     let specified = if outside {
       assert!(fields == Self::fields(tag, shadows), "not where the fields of the variants are");
       let align = if tag.align > align { tag.align } else { align };
-      (tail_offset(fields + size, align, usize::MAX), align)
+      (tail_offset(fields + size, align), align)
     } else {
       assert!(fields == 0, "not where the fields of the variants are");
-      (tail_offset(size, align, usize::MAX), align)
+      (tail_offset(size, align), align)
     };
     Self { tag: Field::new(0, tag), variants, specified, union: false }
   }
@@ -1202,7 +1202,7 @@ impl Enum {
       }
       i += 1;
     }
-    tail_offset(tag.size, align, usize::MAX)
+    tail_offset(tag.size, align)
   }
 }
 
@@ -1766,17 +1766,16 @@ pub(crate) const fn round_up(value: usize, align: usize) -> Option<usize> {
 /// Returns the offset of a field of a `repr(C)` struct, as the representation specifies it.
 ///
 /// `end` is the offset where the previous field ends, or 0 for the first field. `align` is the
-/// alignment of the type of the field, a power of two. `pack` is the `N` of `repr(packed(N))`, or
-/// `usize::MAX` for a struct that is not packed. The field is at `end`, rounded up to the lesser of
-/// `align` and `pack`.
+/// alignment of the type of the field, a power of two. The field is at `end`, rounded up to
+/// `align`.
 ///
 /// # Panics
 ///
 /// Panics if the offset overflows a `usize`.
 #[doc(hidden)]
 #[must_use]
-pub const fn tail_offset(end: usize, align: usize, pack: usize) -> usize {
-  match round_up(end, if align < pack { align } else { pack }) {
+pub const fn tail_offset(end: usize, align: usize) -> usize {
+  match round_up(end, align) {
     Some(offset) => offset,
     None => panic!("struct is too large"),
   }
@@ -1849,17 +1848,25 @@ impl Layout {
     pin::<Varint>,
   );
 
-  /// Returns an uninitialized `T`, for `#[derive(Pun)]`, which finds the offsets of the fields of
-  /// `T` by projecting a pointer to it.
+  /// Returns an uninitialized `T`, for `#[derive(Pun)]`, which measures the offsets of the fields
+  /// of a struct by projecting a pointer into it.
   #[doc(hidden)]
   #[must_use]
   pub const fn uninit<T>() -> mem::MaybeUninit<T> {
     mem::MaybeUninit::uninit()
   }
 
-  /// Returns a pointer to a `T` in memory of const evaluation, whose slice tail, if any, has no
-  /// element, for `#[derive(Pun)]`, which measures the offsets of the fields of `T` by projecting
-  /// it, or a null pointer if such a `T` is larger than the memory (4096 bytes).
+  /// Returns a pointer to a `T` at the start of `memory`, whose slice tail, if any, has no element,
+  /// for `#[derive(Pun)]`, which measures the offsets of the fields of `T` by projecting it in
+  /// [`Offsets`].
+  ///
+  /// Every place of that `T` is in the allocation of `memory`, so `&raw const (*ptr).field` and
+  /// `byte_offset_from` on the result are defined. Nothing reads or writes it: a projection with
+  /// `&raw const` makes a pointer without an access.
+  ///
+  /// # Panics
+  ///
+  /// Panics if such a `T` is larger than `N` bytes.
   ///
   /// # Safety
   ///
@@ -1868,11 +1875,17 @@ impl Layout {
   /// `<[E] as Pun>::PROBE` cast to `*const T` with `as` casts only.
   #[doc(hidden)]
   #[must_use]
-  pub const unsafe fn measure_base<T: ?Sized>(probe: *const T) -> *const T {
+  pub const unsafe fn measure_base<T: ?Sized, const N: usize>(
+    memory: &mem::MaybeUninit<[u8; N]>,
+    probe: *const T,
+  ) -> *const T {
     // SAFETY: By contract on the caller, `T` is `Sized`, or it is slice-tailed and `probe` is
     // `slice_from_raw_parts(null(), PROBE_LEN)` cast with `as` casts only, which are the
-    // requirements of `verify`, and so of `in_buffer`.
-    unsafe { ptr::in_buffer(probe) }
+    // requirements of `verify`, and so of `head_size` and `with_empty_tail`.
+    unsafe {
+      assert!(ptr::head_size(probe) <= N, "the memory does not hold the struct");
+      ptr::with_empty_tail(memory.as_ptr().cast(), probe)
+    }
   }
 
   /// Returns what the experiments find of the layout of the enum `E` of the `Rust`
@@ -2048,14 +2061,14 @@ impl Layout {
   ) -> ([usize; N], (usize, usize)) {
     let (mut offsets, (mut end, mut align), mut i) = ([0; N], start, 0);
     while i < N {
-      offsets[i] = tail_offset(end, fields[i].1, usize::MAX);
+      offsets[i] = tail_offset(end, fields[i].1);
       end = offsets[i] + fields[i].0;
       if fields[i].1 > align {
         align = fields[i].1;
       }
       i += 1;
     }
-    (offsets, (tail_offset(end, align, usize::MAX), align))
+    (offsets, (tail_offset(end, align), align))
   }
 
   /// Returns the size and the alignment of `T`, for `#[derive(Pun)]`.
@@ -2063,28 +2076,6 @@ impl Layout {
   #[must_use]
   pub const fn size_align<T>() -> (usize, usize) {
     (size_of::<T>(), align_of::<T>())
-  }
-
-  /// Returns [`tail_offset`] in a struct that is not packed, for `#[derive(Pun)]`.
-  ///
-  /// # Panics
-  ///
-  /// Panics if the offset overflows a `usize`.
-  #[doc(hidden)]
-  #[must_use]
-  pub const fn tail_offset(end: usize, align: usize) -> usize {
-    tail_offset(end, align, usize::MAX)
-  }
-
-  /// Returns [`tail_offset`] in a `repr(packed(pack))` struct, for `#[derive(Pun)]`.
-  ///
-  /// # Panics
-  ///
-  /// Panics if the offset overflows a `usize`.
-  #[doc(hidden)]
-  #[must_use]
-  pub const fn tail_offset_packed(end: usize, align: usize, pack: usize) -> usize {
-    tail_offset(end, align, pack)
   }
 
   /// Returns the layout of the scalar type `T`, whose values `spec` describes.
@@ -2808,7 +2799,7 @@ impl Layout {
     // An `align(N)` on the enum is the only thing that the shadows do not tell.
     assert!(
       align_of::<T>() >= layout.specified.1
-        && size == tail_offset(layout.specified.0, align_of::<T>(), usize::MAX),
+        && size == tail_offset(layout.specified.0, align_of::<T>()),
       "the enum is not laid out as its representation specifies"
     );
     assert!(spec.is_integer() && tag.offset + spec.size <= size, "tag out of bounds");
@@ -4244,6 +4235,72 @@ impl Layout {
     }
   }
 }
+
+/// The offsets of the `C` fields of a struct, measured on the struct as compiled in `N` bytes of
+/// uninitialized memory, for `#[derive(Pun)]`, which implements it for every `N` with
+/// [`Layout::measure_base`]. [`Layout::offsets`] evaluates it for one `N`.
+///
+/// # Safety
+///
+/// `OFFSETS` must hold the offset, in the type as compiled, of each field that the implementation
+/// of [`Pun`] derived for the type lists, in that order. That implementation relies on them.
+#[doc(hidden)]
+pub unsafe trait Offsets<const N: usize, const C: usize> {
+  /// The offset of each field, in order.
+  const OFFSETS: [usize; C];
+}
+
+/// Returns the number of bytes of memory of class `k` in which [`Layout::offsets`] measures: 2 to
+/// the power `k`, or `isize::MAX` if that is larger, which no type is.
+const fn class(k: u32) -> usize {
+  if k < usize::BITS - 1 { 1 << k } else { usize::MAX >> 1 }
+}
+
+/// Returns the offsets of `T` measured in `N` bytes. It is a function of its own, so that a call
+/// for one `N` evaluates no other: const evaluation evaluates every constant that a function names
+/// when it calls the function.
+const fn offsets_in<T: ?Sized + Offsets<N, C>, const N: usize, const C: usize>() -> [usize; C] {
+  T::OFFSETS
+}
+
+/// Declares [`Layout::offsets`] for the classes `$k` of [`class`], then the class `$last`, which
+/// holds every type.
+macro_rules! offsets {
+  ($($k:literal)*; $last:literal) => {
+    impl Layout {
+      /// Returns the offsets of the `C` fields of `T`, measured on `T` as compiled, for
+      /// `#[derive(Pun)]`.
+      ///
+      /// They are measured in the memory of the smallest class that holds a `T` whose slice
+      /// tail, if any, has no element: a power of two from 4096 bytes up. The memory is a local
+      /// of the evaluation of [`Offsets::OFFSETS`], which nothing reads or writes, and which is
+      /// freed when the evaluation ends. A constant would be kept until the end of the
+      /// compilation, and an incremental build would hash each of its bytes. If const evaluation
+      /// cannot allocate the memory, the build fails.
+      ///
+      /// # Safety
+      ///
+      /// The caller must ensure the requirements of [`Layout::measure_base`].
+      #[doc(hidden)]
+      #[must_use]
+      pub const unsafe fn offsets<T, const C: usize>(probe: *const T) -> [usize; C]
+      where
+        T: ?Sized $(+ Offsets<{ class($k) }, C>)* + Offsets<{ class($last) }, C>,
+      {
+        // SAFETY: The caller ensures the requirements of `measure_base`, which are those of
+        // `head_size`.
+        let size = unsafe { ptr::head_size(probe) };
+        $(if size <= class($k) {
+          return offsets_in::<T, { class($k) }, C>();
+        })*
+        offsets_in::<T, { class($last) }, C>()
+      }
+    }
+  };
+}
+
+offsets!(12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41
+  42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62; 63);
 
 /// Returns whether two sets of values, of scalars of the same size, are the same.
 ///

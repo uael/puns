@@ -1640,9 +1640,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   // (`&raw const (*p).field`), which the language does, and not with `offset_of!`, which comes
   // from whatever crate `::core` names (`extern crate other as core;` makes it another crate).
   // With `repr(C)` and `repr(transparent)`, the struct may be unsized, so the pointer is into
-  // memory of the library (`Layout::measure_base`), and where the struct does not fit there, the
-  // offsets are what the representation that the derive read specifies (`__PunOffsets`).
-  // Otherwise the struct is `Sized`, and the pointer is to an uninitialized value.
+  // uninitialized memory that holds it (`Layout::offsets`, `__PunOffsets`). Otherwise the struct is
+  // `Sized`, and the pointer is to an uninitialized value.
   for (i, field) in fields.iter_mut().enumerate() {
     let member = &field.member;
     field.offset = match () {
@@ -1686,31 +1685,15 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
 
   // Layout of the fields.
   let offsets_trait = (repr.c || repr.transparent).then(|| {
-    // `repr(C)`: each field at the first offset after the previous one that its alignment allows
-    // (or `packed(N)` allows). `repr(transparent)`: the field whose size is not 0 is at 0, and
-    // fields of size 0 have no bytes to be anywhere.
-    let steps = fields.iter().enumerate().filter(|_| repr.c).map(|(i, field)| {
-      let ty = &field.home;
-      let align = quote!(<#ty as #root::Pun>::LAYOUT.align());
-      let offset = repr.packed.as_ref().map_or_else(
-        || quote!(#root::layout::Layout::tail_offset(end, #align)),
-        |pack| quote!(#root::layout::Layout::tail_offset_packed(end, #align, #pack)),
-      );
-      // The last field may be unsized: nothing comes after it.
-      let end = (i + 1 < count)
-        .then(|| quote!(end = offsets[#i] + #root::layout::Layout::size_align::<#ty>().0;));
-      quote!(offsets[#i] = #offset; #end)
-    });
     let measured = fields.iter().map(|field| {
       let member = &field.member;
       quote! {
-        // SAFETY: `base` is not null, so it points to a `Self` in the memory of
-        // `Layout::measure_base`, all of whose places are in that allocation. `(*base).#member`
-        // is a place there, and `&raw const` makes a pointer to it without reading it, which
-        // needs neither initialized bytes nor alignment. That pointer and `base` are derived
-        // from the same allocation, and the bytes between them are in it, as `byte_offset_from`
-        // requires [1]. The distance is the offset of the field, which is not negative, so `as
-        // usize` keeps it.
+        // SAFETY: `base` points to a `Self` in `memory`, all of whose places are in that
+        // allocation (`Layout::measure_base`). `(*base).#member` is a place there, and `&raw const`
+        // makes a pointer to it without reading it, which needs neither initialized bytes nor
+        // alignment. That pointer and `base` are derived from the same allocation, and the bytes
+        // between them are in it, as `byte_offset_from` requires [1]. The distance is the offset
+        // of the field, which is not negative, so `as usize` keeps it.
         //
         // [1] Per https://doc.rust-lang.org/1.99.0/core/primitive.pointer.html#method.offset_from:
         //
@@ -1722,29 +1705,42 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         unsafe { (&raw const (*base).#member).byte_offset_from(base) as ::core::primitive::usize }
       }
     });
+    // The impl of `Offsets` for memory of any size.
+    let mut sized_memory = input.generics.clone();
+    sized_memory.params.push(parse_quote!(const __PunMemory: ::core::primitive::usize));
+    let (memory_generics, _, _) = sized_memory.split_for_impl();
     quote! {
       trait __PunOffsets {
         const OFFSETS: [::core::primitive::usize; #count];
       }
 
       impl #impl_generics __PunOffsets for #this #where_clause {
-        #[allow(unused_assignments, unused_mut, unused_variables)]
+        // SAFETY: `Self` is `Sized`, or its last field is unsized, so that it is a slice, `str` or
+        // a struct whose last field is one of these, at any depth (`Pun`, section Safety), and its
+        // probe is the probe of that field cast with `as` casts, as for `Layout::structure` below.
+        // These are the requirements of `offsets`.
+        const OFFSETS: [::core::primitive::usize; #count] = unsafe {
+          #root::layout::Layout::offsets::<Self, #count>(<Self as #root::Pun>::PROBE)
+        };
+      }
+
+      // SAFETY: `OFFSETS` projects a pointer to a `Self` onto each field that `Fields` lists, in
+      // that order, so it holds the offset of each of these fields in the struct as compiled.
+      #[allow(non_upper_case_globals)]
+      unsafe impl #memory_generics #root::layout::Offsets<__PunMemory, #count> for #this
+        #where_clause
+      {
+        #[allow(unused_variables)]
         const OFFSETS: [::core::primitive::usize; #count] = {
-          // SAFETY: `Self` is `Sized`, or its last field is unsized, so that it is a slice, `str`
-          // or a struct whose last field is one of these, at any depth (`Pun`, section Safety),
-          // and its probe is the probe of that field cast with `as` casts, as for
-          // `Layout::structure` below. These are the requirements of `measure_base`.
+          let memory = #root::layout::Layout::uninit::<[::core::primitive::u8; __PunMemory]>();
+          // SAFETY: As for `__PunOffsets`, these are the requirements of `measure_base`.
           let base = unsafe {
-            #root::layout::Layout::measure_base::<Self>(<Self as #root::Pun>::PROBE)
+            #root::layout::Layout::measure_base::<Self, __PunMemory>(
+              &memory,
+              <Self as #root::Pun>::PROBE,
+            )
           };
-          if base.is_null() {
-            // Too large to be measured: the offsets that the representation specifies.
-            let (mut offsets, mut end) = ([0; #count], 0);
-            #(#steps)*
-            offsets
-          } else {
-            [#(#measured),*]
-          }
+          [#(#measured),*]
         };
       }
     }
@@ -1985,18 +1981,13 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   unsized struct is the one it computes.
       // - The offset of each field is that of the compiler, measured on the struct as compiled:
       //   the offset of a place projected from a pointer to the struct, in the memory of
-      //   `Layout::measure_base` for `repr(C)` and `repr(transparent)`, and to an uninitialized
-      //   value otherwise. A `repr(C)` or `repr(transparent)` struct too large for that memory has
-      //   the offsets that the representation that the derive read specifies: for `repr(C)`, from
-      //   the sizes and alignments of the fields [1] (`Layout::tail_offset`,
-      //   `Layout::tail_offset_packed`); for `repr(transparent)`, 0 for the field with a size [2].
-      //   The derive trusts that representation to be that of the struct as compiled there ("What
-      //   the derive trusts").
+      //   `Layout::offsets` for `repr(C)` and `repr(transparent)`, which holds the struct
+      //   whatever its size, and to an uninitialized value otherwise.
       // - The type of each field is its home in `__PunTypes`, which `item` requires to be the type
       //   of the field of that name in the struct as compiled, and the struct to have no other
       //   field. Each field has the layout of its type (`Pun`, section Safety), or a restriction
       //   of it (`Layout::restricted`), which guarantees the same values and accepts fewer. A
-      //   struct is valid if each of its fields is valid [3], and a byte that no field covers is
+      //   struct is valid if each of its fields is valid [1], and a byte that no field covers is
       //   padding.
       //   Rules are requirements of `puns`, never of the language.
       // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules that
@@ -2009,20 +2000,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       // documentation, section Soundness): the layout describes only what the language requires of
       // its fields.
       //
-      // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.struct.size-field-offset:
-      //
-      //     For each field in declaration order in the struct, first determine the size and
-      //     alignment of the field. If the current offset is not a multiple of the field's
-      //     alignment, then add padding bytes to the current offset until it is a multiple of the
-      //     field's alignment. The offset for the field is what the current offset is now. Then
-      //     increase the current offset by the size of the field.
-      //
-      // [2] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi:
-      //
-      //     Structs and enums with this representation have the same layout and ABI as the only
-      //     non-size 0 non-alignment 1 field, if present, or unit otherwise.
-      //
-      // [3] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.struct:
+      // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.struct:
       //
       //     A struct, tuple, and array requires all fields/elements to be valid at their
       //     respective type.
