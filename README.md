@@ -8,7 +8,7 @@
 Type punning proven at compile time: a safe alternative to `transmute` and to hand-written parsing
 of bytes.
 
-> `puns` is written using AI. See [How `puns` is written](#how-puns-is-written).
+> **Notes:** `puns` is written using AI, see [How `puns` is written](#how-puns-is-written).
 > The first release came out in November 2026: expect the API to change before 1.0.
 
 - [Overview](#overview)
