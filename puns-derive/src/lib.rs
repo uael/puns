@@ -2135,6 +2135,80 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
   })
 }
 
+/// Replaces `Self` with the enum `this` in a discriminant of an enum with fields, which the derive
+/// writes again in the enum without fields that holds its tags, where `Self` is that enum.
+///
+/// It also finds whether the discriminant may have another value there. Only `Self` and a name
+/// written by a macro can mean something else there: the items that the derive declares next to
+/// that enum all have names that start with `__Pun`, which `find_reserved` refuses in the input. So
+/// the discriminant is `opaque` if it holds a macro, an attribute (one on an item of a block may be
+/// a macro), or a part that `syn` does not parse (`Verbatim`), which may hold one. In an item
+/// declared in the discriminant, `Self` is that item, so it is kept, and `items` counts how deep in
+/// items the visit is.
+struct Discriminant<'a> {
+  this: &'a Ident,
+  items: usize,
+  opaque: bool,
+}
+
+impl VisitMut for Discriminant<'_> {
+  fn visit_ident_mut(&mut self, ident: &mut Ident) {
+    if self.items == 0 && ident == "Self" {
+      *ident = Ident::new(&self.this.to_string(), ident.span());
+    }
+  }
+
+  fn visit_macro_mut(&mut self, _: &mut syn::Macro) {
+    self.opaque = true;
+  }
+
+  fn visit_attribute_mut(&mut self, _: &mut Attribute) {
+    self.opaque = true;
+  }
+
+  fn visit_expr_mut(&mut self, expr: &mut Expr) {
+    self.opaque |= matches!(expr, Expr::Verbatim(_));
+    visit_mut::visit_expr_mut(self, expr);
+  }
+
+  fn visit_type_mut(&mut self, ty: &mut Type) {
+    self.opaque |= matches!(ty, Type::Verbatim(_));
+    visit_mut::visit_type_mut(self, ty);
+  }
+
+  fn visit_pat_mut(&mut self, pat: &mut syn::Pat) {
+    self.opaque |= matches!(pat, syn::Pat::Verbatim(_));
+    visit_mut::visit_pat_mut(self, pat);
+  }
+
+  fn visit_type_param_bound_mut(&mut self, bound: &mut syn::TypeParamBound) {
+    self.opaque |= matches!(bound, syn::TypeParamBound::Verbatim(_));
+    visit_mut::visit_type_param_bound_mut(self, bound);
+  }
+
+  fn visit_item_mut(&mut self, item: &mut syn::Item) {
+    self.opaque |= matches!(item, syn::Item::Verbatim(_));
+    self.items += 1;
+    visit_mut::visit_item_mut(self, item);
+    self.items -= 1;
+  }
+
+  fn visit_impl_item_mut(&mut self, item: &mut syn::ImplItem) {
+    self.opaque |= matches!(item, syn::ImplItem::Verbatim(_));
+    visit_mut::visit_impl_item_mut(self, item);
+  }
+
+  fn visit_trait_item_mut(&mut self, item: &mut syn::TraitItem) {
+    self.opaque |= matches!(item, syn::TraitItem::Verbatim(_));
+    visit_mut::visit_trait_item_mut(self, item);
+  }
+
+  fn visit_foreign_item_mut(&mut self, item: &mut syn::ForeignItem) {
+    self.opaque |= matches!(item, syn::ForeignItem::Verbatim(_));
+    visit_mut::visit_foreign_item_mut(self, item);
+  }
+}
+
 /// Returns whether the implementation of `Pun` for the type of `input` needs the bound `ty: Pun`,
 /// for the type `ty` of a field.
 ///
@@ -2182,17 +2256,73 @@ fn derive_tagged(
   let generics = bounded(input, types, bounds, root);
   let where_clause = &generics.where_clause;
 
-  // The tag: an enum without fields of the same variants.
+  // The tag: an enum without fields of the same variants and discriminants, with `Self` replaced
+  // by the enum (`Discriminant`). It evaluates the discriminants again, here, so
+  // `Variant::declared_tags` compares its tags with those of the enum.
   let tag = format_ident!("__PunTag");
   let tag_repr = repr.int.as_ref().map_or_else(|| quote!(C), |int| quote!(#int));
-  let tags = data.variants.iter().map(|variant| {
-    let (name, discriminant) =
-      (&variant.ident, variant.discriminant.as_ref().map(|(_, expr)| expr));
-    let discriminant = discriminant.map(|expr| quote!(= #expr));
+  let discriminants = data
+    .variants
+    .iter()
+    .map(|variant| {
+      variant.discriminant.as_ref().map(|(_, expr)| {
+        let mut discriminant = Discriminant { this: ident, items: 0, opaque: false };
+        let mut expr = expr.clone();
+        discriminant.visit_expr_mut(&mut expr);
+        (expr, discriminant.opaque)
+      })
+    })
+    .collect::<Vec<_>>();
+  let tags = data.variants.iter().zip(&discriminants).map(|(variant, discriminant)| {
+    let name = &variant.ident;
+    let discriminant = discriminant.as_ref().map(|(expr, _)| quote!(= #expr));
     quote!(#name #discriminant)
   });
   let names = data.variants.iter().map(|variant| &variant.ident).collect::<Vec<_>>();
   let count = names.len();
+  // What the declaration of each variant tells of its tag, for a variant without a sample: a
+  // discriminant has the same value here if all of it is read (`Discriminant`), and no
+  // discriminant is the tag before it plus one.
+  let option = quote!(::core::option::Option);
+  let declared = discriminants.iter().map(|discriminant| match discriminant {
+    None => quote!(#option::None),
+    Some((_, opaque)) => {
+      let known = !opaque;
+      quote!(#option::Some(#known))
+    }
+  });
+  // A value of each variant whose fields have samples, made as `derive_discovered` makes them,
+  // whose first bytes are its tag.
+  let layout = quote!(#root::layout::Layout);
+  let (samples, exists): (Vec<_>, Vec<_>) = data
+    .variants
+    .iter()
+    .map(|variant| {
+      let name = &variant.ident;
+      let members = variant.fields.iter().enumerate().map(|(j, field)| {
+        field
+          .ident
+          .as_ref()
+          .map_or_else(|| Member::Unnamed(Index::from(j)), |ident| Member::Named(ident.clone()))
+      });
+      let types = variant.fields.iter().map(|field| &field.ty).collect::<Vec<_>>();
+      let layouts = quote!(&[#(&<#types as #root::Pun>::LAYOUT),*]);
+      (
+        quote! {
+          if #layout::sampled_all(#layouts) {
+            #option::Some(#layout::wrap(Self::#name {
+              // SAFETY (of the generated code): Each field type has a sample, which is checked
+              // above, so `Layout::sample` makes a valid value of it, as `assume_init` requires.
+              #(#members: unsafe { #layout::sample::<#types>().assume_init() }),*
+            }))
+          } else {
+            #option::None
+          }
+        },
+        quote!(#layout::may_exist_all(#layouts)),
+      )
+    })
+    .unzip();
 
   // A `repr(C)` struct for each variant (RFC 2195), which starts with the tag unless the enum is
   // `repr(C)`: their layouts, from the sizes and alignments of the fields. Not measured from
@@ -2231,7 +2361,7 @@ fn derive_tagged(
     if repr.c { quote!(#root::layout::Enum::fields(&#tag_layout, &#sizes)) } else { quote!(0) };
   let (mut items, mut variants) = (vec![], vec![]);
   for (i, variant) in data.variants.iter().enumerate() {
-    let (shadow, name, shape) = (&shadows[i], &names[i], &shapes[i]);
+    let (shadow, shape) = (&shadows[i], &shapes[i]);
     let markers = (0..variant.fields.len())
       .map(|j| format_ident!("__PunVariant{}Field{}", i, j))
       .collect::<Vec<_>>();
@@ -2294,11 +2424,7 @@ fn derive_tagged(
       }
     });
     variants.push(quote!(#root::layout::Variant::new(
-      // SAFETY (of the generated code): `bits_of` requires every byte of the value to be
-      // initialized. `#tag` is an enum without fields, `repr(C)` or of a primitive representation,
-      // without `align`. Such an enum is an integer that holds its discriminant (the crate
-      // documentation, "What Rust documents"), so every byte of it is initialized.
-      unsafe { #root::layout::Spec::bits_of(#tag::#name) },
+      <Self as __PunShapes>::TAGS[#i],
       const {
         &#root::layout::Layout::variant::<Self>(
           const { &#root::layout::Layout::sort_fields([#(#layouts),*]) },
@@ -2323,8 +2449,8 @@ fn derive_tagged(
       unsafe impl #root::Scalar for #tag {
         const SPEC: #root::layout::Spec = {
           let merged: &'static ([(u128, u128); #count], usize) = const {
-            // SAFETY: As for `Variant::new` above, every byte of a value of `#tag` is
-            // initialized, which is what `bits_of` requires.
+            // SAFETY: As for `TAGS` below, every byte of a value of `#tag` is initialized, which is
+            // what `bits_of` requires.
             &#root::layout::Spec::sorted_ranges([
               #(unsafe { #root::layout::Spec::bits_of(#tag::#names) }),*
             ])
@@ -2337,17 +2463,62 @@ fn derive_tagged(
 
       trait __PunShapes {
         #(#shape_decls)*
+        const TAGS: [::core::primitive::u128; #count];
       }
 
       impl #impl_generics __PunShapes for #this #where_clause {
         #(#shape_defs)*
+        // A variant with a field without values has no sample, but it is written.
+        #[allow(unreachable_code)]
+        const TAGS: [::core::primitive::u128; #count] =
+          // SAFETY (of the generated code): `#tag` is an enum without fields, `repr(C)` or of a
+          // primitive representation, without `align`. Such an enum is an integer that holds its
+          // discriminant (the crate documentation, "What Rust documents"), so every byte of it is
+          // initialized. Each sample is a value of a variant of the enum, which starts with its
+          // tag, the enum with all fields removed [1] [2]. With an integer, the tag is that
+          // integer, as `#tag` is. With `repr(C)` alone, the discriminants are implicit [3] [4], so
+          // the tag and `#tag` are the same enum without fields. Either way, the first
+          // `size_of::<#tag>()` bytes of a sample are its tag, an integer, so initialized. These
+          // are the requirements of `declared_tags`.
+          //
+          // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.adt:
+          //
+          //     The first field of each struct in the union is the primitive representation
+          //     version of the enum with all fields removed ("the tag")
+          //
+          // [2] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.adt.tag:
+          //
+          //     a `repr(C)` version of the enum with all fields removed ("the tag")
+          //
+          // [3] Per https://doc.rust-lang.org/1.99.0/reference/items/enumerations.html#r-items.enum.discriminant.explicit.intro:
+          //
+          //     In two circumstances, the discriminant of a variant may be explicitly set by
+          //     following the variant name with `=` and a constant expression:
+          //     - if the enumeration is "unit-only".
+          //     - if a primitive representation is used.
+          //
+          // [4] Per https://doc.rust-lang.org/1.99.0/reference/items/enumerations.html#r-items.enum.discriminant.implicit:
+          //
+          //     If a discriminant for a variant is not specified, then it is set to one higher
+          //     than the discriminant of the previous variant in the declaration. If the
+          //     discriminant of the first variant in the declaration is unspecified, then it is
+          //     set to zero.
+          unsafe {
+            #root::layout::Variant::declared_tags::<Self, #tag, #count>(
+              &[#(#tag::#names),*],
+              &[#(#samples),*],
+              [#(#declared),*],
+              [#(#exists),*],
+            )
+          };
       }
 
       // SAFETY: For every enum that `derive_tagged` accepts, the layout meets the `# Safety` of
       // `Pun`:
       // - The enum is `repr(C)` or of a primitive representation, whose layout Rust specifies
       //   [1] [2]. Its tag is `#tag`, an enum without fields of the same representation and
-      //   discriminants. Each variant is a `repr(C)` struct, after the tag or in a union next to
+      //   discriminants, whose values `TAGS` compares with those of the enum, and fails the build
+      //   if they differ. Each variant is a `repr(C)` struct, after the tag or in a union next to
       //   it, and `Layout::repr_c` computes the offsets of its fields as `repr(C)` specifies.
       //   `Layout::enumeration` asserts the result against the size and the alignment of the
       //   enum, and asserts that the tag and the fields are within it.
