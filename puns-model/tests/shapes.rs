@@ -86,10 +86,13 @@ fn parts_without_values() {
 /// accepts every value of 2 bytes.
 #[test]
 fn array_under_an_enum() {
-  puns_model::pairs!(check_pair, LIMIT; (UnitsArray, HoldsUnits), (UnitsFields, HoldsUnits));
-  // Natively only: verdicts, from sources whose bytes are all initialized.
+  puns_model::pairs!(check_pair, LIMIT; (UnitsArray, HoldsUnits));
+  // Natively only: the same union in fields, refused, which no check reads; and verdicts from
+  // sources whose bytes are all initialized.
   #[cfg(not(miri))]
-  puns_model::pairs!(check_pair, LIMIT; ([bool; 2], Option<NonZero<u16>>), ([ByteUnit; 2], OptOrUnits));
+  puns_model::pairs!(check_pair, LIMIT;
+    (UnitsFields, HoldsUnits), ([bool; 2], Option<NonZero<u16>>), ([ByteUnit; 2], OptOrUnits),
+  );
   // The parts natively only: under Miri, `parts.rs` reaches their unsafe paths.
   #[cfg(not(miri))]
   puns_model::pairs!(check_part, LIMIT; (UnitsArray, [ByteUnit; 2]));
