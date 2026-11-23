@@ -26,9 +26,9 @@ of bytes.
 
 `puns` lets you reinterpret a value of one type, the *source*, as a value of another type, the
 *target*, or bytes as a typed value, without writing `unsafe`. `puns` is a `no_std` crate that
-never allocates, and it needs Rust 1.99 or later ([why][msrv]). While your code compiles, `puns`
-compares the [layouts] of the two types, which include their [valid] values. When it can prove the
-whole conversion, there's nothing left to check at run time:
+never allocates, and it needs Rust 1.99 or later (see [Minimum Rust version][msrv]). While your
+code compiles, `puns` compares the [layouts] of the two types, which include their [valid] values.
+When it can prove the whole conversion, there's nothing left to check at run time:
 
 ```rust
 use puns::Pun;
