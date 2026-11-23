@@ -1833,13 +1833,17 @@ impl Layout {
   pub const unsafe fn with_byte<E>(sample: *const E, at: usize, byte: u8) -> mem::MaybeUninit<E> {
     // SAFETY: `sample` is valid for reads of the bytes of an `E`, and aligned, by contract on the
     // caller, and so is the `MaybeUninit<E>` cast from it, which has the size and alignment of an
-    // `E`. A `MaybeUninit<E>` may hold bytes that are no `E`, uninitialized ones included [1], so
-    // the copy that `read` makes is valid. These are the requirements of `read`.
+    // `E` [1]. A `MaybeUninit<E>` may hold any bytes, uninitialized ones included [2], so the copy
+    // that `read` makes is valid. These are the requirements of `read`.
     //
-    // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/union.MaybeUninit.html:
+    // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/union.MaybeUninit.html#layout-1:
     //
-    //     `MaybeUninit<T>` serves to enable unsafe code to deal with uninitialized data. It is a
-    //     signal to the compiler indicating that the data here might *not* be initialized
+    //     `MaybeUninit<T>` is guaranteed to have the same size, alignment, and ABI as `T`
+    //
+    // [2] Per https://doc.rust-lang.org/1.99.0/core/mem/union.MaybeUninit.html#validity:
+    //
+    //     `MaybeUninit<T>` has no validity requirements – any sequence of bytes of the
+    //     appropriate length, initialized or uninitialized, are a valid representation.
     let mut copy = unsafe { core::ptr::read(sample.cast::<mem::MaybeUninit<E>>()) };
     if at < size_of::<E>() {
       // SAFETY: `at` is less than the size of an `E`, so `add(at)` stays within `copy`, and the
@@ -2612,7 +2616,9 @@ impl Layout {
   ///
   /// `layout` is the enum that its representation specifies ([`Enum::new`]) or, for the `Rust`
   /// representation, the one that `rustc` laid out. As a source, a value of the enum is known by
-  /// its tag, and by the bytes that every inhabited variant initializes. As a target, the enum is
+  /// its tag, and by the bytes that every variant initializes of which a value may exist, which
+  /// includes a variant that holds a union whose fields have no values
+  /// ([Unions](crate::reference::soundness#unions)). As a target, the enum is
   /// proven variant by variant where the source proves each variant it may be, and otherwise it is
   /// checked at run time, its tag first, then what the fields of its variant require.
   ///

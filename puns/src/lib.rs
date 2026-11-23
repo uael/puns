@@ -63,8 +63,8 @@ pub use layout::{crc32, sum16};
 ///
 /// The derive reads the layout of the type from the compiler: its size, its alignment, the offset
 /// of each field, and the discriminants of an enum. It takes the [valid] values of the type from
-/// the `Pun` implementations of its fields and from its attributes. [Describing a
-/// format](crate::reference::formats) teaches the attributes from examples, and [The language of
+/// the `Pun` implementations of its fields and from its attributes. [In
+/// practice](crate::reference::formats) teaches the attributes from examples, and [The language of
 /// rules](crate::reference::rules) specifies the expressions that they take. [What the derive
 /// trusts](crate::reference::trust) says how the derive finds the layout of a type, so that it
 /// depends on no path that the deriving crate can redefine, and [How a part with an unspecified
@@ -645,9 +645,10 @@ pub unsafe trait Scalar {
 /// # Safety
 ///
 /// `Pun` must not be implemented by hand. Its items are hidden, because they may change in any
-/// release: the layout of `Self` (`Pun::LAYOUT`, a [`Layout`]), and lists of its fields, variants,
-/// element and rules, as types, for the checks at run time. A layout makes no value of a type, and
-/// stands for `Self` only through this implementation, which guarantees that:
+/// release: the layout of `Self` (`Pun::LAYOUT`, a [`Layout`]), lists of its fields, variants,
+/// element and rules, as types, for the checks at run time, and a pointer to `Self` that nothing
+/// reads (`Pun::PROBE`). A layout makes no value of a type, and stands for `Self` only through this
+/// implementation, which guarantees that:
 ///
 /// - The layout is that of `Self`: its size, its alignment, the offset of each field, the values
 ///   that each scalar may hold, and its rules.
@@ -658,6 +659,8 @@ pub unsafe trait Scalar {
 ///   then be anything. The checks compare the rules and the place of each field with the layout,
 ///   and trust the rest.
 /// - No byte of `Self` is inside an [`UnsafeCell`](core::cell::UnsafeCell).
+/// - `PROBE` is a null pointer, made with `as` casts only, and if `Self` is unsized, its slice
+///   length is `PROBE_LEN`: it is `slice_from_raw_parts(null(), PROBE_LEN)` cast to `*const Self`.
 ///
 /// Unsafe code may assume these of any `T: Pun`, as the functions of `puns` do for their soundness.
 /// It may rely on nothing else, such as how the derive meets them, which may change.
@@ -2731,7 +2734,9 @@ pub const fn zeroed<T: Pun + Copy>() -> T {
   // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/fn.zeroed.html:
   //
   //     There is no guarantee that an all-zero byte-pattern represents a valid value of some type
-  //     `T`.
+  //     `T`. [...] Using `zeroed` on such types causes immediate undefined behavior because the
+  //     Rust compiler assumes that there always is a valid value in a variable it considers
+  //     initialized.
   unsafe { core::mem::zeroed() }
 }
 
@@ -2823,7 +2828,9 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 /// A call [compiles] only under the conditions [no address check in a constant], [no opaque scalar]
 /// and [layout independence], and if:
 ///
-/// - `D` is [inhabited].
+/// - `D` is [inhabited], and the elements of its trailing slice, if any, have a value or have size
+///   0. An empty slice of elements without a value is a value of `D`, but no bytes are such an
+///   element, so the pun is refused.
 ///
 /// # Examples
 ///
@@ -2994,7 +3001,9 @@ pub const fn validate_but_never<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(), Err
 /// A call [compiles] only under the conditions [no address check in a constant], [writes leave a
 /// valid source], [no opaque scalar] and [layout independence], and if:
 ///
-/// - `D` is [inhabited].
+/// - `D` is [inhabited], and the elements of its trailing slice, if any, have a value or have size
+///   0. An empty slice of elements without a value is a value of `D`, but no bytes are such an
+///   element, so the pun is refused.
 ///
 /// # Examples
 ///
@@ -3201,7 +3210,9 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
 /// A call [compiles] only under the conditions [no address check in a constant], [no opaque scalar]
 /// and [layout independence], and if:
 ///
-/// - `D` is [inhabited].
+/// - `D` is [inhabited], and the elements of its trailing slice, if any, have a value or have size
+///   0. An empty slice of elements without a value is a value of `D`, but no bytes are such an
+///   element, so the pun is refused.
 ///
 /// # Examples
 ///
@@ -3359,7 +3370,9 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&[u8], &D), Err
 /// A call [compiles] only under the conditions [no address check in a constant], [writes leave a
 /// valid source], [no opaque scalar] and [layout independence], and if:
 ///
-/// - `D` is [inhabited].
+/// - `D` is [inhabited], and the elements of its trailing slice, if any, have a value or have size
+///   0. An empty slice of elements without a value is a value of `D`, but no bytes are such an
+///   element, so the pun is refused.
 ///
 /// # Examples
 ///

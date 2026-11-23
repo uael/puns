@@ -214,9 +214,11 @@ const unsafe fn write(layout: &Layout, ptr: *mut u8) {
   //   or not.
   // - A field of a struct is within the size of the struct, which `Layout::structure` asserts,
   //   so `add` stays within the value, and `write` of the field is within it.
-  // - The tag of an enum, and each of its variants, are within the size of the enum, which
-  //   `Layout::enumeration` asserts. So `store` of the tag and `write` of the variant are within
-  //   the value.
+  // - The tag and the variants of an enum, or the fields of a union, are within its size:
+  //   `Layout::enumeration` asserts it of an enum, and `Layout::union` of a union, each of whose
+  //   variants has the size of the union and holds one field at 0 within it. The layout of a type
+  //   without values (`Layout::uninhabited`) has a tag of size 0 and no variant. So `store` of the
+  //   tag and `write` of the variant are within the value.
   unsafe {
     match layout.kind {
       Kind::Scalar(spec) => match spec.valid {

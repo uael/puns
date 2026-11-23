@@ -3231,11 +3231,14 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
       // field of that name in the union as compiled. A field that the derive did not read only
       // adds values, which the layout does not accept as a target, and guarantees none.
       // `Layout::union` takes the size and the alignment from the compiler. As a target, the
-      // layout accepts bytes that are a valid value of one field. Such bytes are a value that safe
-      // code makes by writing that field, which is valid [2]. As a source, the layout guarantees
-      // nothing, not even that a byte is initialized, which every value holds. `Variants` lists the
-      // fields in order. The other lists are `()`. Each field is `Pun`, so no byte is in an
-      // `UnsafeCell`.
+      // layout accepts bytes whose first bytes, as many as one field has, are a valid value of that
+      // field, whatever the bytes after them are. Safe code makes those first bytes by writing that
+      // field, which is valid [2]. That the bytes after them may be any bytes is not established:
+      // it holds under every proposal for the validity of unions, the narrowest of which asks only
+      // that the bytes of one field are a valid value of it (`docs/soundness.md`, "Unions"). As a
+      // source, the layout guarantees nothing, not even that a byte is initialized, which every
+      // value holds. `Variants` lists the fields in order. The other lists are `()`. Each field is
+      // `Pun`, so no byte is in an `UnsafeCell`.
       //
       // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.union.size-align:
       //

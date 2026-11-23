@@ -51,10 +51,13 @@ Some of the proposals under discussion let a union hold any bytes, others requir
 one of its fields, and safe code may write one field over another. `puns` accepts only what is sound
 under every one of these proposals:
 
-- As a target, bytes are a union only if they are one of its fields. Safe code makes such bytes by
-  writing that field, so the first sentence above makes them valid under every proposal, though
-  some proposals accept more. A union is proven by any one field that the source proves, and is
-  otherwise checked field by field at run time.
+- As a target, bytes are a union only if the bytes of one of its fields are a valid value of that
+  field. The bytes past that field are not checked: the narrowest proposal asks only that the
+  bytes of one field are a valid value of it, and every other proposal accepts more. Safe code
+  makes the bytes of that field by writing it, which the first sentence above makes valid, but it
+  cannot always make the bytes past it, so the first sentence alone does not cover them. A union
+  is proven by any one field that the source proves, and is otherwise checked field by field at
+  run time.
 - As a source, nothing is known of a union, not even that its bytes are initialized, since some
   proposals let it hold any bytes, as the second sentence does where it has a field of size 0. Only
   the same union proves a union. A union may hold a value even if none of its fields has one,
