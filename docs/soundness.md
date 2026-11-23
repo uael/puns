@@ -155,10 +155,10 @@ assert_eq!(odd.get(), 3);
 
 [union validity]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.union
 
-[`Layout::is_inhabited`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Layout.html#method.is_inhabited
-[`Layout::padding`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Layout.html#method.padding
-[`Pun`]: https://docs.rs/puns/0.2.3/puns/trait.Pun.html
-[`zeroed`]: https://docs.rs/puns/0.2.3/puns/fn.zeroed.html
+[`Layout::is_inhabited`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Layout.html#method.is_inhabited
+[`Layout::padding`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Layout.html#method.padding
+[`Pun`]: https://docs.rs/puns/0.2.4/puns/trait.Pun.html
+[`zeroed`]: https://docs.rs/puns/0.2.4/puns/fn.zeroed.html
 [bytes]: rules.md#reading-the-bytes-of-the-value
 [padding]: concepts.md#layouts-and-rules
 [limits#not-yet]: limits.md#not-yet

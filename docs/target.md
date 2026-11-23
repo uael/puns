@@ -68,9 +68,9 @@ of `isize`, the byte order) is asserted in a `const` where it is used, or derive
 [1.83]: https://blog.rust-lang.org/2024/11/28/Rust-1.83.0/
 [1.99]: https://blog.rust-lang.org/2026/10/01/Rust-1.99.0/
 
-[`crc32`]: https://docs.rs/puns/0.2.3/puns/layout/fn.crc32.html
-[`layout::Crc`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Crc.html
-[`sum16`]: https://docs.rs/puns/0.2.3/puns/layout/fn.sum16.html
+[`crc32`]: https://docs.rs/puns/0.2.4/puns/layout/fn.crc32.html
+[`layout::Crc`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Crc.html
+[`sum16`]: https://docs.rs/puns/0.2.4/puns/layout/fn.sum16.html
 [limits#limits-of-rust]: limits.md#limits-of-rust
 [trust#sizes-and-offsets]: trust.md#sizes-and-offsets
 [testing#miri]: testing.md#miri

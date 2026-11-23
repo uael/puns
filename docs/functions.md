@@ -272,25 +272,25 @@ meets the `valid(..)` ranges of the source, though not always its rules ([Writin
 since no function makes one. A variant of an enum that holds one is allowed, and a check never
 accepts it. For a `&mut`, the covered bytes of `S` hold none either, since a write would make one.
 
-[`as_bytes`]: https://docs.rs/puns/0.2.3/puns/fn.as_bytes.html
-[`from_bytes_mut`]: https://docs.rs/puns/0.2.3/puns/fn.from_bytes_mut.html
-[`from_bytes`]: https://docs.rs/puns/0.2.3/puns/fn.from_bytes.html
-[`from_head_mut`]: https://docs.rs/puns/0.2.3/puns/fn.from_head_mut.html
-[`from_head`]: https://docs.rs/puns/0.2.3/puns/fn.from_head.html
-[`from_tail_mut`]: https://docs.rs/puns/0.2.3/puns/fn.from_tail_mut.html
-[`from_tail`]: https://docs.rs/puns/0.2.3/puns/fn.from_tail.html
-[`head_mut`]: https://docs.rs/puns/0.2.3/puns/fn.head_mut.html
-[`head_ref`]: https://docs.rs/puns/0.2.3/puns/fn.head_ref.html
-[`head`]: https://docs.rs/puns/0.2.3/puns/fn.head.html
-[`pun_mut`]: https://docs.rs/puns/0.2.3/puns/fn.pun_mut.html
-[`pun_ref`]: https://docs.rs/puns/0.2.3/puns/fn.pun_ref.html
-[`pun`]: https://docs.rs/puns/0.2.3/puns/fn.pun.html
-[`tail_mut`]: https://docs.rs/puns/0.2.3/puns/fn.tail_mut.html
-[`tail_ref`]: https://docs.rs/puns/0.2.3/puns/fn.tail_ref.html
-[`tail`]: https://docs.rs/puns/0.2.3/puns/fn.tail.html
-[`try_pun_mut`]: https://docs.rs/puns/0.2.3/puns/fn.try_pun_mut.html
-[`try_pun_ref`]: https://docs.rs/puns/0.2.3/puns/fn.try_pun_ref.html
-[`try_pun`]: https://docs.rs/puns/0.2.3/puns/fn.try_pun.html
+[`as_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.as_bytes.html
+[`from_bytes_mut`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes_mut.html
+[`from_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes.html
+[`from_head_mut`]: https://docs.rs/puns/0.2.4/puns/fn.from_head_mut.html
+[`from_head`]: https://docs.rs/puns/0.2.4/puns/fn.from_head.html
+[`from_tail_mut`]: https://docs.rs/puns/0.2.4/puns/fn.from_tail_mut.html
+[`from_tail`]: https://docs.rs/puns/0.2.4/puns/fn.from_tail.html
+[`head_mut`]: https://docs.rs/puns/0.2.4/puns/fn.head_mut.html
+[`head_ref`]: https://docs.rs/puns/0.2.4/puns/fn.head_ref.html
+[`head`]: https://docs.rs/puns/0.2.4/puns/fn.head.html
+[`pun_mut`]: https://docs.rs/puns/0.2.4/puns/fn.pun_mut.html
+[`pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.pun_ref.html
+[`pun`]: https://docs.rs/puns/0.2.4/puns/fn.pun.html
+[`tail_mut`]: https://docs.rs/puns/0.2.4/puns/fn.tail_mut.html
+[`tail_ref`]: https://docs.rs/puns/0.2.4/puns/fn.tail_ref.html
+[`tail`]: https://docs.rs/puns/0.2.4/puns/fn.tail.html
+[`try_pun_mut`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_mut.html
+[`try_pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_ref.html
+[`try_pun`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
 [concepts#layouts-and-rules]: concepts.md#layouts-and-rules
 [concepts#proven-checked-and-refused]: concepts.md#proven-checked-and-refused
 [concepts#requirements]: concepts.md#requirements

@@ -1,8 +1,8 @@
 # puns
 
 [![CI](https://github.com/uael/puns/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/uael/puns/actions/workflows/ci.yml?query=branch%3Amain)
-[![docs.rs](https://img.shields.io/docsrs/puns/0.2.3)](https://docs.rs/puns/0.2.3)
-[![crates.io](https://img.shields.io/crates/v/puns)](https://crates.io/crates/puns/0.2.3)
+[![docs.rs](https://img.shields.io/docsrs/puns/0.2.4)](https://docs.rs/puns/0.2.4)
+[![crates.io](https://img.shields.io/crates/v/puns)](https://crates.io/crates/puns/0.2.4)
 [![license](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)](#license)
 
 Type punning proven at compile time: a safe alternative to `transmute` and to hand-written parsing
@@ -334,7 +334,7 @@ mostly build time. [Performance][performance] in the guide has the measures, mad
 commit `4176671`, with the machine code, the method and the build times, and the chart below shows
 the time of each check relative to the same check written by hand.
 
-[![Time of each check by puns, relative to the same check written by hand](https://raw.githubusercontent.com/uael/puns/v0.2.3/docs/charts/checks.svg)][performance]
+[![Time of each check by puns, relative to the same check written by hand](https://raw.githubusercontent.com/uael/puns/v0.2.4/docs/charts/checks.svg)][performance]
 
 ### Safety and testing
 
@@ -420,42 +420,42 @@ additional terms or conditions.
 [trust]: docs/trust.md
 [deriving]: docs/soundness.md#what-deriving-pun-means
 [unstable]: docs/layouts.md
-[num]: https://docs.rs/puns/0.2.3/puns/num/index.html
-[layout]: https://docs.rs/puns/0.2.3/puns/layout/index.html
-[derive]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html
-[trait-pun]: https://docs.rs/puns/0.2.3/puns/trait.Pun.html
-[Scalar]: https://docs.rs/puns/0.2.3/puns/trait.Scalar.html
-[Tag]: https://docs.rs/puns/0.2.3/puns/trait.Tag.html
-[error-type]: https://docs.rs/puns/0.2.3/puns/enum.Error.html
-[pun]: https://docs.rs/puns/0.2.3/puns/fn.pun.html
-[pun_ref]: https://docs.rs/puns/0.2.3/puns/fn.pun_ref.html
-[pun_mut]: https://docs.rs/puns/0.2.3/puns/fn.pun_mut.html
-[as_bytes]: https://docs.rs/puns/0.2.3/puns/fn.as_bytes.html
-[try_pun]: https://docs.rs/puns/0.2.3/puns/fn.try_pun.html
-[try_pun_ref]: https://docs.rs/puns/0.2.3/puns/fn.try_pun_ref.html
-[try_pun_mut]: https://docs.rs/puns/0.2.3/puns/fn.try_pun_mut.html
-[head]: https://docs.rs/puns/0.2.3/puns/fn.head.html
-[head_ref]: https://docs.rs/puns/0.2.3/puns/fn.head_ref.html
-[head_mut]: https://docs.rs/puns/0.2.3/puns/fn.head_mut.html
-[tail]: https://docs.rs/puns/0.2.3/puns/fn.tail.html
-[tail_ref]: https://docs.rs/puns/0.2.3/puns/fn.tail_ref.html
-[tail_mut]: https://docs.rs/puns/0.2.3/puns/fn.tail_mut.html
-[from_bytes]: https://docs.rs/puns/0.2.3/puns/fn.from_bytes.html
-[from_bytes_mut]: https://docs.rs/puns/0.2.3/puns/fn.from_bytes_mut.html
-[from_head]: https://docs.rs/puns/0.2.3/puns/fn.from_head.html
-[from_head_mut]: https://docs.rs/puns/0.2.3/puns/fn.from_head_mut.html
-[from_tail]: https://docs.rs/puns/0.2.3/puns/fn.from_tail.html
-[from_tail_mut]: https://docs.rs/puns/0.2.3/puns/fn.from_tail_mut.html
-[zeroed]: https://docs.rs/puns/0.2.3/puns/fn.zeroed.html
-[validate_but_never]: https://docs.rs/puns/0.2.3/puns/fn.validate_but_never.html
-[changelog]: https://github.com/uael/puns/blob/v0.2.3/CHANGELOG.md
-[examples]: https://github.com/uael/puns/tree/v0.2.3/puns/examples
-[media]: https://github.com/uael/puns/blob/v0.2.3/puns/examples/media.rs
-[link]: https://github.com/uael/puns/blob/v0.2.3/puns/examples/link.rs
+[num]: https://docs.rs/puns/0.2.4/puns/num/index.html
+[layout]: https://docs.rs/puns/0.2.4/puns/layout/index.html
+[derive]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
+[trait-pun]: https://docs.rs/puns/0.2.4/puns/trait.Pun.html
+[Scalar]: https://docs.rs/puns/0.2.4/puns/trait.Scalar.html
+[Tag]: https://docs.rs/puns/0.2.4/puns/trait.Tag.html
+[error-type]: https://docs.rs/puns/0.2.4/puns/enum.Error.html
+[pun]: https://docs.rs/puns/0.2.4/puns/fn.pun.html
+[pun_ref]: https://docs.rs/puns/0.2.4/puns/fn.pun_ref.html
+[pun_mut]: https://docs.rs/puns/0.2.4/puns/fn.pun_mut.html
+[as_bytes]: https://docs.rs/puns/0.2.4/puns/fn.as_bytes.html
+[try_pun]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
+[try_pun_ref]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_ref.html
+[try_pun_mut]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_mut.html
+[head]: https://docs.rs/puns/0.2.4/puns/fn.head.html
+[head_ref]: https://docs.rs/puns/0.2.4/puns/fn.head_ref.html
+[head_mut]: https://docs.rs/puns/0.2.4/puns/fn.head_mut.html
+[tail]: https://docs.rs/puns/0.2.4/puns/fn.tail.html
+[tail_ref]: https://docs.rs/puns/0.2.4/puns/fn.tail_ref.html
+[tail_mut]: https://docs.rs/puns/0.2.4/puns/fn.tail_mut.html
+[from_bytes]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes.html
+[from_bytes_mut]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes_mut.html
+[from_head]: https://docs.rs/puns/0.2.4/puns/fn.from_head.html
+[from_head_mut]: https://docs.rs/puns/0.2.4/puns/fn.from_head_mut.html
+[from_tail]: https://docs.rs/puns/0.2.4/puns/fn.from_tail.html
+[from_tail_mut]: https://docs.rs/puns/0.2.4/puns/fn.from_tail_mut.html
+[zeroed]: https://docs.rs/puns/0.2.4/puns/fn.zeroed.html
+[validate_but_never]: https://docs.rs/puns/0.2.4/puns/fn.validate_but_never.html
+[changelog]: https://github.com/uael/puns/blob/v0.2.4/CHANGELOG.md
+[examples]: https://github.com/uael/puns/tree/v0.2.4/puns/examples
+[media]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/media.rs
+[link]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/link.rs
 [issues]: https://github.com/uael/puns/issues
 [wip]: https://github.com/uael/puns/tree/wip
-[apache]: https://github.com/uael/puns/blob/v0.2.3/LICENSE-APACHE
-[mit]: https://github.com/uael/puns/blob/v0.2.3/LICENSE-MIT
+[apache]: https://github.com/uael/puns/blob/v0.2.4/LICENSE-APACHE
+[mit]: https://github.com/uael/puns/blob/v0.2.4/LICENSE-MIT
 [zerocopy]: https://crates.io/crates/zerocopy
 [bytemuck]: https://crates.io/crates/bytemuck
 [binrw]: https://crates.io/crates/binrw

@@ -165,15 +165,15 @@ as well ([The identity of a type and the compiler][trust-identity]).
 [`transmute`]: https://doc.rust-lang.org/1.100.0/core/intrinsics/fn.transmute.html
 [offset_of layout]: https://doc.rust-lang.org/1.100.0/core/mem/macro.offset_of.html#layout-is-subject-to-change
 
-[`as_bytes`]: https://docs.rs/puns/0.2.3/puns/fn.as_bytes.html
-[`layout::UNSTABLE`]: https://docs.rs/puns/0.2.3/puns/layout/constant.UNSTABLE.html
-[`num`]: https://docs.rs/puns/0.2.3/puns/num/index.html
-[`Scalar`]: https://docs.rs/puns/0.2.3/puns/trait.Scalar.html
-[`Spec::maybe_uninit`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Spec.html#method.maybe_uninit
-[`validate_but_never`]: https://docs.rs/puns/0.2.3/puns/fn.validate_but_never.html
+[`as_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.as_bytes.html
+[`layout::UNSTABLE`]: https://docs.rs/puns/0.2.4/puns/layout/constant.UNSTABLE.html
+[`num`]: https://docs.rs/puns/0.2.4/puns/num/index.html
+[`Scalar`]: https://docs.rs/puns/0.2.4/puns/trait.Scalar.html
+[`Spec::maybe_uninit`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Spec.html#method.maybe_uninit
+[`validate_but_never`]: https://docs.rs/puns/0.2.4/puns/fn.validate_but_never.html
 [errors#unspecified-layouts]: errors.md#unspecified-layouts
 [kinds]: concepts.md#proven-checked-and-refused
-[opaque-scalars]: https://docs.rs/puns/0.2.3/puns/trait.Scalar.html#opaque-scalars
+[opaque-scalars]: https://docs.rs/puns/0.2.4/puns/trait.Scalar.html#opaque-scalars
 [opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [part]: concepts.md#layouts-and-rules
 [rule]: concepts.md#layouts-and-rules

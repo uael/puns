@@ -473,7 +473,7 @@ pub use layout::{crc32, sum16};
 /// [Build time](crate::guide::performance#build-time) measures how the build time of a view grows
 /// with its number of variants.
 ///
-/// [`ethernet.rs`]: https://github.com/uael/puns/blob/v0.2.3/puns/examples/ethernet.rs
+/// [`ethernet.rs`]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/ethernet.rs
 pub use puns_derive::Pun;
 use validate::{Checks, validate};
 

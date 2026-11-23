@@ -131,18 +131,18 @@ What such an attribute can still change without failing the build:
   this compilation, and are taken to hold in every compilation, which Rust does not promise.
 
 [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
-[enums]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#enums-with-fields
-[least]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#enums-with-fields
-[`Checksum`]: https://docs.rs/puns/0.2.3/puns/layout/enum.Checksum.html
-[`Crc`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Crc.html
-[`Enum`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Enum.html
-[`Field`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Field.html
-[`Layout`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Layout.html
-[`Op`]: https://docs.rs/puns/0.2.3/puns/layout/enum.Op.html
-[`Rule`]: https://docs.rs/puns/0.2.3/puns/layout/enum.Rule.html
-[`Spec`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Spec.html
-[`Varint`]: https://docs.rs/puns/0.2.3/puns/layout/enum.Varint.html
-[`Variant`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Variant.html
+[enums]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
+[least]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
+[`Checksum`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Checksum.html
+[`Crc`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Crc.html
+[`Enum`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Enum.html
+[`Field`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Field.html
+[`Layout`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Layout.html
+[`Op`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Op.html
+[`Rule`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Rule.html
+[`Spec`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Spec.html
+[`Varint`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Varint.html
+[`Variant`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Variant.html
 [independence]: layouts.md#layout-independence
 [opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [rust#the-tag-of-an-enum-of-the-rust-representation]: rust.md#the-tag-of-an-enum-of-the-rust-representation

@@ -288,25 +288,25 @@ which the last two limits keep few. An expression has:
 The derive reports an expression past one of these limits at the place of the fault, with the
 numbers. A walk takes at most `8 * size + 128` steps ([Walks](#walks)).
 
-[`codegen.rs`]: https://github.com/uael/puns/blob/v0.2.3/puns/examples/codegen.rs
-[`ethernet.rs`]: https://github.com/uael/puns/blob/v0.2.3/puns/examples/ethernet.rs
-[`images.rs`]: https://github.com/uael/puns/blob/v0.2.3/puns/examples/images.rs
-[`transport.rs`]: https://github.com/uael/puns/blob/v0.2.3/puns/examples/transport.rs
+[`codegen.rs`]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/codegen.rs
+[`ethernet.rs`]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/ethernet.rs
+[`images.rs`]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/images.rs
+[`transport.rs`]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/transport.rs
 
-[`from_head`]: https://docs.rs/puns/0.2.3/puns/fn.from_head.html
-[`layout::Crc`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Crc.html
-[`layout::Dfa`]: https://docs.rs/puns/0.2.3/puns/layout/struct.Dfa.html
-[`layout::Op`]: https://docs.rs/puns/0.2.3/puns/layout/enum.Op.html
+[`from_head`]: https://docs.rs/puns/0.2.4/puns/fn.from_head.html
+[`layout::Crc`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Crc.html
+[`layout::Dfa`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Dfa.html
+[`layout::Op`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Op.html
 [`size_of_val`]: https://doc.rust-lang.org/1.100.0/core/mem/fn.size_of_val.html
-[`try_pun`]: https://docs.rs/puns/0.2.3/puns/fn.try_pun.html
+[`try_pun`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
 [concepts#layouts-and-rules]: concepts.md#layouts-and-rules
 [concepts#requirements]: concepts.md#requirements
 [concepts#unspecified-layouts-opaque-scalars-and-uninhabited-types]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
-[fn@crc32]: https://docs.rs/puns/0.2.3/puns/layout/fn.crc32.html
-[fn@sum16]: https://docs.rs/puns/0.2.3/puns/layout/fn.sum16.html
+[fn@crc32]: https://docs.rs/puns/0.2.4/puns/layout/fn.crc32.html
+[fn@sum16]: https://docs.rs/puns/0.2.4/puns/layout/fn.sum16.html
 [formats]: formats.md
-[macro@Pun#assert]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#assert
-[macro@Pun#len]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#len
-[macro@Pun#regions]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#regions
-[macro@Pun#size]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#size
+[macro@Pun#assert]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#assert
+[macro@Pun#len]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#len
+[macro@Pun#regions]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#regions
+[macro@Pun#size]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#size

@@ -203,8 +203,8 @@ future.
 [phantom layout]: https://doc.rust-lang.org/1.99.0/core/marker/struct.PhantomData.html#layout-1
 [abi compatibility]: https://doc.rust-lang.org/1.99.0/core/primitive.fn.html#abi-compatibility
 
-[derive#enums-with-fields]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#enums-with-fields
-[model types]: https://github.com/uael/puns/blob/v0.2.3/puns-model/src/types.rs
+[derive#enums-with-fields]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
+[model types]: https://github.com/uael/puns/blob/v0.2.4/puns-model/src/types.rs
 
 [functions#in-a-constant]: functions.md#in-a-constant
 [limits#bounds-of-the-analysis]: limits.md#bounds-of-the-analysis

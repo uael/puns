@@ -173,9 +173,9 @@ mostly does not do. Measure the checks in release.
 
 [limits#limits-of-rust]: limits.md#limits-of-rust
 [walks]: rules.md#walks
-[build-time]: https://github.com/uael/puns/blob/v0.2.3/xtask/src/build_time.rs
-[checks]: https://github.com/uael/puns/blob/v0.2.3/puns/benches/checks.rs
-[codegen]: https://github.com/uael/puns/blob/v0.2.3/puns/examples/codegen.rs
+[build-time]: https://github.com/uael/puns/blob/v0.2.4/xtask/src/build_time.rs
+[checks]: https://github.com/uael/puns/blob/v0.2.4/puns/benches/checks.rs
+[codegen]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/codegen.rs
 [commit]: https://github.com/uael/puns/commit/4176671c690b6a75de775d3d4c6f6c607736ff00
-[record]: https://github.com/uael/puns/blob/v0.2.3/docs/checks-2026-11-21.txt
-[chart]: https://raw.githubusercontent.com/uael/puns/v0.2.3/docs/charts/checks.svg
+[record]: https://github.com/uael/puns/blob/v0.2.4/docs/checks-2026-11-21.txt
+[chart]: https://raw.githubusercontent.com/uael/puns/v0.2.4/docs/charts/checks.svg

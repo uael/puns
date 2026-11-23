@@ -146,24 +146,24 @@ evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions].
   containers of CBOR and MessagePack), are not supported.
 
 [`Atomic`]: https://doc.rust-lang.org/1.100.0/core/sync/atomic/struct.Atomic.html
-[`encodings.rs`]: https://github.com/uael/puns/blob/v0.2.3/puns/examples/encodings.rs
+[`encodings.rs`]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/encodings.rs
 [`LINT_TERMINATOR_LIMIT`]: https://github.com/rust-lang/rust/blob/1.99.0/compiler/rustc_const_eval/src/const_eval/machine.rs
 [`long_running_const_eval`]: https://doc.rust-lang.org/1.99.0/rustc/lints/listing/deny-by-default.html#long-running-const-eval
 [`recursion_limit`]: https://doc.rust-lang.org/1.99.0/reference/attributes/limits.html#r-attributes.limits.recursion_limit
 [`UnsafeCell`]: https://doc.rust-lang.org/1.100.0/core/cell/struct.UnsafeCell.html#memory-layout
 
-[`Error`]: https://docs.rs/puns/0.2.3/puns/enum.Error.html
-[`from_bytes`]: https://docs.rs/puns/0.2.3/puns/fn.from_bytes.html
-[`from_head`]: https://docs.rs/puns/0.2.3/puns/fn.from_head.html
-[`from_tail`]: https://docs.rs/puns/0.2.3/puns/fn.from_tail.html
-[`head_mut`]: https://docs.rs/puns/0.2.3/puns/fn.head_mut.html
-[`head`]: https://docs.rs/puns/0.2.3/puns/fn.head.html
-[`num`]: https://docs.rs/puns/0.2.3/puns/num/index.html
-[`Pun`]: https://docs.rs/puns/0.2.3/puns/trait.Pun.html#safety
-[`pun_mut`]: https://docs.rs/puns/0.2.3/puns/fn.pun_mut.html
-[`pun_ref`]: https://docs.rs/puns/0.2.3/puns/fn.pun_ref.html
-[`tail_mut`]: https://docs.rs/puns/0.2.3/puns/fn.tail_mut.html
-[`tail`]: https://docs.rs/puns/0.2.3/puns/fn.tail.html
+[`Error`]: https://docs.rs/puns/0.2.4/puns/enum.Error.html
+[`from_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes.html
+[`from_head`]: https://docs.rs/puns/0.2.4/puns/fn.from_head.html
+[`from_tail`]: https://docs.rs/puns/0.2.4/puns/fn.from_tail.html
+[`head_mut`]: https://docs.rs/puns/0.2.4/puns/fn.head_mut.html
+[`head`]: https://docs.rs/puns/0.2.4/puns/fn.head.html
+[`num`]: https://docs.rs/puns/0.2.4/puns/num/index.html
+[`Pun`]: https://docs.rs/puns/0.2.4/puns/trait.Pun.html#safety
+[`pun_mut`]: https://docs.rs/puns/0.2.4/puns/fn.pun_mut.html
+[`pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.pun_ref.html
+[`tail_mut`]: https://docs.rs/puns/0.2.4/puns/fn.tail_mut.html
+[`tail`]: https://docs.rs/puns/0.2.4/puns/fn.tail.html
 [concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
 [errors]: errors.md
 [errors#values-and-padding]: errors.md#values-and-padding
@@ -173,11 +173,11 @@ evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions].
 [kinds]: concepts.md#proven-checked-and-refused
 [layouts#the-same-type]: layouts.md#the-same-type
 [layouts#what-a-check-may-read]: layouts.md#what-a-check-may-read
-[macro@Pun]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html
-[macro@Pun#enums-with-fields]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#enums-with-fields
-[macro@Pun#get]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#get
-[macro@Pun#how-the-derive-reads-a-type]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#how-the-derive-reads-a-type
-[macro@Pun#views]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#views
+[macro@Pun]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
+[macro@Pun#enums-with-fields]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
+[macro@Pun#get]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#get
+[macro@Pun#how-the-derive-reads-a-type]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#how-the-derive-reads-a-type
+[macro@Pun#views]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#views
 [rules]: rules.md
 [rules#extent]: rules.md#extent
 [rules#fields-in-a-rule]: rules.md#fields-in-a-rule

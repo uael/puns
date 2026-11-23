@@ -611,22 +611,22 @@ let level: &Level = puns::from_bytes(&[0xff]).unwrap();
 assert!(level.negative());
 ```
 
-[`from_head`]: https://docs.rs/puns/0.2.3/puns/fn.from_head.html
-[`from_tail`]: https://docs.rs/puns/0.2.3/puns/fn.from_tail.html
-[`head_mut`]: https://docs.rs/puns/0.2.3/puns/fn.head_mut.html
-[`head_ref`]: https://docs.rs/puns/0.2.3/puns/fn.head_ref.html
-[`num::u32le`]: https://docs.rs/puns/0.2.3/puns/num/struct.u32le.html
-[`pun`]: https://docs.rs/puns/0.2.3/puns/fn.pun.html
-[`tail_mut`]: https://docs.rs/puns/0.2.3/puns/fn.tail_mut.html
-[`tail_ref`]: https://docs.rs/puns/0.2.3/puns/fn.tail_ref.html
-[`try_pun_ref`]: https://docs.rs/puns/0.2.3/puns/fn.try_pun_ref.html
-[`validate_but_never`]: https://docs.rs/puns/0.2.3/puns/fn.validate_but_never.html
-[`zeroed`]: https://docs.rs/puns/0.2.3/puns/fn.zeroed.html
+[`from_head`]: https://docs.rs/puns/0.2.4/puns/fn.from_head.html
+[`from_tail`]: https://docs.rs/puns/0.2.4/puns/fn.from_tail.html
+[`head_mut`]: https://docs.rs/puns/0.2.4/puns/fn.head_mut.html
+[`head_ref`]: https://docs.rs/puns/0.2.4/puns/fn.head_ref.html
+[`num::u32le`]: https://docs.rs/puns/0.2.4/puns/num/struct.u32le.html
+[`pun`]: https://docs.rs/puns/0.2.4/puns/fn.pun.html
+[`tail_mut`]: https://docs.rs/puns/0.2.4/puns/fn.tail_mut.html
+[`tail_ref`]: https://docs.rs/puns/0.2.4/puns/fn.tail_ref.html
+[`try_pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_ref.html
+[`validate_but_never`]: https://docs.rs/puns/0.2.4/puns/fn.validate_but_never.html
+[`zeroed`]: https://docs.rs/puns/0.2.4/puns/fn.zeroed.html
 [concepts#proven-checked-and-refused]: concepts.md#proven-checked-and-refused
 [concepts#requirements]: concepts.md#requirements
 [functions#writes-leave-a-valid-source]: functions.md#writes-leave-a-valid-source
 [functions#writing-through-mut]: functions.md#writing-through-mut
-[macro@Pun#compile-time-errors]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#compile-time-errors
+[macro@Pun#compile-time-errors]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#compile-time-errors
 [opaque scalar]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types
 [rules#fields-in-a-rule]: rules.md#fields-in-a-rule
 [uninhabited]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types

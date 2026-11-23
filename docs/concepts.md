@@ -179,17 +179,17 @@ without variants are uninhabited.
 [`r-layout.guarantees`]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.guarantees
 [uninhabited]: https://doc.rust-lang.org/1.99.0/reference/glossary.html#uninhabited
 
-[`Error`]: https://docs.rs/puns/0.2.3/puns/enum.Error.html
-[`num`]: https://docs.rs/puns/0.2.3/puns/num/index.html
-[`pun_ref`]: https://docs.rs/puns/0.2.3/puns/fn.pun_ref.html
-[`Pun`]: https://docs.rs/puns/0.2.3/puns/trait.Pun.html
-[`try_pun_ref`]: https://docs.rs/puns/0.2.3/puns/fn.try_pun_ref.html
+[`Error`]: https://docs.rs/puns/0.2.4/puns/enum.Error.html
+[`num`]: https://docs.rs/puns/0.2.4/puns/num/index.html
+[`pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.pun_ref.html
+[`Pun`]: https://docs.rs/puns/0.2.4/puns/trait.Pun.html
+[`try_pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_ref.html
 [core::mem::transmute]: https://doc.rust-lang.org/1.100.0/core/intrinsics/fn.transmute.html
 [crate]: ../README.md
-[macro@Pun#views]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#views
-[num::u16bec]: https://docs.rs/puns/0.2.3/puns/num/struct.u16bec.html
-[num::u8in]: https://docs.rs/puns/0.2.3/puns/num/struct.u8in.html
-[opaque-scalars]: https://docs.rs/puns/0.2.3/puns/trait.Scalar.html#opaque-scalars
+[macro@Pun#views]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#views
+[num::u16bec]: https://docs.rs/puns/0.2.4/puns/num/struct.u16bec.html
+[num::u8in]: https://docs.rs/puns/0.2.4/puns/num/struct.u8in.html
+[opaque-scalars]: https://docs.rs/puns/0.2.4/puns/trait.Scalar.html#opaque-scalars
 [properly aligned]: https://doc.rust-lang.org/1.100.0/core/ptr/index.html#alignment
 [rules]: rules.md
 [rules#extent]: rules.md#extent

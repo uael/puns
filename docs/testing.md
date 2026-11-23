@@ -74,9 +74,9 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-
 ```
 
 [Miri]: https://github.com/rust-lang/miri
-[compile-fail]: https://github.com/uael/puns/tree/v0.2.3/puns/tests
-[model]: https://github.com/uael/puns/blob/v0.2.3/puns-model/src/lib.rs
-[sample]: https://github.com/uael/puns/blob/v0.2.3/puns-model/tests/miri_sample.rs
+[compile-fail]: https://github.com/uael/puns/tree/v0.2.4/puns/tests
+[model]: https://github.com/uael/puns/blob/v0.2.4/puns-model/src/lib.rs
+[sample]: https://github.com/uael/puns/blob/v0.2.4/puns-model/tests/miri_sample.rs
 
 [layouts]: layouts.md
 [opaque]: concepts.md#unspecified-layouts-opaque-scalars-and-uninhabited-types

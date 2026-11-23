@@ -250,20 +250,20 @@ assert!(puns::from_bytes::<Record>(puns::as_bytes(&*record)).is_err());
 
 Check bytes again when they come from code that may have written them.
 
-[`as_bytes`]: https://docs.rs/puns/0.2.3/puns/fn.as_bytes.html
-[`from_bytes`]: https://docs.rs/puns/0.2.3/puns/fn.from_bytes.html
-[`from_head`]: https://docs.rs/puns/0.2.3/puns/fn.from_head.html
-[`num`]: https://docs.rs/puns/0.2.3/puns/num/index.html
+[`as_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.as_bytes.html
+[`from_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes.html
+[`from_head`]: https://docs.rs/puns/0.2.4/puns/fn.from_head.html
+[`num`]: https://docs.rs/puns/0.2.4/puns/num/index.html
 [concepts#layouts-and-rules]: concepts.md#layouts-and-rules
 [concepts#requirements]: concepts.md#requirements
 [crate#reading-a-packet]: ../README.md#reading-a-packet
-[macro@Pun]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html
-[macro@Pun#assert]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#assert
-[macro@Pun#get]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#get
-[macro@Pun#len]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#len
-[macro@Pun#regions]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#regions
-[macro@Pun#size]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#size
-[macro@Pun#tag]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#tag
-[macro@Pun#valid]: https://docs.rs/puns/0.2.3/puns/derive.Pun.html#valid
+[macro@Pun]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
+[macro@Pun#assert]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#assert
+[macro@Pun#get]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#get
+[macro@Pun#len]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#len
+[macro@Pun#regions]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#regions
+[macro@Pun#size]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#size
+[macro@Pun#tag]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#tag
+[macro@Pun#valid]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#valid
 [rules]: rules.md
 [rules#regions]: rules.md#regions
