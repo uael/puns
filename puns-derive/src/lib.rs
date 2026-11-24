@@ -1551,11 +1551,22 @@ fn bound(generics: &mut syn::Generics, ty: &Type, root: &TokenStream) {
 /// (`type_repetition_in_bounds`), at the span of the bounds that the user wrote, as in
 /// `struct Near<T: ?Sized>` with `#[pun(bound(T: Pun))]`. A type parameter is named by its
 /// identifier alone ([`parameter`]).
-fn constrain(generics: &mut syn::Generics, predicate: syn::WherePredicate) {
-  if let syn::WherePredicate::Type(predicate) = &predicate
+fn constrain(generics: &mut syn::Generics, mut predicate: syn::WherePredicate) {
+  if let syn::WherePredicate::Type(predicate) = &mut predicate
     && predicate.lifetimes.is_none()
     && let Some(name) = parameter(&predicate.bounded_ty)
   {
+    // A `Pun` bound that the parameter has already ([`has_pun`]) is not written twice
+    // (`trait_duplication_in_bounds`), as a bound that the derive finds is not ([`bound`]).
+    if has_pun(generics, &name.to_string()) {
+      predicate.bounds =
+        predicate.bounds.iter().filter(|bound| !names_pun(bound)).cloned().collect();
+      if predicate.bounds.is_empty() {
+        return;
+      }
+    }
+    let name = name.clone();
+    let name = &name;
     let same = generics.where_clause.as_mut().and_then(|clause| {
       clause.predicates.iter_mut().find_map(|existing| match existing {
         syn::WherePredicate::Type(existing)
@@ -1592,12 +1603,7 @@ fn parameter(ty: &Type) -> Option<&Ident> {
 ///
 /// The bound is read by its last name, as written: `Pun`, `puns::Pun` or `crate::Pun`.
 fn has_pun(generics: &syn::Generics, name: &str) -> bool {
-  let pun = |bounds: &Punctuated<syn::TypeParamBound, Token![+]>| {
-    bounds.iter().any(|bound| {
-      matches!(bound, syn::TypeParamBound::Trait(bound)
-        if bound.path.segments.last().is_some_and(|segment| segment.ident == "Pun"))
-    })
-  };
+  let pun = |bounds: &Punctuated<syn::TypeParamBound, Token![+]>| bounds.iter().any(names_pun);
   // `<T: Pun>`
   generics.type_params().any(|param| param.ident == name && pun(&param.bounds))
     // `where T: Pun`
@@ -1605,6 +1611,13 @@ fn has_pun(generics: &syn::Generics, name: &str) -> bool {
       matches!(predicate, syn::WherePredicate::Type(predicate)
         if predicate.bounded_ty.to_token_stream().to_string() == name && pun(&predicate.bounds))
     })
+}
+
+/// Returns whether `bound` names the trait `Pun`, by the last segment of its path: the derive
+/// sees tokens, not traits, and `Pun` is the name by which a user writes it, through any path.
+fn names_pun(bound: &syn::TypeParamBound) -> bool {
+  matches!(bound, syn::TypeParamBound::Trait(bound)
+    if bound.path.segments.last().is_some_and(|segment| segment.ident == "Pun"))
 }
 
 /// Returns the generics of `input`, with the bounds of its implementation of `Pun`: `bounds` if
