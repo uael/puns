@@ -7,10 +7,13 @@ error[E0275]: overflow evaluating the requirement `Ping<u32>: Pun`
 note: required for `Near<Ping<u32>>` to implement `Pun`
   --> tests/compile-fail/../support/aims.rs
    |
-   | unsafe impl<T: ?Sized + Pun> Pun for Near<T> {
-   |                         ---  ^^^     ^^^^^^^
-   |                         |
-   |                         unsatisfied trait bound introduced here
+   | #[pun(bound(T: Pun))]
+   |                --- unsatisfied trait bound
+   | #[repr(transparent)]
+   | pub struct Near<T: ?Sized> {
+   |            ^^^^^^^^^^^^^^^
+   = help: consider manually implementing `Pun` to avoid undesired bounds caused by "imperfect derives"
+   = note: to learn more, visit <https://github.com/rust-lang/rust/issues/26925>
    = note: 3 redundant requirements hidden
    = note: required for `Ping<u32>` to implement `Pun`
 note: required by a bound in `puns::as_bytes`

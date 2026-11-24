@@ -292,6 +292,16 @@ where
   again: T,
 }
 
+/// A struct whose `#[pun(bound(..))]` bounds a parameter that has bounds of its own. The derive
+/// adds the bound to them, or clippy would report `type_repetition_in_bounds`.
+#[derive(Pun)]
+#[pun(bound(T: Pun))]
+#[repr(C)]
+struct Relaxed<T: ?Sized> {
+  value: u8,
+  kind: core::marker::PhantomData<T>,
+}
+
 #[derive(Pun, Clone, Copy)]
 #[repr(u8)]
 enum Choice<T: Pun + Copy> {
@@ -303,6 +313,7 @@ enum Choice<T: Pun + Copy> {
 fn bounds_are_not_repeated() {
   let bounded = puns::from_bytes::<Bounded<u8, bool>>(&[1, 1, 2]).unwrap();
   assert_eq!((bounded.value, bounded.other, bounded.again), (1, true, 2));
+  assert_eq!(puns::from_bytes::<Relaxed<str>>(&[7]).map(|relaxed| relaxed.value), Ok(7));
   assert!(matches!(puns::try_pun::<_, Choice<bool>>([1u8, 1, 0]), Ok(Choice::B(true, false))));
   assert!(matches!(puns::try_pun::<_, Choice<bool>>([0u8, 1, 0]), Ok(Choice::A(true))));
   for choice in [Choice::A(true), Choice::B(false, true)] {

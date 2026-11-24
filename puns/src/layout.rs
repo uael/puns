@@ -2008,15 +2008,18 @@ impl Layout {
   );
 
   /// The types whose functions the code of `#[derive(Pun)]` calls to make the aims of a struct with
-  /// regions, pinned as [`Layout::PIN`] pins the others. It is a constant of its own, which the
-  /// derive writes only for such a struct.
+  /// regions or an eager aim, and the type of the field of an eager aim ([`InPlace`]), pinned as
+  /// [`Layout::PIN`] pins the others. It is a constant of its own, which the derive writes only for
+  /// such a struct.
+  ///
+  /// [`InPlace`]: crate::InPlace
   #[doc(hidden)]
   #[expect(
     clippy::type_complexity,
     reason = "the derive writes this tuple of `fn` types out, with the paths it is told"
   )]
-  pub const PIN_AIMS: (fn(Aim), fn(Start), fn(Metadata), fn(Check)) =
-    (pin::<Aim>, pin::<Start>, pin::<Metadata>, pin::<Check>);
+  pub const PIN_AIMS: (fn(Aim), fn(Start), fn(Metadata), fn(Check), fn(crate::InPlace<()>)) =
+    (pin::<Aim>, pin::<Start>, pin::<Metadata>, pin::<Check>, pin::<crate::InPlace<()>>);
 
   /// Returns an uninitialized `T`, for `#[derive(Pun)]`, which measures the offsets of the fields
   /// of a struct by projecting a pointer into it.
@@ -5907,7 +5910,8 @@ pub(crate) const fn same_ops(a: &[Op], b: &[Op]) -> bool {
 /// rule of a value that it did not check.
 ///
 /// `#[derive(Pun)]` makes the rules of `#[pun(size = ..)]` and `#[pun(assert(..))]` on a struct,
-/// and of `#[pun(len = ..)]` and `#[pun(regions(..))]` on its last field.
+/// of `#[pun(len = ..)]` and `#[pun(regions(..))]` on its last field, and of `#[pun(aim(..))]` on a
+/// field of type [`InPlace<T>`](crate::InPlace).
 ///
 /// # Examples
 ///
@@ -5963,8 +5967,9 @@ pub enum Rule {
 /// `[u8]`, and its metadata is its number of bytes, also for a region with a type, which its
 /// accessor reads from those bytes with `from_bytes`. A size is then a number of bytes, as it was
 /// before regions were aims, and a region of a sized type has the metadata that a region of
-/// `[u8]` has. A type with an eager aim, such as the pointer of `nearest`, writes its
-/// implementation of [`Pun`](crate::Pun) by hand.
+/// `[u8]` has. It makes the eager, thin aim of `#[pun(aim(..))]` on a field of type
+/// [`InPlace<T>`](crate::InPlace), the target of a self-relative pointer such as those of
+/// `nearest`.
 ///
 /// # Examples
 ///

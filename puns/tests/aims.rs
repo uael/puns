@@ -5,7 +5,7 @@
 mod aims;
 
 use aims::{Expr, Near, Pair, Tree};
-use puns::{Error, Pun, Thin};
+use puns::{Error, InPlace, Pun, Thin, layout::Endian};
 
 /// The target of `near`, in `image`, the bytes in which `puns` checked it.
 fn to<'a, T: ?Sized + Pun>(near: &'a Near<T>, image: &'a [u8]) -> &'a T {
@@ -248,6 +248,51 @@ fn thin_over_a_struct_with_a_tail() {
   assert_eq!(size_of::<Thin<u64, i16>>(), 8);
   // The data of `Thin<[u32], i16>` is after 2 bytes of padding.
   assert_eq!(<Thin<[u32], i16> as Pun>::LAYOUT.size(), 4);
+}
+
+/// A pointer to a `u16` before it or after it, stored as the distance from its own address.
+#[derive(Pun)]
+#[repr(transparent)]
+struct Back {
+  #[pun(aim(u16 = off as u128))]
+  off: InPlace<i16>,
+}
+
+#[test]
+fn a_target_before_the_pointer() {
+  // The target, 7, then a pointer 2 bytes after it, which points back at it.
+  let words = [7, (-2i16).cast_unsigned(), 0];
+  let bytes = puns::as_bytes(&words);
+  assert_eq!(puns::from_tail::<Back>(&bytes[..4]).map(|(_, back)| back.off.get()), Ok(-2));
+  // The target is not in the bytes that are checked.
+  assert_eq!(puns::from_bytes::<Back>(&bytes[2..4]).err(), Some(Error::Validity));
+  // One byte before the target is not aligned for a `u16`.
+  let words = [7, (-3i16).cast_unsigned(), 0];
+  assert_eq!(puns::from_tail::<Back>(&puns::as_bytes(&words)[..4]).err(), Some(Error::Validity));
+}
+
+/// A pointer whose distance is big-endian on every target, to a pair of words that starts 4
+/// bytes before the place where it aims, its second word.
+#[derive(Pun)]
+#[repr(transparent)]
+struct Second {
+  #[pun(aim([u32; 2] = signed(0, 4, Endian::Big) - 4))]
+  off: InPlace<[u8; 4]>,
+}
+
+#[test]
+fn where_a_target_starts_is_a_rule() {
+  let at = |off: i32| [u32::from_ne_bytes(off.to_be_bytes()), 1, 2];
+  // At 8, the second word of the pair at 4.
+  let words = at(8);
+  let second = puns::from_head::<Second>(puns::as_bytes(&words)).unwrap().0;
+  assert_eq!(second.off.get(), 8i32.to_be_bytes());
+  // At 4: the pair at 0, which holds the pointer, as a target may.
+  assert!(puns::from_head::<Second>(puns::as_bytes(&at(4))).is_ok());
+  // At 12: the pair at 8 ends past the bytes.
+  assert_eq!(puns::from_head::<Second>(puns::as_bytes(&at(12))).err(), Some(Error::Validity));
+  // At 0: the pair would start 4 bytes before the pointer, and `0 - 4` fails.
+  assert_eq!(puns::from_head::<Second>(puns::as_bytes(&at(0))).err(), Some(Error::Validity));
 }
 
 /// An image under construction: values written at positions aligned for them, as a writer of

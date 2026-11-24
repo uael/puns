@@ -656,8 +656,33 @@
 //!   that region reads its type from those bytes with [`from_bytes`], which checks it then. So the
 //!   type of a region is checked only when it is read, and plays no part in a proof.
 //!
-//! The type that holds an eager aim implements [`Pun`] by hand, with the hidden items that the
-//! derive writes for a struct. `tests/support/aims.rs` declares such a pointer, as `nearest` would.
+//! A struct declares an eager aim with `#[pun(aim(Type = EXPR))]` on a field of type
+//! [`InPlace<T>`](InPlace), which holds where the target is ([`macro@Pun`]): the struct points at
+//! a `Type` that starts `EXPR` bytes from its own start, an `i128` in two's complement. No code
+//! makes an `InPlace`, so no safe code makes a value of the struct, which exists only where `puns`
+//! checked its target, or where unsafe code put it. A reference to the struct is then a reference
+//! to a valid target, as above. A struct with an eager aim is not `Clone`, `Copy` or `Default`,
+//! since an `InPlace` is none of these. `tests/support/aims.rs` declares a self-relative pointer
+//! this way, as `nearest` does:
+//!
+//! ```
+//! use puns::{InPlace, Pun};
+//!
+//! /// A pointer to a `u32`, stored as the distance from its own address, in an `i32`.
+//! #[derive(Pun)]
+//! #[repr(transparent)]
+//! struct Ptr {
+//!   #[pun(aim(u32 = off as u128))]
+//!   off: InPlace<i32>,
+//! }
+//!
+//! // A distance of 4, to the word after the pointer.
+//! let words = [4u32, 7];
+//! assert!(puns::from_head::<Ptr>(puns::as_bytes(&words)).is_ok());
+//! // A distance of 8 is past the bytes, and -4 before them.
+//! assert!(puns::from_head::<Ptr>(puns::as_bytes(&[8u32, 7])).is_err());
+//! assert!(puns::from_head::<Ptr>(puns::as_bytes(&[(-4i32).cast_unsigned(), 7])).is_err());
+//! ```
 //!
 //! # Cargo features
 //!
@@ -1353,12 +1378,13 @@ pub use layout::{crc32, sum16};
 /// On a struct, an enum with fields that is not a view, or a union:
 ///
 /// - `#[pun(bound(T: Trait, ..))]`: the bounds of the implementation of `Pun`, in addition to the
-///   bounds of the type. They replace the bounds that the derive finds for the fields, which
-///   require the type of each field that depends on a type parameter to be `Pun`, unless that type
-///   names the type being derived. The derive still requires the type of each typed region to be
-///   `Pun`, and a struct that is neither `repr(C)` nor `repr(transparent)` to be `Sized`. Generic
-///   types that hold each other behind pointers need this, since the bounds found for each would
-///   form a cycle. Write `#[pun(bound())]` when the bounds of the type are enough.
+///   bounds of the type. They replace the bounds that the derive finds for the fields and the
+///   targets of the aims, which require each of these types that depends on a type parameter to be
+///   `Pun`, unless it names the type being derived. The derive still requires the type of each
+///   typed region to be `Pun`, and a struct that is neither `repr(C)` nor `repr(transparent)` to
+///   be `Sized`. Generic types that hold each other behind pointers need this, since the bounds
+///   found for each would form a cycle, and so does an aim whose target needs a bound of its own.
+///   Write `#[pun(bound())]` when the bounds of the type are enough.
 ///
 /// On any type:
 ///
@@ -1370,6 +1396,18 @@ pub use layout::{crc32, sum16};
 /// - `#[pun(valid(0x45..=0x4f, 0x60, ..))]`: the field must have one of these values. Each item is
 ///   a value or a range of unsigned integer literals or constants. The value of the field is its
 ///   bits read as an unsigned integer in its byte order, so `0xff` is `-1i8`.
+///
+/// On a field of a struct whose type is written [`InPlace<T>`](InPlace):
+///
+/// - `#[pun(aim(Type = EXPR))]`: the struct points at a `Type` that starts `EXPR` bytes from the
+///   start of the struct, an eager [aim](crate#aims). `EXPR` is a rule whose value is read as an
+///   `i128` in two's complement, so that a target may be before the struct: a signed field `off`
+///   that holds the distance is `off as u128`. A check of the struct checks the target there,
+///   within the bytes that it reads, aligned for `Type`, and every part of it. `Type` is sized, or
+///   stores its length as [`Thin`] does, with a `size` or `len` rule. The field is a `T` in the
+///   layout and in rules, which may name it. No code makes an `InPlace`, so no safe code makes a
+///   value of the struct, and code may read the target through a reference to it without a check.
+///   The derive requires `T` and `Type` to be `Pun`, as it requires the type of a field.
 ///
 /// On the last field of a struct:
 ///
@@ -1388,14 +1426,14 @@ pub use layout::{crc32, sum16};
 ///
 /// ## Expressions
 ///
-/// The `EXPR` of `size`, `assert`, `len` and `regions` is a *rule*. A rule is compiled to a
+/// The `EXPR` of `size`, `assert`, `len`, `regions` and `aim` is a *rule*. A rule is compiled to a
 /// constant program, which can be evaluated in a `const fn` and costs what its arithmetic costs.
 ///
 /// A rule means what the same Rust expression would mean if every integer were a `u128`, or it is
 /// refused. It is typed as Rust would type it, so arithmetic is on integers, the operands of `&&`
 /// and `||` and the condition of an `if` are `bool`s, an `assert` is a `bool`, and a `size`, a
-/// `len` or a region is an integer. Rust does not convert an integer to a `bool`, so `flags & 1` is
-/// not an assertion, but `flags & 1 != 0` is.
+/// `len`, a region or an aim is an integer. Rust does not convert an integer to a `bool`, so
+/// `flags & 1` is not an assertion, but `flags & 1 != 0` is.
 ///
 /// A rule is made of:
 ///
@@ -1542,6 +1580,8 @@ pub use layout::{crc32, sum16};
 /// - Every rule is an expression as described in "Expressions", of the type that its option
 ///   requires, and each field it names is an unsigned integer, or a signed one under a cast, as
 ///   above. The `N` of each `le`, `be`, `signed` and `unsigned` is 1 to 16.
+/// - The field of each `aim` is written `InPlace<T>`, and is of the type [`InPlace<T>`](InPlace).
+///   The target of the aim is sized, or has a `size` or `len` rule.
 /// - A rule has at most 256 operations, needs a stack of at most 16 values, and has at most 8 names
 ///   at once. Its walks are nested at most 4 deep.
 /// - The width of each `crc::<..>` is 1 to 64 bits, and its other parameters fit in that width.
@@ -1608,11 +1648,12 @@ pub use layout::{crc32, sum16};
 /// - The functions that the generated code calls to make a layout are associated functions of
 ///   [`layout::Layout`], [`layout::Spec`], [`layout::Rule`], [`layout::Op`], [`layout::Field`],
 ///   [`layout::Enum`], [`layout::Variant`], [`layout::Crc`], [`layout::Checksum`],
-///   [`layout::Varint`] and the identity of a type, and methods of the values that they return. A
-///   hidden constant of `Layout` fixes these types with `fn(T)` types that no path can replace, so
-///   a path that names a module or another type for one of them does not compile. The description
-///   of an enum of the `Rust` representation, whose type the generated code names, is what a
-///   function of `Layout` returns, so only the real type compiles.
+///   [`layout::Varint`], [`layout::Aim`], [`layout::Start`], [`layout::Metadata`],
+///   [`layout::Check`] and the identity of a type, and methods of the values that they return.
+///   Hidden constants of `Layout` fix these types, and [`InPlace`], with `fn(T)` types that no path
+///   can replace, so a path that names a module or another type for one of them does not compile.
+///   The description of an enum of the `Rust` representation, whose type the generated code names,
+///   is what a function of `Layout` returns, so only the real type compiles.
 /// - The offsets of the fields do not come from `offset_of!`, which is a macro named by a path.
 ///   They are measured on the type as compiled, by projecting a pointer to it (`&raw const
 ///   (*p).field`) and `byte_offset_from`, which read no memory. For a struct of the `Rust`
@@ -1642,6 +1683,10 @@ pub use layout::{crc32, sum16};
 ///   with `__Pun` there, which it refuses in the input.
 /// - The trait that says where a field is (`Path`) is sealed, and the leaf at which a list of
 ///   fields places a field is checked against the layout.
+/// - The field of each `aim` has the type [`InPlace<T>`](InPlace), where `T` is its type in the
+///   layout, which the function that ties the fields to the type as compiled requires, below, as it
+///   requires the type of every field. So a struct to which the derive gives an eager aim has no
+///   value that safe code makes.
 /// - The type of each field is written once, as an associated type of a trait that the derive
 ///   declares and implements for the type, where `Self` is the type, as in its declaration. The
 ///   rest of the generated code names the type of a field there. A function that is never called
@@ -1884,8 +1929,8 @@ pub use core as __core;
 /// A type that is one scalar value, whose valid values a [`Spec`] describes.
 ///
 /// Every `Scalar` is a [`Pun`] type. The integer and floating-point types, `bool`, `char`,
-/// `NonZero`, `()`, `PhantomData` and the types of [`num`] implement it, and `#[derive(Pun)]`
-/// implements it for enums without fields.
+/// `NonZero`, `()`, `PhantomData`, `PhantomPinned` and the types of [`num`] implement it, and
+/// `#[derive(Pun)]` implements it for enums without fields.
 ///
 /// # Safety
 ///
@@ -1975,11 +2020,11 @@ pub unsafe trait Scalar {
 /// A type of plain data, whose layout and valid values `puns` knows at compile time.
 ///
 /// Every function of this crate takes `Pun` types. These are the integer and floating-point types,
-/// `bool`, `char`, `NonZero`, `()`, `PhantomData`, arrays, slices, `str`, tuples of up to 12
-/// elements, `Option` and `Result` of `Pun` types, `MaybeUninit`, `ManuallyDrop`, `Infallible`, the
-/// types of [`num`], every [`Scalar`], and the types that derive it. For a tuple, struct or enum of
-/// the `Rust` representation, a pun without the `unstable` feature relies only on what every layout
-/// that Rust allows has in common ([`layout::UNSTABLE`]).
+/// `bool`, `char`, `NonZero`, `()`, `PhantomData`, `PhantomPinned`, arrays, slices, `str`, tuples
+/// of up to 12 elements, `Option` and `Result` of `Pun` types, `MaybeUninit`, `ManuallyDrop`,
+/// `Infallible`, the types of [`num`], every [`Scalar`], and the types that derive it. For a tuple,
+/// struct or enum of the `Rust` representation, a pun without the `unstable` feature relies only on
+/// what every layout that Rust allows has in common ([`layout::UNSTABLE`]).
 ///
 /// The limit of 12 elements is arbitrary, and could be higher. It is the arity up to which `core`
 /// implements its own traits for tuples ([trait implementations of tuples][core tuples]).
@@ -1988,11 +2033,7 @@ pub unsafe trait Scalar {
 ///
 /// `Pun` must not be implemented by hand, because its items are hidden, and may change in any
 /// release. It is implemented by `#[derive(Pun)]`, and by `puns` for the types listed above, a
-/// [`Scalar`] included. The exception is a type with an eager aim, such as a self-relative pointer
-/// ([Aims](crate#aims)), which the derive does not write: its crate implements it by hand, with
-/// the same hidden items, and follows their changes. It must have no constructor, and must not be
-/// `Clone`, `Copy` or `Default`, so that a value of it exists only where `puns` checked its
-/// targets.
+/// [`Scalar`] included.
 ///
 /// An implementation guarantees that the layout it describes is the layout of `Self`: its size, its
 /// alignment, the offset of each field, the values each scalar may hold, and its rules. Every value
@@ -2125,6 +2166,73 @@ pub trait Tag<K: ?Sized>: Pun {
 /// Bytes are carried with any tag.
 impl<K: Pun + Copy> Tag<K> for [u8] {
   type Tag = K;
+}
+
+/// A `T` that holds where the target of an eager [aim](crate#aims) is, the field of a struct with
+/// `#[pun(aim(Type = EXPR))]` ([`macro@Pun`]), which no code but `puns` makes, and `puns` makes
+/// none.
+///
+/// It is `repr(transparent)` over `T`, which a struct reads with [`InPlace::get`], and whose
+/// layout and values are those of the field in the layout of the struct. Its field is private, it
+/// is not a [`Pun`] type, so no pun makes one, and it is neither `Clone`, `Copy` nor `Default`. So
+/// no safe code makes a value of a struct that holds one: such a value exists only in bytes where
+/// `puns` checked the targets of its aims, or where unsafe code put it, and code may read these
+/// targets through a reference to it without a check.
+///
+/// # Examples
+///
+/// A pointer to a `u16` before it or after it, stored as the distance from its own address:
+///
+/// ```
+/// use puns::{InPlace, Pun};
+///
+/// #[derive(Pun)]
+/// #[repr(transparent)]
+/// struct Near16 {
+///   #[pun(aim(u16 = off as u128))]
+///   off: InPlace<i16>,
+/// }
+///
+/// // The target, 7, then a pointer 2 bytes after it, which points back at it.
+/// let words = [7, (-2i16).cast_unsigned()];
+/// let (_, near) = puns::from_tail::<Near16>(puns::as_bytes(&words)).unwrap();
+/// assert_eq!(near.off.get(), -2);
+/// // Without the target in the bytes that are checked.
+/// assert!(puns::from_bytes::<Near16>(&puns::as_bytes(&words)[2..]).is_err());
+/// ```
+///
+/// Only `puns` could make one:
+///
+/// ```compile_fail,E0423
+/// let _ = puns::InPlace(-2i16);
+/// ```
+#[repr(transparent)]
+pub struct InPlace<T>(T);
+
+impl<T: Copy> InPlace<T> {
+  /// Returns the `T`.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::{InPlace, Pun};
+  ///
+  /// #[derive(Pun)]
+  /// #[repr(transparent)]
+  /// struct Next {
+  ///   #[pun(aim(u8 = off as u128))]
+  ///   off: InPlace<u8>,
+  /// }
+  ///
+  /// // A pointer to the byte after it.
+  /// let next = puns::from_head::<Next>(&[1, 9]).unwrap().0;
+  /// assert_eq!(next.off.get(), 1);
+  /// ```
+  #[inline]
+  #[must_use]
+  pub const fn get(&self) -> T {
+    self.0
+  }
 }
 
 /// A field of a struct, and the ones after it, as a list at the type level, for validation.
@@ -2763,6 +2871,18 @@ impl_bits!(not_a_number: f32 f64);
 //     `size_of::<PhantomData<T>>() == 0`
 unsafe impl<T: ?Sized> Scalar for PhantomData<T> {
   const SPEC: Spec = Spec::any::<Self>();
+}
+
+// SAFETY: `PhantomPinned` is a struct without fields, of size 0, which `SPEC` asserts since `core`
+// does not document it, and `Spec::any::<Self>()` has that size. A value of size 0 has no byte to
+// hold or to accept, and `PhantomPinned` has no invariant of its bytes: it only makes a type that
+// holds it not `Unpin`. It holds no `UnsafeCell`.
+unsafe impl Scalar for core::marker::PhantomPinned {
+  const SPEC: Spec = {
+    assert!(size_of::<Self>() == 0, "`PhantomPinned` has a size of 0");
+    Spec::any::<Self>()
+  };
+  const ID: layout::Id = layout::Id::new("PhantomPinned", &[]);
 }
 
 // SAFETY: `SPEC` has the size of `bool` and accepts the bytes 0 and 1, which are exactly the valid

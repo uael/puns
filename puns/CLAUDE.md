@@ -16,7 +16,7 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   ("What the derive trusts").
 - [`Scalar`](src/lib.rs) states the contract of a scalar declared by hand, and the crate
   documentation ("Aims") what `puns` guarantees a type that holds an eager aim, such as a
-  self-relative pointer declared by hand.
+  self-relative pointer, which derives `Pun` with `#[pun(aim(..))]`.
 
 ## How it works
 
@@ -85,13 +85,16 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   on the item as compiled (`Layout::offsets`, the samples of the variants), except where
   "What the derive trusts" says that the `repr` that the derive read gives them.
 - The self-relative pointer of the tests (`Near`, in
-  [`tests/support/aims.rs`](tests/support/aims.rs)) is declared through the public API only, as
-  another crate would declare it, with an eager aim.
+  [`tests/support/aims.rs`](tests/support/aims.rs)) derives `Pun` with an eager aim, as another
+  crate would declare it.
 - An eager aim (`layout::Check::Eager`) is checked with the struct that holds it, its target
   within the bytes that the check reads (`validate::Input`), and code reads the target without a
   check. So no function makes a value that holds one (`Plan::eager`), gives a `&mut` to or from
   one (`Plan::eager_mut`), or checks one from a source whose bytes may be padding, and only the
-  same aim at the same place proves one (`Aim::equals`, with a known identity of the target). A
+  same aim at the same place proves one (`Aim::equals`, with a known identity of the target). The
+  derive gives an eager aim only to a struct whose field is an `InPlace<T>`, which no code makes
+  and which is not `Pun`, and checks that the field has this type (`item` in `homes`), so that no
+  safe code makes a value of the struct either. An `InPlace<T>` is a `T` in the layout. A
   lazy aim is a region, whose target is `[u8]`: it is checked by what reads it (`region`, then
   `from_bytes` for a region with a type).
 - A layout cannot hold itself, so an aim holds the size, the alignment and the identity of its
