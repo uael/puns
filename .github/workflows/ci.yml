@@ -95,11 +95,10 @@ jobs:
           - name: puns
             id: model-puns
             tests: --test miri_sample
-          - name: rules, unsized, views, never made
+          - name: rules, unsized, views
             id: model-rules
             tests: >-
               --lib --test core_shadowed --test regressions --test rules --test dst --test views
-              --test opaque
           - name: shapes
             id: model-shapes
             tests: --test shapes
@@ -109,11 +108,11 @@ jobs:
           - name: unstable, puns
             id: model-unstable-puns
             tests: --features unstable --test miri_sample
-          - name: unstable, rules, unsized, views, never made
+          - name: unstable, rules, unsized, views
             id: model-unstable-rules
             tests: >-
               --features unstable --lib --test core_shadowed --test regressions --test rules
-              --test dst --test views --test opaque
+              --test dst --test views
           - name: unstable, shapes
             id: model-unstable-shapes
             tests: --features unstable --test shapes

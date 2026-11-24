@@ -99,15 +99,15 @@ fn array_under_an_enum() {
   puns_model::finish("an array under an enum");
 }
 
-/// A part of the target whose layout Rust leaves to the compiler, a tuple, in a field of a union
-/// and in a variant with a scalar that a pun never makes, over bytes that may be uninitialized.
-/// Without the `unstable` feature, the analysis does not look into it.
+/// A part of the target whose layout Rust leaves to the compiler, a tuple, in a field of a union,
+/// over bytes that may be uninitialized. Without the `unstable` feature, the analysis does not look
+/// into it.
 #[test]
 fn layout_left_to_the_compiler() {
-  puns_model::pairs!(check_pair, LIMIT; (TagUnits, HoldsTuple), (TagUnits, TupleNever));
+  puns_model::pairs!(check_pair, LIMIT; (TagUnits, HoldsTuple));
   // Natively only: verdicts, from sources whose bytes are all initialized.
   #[cfg(not(miri))]
-  puns_model::pairs!(check_pair, LIMIT; ([u8; 3], HoldsTuple), ([u8; 3], TupleNever));
+  puns_model::pairs!(check_pair, LIMIT; ([u8; 3], HoldsTuple));
   puns_model::finish("a layout left to the compiler");
 }
 

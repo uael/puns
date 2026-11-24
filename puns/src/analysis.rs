@@ -233,22 +233,18 @@
 //!   the multiples of the greatest common divisor of the sizes, of which every sum of sizes is one.
 //!   A few of these offsets are in no order, such as the second byte of a `(bool, [u8; 3])`, so
 //!   more is then required, never less. A struct that has a rule, which names fields, proves only
-//!   itself, as an enum does. As a target, a part that holds a scalar that a pun never makes is
-//!   proven by nothing, not even by itself ([`Layout::holds_never`]), and is refused in every
-//!   layout.
+//!   itself, as an enum does.
 //! - **A check does not replace a proof in an opaque node,** since a check would read where the
 //!   compiler may not have put the field. What is not proven does not compile
 //!   ([`Relation::unspecified`]), and whatever reads a relation reads this, including what a
 //!   variant of a view takes from another (`base` in `view.rs`), and an enum or a union that would
 //!   be checked as a whole, fields included, which the relations of its variants report. So the
 //!   marks of the analysis, which tell validation what to check, are at places that every layout
-//!   shares. Such a node is still read by a check in two cases, whose answer is the same in every
+//!   shares. Such a node is still read by a check in one case, whose answer is the same in every
 //!   layout. A union that a later field proves is not refused for an earlier field that is not
 //!   proven, and where its leaf is marked for another reason, its check tries that field first,
-//!   where `rustc` put its fields: the later field accepts whatever that field does not. And a
-//!   part that holds a scalar that a pun never makes is never valid, so the enum of a variant that
-//!   holds it is checked as a whole, and the check reads the fields of the part. Since a field may
-//!   be anywhere in the node, such a node is refused there if any byte under it may be
+//!   where `rustc` put its fields: the later field accepts whatever that field does not. Since a
+//!   field may be anywhere in the node, such a node is refused there if any byte under it may be
 //!   uninitialized in the source ([`Relation::unreadable`]).
 //!
 //! A check must not read a byte of the source that, in another layout that Rust allows, holds
@@ -264,9 +260,9 @@
 //! only if what Rust does not specify of them is of the same type ([`equal`]). A `&mut` to a part
 //! covers such a node whole, by the same type, or not at all ([`cut`]). A pun of a type whose size
 //! Rust does not specify compiles only if both sides are the same type ([`sizes_kept`]).
-//! [`validate_but_never`](crate::validate_but_never) compiles only if nothing that Rust does not
-//! specify has something to check ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does not
-//! accept the zeros of an enum that is not fixed.
+//! The check of the target of an eager aim compiles only if nothing that Rust does not specify in
+//! the target has something to check ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does
+//! not accept the zeros of an enum that is not fixed.
 //!
 //! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
 
@@ -1264,10 +1260,6 @@ const fn relate_range(
         if out.partial.is_none() {
           out.partial = Some(pos);
         }
-        // No check accepts a scalar that a pun never makes.
-        if b.stack[0].layout.holds_never() && out.disjoint.is_none() {
-          out.disjoint = Some(pos);
-        }
         // A part whose layout Rust leaves to the compiler is recorded too, since a check would read
         // it where `rustc` put it.
         if !b.stack[0].layout.checks_kept() {
@@ -1293,12 +1285,9 @@ const fn relate_range(
     if let RunKind::Opaque(target) = run_b.kind {
       let stop = min(run_b.end, end);
       let whole = run_b.start == pos && run_b.end <= end;
-      // Not a part that holds a scalar that a pun never makes, which nothing proves, not even the
-      // same type.
       let same = matches!(run_a.kind, RunKind::Opaque(source) if same_type(source, target))
         && run_a.start == pos
-        && whole
-        && !target.holds_never();
+        && whole;
       let fields = if same || !whole { (false, None) } else { relate_fields(a, b, target, pos) };
       let proven = same || fields.0;
       // Proven, but what a check of it would read may be uninitialized in the source.
@@ -1310,17 +1299,11 @@ const fn relate_range(
         && target.leaves > 0
         && let Some(at) = uninit_from(a, pos, stop, &b.known)
       {
-        // Not proven, yet checked where a union that a later field proves tries it, or where the
-        // enum of a variant that holds it is checked as a whole. The check reads its fields where
-        // `rustc` put them, so any byte under it counts.
+        // Not proven, yet checked where a union that a later field proves tries it. The check reads
+        // its fields where `rustc` put them, so any byte under it counts.
         out.unreadable(run_b.leaf, target.leaves, at);
       }
-      if !proven && target.holds_never() {
-        // Refused in every layout, so not for the layout.
-        if out.disjoint.is_none() {
-          out.disjoint = Some(pos);
-        }
-      } else if !proven {
+      if !proven {
         out.unspecified(pos);
       }
       pos = stop;
@@ -1498,8 +1481,7 @@ const fn relate_fields(
 /// Each variant of `a` is related with the variants of `b` that its tags are tags of, knowing
 /// that the tag is one of both. A variant of `a` is proven if all its tags are of one variant of
 /// `b`, which it proves. If a variant of `a` is not proven, the enum is marked, and checked as a
-/// whole at run time. Returns `true` at once if `a` and `b` are the same layout ([`equal`]) that
-/// holds no scalar that a pun never makes, which nothing proves, not even the same layout.
+/// whole at run time. Returns `true` at once if `a` and `b` are the same layout ([`equal`]).
 ///
 /// Returns `false`, having done nothing, if either is a union, if `a` is smaller than `b`, or if
 /// their tags differ in place, size or byte order.
@@ -1510,7 +1492,7 @@ const fn relate_enums(
   leaf: usize,
   out: &mut Relation,
 ) -> bool {
-  if equal(a, b) && !b.holds_never() {
+  if equal(a, b) {
     // Proven without reading anything. A check of it would read what the same type does not
     // promise to be initialized, such as the bytes of a union.
     if !checkable(b) {
@@ -1977,13 +1959,10 @@ const fn gather(a: &mut Cursor, start: usize, end: usize) -> ([Piece; 16], usize
 ///
 /// # Errors
 ///
-/// Returns `None` if one of the pieces may be uninitialized, unless `spec` is a scalar that a pun
-/// never makes, which no source is, whatever its pieces hold.
+/// Returns `None` if one of the pieces may be uninitialized.
 const fn atom_relation(pieces: &[Piece; 16], len: usize, spec: &Spec) -> Option<Rel> {
   let ranges = match spec.valid {
     Valid::In(ranges) => ranges,
-    // No value of the source is one, whatever it holds.
-    Valid::Never => return Some(Rel::Disjoint),
     Valid::Any | Valid::Uninit => panic!("not an atom"),
   };
   // What is known of the pieces: a restriction that the type system does not enforce only

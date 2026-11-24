@@ -24,20 +24,7 @@
 
 use core::{any::type_name, fmt::Write as _, num::NonZero};
 
-use puns::{Pun, Scalar, hook, layout::Spec};
-
-/// A scalar that a pun reads as initialized bytes but never makes, as an offset of another crate
-/// would be.
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-struct Sealed(u32);
-
-// SAFETY: `Sealed` is `repr(transparent)` over a `u32`, so it has its size, and every value is 4
-// initialized bytes, which is all that `Spec::never` says is known of it. It accepts no value, so
-// no pun makes one. It holds no `UnsafeCell`.
-unsafe impl Scalar for Sealed {
-  const SPEC: Spec = Spec::never::<Sealed>();
-}
+use puns::{Pun, hook};
 
 /// A struct of the `Rust` representation. Rust specifies its size and that its bytes are
 /// initialized, but leaves to the compiler which byte is its `bool`.
@@ -243,8 +230,6 @@ fn the_same_whatever_the_layout() {
     Wraps,
     Either,
     [Mixed; 2],
-    Sealed,
-    (u8, Sealed),
     Tagged,
     Plain,
     Kept,

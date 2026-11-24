@@ -57,9 +57,6 @@
 //!   code can write, only serves to tell two automata apart, and two patterns are the same layout
 //!   only if their automata are the same, state by state. A value is checked with `str::from_utf8`
 //!   only where the automaton is the UTF-8 one, which is decided at compile time.
-//! - A **scalar that a pun never makes** ([`Spec::never`]), such as the offset of a self-relative
-//!   pointer, is initialized bytes as a source, and accepts no value as a target. What makes a
-//!   value of it valid is not in the layout.
 //!
 //! A layout is an automaton written as a tree, where a position in it is a state. The analysis
 //! walks the layouts of the source and the target together, position by position.
@@ -131,9 +128,6 @@ pub(crate) enum Valid {
   /// The ranges are sorted, disjoint and not adjacent. They are never empty, and never the single
   /// range of every value, which is [`Valid::Any`].
   In(&'static [(u128, u128)]),
-  /// No value. Only in [`Spec::valid`], for a scalar that a pun reads but never makes
-  /// ([`Spec::never`]). It is known to hold initialized bytes ([`Valid::Any`]).
-  Never,
 }
 
 /// The size, the byte order and the valid values of a scalar.
@@ -145,12 +139,11 @@ pub(crate) enum Valid {
 /// A `Spec` holds two sets of values. The values it *accepts* are what a target requires, so a pun
 /// makes a value of the scalar only from one of these. The values it is *known* to hold are what
 /// every value of the type guarantees, whatever safe code does, so a source proves these values,
-/// and no others. Both sets are the same, with three exceptions. A field restricted by
+/// and no others. Both sets are the same, with two exceptions. A field restricted by
 /// `#[pun(valid(..))]` ([`Layout::restricted`]) accepts fewer values than it is known to hold
 /// ([Guarantees and requirements](crate#guarantees-and-requirements)). A scalar that may be
 /// uninitialized ([`Spec::maybe_uninit`]) accepts some values, but is known to hold anything,
-/// padding included. A scalar that a pun never makes ([`Spec::never`]) accepts no value, but is
-/// known to hold initialized bytes.
+/// padding included.
 ///
 /// # Examples
 ///
@@ -221,55 +214,6 @@ impl Spec {
       valid: Valid::Any,
       known: Valid::Any,
       number: true,
-      validity: false,
-      stored: None,
-    }
-  }
-
-  /// Returns the `Spec` of a scalar of type `T` that a pun reads as initialized bytes, but never
-  /// makes, because what makes a value of it valid is not in its bytes.
-  ///
-  /// A self-relative pointer is such a scalar: its bytes are an offset, and whether it is valid
-  /// depends on where it is and on what it aims at. A pun proves from such a scalar what
-  /// initialized bytes prove. A pun or a check that would make one does not compile, and a check
-  /// never accepts a variant of an enum that holds one: only the crate that declares the scalar
-  /// makes a value of it, and proves it.
-  /// [`validate_but_never`](crate::validate_but_never) checks the rest of a value that holds one.
-  /// A rule cannot name it as a field, since it is not a number, though a rule that reads bytes at
-  /// an offset reads its bytes as any others. An `Option` of it is such a scalar too, if the
-  /// `Option` has the size of the scalar ([Scalars that a pun never
-  /// makes](crate#scalars-that-a-pun-never-makes)).
-  ///
-  /// # Panics
-  ///
-  /// Panics if `T` has a size of 0. A pun relates bytes, so it would make such a scalar from no
-  /// bytes at all. In the `SPEC` of a [`Scalar`](crate::Scalar), this is an error at compile time.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Layout, Spec};
-  ///
-  /// let spec = Spec::never::<u32>();
-  /// // No value is accepted, so no check makes one.
-  /// assert!(!spec.contains(0) && !spec.contains(8));
-  /// // Its bytes are initialized: a value that holds one is plain.
-  /// assert!(Layout::scalar::<u32>(spec).is_plain());
-  /// ```
-  ///
-  /// The scalar of a type is declared with [`Scalar`](crate::Scalar), as in the example of
-  /// [`validate_but_never`](crate::validate_but_never).
-  #[inline]
-  #[must_use]
-  pub const fn never<T>() -> Self {
-    let size = size_of::<T>();
-    assert!(size > 0, "a scalar that a pun never makes has at least one byte");
-    Self {
-      size,
-      endian: Endian::NATIVE,
-      valid: Valid::Never,
-      known: Valid::Any,
-      number: false,
       validity: false,
       stored: None,
     }
@@ -444,13 +388,6 @@ impl Spec {
       "only a scalar that restricts its values may also be uninitialized"
     );
     Self { known: Valid::Uninit, ..self }
-  }
-
-  /// Returns whether no value is valid for the scalar, which a pun reads but never makes
-  /// ([`Spec::never`]).
-  #[inline]
-  pub(crate) const fn is_never(&self) -> bool {
-    matches!(self.valid, Valid::Never)
   }
 
   /// Returns whether a source may hold uninitialized bytes in this scalar.
@@ -718,10 +655,10 @@ impl Spec {
     unsafe { load(ptr, self.size, self.endian) }
   }
 
-  /// Returns whether the scalar accepts only some initialized values, or none.
+  /// Returns whether the scalar accepts only some initialized values.
   #[inline]
   pub(crate) const fn is_constrained(&self) -> bool {
-    matches!(self.valid, Valid::In(_) | Valid::Never)
+    matches!(self.valid, Valid::In(_))
   }
 
   /// Returns whether the scalar accepts `value`, the value of its bytes as an unsigned integer.
@@ -742,14 +679,12 @@ impl Spec {
     match self.valid {
       Valid::Uninit | Valid::Any => self.size >= 16 || value <= max_value(self.size),
       Valid::In(ranges) => contains(ranges, value),
-      Valid::Never => false,
     }
   }
 
   /// Returns whether the scalar accepts the value of its bytes at `ptr`.
   ///
-  /// A scalar that accepts any initialized bytes, or uninitialized ones, reads nothing, and neither
-  /// does a scalar that a pun never makes, which accepts no value.
+  /// A scalar that accepts any initialized bytes, or uninitialized ones, reads nothing.
   ///
   /// # Safety
   ///
@@ -765,7 +700,6 @@ impl Spec {
       // `self.size` initialized bytes, by contract on the caller. Only `Spec::with_ranges` makes a
       // `Valid::In`, and it asserts that the size is 1 to 16. These are the requirements of `load`.
       Valid::In(ranges) => contains(ranges, unsafe { load(ptr, self.size, self.endian) }),
-      Valid::Never => false,
     }
   }
 }
@@ -902,9 +836,8 @@ pub(crate) enum Uniform {
 /// Without the `unstable` feature, the analysis does not look into a layout that is not `fixed`
 /// ([`Layout::is_opaque`]). As a source, such a layout is what every choice of it is (initialized
 /// bytes if `init`, and otherwise bytes that may be padding). As a target, it is proven by the same
-/// type at the same place (`Id`). A struct whose size is the same in every layout, and that has
-/// no rule and no scalar that a pun never makes, is also proven field by field, at every offset
-/// each field may have.
+/// type at the same place (`Id`). A struct whose size is the same in every layout, and that has no
+/// rule, is also proven field by field, at every offset each field may have.
 #[derive(Copy, Clone, Debug)]
 #[expect(clippy::struct_excessive_bools, reason = "five facts of a layout, each asked alone")]
 pub(crate) struct Stable {
@@ -1596,10 +1529,10 @@ impl Variant {
   ///   is.
   ///
   /// A variant without a sample of which `exists` says that a value may exist in a source holds a
-  /// scalar that a pun never makes, or a union none of whose fields has values. Its tag must be
-  /// known. That of a variant of which no value may exist need not be: no value has it, and it is
-  /// not the tag of another variant, since the tags of `T` are distinct, and those of the variants
-  /// of which a value may exist are those of `E`.
+  /// union none of whose fields has values. Its tag must be known. That of a variant of which no
+  /// value may exist need not be: no value has it, and it is not the tag of another variant, since
+  /// the tags of `T` are distinct, and those of the variants of which a value may exist are those
+  /// of `E`.
   ///
   /// [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
   ///
@@ -2171,8 +2104,7 @@ impl Layout {
   ///
   /// # Panics
   ///
-  /// Panics if `T` has no value, or if its sample holds a scalar that a pun never makes, since
-  /// `puns` cannot make a value of one.
+  /// Panics if `T` has no value.
   #[doc(hidden)]
   #[must_use]
   pub const fn sample<T: crate::Pun>() -> mem::MaybeUninit<T> {
@@ -2209,21 +2141,6 @@ impl Layout {
     let mut i = 0;
     while i < fields.len() {
       if !fields[i].may_exist() {
-        return false;
-      }
-      i += 1;
-    }
-    true
-  }
-
-  /// Returns whether [`Layout::sample`] makes a value of the type of each layout of `fields`, so
-  /// that a value made of these fields can be made in const evaluation.
-  #[doc(hidden)]
-  #[must_use]
-  pub const fn sampled_all(fields: &[&'static Layout]) -> bool {
-    let mut i = 0;
-    while i < fields.len() {
-      if !crate::discover::has_sample(fields[i]) {
         return false;
       }
       i += 1;
@@ -2312,7 +2229,7 @@ impl Layout {
       uniform: match spec.valid {
         Valid::Uninit => Uniform::Pad,
         Valid::Any => Uniform::Any,
-        Valid::In(_) | Valid::Never => Uniform::No,
+        Valid::In(_) => Uniform::No,
       },
       has_rules: false,
       stable: Stable::FIXED,
@@ -3382,9 +3299,9 @@ impl Layout {
   /// the compiler.
   ///
   /// A struct whose field orders all make the same bytes counts, as `(u8, u8)` does, though which
-  /// byte holds which field depends on the compiler. What
-  /// [`validate_but_never`](crate::validate_but_never) checks of a value of such a layout is the
-  /// same in every layout that Rust allows. The answer does not depend on the `unstable` feature.
+  /// byte holds which field depends on the compiler. A check of every part of a value of such a
+  /// layout gives the same answer in every layout that Rust allows. The answer does not depend on
+  /// the `unstable` feature.
   ///
   /// # Examples
   ///
@@ -3409,45 +3326,6 @@ impl Layout {
   #[must_use]
   pub const fn is_specified(&self) -> bool {
     self.stable.deep
-  }
-
-  /// Returns whether the layout is a scalar that a pun never makes ([`Spec::never`]).
-  pub(crate) const fn is_never(&self) -> bool {
-    matches!(self.kind, Kind::Scalar(spec) if spec.is_never())
-  }
-
-  /// Returns whether a part of the layout, at any depth, is a scalar that a pun never makes
-  /// ([`Spec::never`]).
-  pub(crate) const fn holds_never(&self) -> bool {
-    // Such a scalar is a leaf.
-    if self.leaves == 0 {
-      return false;
-    }
-    match self.kind {
-      Kind::Scalar(spec) => spec.is_never(),
-      Kind::Pattern(_) => false,
-      Kind::Array(elem, _) | Kind::Slice(elem) => elem.holds_never(),
-      Kind::Struct(fields, _) => {
-        let mut i = 0;
-        while i < fields.len() {
-          if fields[i].layout.holds_never() {
-            return true;
-          }
-          i += 1;
-        }
-        false
-      }
-      Kind::Enum(layout) => {
-        let mut i = 0;
-        while i < layout.variants.len() {
-          if layout.variants[i].layout.holds_never() {
-            return true;
-          }
-          i += 1;
-        }
-        false
-      }
-    }
   }
 
   /// Returns whether a part of the layout, at any depth, requires what a value of its type may not
@@ -3494,9 +3372,8 @@ impl Layout {
   /// Returns whether no part that is not `fixed`, at any depth, has something to check, or whether
   /// the `unstable` feature is enabled.
   ///
-  /// What a check of every part of a value of the layout does, as
-  /// [`validate_but_never`](crate::validate_but_never) makes, is then the same in every layout that
-  /// Rust allows.
+  /// What a check of every part of a value of the layout does, as the check of an enum as a whole
+  /// or of the target of an eager aim makes, is then the same in every layout that Rust allows.
   pub(crate) const fn checks_kept(&self) -> bool {
     if UNSTABLE {
       return true;
@@ -3713,8 +3590,8 @@ impl Layout {
   /// # Panics
   ///
   /// Panics if `layout` is not the layout of a union as `#[derive(Pun)]` makes it, if the layout of
-  /// a variant does not have the size of `T`, has more than one field, or holds a scalar that a pun
-  /// never makes, or if a field is not at offset 0, is larger than `T`, or is unsized.
+  /// a variant does not have the size of `T` or has more than one field, or if a field is not at
+  /// offset 0, is larger than `T`, or is unsized.
   ///
   /// # Examples
   ///
@@ -3760,7 +3637,6 @@ impl Layout {
         assert!(field.offset == 0 && field.layout.size <= size, "the fields of a union are at 0");
         assert!(!field.layout.unsized_, "the fields of a union are sized");
       }
-      assert!(!variant.layout.holds_never(), "a union holds no scalar that a pun never makes");
       i += 1;
     }
     Self {
@@ -4444,8 +4320,7 @@ impl Layout {
   /// and guarantee the same values, at the same places.
   ///
   /// Identities are not compared. A scalar that may be uninitialized is equal to none. Two patterns
-  /// are equal only if their automata are, state by state. Two layouts that are the same prove
-  /// nothing of a scalar that a pun never makes: the analysis refuses it whatever the source.
+  /// are equal only if their automata are, state by state.
   #[expect(
     clippy::many_single_char_names,
     reason = "`a` and `x` are parts of `self`, `b` and `y` the same parts of `other`"
@@ -4595,9 +4470,7 @@ offsets!(12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35
 )]
 const fn same_valid(a: Valid, b: Valid, endian_a: Endian, endian_b: Endian) -> bool {
   match (a, b) {
-    (Valid::Uninit, Valid::Uninit) | (Valid::Any, Valid::Any) | (Valid::Never, Valid::Never) => {
-      true
-    }
+    (Valid::Uninit, Valid::Uninit) | (Valid::Any, Valid::Any) => true,
     (Valid::In(x), Valid::In(y)) => {
       let mut i = 0;
       while i < x.len() && i < y.len() && x[i].0 == y[i].0 && x[i].1 == y[i].1 {

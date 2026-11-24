@@ -1,18 +1,17 @@
 error[E0275]: overflow evaluating the requirement `Ping<u32>: Pun`
-  --> tests/compile-fail/generic_cycle.rs:26:11
+  --> tests/compile-fail/generic_cycle.rs:25:3
    |
-26 |   let _ = puns::as_bytes(&ping);
-   |           ^^^^^^^^^^^^^^^^^^^^^
+25 |   puns::as_bytes(ping)
+   |   ^^^^^^^^^^^^^^^^^^^^
    |
-note: required for `never::Ref<Ping<u32>>` to implement `Scalar`
-  --> tests/compile-fail/../support/never.rs
+note: required for `Near<Ping<u32>>` to implement `Pun`
+  --> tests/compile-fail/../support/aims.rs
    |
-   | unsafe impl<T: Pun> Scalar for Ref<T> {
-   |                ---  ^^^^^^     ^^^^^^
-   |                |
-   |                unsatisfied trait bound introduced here
-   = note: required for `never::Ref<Ping<u32>>` to implement `Pun`
-   = note: 4 redundant requirements hidden
+   | unsafe impl<T: ?Sized + Pun> Pun for Near<T> {
+   |                         ---  ^^^     ^^^^^^^
+   |                         |
+   |                         unsatisfied trait bound introduced here
+   = note: 3 redundant requirements hidden
    = note: required for `Ping<u32>` to implement `Pun`
 note: required by a bound in `puns::as_bytes`
   --> src/lib.rs

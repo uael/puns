@@ -129,7 +129,7 @@ const fn niche(layout: &Layout) -> Niche {
         }
       }
       // Values that the code of the type keeps, which Rust may not restrict, or bytes that may be
-      // uninitialized, or a scalar that a pun never makes.
+      // uninitialized.
       _ => Niche::Unknown,
     },
     Kind::Array(elem, len) => {

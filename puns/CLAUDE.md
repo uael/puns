@@ -14,9 +14,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - The documentation of `#[derive(Pun)]` (on `pub use puns_derive::Pun` in
   [`src/lib.rs`](src/lib.rs)) says what a rule means, what it reads, and what the derive trusts
   ("What the derive trusts").
-- [`Scalar`](src/lib.rs) states the contract of a scalar declared by hand, a scalar that a pun
-  never makes (`Spec::never`) included, and the crate documentation ("Scalars that a pun never
-  makes") what `puns` guarantees its crate in return.
+- [`Scalar`](src/lib.rs) states the contract of a scalar declared by hand, and the crate
+  documentation ("Aims") what `puns` guarantees a type that holds an eager aim, such as a
+  self-relative pointer declared by hand.
 
 ## How it works
 
@@ -70,12 +70,6 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   identities of the parameters, never of their layouts, so that a type that holds itself through a
   generic type has a layout. The derive gives a generic type one only where each type parameter is
   bounded by `Pun` (`identity` in `puns-derive`).
-- No function makes a value that holds a scalar that a pun never makes (`Spec::never`), and no
-  function gives a `&mut` to one. As a target, such a scalar is disjoint from every source
-  (`atom_relation`), and a part of a target that holds one is proven by nothing, not even by
-  itself (`Layout::holds_never`). Only `validate_but_never` accepts one, unread, and makes no value.
-  `Option` of one is one of the same size (`std_enums::never_option`), found without a sample, which
-  `puns` has none of: its size and the bytes of `None` are checked in const evaluation.
 - The validation of the `try_` and `from_` functions compares the rules of what the derive or a
   hand-written `Pun` lists with the layout (`validate::listed`) and the place of each field
   (`F::Path`), and relies on the `# Safety` section of `Pun` for the other lists.
@@ -90,9 +84,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   compiled has those fields and variants, of those types. The offsets of the fields are measured
   on the item as compiled (`Layout::offsets`, the samples of the variants), except where
   "What the derive trusts" says that the `repr` that the derive read gives them.
-- Every scalar that a pun never makes in the repository is declared through the public API only,
-  as another crate would declare it, with `Scalar` and `Spec::never`. Most of them share
-  [`tests/support/never.rs`](tests/support/never.rs).
+- The self-relative pointer of the tests (`Near`, in
+  [`tests/support/aims.rs`](tests/support/aims.rs)) is declared through the public API only, as
+  another crate would declare it, with an eager aim.
 - An eager aim (`layout::Check::Eager`) is checked with the struct that holds it, its target
   within the bytes that the check reads (`validate::Input`), and code reads the target without a
   check. So no function makes a value that holds one (`Plan::eager`), gives a `&mut` to or from

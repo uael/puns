@@ -21,7 +21,6 @@
 //! | the tags of a variant (several for a niche, `RANGES`)  | `u8 -> MaybeFlag`                  |
 //! | a direct tag widened to two bytes, `repr(Rust)`        | `[u8; 4] -> Wid`                   |
 //! | a union, field by field                                | `u8 -> ChoiceU`                    |
-//! | a variant that holds a never scalar, rejected unread   | `ByteZero -> MaybeOpaque`          |
 //! | a variant without values, rejected unread              | `ByteZero -> HalfNever`            |
 //! | a field of a union without values, skipped unread      | `ByteZero -> VoidFirstU`           |
 //!
@@ -80,8 +79,8 @@ fn sample() {
 #[test]
 fn sample_layouts() {
   puns_model::pairs!(check_pair, 3;
-    ([u8; 4], PadMid), (u8, MaybeFlag), ([u8; 4], Wid), (u8, ChoiceU), (ByteZero, MaybeOpaque),
-    (ByteZero, HalfNever), (ByteZero, VoidFirstU),
+    ([u8; 4], PadMid), (u8, MaybeFlag), ([u8; 4], Wid), (u8, ChoiceU), (ByteZero, HalfNever),
+    (ByteZero, VoidFirstU),
   );
   puns_model::finish("sample_layouts");
 }

@@ -2524,9 +2524,9 @@ fn derive_tagged(
       let layouts = quote!(&[#(&<#types as #root::Pun>::LAYOUT),*]);
       (
         quote! {
-          if #layout::sampled_all(#layouts) {
+          if #layout::inhabited_all(#layouts) {
             #option::Some(#layout::wrap(Self::#name {
-              // SAFETY (of the generated code): Each field type has a sample, which is checked
+              // SAFETY (of the generated code): Each field type has values, which is checked
               // above, so `Layout::sample` makes a valid value of it, as `assume_init` requires.
               #(#members: unsafe { #layout::sample::<#types>().assume_init() }),*
             }))

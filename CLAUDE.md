@@ -9,7 +9,7 @@ repository.
 cargo build                          # Build all crates
 cargo build --all-targets            # Also tests and examples: refusals are only reported by a build
 cargo test --all                     # All tests: unit, integration, compile-fail, doc tests (README included)
-cargo test --test api                # Run only one integration test file (also: bytes, parts, enums, ethernet, str, never)
+cargo test --test api                # Run only one integration test file (also: bytes, parts, enums, ethernet, str, aims)
 cargo test --test api TESTNAME       # Run a single test
 cargo test --test compile_fail       # Compile-fail tests (trybuild); TRYBUILD=overwrite to regenerate .stderr
 cargo run --example ethernet         # The Ethernet example; it asserts its results and prints `ok`
@@ -141,11 +141,11 @@ docs of each part, private modules included (`cargo doc --document-private-items
 done yet: read it, and the module docs of what you change, before changing the library. Keep them,
 the crate docs and `README.md` consistent with the code.
 
-- **`puns/`**: the library (`#![no_std]`, no dependency but the derive). A scalar whose validity
-  is not in its bytes, such as the offset of a self-relative pointer of `nearest`, is a `Scalar`
-  with `Spec::never`: a pun reads it and never makes it, and its crate proves it, so `nearest`
-  depends on `puns`, not the reverse. The tests declare such scalars through that API only
-  (`tests/support/never.rs`, shared by `#[path]` with the compile-fail cases).
+- **`puns/`**: the library (`#![no_std]`, no dependency but the derive). A self-relative pointer,
+  such as one of `nearest`, implements `Pun` by hand with an eager aim (`layout::Aim`), whose
+  target `puns` checks, so `nearest` depends on `puns`, not the reverse. The tests declare such a
+  pointer through that API only (`tests/support/aims.rs`, shared by `#[path]` with the
+  compile-fail cases).
 - **`puns-derive/`**: `#[derive(Pun)]`, re-exported as `puns::Pun`.
 - **`puns-model/`**: the model check of the analysis against oracles that do not use it (not
   published, and using the test-only `verdict` feature of `puns`), with `fakecore/`, a `core` whose

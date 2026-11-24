@@ -22,8 +22,7 @@ macro_rules! pairs {
       u8in<1, 1>, u8in<0x80, 0xff>, u8in<2, 5>, E01, E37, Eff, Eneg, Erust, [u8; 1], [bool; 1],
       (bool,), Flag, Byte, Ascii, SoftBit, SoftTrue, Third, core::mem::ManuallyDrop<bool>, Zero,
       core::mem::MaybeUninit<u8>, MaybeFlag, NzOpt, ChoiceU, Option<bool>,
-      Option<Option<bool>>, ThirdSoft, Fifth, LastNotFf1, ThirdU, Opaque,
-      OpaqueNz, Option<OpaqueNz>,
+      Option<Option<bool>>, ThirdSoft, Fifth, LastNotFf1, ThirdU,
     );
     puns_model::finish(concat!("1 bytes, sources ", stringify!($($mark)+)));
   }};

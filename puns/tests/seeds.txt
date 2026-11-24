@@ -23,8 +23,6 @@ u8 -> seeds::InOrder: ------------
 u8 -> seeds::Wraps: ------------
 u8 -> seeds::Either: ------------
 u8 -> [seeds::Mixed; 2]: ------------
-u8 -> seeds::Sealed: ------------
-u8 -> (u8, seeds::Sealed): ------------
 u8 -> seeds::Tagged: ------------
 u8 -> seeds::Plain: --+--+-+----
 u8 -> seeds::Kept: --+--+-+----
@@ -56,8 +54,6 @@ bool -> seeds::InOrder: ------------
 bool -> seeds::Wraps: ------------
 bool -> seeds::Either: ------------
 bool -> [seeds::Mixed; 2]: ------------
-bool -> seeds::Sealed: ------------
-bool -> (u8, seeds::Sealed): ------------
 bool -> seeds::Tagged: ------------
 bool -> seeds::Plain: ++++++++++++
 bool -> seeds::Kept: ++++++++++++
@@ -89,8 +85,6 @@ bool -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: ++++++---++-
 [u8; 2] -> seeds::Wraps: ------------
 [u8; 2] -> seeds::Either: ++++++---++-
 [u8; 2] -> [seeds::Mixed; 2]: ------------
-[u8; 2] -> seeds::Sealed: ------------
-[u8; 2] -> (u8, seeds::Sealed): ------------
 [u8; 2] -> seeds::Tagged: --+--+-+----
 [u8; 2] -> seeds::Plain: ------------
 [u8; 2] -> seeds::Kept: ------------
@@ -122,8 +116,6 @@ bool -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: ++++++---++-
 [u8; 4] -> seeds::Wraps: ------------
 [u8; 4] -> seeds::Either: -+--+----++-
 [u8; 4] -> [seeds::Mixed; 2]: ------------
-[u8; 4] -> seeds::Sealed: ------------
-[u8; 4] -> (u8, seeds::Sealed): ------------
 [u8; 4] -> seeds::Tagged: ------------
 [u8; 4] -> seeds::Plain: ------------
 [u8; 4] -> seeds::Kept: ------------
@@ -155,8 +147,6 @@ bool -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: ++++++---++-
 [bool; 2] -> seeds::Wraps: ------------
 [bool; 2] -> seeds::Either: ++++++---++-
 [bool; 2] -> [seeds::Mixed; 2]: ------------
-[bool; 2] -> seeds::Sealed: ------------
-[bool; 2] -> (u8, seeds::Sealed): ------------
 [bool; 2] -> seeds::Tagged: ++++++---++-
 [bool; 2] -> seeds::Plain: -+--+---++++
 [bool; 2] -> seeds::Kept: -+--+---++++
@@ -188,8 +178,6 @@ bool -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: ++++++---++-
 [bool; 4] -> seeds::Wraps: -+--+----++-
 [bool; 4] -> seeds::Either: -+--+----++-
 [bool; 4] -> [seeds::Mixed; 2]: ++++++---++-
-[bool; 4] -> seeds::Sealed: ------------
-[bool; 4] -> (u8, seeds::Sealed): ------------
 [bool; 4] -> seeds::Tagged: -+--+----++-
 [bool; 4] -> seeds::Plain: -+--+---++++
 [bool; 4] -> seeds::Kept: -+--+---++++
@@ -221,8 +209,6 @@ core::num::nonzero::NonZero<u16> -> seeds::InOrder: ------------
 core::num::nonzero::NonZero<u16> -> seeds::Wraps: ------------
 core::num::nonzero::NonZero<u16> -> seeds::Either: ++++++---++-
 core::num::nonzero::NonZero<u16> -> [seeds::Mixed; 2]: ------------
-core::num::nonzero::NonZero<u16> -> seeds::Sealed: ------------
-core::num::nonzero::NonZero<u16> -> (u8, seeds::Sealed): ------------
 core::num::nonzero::NonZero<u16> -> seeds::Tagged: --+--+------
 core::num::nonzero::NonZero<u16> -> seeds::Plain: ------------
 core::num::nonzero::NonZero<u16> -> seeds::Kept: ------------
@@ -254,8 +240,6 @@ core::num::nonzero::NonZero<u16> -> core::result::Result<core::num::nonzero::Non
 [core::num::nonzero::NonZero<u16>; 2] -> seeds::Wraps: ------------
 [core::num::nonzero::NonZero<u16>; 2] -> seeds::Either: -+--+----++-
 [core::num::nonzero::NonZero<u16>; 2] -> [seeds::Mixed; 2]: ------------
-[core::num::nonzero::NonZero<u16>; 2] -> seeds::Sealed: ------------
-[core::num::nonzero::NonZero<u16>; 2] -> (u8, seeds::Sealed): ------------
 [core::num::nonzero::NonZero<u16>; 2] -> seeds::Tagged: ------------
 [core::num::nonzero::NonZero<u16>; 2] -> seeds::Plain: ------------
 [core::num::nonzero::NonZero<u16>; 2] -> seeds::Kept: ------------
@@ -287,8 +271,6 @@ core::num::nonzero::NonZero<u16> -> core::result::Result<core::num::nonzero::Non
 (core::num::nonzero::NonZero<u16>, u16) -> seeds::Wraps: ------------
 (core::num::nonzero::NonZero<u16>, u16) -> seeds::Either: -+--+----++-
 (core::num::nonzero::NonZero<u16>, u16) -> [seeds::Mixed; 2]: ------------
-(core::num::nonzero::NonZero<u16>, u16) -> seeds::Sealed: ------------
-(core::num::nonzero::NonZero<u16>, u16) -> (u8, seeds::Sealed): ------------
 (core::num::nonzero::NonZero<u16>, u16) -> seeds::Tagged: ------------
 (core::num::nonzero::NonZero<u16>, u16) -> seeds::Plain: ------------
 (core::num::nonzero::NonZero<u16>, u16) -> seeds::Kept: ------------
@@ -320,8 +302,6 @@ core::num::nonzero::NonZero<u16> -> core::result::Result<core::num::nonzero::Non
 (bool, [u8; 3]) -> seeds::Wraps: ------------
 (bool, [u8; 3]) -> seeds::Either: -+--+----++-
 (bool, [u8; 3]) -> [seeds::Mixed; 2]: ------------
-(bool, [u8; 3]) -> seeds::Sealed: ------------
-(bool, [u8; 3]) -> (u8, seeds::Sealed): ------------
 (bool, [u8; 3]) -> seeds::Tagged: ------------
 (bool, [u8; 3]) -> seeds::Plain: ------------
 (bool, [u8; 3]) -> seeds::Kept: ------------
@@ -353,8 +333,6 @@ core::num::nonzero::NonZero<u16> -> core::result::Result<core::num::nonzero::Non
 (u8, u8) -> seeds::Wraps: ------------
 (u8, u8) -> seeds::Either: ++++++---++-
 (u8, u8) -> [seeds::Mixed; 2]: ------------
-(u8, u8) -> seeds::Sealed: ------------
-(u8, u8) -> (u8, seeds::Sealed): ------------
 (u8, u8) -> seeds::Tagged: ------------
 (u8, u8) -> seeds::Plain: ------------
 (u8, u8) -> seeds::Kept: ------------
@@ -386,8 +364,6 @@ core::num::nonzero::NonZero<u16> -> core::result::Result<core::num::nonzero::Non
 (bool, bool) -> seeds::Wraps: ------------
 (bool, bool) -> seeds::Either: ++++++---++-
 (bool, bool) -> [seeds::Mixed; 2]: ------------
-(bool, bool) -> seeds::Sealed: ------------
-(bool, bool) -> (u8, seeds::Sealed): ------------
 (bool, bool) -> seeds::Tagged: ++++++---++-
 (bool, bool) -> seeds::Plain: -+--+---++++
 (bool, bool) -> seeds::Kept: -+--+---++++
@@ -419,8 +395,6 @@ core::num::nonzero::NonZero<u16> -> core::result::Result<core::num::nonzero::Non
 (bool, u8) -> seeds::Wraps: ------------
 (bool, u8) -> seeds::Either: ++++++---++-
 (bool, u8) -> [seeds::Mixed; 2]: ------------
-(bool, u8) -> seeds::Sealed: ------------
-(bool, u8) -> (u8, seeds::Sealed): ------------
 (bool, u8) -> seeds::Tagged: ------------
 (bool, u8) -> seeds::Plain: ------------
 (bool, u8) -> seeds::Kept: ------------
@@ -452,8 +426,6 @@ core::num::nonzero::NonZero<u16> -> core::result::Result<core::num::nonzero::Non
 (u8, u16) -> seeds::Wraps: ------------
 (u8, u16) -> seeds::Either: ------------
 (u8, u16) -> [seeds::Mixed; 2]: ------------
-(u8, u16) -> seeds::Sealed: ------------
-(u8, u16) -> (u8, seeds::Sealed): ------------
 (u8, u16) -> seeds::Tagged: ------------
 (u8, u16) -> seeds::Plain: ------------
 (u8, u16) -> seeds::Kept: ------------
@@ -485,8 +457,6 @@ core::num::nonzero::NonZero<u16> -> core::result::Result<core::num::nonzero::Non
 (u8, u16, u8) -> seeds::Wraps: ------------
 (u8, u16, u8) -> seeds::Either: ------------
 (u8, u16, u8) -> [seeds::Mixed; 2]: ------------
-(u8, u16, u8) -> seeds::Sealed: ------------
-(u8, u16, u8) -> (u8, seeds::Sealed): ------------
 (u8, u16, u8) -> seeds::Tagged: ------------
 (u8, u16, u8) -> seeds::Plain: ------------
 (u8, u16, u8) -> seeds::Kept: ------------
@@ -518,8 +488,6 @@ seeds::Mixed -> seeds::InOrder: ------------
 seeds::Mixed -> seeds::Wraps: ------------
 seeds::Mixed -> seeds::Either: ++++++---++-
 seeds::Mixed -> [seeds::Mixed; 2]: ------------
-seeds::Mixed -> seeds::Sealed: ------------
-seeds::Mixed -> (u8, seeds::Sealed): ------------
 seeds::Mixed -> seeds::Tagged: ------------
 seeds::Mixed -> seeds::Plain: ------------
 seeds::Mixed -> seeds::Kept: ------------
@@ -551,8 +519,6 @@ seeds::Ordered -> seeds::InOrder: ------------
 seeds::Ordered -> seeds::Wraps: ------------
 seeds::Ordered -> seeds::Either: ++++++---++-
 seeds::Ordered -> [seeds::Mixed; 2]: ------------
-seeds::Ordered -> seeds::Sealed: ------------
-seeds::Ordered -> (u8, seeds::Sealed): ------------
 seeds::Ordered -> seeds::Tagged: ------------
 seeds::Ordered -> seeds::Plain: ------------
 seeds::Ordered -> seeds::Kept: ------------
@@ -584,8 +550,6 @@ seeds::Twins -> seeds::InOrder: ------------
 seeds::Twins -> seeds::Wraps: ------------
 seeds::Twins -> seeds::Either: ++++++---++-
 seeds::Twins -> [seeds::Mixed; 2]: ------------
-seeds::Twins -> seeds::Sealed: ------------
-seeds::Twins -> (u8, seeds::Sealed): ------------
 seeds::Twins -> seeds::Tagged: ++++++---++-
 seeds::Twins -> seeds::Plain: -+--+---++++
 seeds::Twins -> seeds::Kept: -+--+---++++
@@ -617,8 +581,6 @@ seeds::Holds -> seeds::InOrder: ------------
 seeds::Holds -> seeds::Wraps: ------------
 seeds::Holds -> seeds::Either: -+--+----++-
 seeds::Holds -> [seeds::Mixed; 2]: ------------
-seeds::Holds -> seeds::Sealed: ------------
-seeds::Holds -> (u8, seeds::Sealed): ------------
 seeds::Holds -> seeds::Tagged: ------------
 seeds::Holds -> seeds::Plain: ------------
 seeds::Holds -> seeds::Kept: ------------
@@ -650,8 +612,6 @@ seeds::Ruled -> seeds::InOrder: ------------
 seeds::Ruled -> seeds::Wraps: ------------
 seeds::Ruled -> seeds::Either: ++++++---++-
 seeds::Ruled -> [seeds::Mixed; 2]: ------------
-seeds::Ruled -> seeds::Sealed: ------------
-seeds::Ruled -> (u8, seeds::Sealed): ------------
 seeds::Ruled -> seeds::Tagged: --+--+-+----
 seeds::Ruled -> seeds::Plain: ------------
 seeds::Ruled -> seeds::Kept: ------------
@@ -683,8 +643,6 @@ seeds::Carries -> seeds::InOrder: ------------
 seeds::Carries -> seeds::Wraps: ------------
 seeds::Carries -> seeds::Either: -+--+----++-
 seeds::Carries -> [seeds::Mixed; 2]: ------------
-seeds::Carries -> seeds::Sealed: ------------
-seeds::Carries -> (u8, seeds::Sealed): ------------
 seeds::Carries -> seeds::Tagged: ------------
 seeds::Carries -> seeds::Plain: ------------
 seeds::Carries -> seeds::Kept: ------------
@@ -716,8 +674,6 @@ seeds::InOrder -> seeds::InOrder: ++++++++++++
 seeds::InOrder -> seeds::Wraps: ------------
 seeds::InOrder -> seeds::Either: -+--+----++-
 seeds::InOrder -> [seeds::Mixed; 2]: ------------
-seeds::InOrder -> seeds::Sealed: ------------
-seeds::InOrder -> (u8, seeds::Sealed): ------------
 seeds::InOrder -> seeds::Tagged: ------------
 seeds::InOrder -> seeds::Plain: ---------+++
 seeds::InOrder -> seeds::Kept: ---------+++
@@ -749,8 +705,6 @@ seeds::Wraps -> seeds::InOrder: ------------
 seeds::Wraps -> seeds::Wraps: ++++++++++++
 seeds::Wraps -> seeds::Either: -+--+-------
 seeds::Wraps -> [seeds::Mixed; 2]: ------------
-seeds::Wraps -> seeds::Sealed: ------------
-seeds::Wraps -> (u8, seeds::Sealed): ------------
 seeds::Wraps -> seeds::Tagged: ------------
 seeds::Wraps -> seeds::Plain: -+--+-------
 seeds::Wraps -> seeds::Kept: -+--+-------
@@ -782,8 +736,6 @@ seeds::Either -> seeds::InOrder: ------------
 seeds::Either -> seeds::Wraps: ------------
 seeds::Either -> seeds::Either: ++++++++++++
 seeds::Either -> [seeds::Mixed; 2]: ------------
-seeds::Either -> seeds::Sealed: ------------
-seeds::Either -> (u8, seeds::Sealed): ------------
 seeds::Either -> seeds::Tagged: ------------
 seeds::Either -> seeds::Plain: ------------
 seeds::Either -> seeds::Kept: ------------
@@ -815,80 +767,12 @@ seeds::Either -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: ----
 [seeds::Mixed; 2] -> seeds::Wraps: ------------
 [seeds::Mixed; 2] -> seeds::Either: -+--+----++-
 [seeds::Mixed; 2] -> [seeds::Mixed; 2]: ++++++++++++
-[seeds::Mixed; 2] -> seeds::Sealed: ------------
-[seeds::Mixed; 2] -> (u8, seeds::Sealed): ------------
 [seeds::Mixed; 2] -> seeds::Tagged: ------------
 [seeds::Mixed; 2] -> seeds::Plain: ------------
 [seeds::Mixed; 2] -> seeds::Kept: ------------
 [seeds::Mixed; 2] -> core::option::Option<bool>: ------------
 [seeds::Mixed; 2] -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+-------+--
 [seeds::Mixed; 2] -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++-
-seeds::Sealed -> u8: -+--+----++-
-seeds::Sealed -> bool: ------------
-seeds::Sealed -> [u8; 2]: -+--+----++-
-seeds::Sealed -> [u8; 4]: ++++++---++-
-seeds::Sealed -> [bool; 2]: ------------
-seeds::Sealed -> [bool; 4]: --+--+------
-seeds::Sealed -> core::num::nonzero::NonZero<u16>: ------------
-seeds::Sealed -> [core::num::nonzero::NonZero<u16>; 2]: --+--+------
-seeds::Sealed -> (core::num::nonzero::NonZero<u16>, u16): ------------
-seeds::Sealed -> (bool, [u8; 3]): ------------
-seeds::Sealed -> (u8, u8): -+--+----++-
-seeds::Sealed -> (bool, bool): ------------
-seeds::Sealed -> (bool, u8): ------------
-seeds::Sealed -> (u8, u16): ++++++---++-
-seeds::Sealed -> (u8, u16, u8): ------------
-seeds::Sealed -> seeds::Mixed: ------------
-seeds::Sealed -> seeds::Ordered: ------------
-seeds::Sealed -> seeds::Twins: ------------
-seeds::Sealed -> seeds::Holds: ------------
-seeds::Sealed -> seeds::Ruled: ------------
-seeds::Sealed -> seeds::Carries: ------------
-seeds::Sealed -> seeds::InOrder: ------------
-seeds::Sealed -> seeds::Wraps: ------------
-seeds::Sealed -> seeds::Either: -+--+----++-
-seeds::Sealed -> [seeds::Mixed; 2]: ------------
-seeds::Sealed -> seeds::Sealed: ------------
-seeds::Sealed -> (u8, seeds::Sealed): ------------
-seeds::Sealed -> seeds::Tagged: ------------
-seeds::Sealed -> seeds::Plain: ------------
-seeds::Sealed -> seeds::Kept: ------------
-seeds::Sealed -> core::option::Option<bool>: ------------
-seeds::Sealed -> core::option::Option<core::num::nonzero::NonZero<u16>>: -+--+----++-
-seeds::Sealed -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: -+--+----++-
-(u8, seeds::Sealed) -> u8: ------------
-(u8, seeds::Sealed) -> bool: ------------
-(u8, seeds::Sealed) -> [u8; 2]: ------------
-(u8, seeds::Sealed) -> [u8; 4]: ------------
-(u8, seeds::Sealed) -> [bool; 2]: ------------
-(u8, seeds::Sealed) -> [bool; 4]: ------------
-(u8, seeds::Sealed) -> core::num::nonzero::NonZero<u16>: ------------
-(u8, seeds::Sealed) -> [core::num::nonzero::NonZero<u16>; 2]: ------------
-(u8, seeds::Sealed) -> (core::num::nonzero::NonZero<u16>, u16): ------------
-(u8, seeds::Sealed) -> (bool, [u8; 3]): ------------
-(u8, seeds::Sealed) -> (u8, u8): ------------
-(u8, seeds::Sealed) -> (bool, bool): ------------
-(u8, seeds::Sealed) -> (bool, u8): ------------
-(u8, seeds::Sealed) -> (u8, u16): ------------
-(u8, seeds::Sealed) -> (u8, u16, u8): ------------
-(u8, seeds::Sealed) -> seeds::Mixed: ------------
-(u8, seeds::Sealed) -> seeds::Ordered: ------------
-(u8, seeds::Sealed) -> seeds::Twins: ------------
-(u8, seeds::Sealed) -> seeds::Holds: ------------
-(u8, seeds::Sealed) -> seeds::Ruled: ------------
-(u8, seeds::Sealed) -> seeds::Carries: ------------
-(u8, seeds::Sealed) -> seeds::InOrder: ------------
-(u8, seeds::Sealed) -> seeds::Wraps: ------------
-(u8, seeds::Sealed) -> seeds::Either: ------------
-(u8, seeds::Sealed) -> [seeds::Mixed; 2]: ------------
-(u8, seeds::Sealed) -> seeds::Sealed: ------------
-(u8, seeds::Sealed) -> (u8, seeds::Sealed): ------------
-(u8, seeds::Sealed) -> seeds::Tagged: ------------
-(u8, seeds::Sealed) -> seeds::Plain: ------------
-(u8, seeds::Sealed) -> seeds::Kept: ------------
-(u8, seeds::Sealed) -> core::option::Option<bool>: ------------
-(u8, seeds::Sealed) -> core::option::Option<core::num::nonzero::NonZero<u16>>: ------------
-(u8, seeds::Sealed) -> core::result::Result<core::num::nonzero::NonZero<u8>, ()>: ------------
 seeds::Tagged -> u8: -+--+----++-
 seeds::Tagged -> bool: -+--+-------
 seeds::Tagged -> [u8; 2]: ++++++---++-
@@ -914,8 +798,6 @@ seeds::Tagged -> seeds::InOrder: ------------
 seeds::Tagged -> seeds::Wraps: ------------
 seeds::Tagged -> seeds::Either: ++++++---++-
 seeds::Tagged -> [seeds::Mixed; 2]: ------------
-seeds::Tagged -> seeds::Sealed: ------------
-seeds::Tagged -> (u8, seeds::Sealed): ------------
 seeds::Tagged -> seeds::Tagged: ++++++++++++
 seeds::Tagged -> seeds::Plain: -+--+-------
 seeds::Tagged -> seeds::Kept: -+--+-------
@@ -947,8 +829,6 @@ seeds::Plain -> seeds::InOrder: ------------
 seeds::Plain -> seeds::Wraps: ------------
 seeds::Plain -> seeds::Either: ------------
 seeds::Plain -> [seeds::Mixed; 2]: ------------
-seeds::Plain -> seeds::Sealed: ------------
-seeds::Plain -> (u8, seeds::Sealed): ------------
 seeds::Plain -> seeds::Tagged: ------------
 seeds::Plain -> seeds::Plain: ++++++++++++
 seeds::Plain -> seeds::Kept: ++++++++++++
@@ -980,8 +860,6 @@ seeds::Kept -> seeds::InOrder: ------------
 seeds::Kept -> seeds::Wraps: ------------
 seeds::Kept -> seeds::Either: ------------
 seeds::Kept -> [seeds::Mixed; 2]: ------------
-seeds::Kept -> seeds::Sealed: ------------
-seeds::Kept -> (u8, seeds::Sealed): ------------
 seeds::Kept -> seeds::Tagged: ------------
 seeds::Kept -> seeds::Plain: ++++++++++++
 seeds::Kept -> seeds::Kept: ++++++++++++
@@ -1013,8 +891,6 @@ core::option::Option<bool> -> seeds::InOrder: ------------
 core::option::Option<bool> -> seeds::Wraps: ------------
 core::option::Option<bool> -> seeds::Either: ------------
 core::option::Option<bool> -> [seeds::Mixed; 2]: ------------
-core::option::Option<bool> -> seeds::Sealed: ------------
-core::option::Option<bool> -> (u8, seeds::Sealed): ------------
 core::option::Option<bool> -> seeds::Tagged: ------------
 core::option::Option<bool> -> seeds::Plain: --+--+-+----
 core::option::Option<bool> -> seeds::Kept: --+--+-+----
@@ -1046,8 +922,6 @@ core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::InOrder: ------
 core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Wraps: ------------
 core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Either: ++++++---++-
 core::option::Option<core::num::nonzero::NonZero<u16>> -> [seeds::Mixed; 2]: ------------
-core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Sealed: ------------
-core::option::Option<core::num::nonzero::NonZero<u16>> -> (u8, seeds::Sealed): ------------
 core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Tagged: --+--+-+----
 core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Plain: ------------
 core::option::Option<core::num::nonzero::NonZero<u16>> -> seeds::Kept: ------------
@@ -1079,8 +953,6 @@ core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::InOrder: ---
 core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Wraps: ------------
 core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Either: ------------
 core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> [seeds::Mixed; 2]: ------------
-core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Sealed: ------------
-core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> (u8, seeds::Sealed): ------------
 core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Tagged: ------------
 core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Plain: --+--+-+----
 core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> seeds::Kept: --+--+-+----
@@ -1112,8 +984,6 @@ core::result::Result<core::num::nonzero::NonZero<u8>, ()> -> core::result::Resul
 [u8] -> seeds::Wraps: refused
 [u8] -> seeds::Either: 25 of 25 (0a8d07925296ef6f)
 [u8] -> [seeds::Mixed; 2]: refused
-[u8] -> seeds::Sealed: refused
-[u8] -> (u8, seeds::Sealed): refused
 [u8] -> seeds::Tagged: 7 of 25 (f134dda5bfecdcfa)
 [u8] -> seeds::Plain: 2 of 5 (08328707b4eb6e3a)
 [u8] -> seeds::Kept: 2 of 5 (08328707b4eb6e3a)

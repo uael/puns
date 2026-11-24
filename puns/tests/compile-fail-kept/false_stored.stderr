@@ -1,14 +1,9 @@
 error[E0080]: evaluation panicked: an enum of the `Rust` representation is not laid out as `puns` assumes (see "What `puns` assumes" in the crate documentation): `rustc` lays out enums otherwise, or the `Spec` of a scalar in it declares a type that its bytes are not (`Spec::stored_as`); enable the `unstable` feature, which uses the layout that `rustc` chose
  --> src/std_enums.rs
   |
-  |     discovered::<T>()
-  |     ^^^^^^^^^^^^^^^^^ evaluation of `puns::std_enums::<impl puns::Pun for std::option::Option<Plain>>::LAYOUT` failed inside this call
+  |       layout.assumed::<Self, 2>(&<Self as Found>::DESC, &<Self as Found>::FIELDS)
+  |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::std_enums::<impl puns::Pun for std::option::Option<Plain>>::LAYOUT` failed inside this call
   |
-note: inside `puns::std_enums::discovered::<Plain>`
- --> src/std_enums.rs
-  |
-  |     layout.assumed::<Option<T>, 2>(&<Option<T> as Found>::DESC, &<Option<T> as Found>::FIELDS)
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `puns::layout::Layout::assumed::<Option<Plain>, 2>`
  --> src/layout.rs
   |
@@ -105,7 +100,7 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |       Shape::Enum(layout) if layout.union => validate_union::<C, T, T::Variants>(ptr, input),
+  |       Shape::Enum(layout) if layout.union => validate_union::<T, T::Variants>(ptr, input),
   |                   ^^^^^^
 
 note: erroneous constant encountered
@@ -333,8 +328,8 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/std_enums.rs
   |
-  |   if is_enum::<E>() { E::LAYOUT.variant_tag(index) } else { 0 }
-  |                       ^^^^^^^^^
+  |   E::LAYOUT.variant_tag(index)
+  |   ^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
@@ -351,8 +346,8 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/std_enums.rs
   |
-  |   matches!(E::LAYOUT.kind, Kind::Enum(_))
-  |            ^^^^^^^^^
+  |   if E::DESC.inhabited(index) { Some(*E::LAYOUT.variant_field(index, 0)) } else { None }
+  |                                       ^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
@@ -363,7 +358,7 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     (const { inhabited::<V::Fields>() } && every::<C, T, V::Fields>(ptr, input))
+  |     (const { inhabited::<V::Fields>() } && validate_fields::<All, Root, T, V::Fields>(ptr, input))
   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
@@ -441,8 +436,8 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/std_enums.rs
   |
-  |   if is_enum::<E>() { E::LAYOUT.variant_ranges(index) } else { None }
-  |                       ^^^^^^^^^
+  |   E::LAYOUT.variant_ranges(index)
+  |   ^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
@@ -459,5 +454,5 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |       (const { inhabited::<V::Fields>() }) && every::<C, T, V::Fields>(ptr, input)
+  |       (const { inhabited::<V::Fields>() }) && validate_fields::<All, Root, T, V::Fields>(ptr, input)
   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -335,3 +335,65 @@ fn a_union_of_a_source_may_hold_a_value() {
   assert_eq!(puns::pun::<Plain5, Target5>(Plain5::B(7)), Target5::B(7));
   assert_eq!(puns::pun::<Plain5, Target5>(Plain5::C), Target5::C);
 }
+
+/// Checks that a variant that holds a union none of whose fields has values, which has no sample
+/// from which the derive would read its tag, has a tag from its declaration: a discriminant without
+/// a macro, or the tag of the variant before it plus one. One that is not known does not compile
+/// (`enum_discriminant_of_a_hollow_variant` in `compile-fail/`).
+#[test]
+fn a_hollow_variant_has_a_tag_from_its_declaration() {
+  use core::convert::Infallible;
+
+  use puns::Pun;
+
+  /// A union none of whose fields has values.
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Hollow {
+    a: Infallible,
+  }
+
+  const TWELVE: u8 = 12;
+
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  enum Declared {
+    Literal(Hollow) = 2,
+    Next(u8),
+    After(Hollow),
+    Expression(u8) = 4 + 5,
+    Constant(Hollow) = TWELVE,
+  }
+
+  // The tag of a value, as the enum holds it.
+  fn tag(value: &Declared) -> u8 {
+    // SAFETY: `Declared` is `repr(u8)`, so each value starts with its tag, a `u8`, which is
+    // initialized. The pointer is that of a reference, so it is aligned and valid for reads.
+    unsafe { *core::ptr::from_ref(value).cast::<u8>() }
+  }
+
+  // 3 and 9 are the variants that a pun makes. No bytes are a `Hollow` of a target, so 2, 4 and 12
+  // are refused, as tags of no variant are.
+  let pun = |tag| puns::try_pun::<[u8; 2], Declared>([tag, 0]);
+  assert!(matches!(pun(3), Ok(Declared::Next(0))));
+  assert!(matches!(pun(9), Ok(Declared::Expression(0))));
+  for tag in [0, 2, 4, 10, 12] {
+    assert_eq!(pun(tag).err(), Some(Error::Validity));
+  }
+  // SAFETY: The language has not settled the validity of unions. The compiler and Miri accept any
+  // bytes as a union today, and a `Hollow` has none, so this value is accepted, as in
+  // `a_union_of_a_source_may_hold_a_value`. It is only read for the tag of the enum that holds it.
+  let hollow: Hollow = unsafe { MaybeUninit::<Hollow>::uninit().assume_init() };
+  // The tags of the layout are those of the enum.
+  let values = [
+    Declared::Literal(hollow),
+    Declared::Next(0),
+    Declared::After(hollow),
+    Declared::Expression(0),
+    Declared::Constant(hollow),
+  ];
+  for (i, value) in values.iter().enumerate() {
+    assert_eq!(<Declared as Pun>::LAYOUT.variant_tag(i), u128::from(tag(value)));
+  }
+  assert_eq!(tag(&values[4]), 12);
+}

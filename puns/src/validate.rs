@@ -85,17 +85,6 @@ use crate::{
 pub trait Checks {
   /// The leaves to check (scalars, patterns, enums, unions and rules), by index in the target.
   const MARKS: Marks;
-  /// Whether a scalar that a pun never makes ([`Spec::never`](layout::Spec::never)) is accepted,
-  /// as the initialized bytes that it is known to be, instead of refused.
-  const NEVER: bool = false;
-}
-
-/// The [`Checks`] that check every part, but accept a scalar that a pun never makes.
-pub struct AllButNever;
-
-impl Checks for AllButNever {
-  const MARKS: Marks = Marks::ALL;
-  const NEVER: bool = true;
 }
 
 /// The [`Checks`] that check every part.
@@ -117,8 +106,7 @@ impl Checks for All {
 ///
 /// - `ptr` is valid for reads of a `T`. It need not be aligned.
 /// - Every byte that a check marked by `C` reads is initialized. A marked scalar reads its own
-///   bytes, unless it is one that a pun never makes, which is never read: `C::NEVER` accepts it,
-///   and otherwise it is refused. A marked pattern reads its tail. An enum or a union with a marked
+///   bytes. A marked pattern reads its tail. An enum or a union with a marked
 ///   leaf reads its tag and what the checks of its variants read, which check every part. Nothing
 ///   is read of a variant, or of a field of a union, that has no value. A struct whose rules are
 ///   marked reads the fields that its rules load and, if one of its rules reads bytes by offset
@@ -136,9 +124,8 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
   // initialized, by contract on the caller. A leaf of `T` is marked, since the function did not
   // return above. `T::LAYOUT` is the layout of `T`, and `T::Elem`, `T::Fields` and `T::Variants`
   // are its lists (`Pun`, section Safety). For each shape:
-  // - A scalar is `T` itself, of `spec.size` bytes, and is marked. If it is one that a pun never
-  //   makes, nothing reads it: `C::NEVER` accepts it, and `Spec::matches` refuses it otherwise.
-  //   Any other scalar reads its own bytes, so they are initialized, as `Spec::matches` requires.
+  // - A scalar is `T` itself, of `spec.size` bytes, and is marked. So its bytes are initialized,
+  //   as `Spec::matches` requires.
   // - An array or a slice is `len` or `ptr::metadata(ptr)` elements of type `T::Elem`, one after
   //   the other, each valid for reads. Its elements share their leaves, so what is marked in one
   //   is marked in each, as `validate_elems` requires.
@@ -153,7 +140,7 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
   //   its variants.
   unsafe {
     match const { T::LAYOUT.shape() } {
-      Shape::Scalar(spec) => (const { C::NEVER } && spec.is_never()) || spec.matches(ptr.cast()),
+      Shape::Scalar(spec) => spec.matches(ptr.cast()),
       Shape::Array(len) => validate_elems::<C, P, T::Elem>(ptr.cast(), len, input),
       Shape::Slice => validate_elems::<C, P, T::Elem>(ptr.cast(), ptr::metadata(ptr), input),
       Shape::Struct => {
@@ -166,8 +153,8 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
         Dfa::matches_utf8(ptr.cast(), ptr::metadata(ptr))
       }
       Shape::Pattern(dfa) => dfa.matches(ptr.cast(), ptr::metadata(ptr)),
-      Shape::Enum(layout) if layout.union => validate_union::<C, T, T::Variants>(ptr, input),
-      Shape::Enum(layout) => validate_enum::<C, T>(ptr, layout, input),
+      Shape::Enum(layout) if layout.union => validate_union::<T, T::Variants>(ptr, input),
+      Shape::Enum(layout) => validate_enum::<T>(ptr, layout, input),
     }
   }
 }
@@ -175,8 +162,7 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
 /// Returns whether the enum at `ptr` has the tag of one of its variants, and the fields of that
 /// variant are valid.
 ///
-/// Every part of the variant is checked, since nothing is known of what is in an enum, with a
-/// scalar that a pun never makes accepted if `C` accepts it.
+/// Every part of the variant is checked, since nothing is known of what is in an enum.
 ///
 /// # Panics
 ///
@@ -191,7 +177,7 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
 /// - The tag of the enum is initialized, and so is every byte that the checks of the fields of that
 ///   tag's variant read, which check every part.
 #[inline(always)]
-const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(
+const unsafe fn validate_enum<T: ?Sized + Pun>(
   ptr: *const T,
   layout: &Enum,
   input: &mut Input,
@@ -205,12 +191,12 @@ const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(
   // variants of `T`.
   unsafe {
     let tag = load(ptr.cast::<u8>().add(layout.tag.offset), spec.size, spec.endian);
-    validate_variants::<C, T, T::Variants>(ptr, tag, input)
+    validate_variants::<T, T::Variants>(ptr, tag, input)
   }
 }
 
 /// Returns whether the variant of tag `tag`, among `V` and the ones after it, has valid fields
-/// in the enum at `ptr`, with a scalar that a pun never makes accepted if `C` accepts it.
+/// in the enum at `ptr`.
 ///
 /// Returns `false` if no such variant has the tag. A variant whose tag is a range of values (the
 /// variant of a niche) has the tag if `tag` is in that range. Returns `false` too, without reading
@@ -224,7 +210,7 @@ const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(
 /// - `V` is `T::Variants`, or a list that `Variants::Next` reaches from it.
 /// - If a variant that has values has the tag `tag`, every byte that the checks of its fields read,
 ///   which check every part, is initialized.
-const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
+const unsafe fn validate_variants<T: ?Sized + Pun, V: Variants>(
   ptr: *const T,
   tag: u128,
   input: &mut Input,
@@ -244,9 +230,9 @@ const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
     if this {
       // No value is a variant of which a field has no value, so nothing of it is read. The
       // analysis does not look at such a variant either (`Variant::is_present`).
-      (const { inhabited::<V::Fields>() }) && every::<C, T, V::Fields>(ptr, input)
+      (const { inhabited::<V::Fields>() }) && validate_fields::<All, Root, T, V::Fields>(ptr, input)
     } else {
-      validate_variants::<C, T, V::Next>(ptr, tag, input)
+      validate_variants::<T, V::Next>(ptr, tag, input)
     }
   }
 }
@@ -260,30 +246,7 @@ const fn inhabited<F: Fields>() -> bool {
   }
 }
 
-/// Returns whether every part of the fields `F` of the `T` at `ptr` is valid, with a scalar that a
-/// pun never makes accepted if `C` accepts it.
-///
-/// # Safety
-///
-/// The requirements of `validate_fields` with every part marked.
-#[inline(always)]
-const unsafe fn every<C: Checks, T: ?Sized + Pun, F: Fields>(
-  ptr: *const T,
-  input: &mut Input,
-) -> bool {
-  // SAFETY: The requirements of `validate_fields`, by contract on the caller.
-  unsafe {
-    if const { C::NEVER } {
-      validate_fields::<AllButNever, Root, T, F>(ptr, input)
-    } else {
-      validate_fields::<All, Root, T, F>(ptr, input)
-    }
-  }
-}
-
 /// Returns whether the union at `ptr` is a valid value of one of its fields, `V` or one after it.
-/// A union holds no scalar that a pun never makes (`Layout::union` asserts it), so `C` changes
-/// nothing here.
 ///
 /// Each field of a union is a variant of one field in its layout.
 ///
@@ -296,7 +259,7 @@ const unsafe fn every<C: Checks, T: ?Sized + Pun, F: Fields>(
 /// - Every byte that the checks of `V` or of a field after it read, which check every part, is
 ///   initialized, for the fields that have values. The analysis refuses a union of which such a
 ///   field would read a byte that may be padding in the source.
-const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(
+const unsafe fn validate_union<T: ?Sized + Pun, V: Variants>(
   ptr: *const T,
   input: &mut Input,
 ) -> bool {
@@ -310,8 +273,8 @@ const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(
   // call. Nothing is read of a field that has no value, which no bytes are, as in
   // `validate_variants`.
   unsafe {
-    (const { inhabited::<V::Fields>() } && every::<C, T, V::Fields>(ptr, input))
-      || validate_union::<C, T, V::Next>(ptr, input)
+    (const { inhabited::<V::Fields>() } && validate_fields::<All, Root, T, V::Fields>(ptr, input))
+      || validate_union::<T, V::Next>(ptr, input)
   }
 }
 
