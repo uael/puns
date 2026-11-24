@@ -684,7 +684,7 @@ const unsafe fn check_next<C: Checks, T: ?Sized + Pun, L: Rules>(
       input.fail(base);
       return None;
     };
-    if !input.aligned(addr, align) {
+    if !input.aligned::<L::Pointee>(addr, align) {
       input.fail(base);
       return None;
     }
@@ -730,8 +730,11 @@ const unsafe fn check_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
 /// `input` ([`stored_at`]), aligned for its type, where a compact check expects it
 /// ([`Input::claim`]), and of a size that its type has ([`measure`]).
 ///
-/// What does not lead to the pointee is refused where the struct is, and a size that the pointee
-/// does not have where the pointee starts ([`Input::fail`]).
+/// Where the check fails is recorded ([`Input::fail`]): where the struct is if its aim does not
+/// lead to the pointee (it is not within the bytes, not aligned, not where a compact check expects
+/// it, or what is stored before its value or the sized part of its value does not fit); where the
+/// length of a `Thin` is if it is negative; and where the pointee starts if its size is not one
+/// that its type has, or does not fit.
 ///
 /// It is a function of its own in a build without optimizations, so that the frames of the
 /// recursion of eager aims do not hold what it computes.
@@ -746,12 +749,13 @@ const unsafe fn find_stored<T: ?Sized + Pun, L: Rules>(
   size: usize,
   input: &mut Input,
 ) -> Option<(*const u8, usize)> {
-  let (align, before) = const {
+  let (align, before, head, length) = const {
     let align = match T::LAYOUT.rule(L::RULE) {
       Some(Rule::Aim(aim)) => aim.align,
       _ => 1,
     };
-    (align, size_of::<<L::Pointee as Pointee>::Prefix>())
+    let head = <<L::Pointee as Pointee>::Value as Pun>::LAYOUT.head();
+    (align, size_of::<<L::Pointee as Pointee>::Prefix>(), head, L::Pointee::LENGTH)
   };
   // SAFETY: The requirements of `stored_at` are those of this call.
   let Some((to, wanted)) = (unsafe { stored_at::<T, L>(base, size, input) }) else {
@@ -761,9 +765,20 @@ const unsafe fn find_stored<T: ?Sized + Pun, L: Rules>(
   // SAFETY: `before <= to <= input.len` (`stored_at`), so `add` stays within the bytes of `input`,
   // in one allocation.
   let addr = unsafe { input.start.add(to) };
-  if !input.aligned(addr, align) || !input.claim(to, before, align) {
+  if !input.aligned::<L::Pointee>(addr, align)
+    || !input.claim(to, before, align)
+    || input.len - to < head
+  {
     input.fail(base);
     return None;
+  }
+  if let Some(spec) = length {
+    // SAFETY: The length of a `Thin` is the end of what is stored before its value, which
+    // `stored_at` found within the bytes of `input`, valid for reads and initialized.
+    if unsafe { stored_length::<L::Pointee>(addr) }.is_none() {
+      input.fail(addr.wrapping_sub(spec.size));
+      return None;
+    }
   }
   // SAFETY: The `input.len - to` bytes at `addr` are the end of the bytes of `input`, which are
   // valid for reads and initialized, and the prefix of the pointee is before them, by contract on
@@ -1236,17 +1251,16 @@ impl Input {
     self.depth += 1;
   }
 
-  /// Returns whether `addr`, within the bytes, is aligned to `align`: by its address, or, if the
-  /// bytes are checked at another address, by its offset in them, for a first byte aligned to
-  /// `self.align`.
-  const fn aligned(&self, addr: *const u8, align: usize) -> bool {
-    if align <= 1 {
-      return true;
-    }
+  /// Returns whether the pointee `P` at `addr`, within the bytes, is aligned to `align`, the
+  /// alignment of its aim: by its address, or, if the bytes are checked at another address, by its
+  /// offset in them. Then the alignment of its types ([`types_align`]) must be at most that of the
+  /// first byte, `self.align`, so that the pointee is aligned for its types where the bytes will
+  /// be, though the alignment of its aim, which a format may set higher, need not be.
+  const fn aligned<P: ?Sized + Pointee>(&self, addr: *const u8, align: usize) -> bool {
     if self.align == 0 {
-      return ptr::is_aligned(addr, align);
+      return align <= 1 || ptr::is_aligned(addr, align);
     }
-    align <= self.align
+    (const { types_align::<P>() }) <= self.align
       && (ptr::address(addr).wrapping_sub(ptr::address(self.start)) & (align - 1)) == 0
   }
 
@@ -1309,6 +1323,14 @@ impl Input {
       self.failed = Some(ptr::address(addr).wrapping_sub(ptr::address(self.start)));
     }
   }
+}
+
+/// Returns the alignment of the types of the pointee `P`: of its value and of what is stored before
+/// it, which reads of it require. A [`Thin`](crate::Thin) aims at a higher one, the size of its
+/// length.
+const fn types_align<P: ?Sized + Pointee>() -> usize {
+  let (value, prefix) = (<P::Value as Pun>::LAYOUT.align(), <P::Prefix as Pun>::LAYOUT.align());
+  if value > prefix { value } else { prefix }
 }
 
 /// A pointee that is still to be checked, in a [`Worklist`](crate::Worklist) of

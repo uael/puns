@@ -793,8 +793,19 @@ fn a_check_says_where_the_bytes_stop_being_a_value() {
   // A name that is not UTF-8, and a length past the end: where the name starts, at its length.
   assert_eq!(invalid(name + 4, 0xff), Err(name));
   assert_eq!(failed(name, 1000), Err(name));
-  // A capacity that is not the length: where the list starts, at its capacity.
+  // A capacity that is not the length: where the list starts, at its capacity. A negative length:
+  // where it is.
   assert_eq!(failed(values - 4, 3), Err(values - 4));
+  assert_eq!(failed(values, -2), Err(values));
+  // Cut where the next pair starts: what does not fit even its sized part is refused at the
+  // pointer that leads to it. Cut within the first name, "ab": where the name starts, at its
+  // length.
+  let cut = |len: usize| {
+    let words = image.words8(0);
+    image_of(&puns::as_bytes(&words[..])[..len], 8, false).map_err(|f| f.at)
+  };
+  assert_eq!(cut(at(8)), Err(8));
+  assert_eq!(cut(name + 5), Err(name));
   // The same in the second pair, behind the first.
   let second = at(8);
   assert_eq!(invalid(at(second) + 4, 0xff), Err(at(second)));

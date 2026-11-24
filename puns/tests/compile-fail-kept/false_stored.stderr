@@ -381,13 +381,13 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let (align, before) = const {
-  |  _________________________^
+  |     let (align, before, head, length) = const {
+  |  _______________________________________^
   | |     let align = match T::LAYOUT.rule(L::RULE) {
   | |       Some(Rule::Aim(aim)) => aim.align,
   | |       _ => 1,
-  | |     };
-  | |     (align, size_of::<<L::Pointee as Pointee>::Prefix>())
+... |
+  | |     (align, size_of::<<L::Pointee as Pointee>::Prefix>(), head, L::Pointee::LENGTH)
   | |   };
   | |___^
 

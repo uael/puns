@@ -4865,11 +4865,12 @@ impl<const N: usize> Worklist for [Pending; N] {
 /// nested at any depth.
 ///
 /// The bytes are checked as they will be at an address aligned to `align`, as when they are
-/// copied there after the check: the `D`, and each eager pointee, must be aligned by its offset
-/// in the bytes, to at most `align`. The pointees that are still to be checked wait in `work`
-/// ([`Worklist`]), so the check goes deeper than [`AIM_DEPTH`], which bounds the recursion of
-/// [`from_head`]. The `D` is checked first, then its pointees, depth first, each struct before its
-/// pointees and each aim of a struct before the next.
+/// copied there after the check: the `D` and the types of each eager pointee must be aligned to at
+/// most `align`, and each pointee is aligned by its offset in the bytes, to the alignment of its
+/// aim, which may be higher (that of a [`Thin`] counts the size of its length). The pointees that
+/// are still to be checked wait in `work` ([`Worklist`]), so the check goes deeper than
+/// [`AIM_DEPTH`], which bounds the recursion of [`from_head`]. The `D` is checked first, then its
+/// pointees, depth first, each struct before its pointees and each aim of a struct before the next.
 ///
 /// With `compact`, the bytes must also be the compact image of the `D`: each pointee starts at the
 /// first offset after the one before it in that order where it is aligned (after the `D` for the
