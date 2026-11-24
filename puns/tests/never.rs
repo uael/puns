@@ -159,6 +159,32 @@ fn a_generic_one_is_read_as_its_bytes() {
   assert_eq!(puns::as_bytes(&offset), &3u32.to_ne_bytes());
 }
 
+/// An offset to a `T`, in a generic type that derives `Pun`, whose identity is made of the one of
+/// `T`.
+#[derive(puns::Pun)]
+#[repr(C)]
+struct Boxed<T: puns::Pun> {
+  offset: never::Ref<T>,
+}
+
+/// A type that holds an offset to itself, through `Boxed`.
+#[derive(puns::Pun)]
+#[repr(C)]
+struct Chain {
+  tag: u32,
+  next: Boxed<Chain>,
+}
+
+/// The identity of `Boxed<Chain>` is made of the identity of `Chain`, not of its layout, which
+/// holds the layout of `Boxed<Chain>`: this compiles.
+#[test]
+fn a_type_that_holds_itself_through_a_generic_type_has_a_layout() {
+  let chain = Chain { tag: 7, next: Boxed { offset: never::Ref::new(8) } };
+  let bytes = puns::as_bytes(&chain);
+  assert_eq!(&bytes[..4], &7u32.to_ne_bytes());
+  assert_eq!(&bytes[4..], &8u32.to_ne_bytes());
+}
+
 /// Bytes aligned to 8, so that one byte past their start is not aligned to 4.
 #[repr(C, align(8))]
 struct Aligned([u8; 16]);
