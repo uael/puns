@@ -508,8 +508,7 @@ impl Spec {
     Self { validity: true, ..self }
   }
 
-  /// Returns the same scalar, whose bytes are a value of the type `T`, of the same size and
-  /// alignment.
+  /// Returns the same scalar, whose bytes are a value of the type `T`, of the same size.
   ///
   /// This is what a scalar declared by hand says when it is a `repr(transparent)` struct around a
   /// type of `core` that `rustc` gives a niche, as a stored integer that is never zero is a
@@ -523,6 +522,11 @@ impl Spec {
   /// what its bytes are. A struct around a `u8` whose constructor keeps it from 1 to 5 is a `u8`,
   /// which has no niche, and its `Option` has a tag.
   ///
+  /// The alignment of `T` does not matter: a niche is a set of values, which `rustc` keeps through
+  /// `repr(packed)` and `repr(transparent)`, so a `repr(C, packed)` struct around a `NonZero<i32>`
+  /// declares `NonZero<i32>`. The enum that holds the scalar is laid out with the alignment of the
+  /// scalar, and only the niche is read from `T`.
+  ///
   /// A false declaration is not unsound, and is not a requirement of the `# Safety` of
   /// [`Scalar`](crate::Scalar). `puns` uses the layout of the enum that it finds by experiments on
   /// values of it, and the layout that it predicts from `T` is only compared with that one, when
@@ -532,9 +536,8 @@ impl Spec {
   ///
   /// # Panics
   ///
-  /// Panics if `T` does not have the size of the scalar. [`Layout::scalar`] panics if it does not
-  /// have the alignment of the type of the scalar. In the `SPEC` of a [`Scalar`](crate::Scalar),
-  /// both are errors at compile time.
+  /// Panics if `T` does not have the size of the scalar, since its bytes would not be the bytes of
+  /// the scalar. In the `SPEC` of a [`Scalar`](crate::Scalar), this is an error at compile time.
   ///
   /// # Examples
   ///
@@ -2276,12 +2279,6 @@ impl Layout {
   #[must_use]
   pub const fn scalar<T>(spec: Spec) -> Self {
     assert!(spec.size == size_of::<T>(), "`Spec` size mismatch");
-    if let Some(stored) = spec.stored {
-      assert!(
-        stored.align == align_of::<T>(),
-        "the type that the bytes of a scalar are must have the alignment of the scalar"
-      );
-    }
     Self::of_scalar(spec, align_of::<T>())
   }
 

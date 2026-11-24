@@ -114,6 +114,60 @@ struct HoldsBytes {
   len: u32,
 }
 
+/// An `i32` stored little-endian, never zero, as `nearest` stores one: a packed struct of a
+/// `NonZero<i32>`, aligned to 1, whose `Option` keeps the niche of the `NonZero`.
+#[derive(Clone, Copy)]
+#[repr(C, packed)]
+struct I32Le(NonZero<i32>);
+
+impl I32Le {
+  fn new(value: i32) -> Option<Self> {
+    NonZero::new(value.to_le()).map(Self)
+  }
+
+  const fn get(self) -> i32 {
+    i32::from_le(self.0.get())
+  }
+}
+
+// SAFETY: `I32Le` is a packed struct of a `NonZero<i32>` alone, so it has its size, and its
+// values are every 4 bytes but zeros, which are exactly the values that `SPEC` accepts, read
+// little-endian. It holds no `UnsafeCell`. Its bytes are a `NonZero<i32>`, as `stored_as`
+// declares, of a greater alignment than its own.
+unsafe impl Scalar for I32Le {
+  const SPEC: Spec = Spec::ranges::<I32Le>(Endian::Little, &[(1, u32::MAX as u128)])
+    .not_a_number()
+    .stored_as::<NonZero<i32>>();
+}
+
+/// A `u32` that is never zero, aligned to 4, whose bytes are declared as an `I32Le`, aligned to 1.
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+struct Word(NonZero<u32>);
+
+// SAFETY: `Word` is `repr(transparent)` over a `NonZero<u32>`, so it has its size, and its values
+// are every 4 bytes but zeros, which `SPEC` accepts. It holds no `UnsafeCell`. Its bytes are the
+// bytes of an `I32Le`, every 4 bytes but zeros, as `stored_as` declares.
+unsafe impl Scalar for Word {
+  const SPEC: Spec =
+    Spec::ranges::<Word>(Endian::NATIVE, &[(1, u32::MAX as u128)]).stored_as::<I32Le>();
+}
+
+/// Two `repr(C)` structs with the layout that `puns` assumes of an `Option<I32Le>` at offset 0.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+struct HoldsPacked {
+  offset: Option<I32Le>,
+  kind: u8,
+}
+
+#[derive(Pun, Clone, Copy, Debug, PartialEq)]
+#[repr(C)]
+struct HoldsFive {
+  offset: [u8; 4],
+  kind: u8,
+}
+
 #[test]
 fn option_of_a_type_without_niche_is_a_tag_then_the_value() {
   // Proven: every `Option<u16>` is a `RawOption`, in every layout that `puns` assumes.
@@ -226,4 +280,26 @@ fn from_bytes(bytes: HoldsBytes, empty: HoldsBytes) {
     (puns::try_pun(bytes).unwrap(), puns::try_pun(empty).unwrap());
   assert_eq!((some.offset.map(U32le::get), some.len), (Some(9), 3));
   assert_eq!((none.offset, none.len), (None, 3));
+}
+
+#[test]
+fn a_declared_type_may_be_more_or_less_aligned_than_the_scalar() {
+  // `I32Le` is aligned to 1, its `NonZero<i32>` to 4: `None` is the zeros, 4 bytes, proven.
+  assert_eq!((size_of::<Option<I32Le>>(), align_of::<Option<I32Le>>()), (4, 1));
+  assert_eq!(puns::pun::<Option<I32Le>, [u8; 4]>(None), [0; 4]);
+  assert_eq!(puns::pun::<Option<I32Le>, [u8; 4]>(I32Le::new(-2)), [0xfe, 0xff, 0xff, 0xff]);
+  let held = HoldsPacked { offset: I32Le::new(5), kind: 1 };
+  assert_eq!(
+    puns::pun::<HoldsPacked, HoldsFive>(held),
+    HoldsFive { offset: [5, 0, 0, 0], kind: 1 }
+  );
+  #[cfg(target_endian = "little")]
+  let back: HoldsPacked = puns::pun(HoldsFive { offset: [0xfe, 0xff, 0xff, 0xff], kind: 2 });
+  #[cfg(target_endian = "big")]
+  let back: HoldsPacked =
+    puns::try_pun(HoldsFive { offset: [0xfe, 0xff, 0xff, 0xff], kind: 2 }).unwrap();
+  assert_eq!((back.offset.map(I32Le::get), back.kind), (Some(-2), 2));
+  // `Word` is aligned to 4, the `I32Le` that it declares to 1.
+  assert_eq!(puns::pun::<Option<Word>, u32>(None), 0);
+  assert_eq!(puns::pun::<u32, Option<Word>>(0).map(|word| word.0.get()), None);
 }

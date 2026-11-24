@@ -24,32 +24,7 @@ note: erroneous constant encountered
   |                                      ^^^^^^^
 
 note: erroneous constant encountered
-  --> tests/compile-fail/stored_as_size.rs:27:11
+  --> tests/compile-fail/stored_as_size.rs:16:11
    |
-27 |   let _ = <Short as Pun>::LAYOUT;
-   |           ^^^^^^^^^^^^^^^^^^^^^^
-
-error[E0080]: evaluation panicked: the type that the bytes of a scalar are must have the alignment of the scalar
- --> src/lib.rs
-  |
-  |     let layout = Layout::scalar::<T>(T::SPEC).identified(T::ID);
-  |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Loose as puns::Pun>::LAYOUT` failed inside this call
-  |
-note: inside `puns::layout::Layout::scalar::<Loose>`
- --> $RUST/core/src/panic.rs
-  |
-  = note: the failure occurred here
-  |
- ::: src/layout.rs
-  |
-  | /       assert!(
-  | |         stored.align == align_of::<T>(),
-  | |         "the type that the bytes of a scalar are must have the alignment of the scalar"
-  | |       );
-  | |_______- in this macro invocation
-
-note: erroneous constant encountered
-  --> tests/compile-fail/stored_as_size.rs:28:11
-   |
-28 |   let _ = <Loose as Pun>::LAYOUT;
+16 |   let _ = <Short as Pun>::LAYOUT;
    |           ^^^^^^^^^^^^^^^^^^^^^^

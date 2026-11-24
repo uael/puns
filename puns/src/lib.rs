@@ -1855,7 +1855,7 @@ pub use core as __core;
 ///   of `Self` relies on.
 /// - No byte of `Self` is inside an [`UnsafeCell`](core::cell::UnsafeCell).
 ///
-/// [`Spec::stored_as`] declares the type that the bytes of `Self` are, of its size and alignment,
+/// [`Spec::stored_as`] declares the type that the bytes of `Self` are, of its size,
 /// so that `puns` knows the niche that `rustc` gives an `Option` of it, which is that type's. That
 /// declaration is not part of this contract: a false one fails to compile, and is never unsound.
 ///
