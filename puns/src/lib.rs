@@ -4798,6 +4798,23 @@ pub const fn from_head<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&D, &[u8]), Err
 }
 
 /// Where and why [`check`] found that bytes are not a value.
+///
+/// # Examples
+///
+/// ```
+/// use puns::{Error, Failure, Pun};
+///
+/// #[derive(Pun)]
+/// #[repr(C)]
+/// struct Flags {
+///   a: bool,
+///   b: bool,
+/// }
+///
+/// // The second byte is no `bool`.
+/// let failure = puns::check::<Flags, _>(&[1, 2], 1, false, &mut []).unwrap_err();
+/// assert_eq!(failure, Failure { error: Error::Validity, at: 1 });
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Failure {
   /// Why: [`Error::Validity`] if the bytes are not a value, or another error of [`from_head`]:
@@ -4816,8 +4833,8 @@ pub struct Failure {
 /// entries, or a vector that grows.
 ///
 /// A check needs at most one entry for each struct that holds an eager aim at a stored place in
-/// the bytes, `bytes.len() / 4` for pointers of 4 bytes, and usually as many as wait at once down
-/// the deepest path of a depth-first walk.
+/// the bytes, `bytes.len() / 4` for pointers of 4 bytes, and usually few, since it follows a few
+/// pointees in place before any waits.
 ///
 /// # Examples
 ///
@@ -4840,10 +4857,28 @@ pub struct Failure {
 /// ```
 pub trait Worklist {
   /// Returns the entries, every one of which the check may write.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::{Pending, Worklist};
+  ///
+  /// let mut work = [Pending::default(); 4];
+  /// assert_eq!(work.items().len(), 4);
+  /// ```
   fn items(&mut self) -> &mut [Pending];
 
   /// Makes room for more entries, keeping the ones of [`Worklist::items`] at the start, and returns
   /// whether it did. A slice cannot.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::{Pending, Worklist};
+  ///
+  /// let mut work = [Pending::default(); 4];
+  /// assert!(!work.grow());
+  /// ```
   fn grow(&mut self) -> bool {
     false
   }
