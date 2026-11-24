@@ -1,0 +1,42 @@
+error[E0080]: evaluation panicked:
+              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+              This is at byte 0 of the target.
+
+    --> src/lib.rs
+     |
+     |   const TRY: () = Self::require(Self::check(Need::TRY));
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8; 12], (bool, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8)>::TRY` failed inside this call
+     |
+note: inside `puns::Plan::<[u8; 12], (bool, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8)>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY };
+  |           ^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn try_pun::<[u8; 12], (bool, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8)>`
+ --> tests/compile-fail-kept/tuple_of_twelve_unspecified.rs:7:11
+  |
+7 |   let _ = puns::try_pun::<[u8; 12], First>([1; 12]);
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

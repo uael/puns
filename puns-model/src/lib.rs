@@ -528,41 +528,30 @@ impl<T: Oracle> Oracle for core::mem::ManuallyDrop<T> {
   }
 }
 
-impl<A: Oracle> Oracle for (A,) {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    A::check(b, off + core::mem::offset_of!(Self, 0), reads, mode)
-  }
+/// Implements `Oracle` for the tuple of the elements `$all`, whose indexes are `$index`: each
+/// element where `rustc` put it. `puns` implements `Pun` for tuples of up to 12 elements.
+macro_rules! tuple {
+  ($($all:ident $index:tt)+) => {
+    impl<$($all: Oracle),+> Oracle for ($($all,)+) {
+      fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+        all(&[$($all::check(b, off + core::mem::offset_of!(Self, $index), reads, mode)),+])
+      }
+    }
+  };
 }
 
-impl<A: Oracle, B: Oracle> Oracle for (A, B) {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    all(&[
-      A::check(b, off + core::mem::offset_of!(Self, 0), reads, mode),
-      B::check(b, off + core::mem::offset_of!(Self, 1), reads, mode),
-    ])
-  }
-}
-
-impl<A: Oracle, B: Oracle, C: Oracle> Oracle for (A, B, C) {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    all(&[
-      A::check(b, off + core::mem::offset_of!(Self, 0), reads, mode),
-      B::check(b, off + core::mem::offset_of!(Self, 1), reads, mode),
-      C::check(b, off + core::mem::offset_of!(Self, 2), reads, mode),
-    ])
-  }
-}
-
-impl<A: Oracle, B: Oracle, C: Oracle, D: Oracle> Oracle for (A, B, C, D) {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    all(&[
-      A::check(b, off + core::mem::offset_of!(Self, 0), reads, mode),
-      B::check(b, off + core::mem::offset_of!(Self, 1), reads, mode),
-      C::check(b, off + core::mem::offset_of!(Self, 2), reads, mode),
-      D::check(b, off + core::mem::offset_of!(Self, 3), reads, mode),
-    ])
-  }
-}
+tuple!(A 0);
+tuple!(A 0 B 1);
+tuple!(A 0 B 1 C 2);
+tuple!(A 0 B 1 C 2 D 3);
+tuple!(A 0 B 1 C 2 D 3 E 4);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8 J 9);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8 J 9 K 10);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8 J 9 K 10 L 11);
 
 /// Returns the values that each byte takes in the enumeration of the values of a type of `size`
 /// bytes.

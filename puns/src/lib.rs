@@ -1810,11 +1810,14 @@ pub unsafe trait Scalar {
 /// A type of plain data, whose layout and valid values `puns` knows at compile time.
 ///
 /// Every function of this crate takes `Pun` types. These are the integer and floating-point types,
-/// `bool`, `char`, `NonZero`, `()`, `PhantomData`, arrays, slices, `str`, tuples of up to 4
+/// `bool`, `char`, `NonZero`, `()`, `PhantomData`, arrays, slices, `str`, tuples of up to 12
 /// elements, `Option` and `Result` of `Pun` types, `MaybeUninit`, `ManuallyDrop`, `Infallible`, the
 /// types of [`num`], every [`Scalar`], and the types that derive it. For a tuple, struct or enum of
 /// the `Rust` representation, a pun without the `unstable` feature relies only on what every layout
 /// that Rust allows has in common ([`layout::UNSTABLE`]).
+///
+/// The limit of 12 elements is arbitrary, and could be higher. It is the arity up to which `core`
+/// implements its own traits for tuples ([trait implementations of tuples][core tuples]).
 ///
 /// # Safety
 ///
@@ -1853,6 +1856,8 @@ pub unsafe trait Scalar {
 /// let (point, rest) = first::<Point>(&[1, 0, 2, 0, 9]).unwrap();
 /// assert_eq!((point.x.get(), point.y.get(), rest), (1, 2, &[9][..]));
 /// ```
+///
+/// [core tuples]: https://doc.rust-lang.org/1.99.0/core/primitive.tuple.html#trait-implementations-1
 #[diagnostic::on_unimplemented(
   message = "`{Self}` is not a `Pun` type: `puns` does not know its layout and its valid values",
   label = "not a `Pun` type",
@@ -2447,8 +2452,21 @@ macro_rules! tuple_field {
   };
 }
 
+/// Lists the fields of the tuple of the elements `$all`, from `$ty`, of index `$index`, to the
+/// last (`tuple_field!`).
+macro_rules! tuple_fields {
+  ([$($all:ident)+] $ty:ident $index:tt $next_ty:ident $next:tt $($rest:tt)*) => {
+    tuple_field!([$($all)+] $index $ty TupleField<($($all,)+), $next>);
+    tuple_fields!([$($all)+] $next_ty $next $($rest)*);
+  };
+  ([$($all:ident)+] $ty:ident $index:tt) => {
+    tuple_field!([$($all)+] $index $ty ());
+  };
+}
+
+/// Implements `Pun` for the tuple of the elements `$all`, whose indexes are `$index`.
 macro_rules! tuple {
-  ([$($all:ident)+] $($index:tt)+) => {
+  ($($all:ident $index:tt)+) => {
     // SAFETY: The layout is `Layout::structure` of the elements of the tuple, at the offsets that
     // `offset_of!` gives, each with the layout of its type. `Layout::structure` takes the size and
     // the alignment of the tuple from the compiler, and asserts that no two fields overlap and that
@@ -2486,23 +2504,24 @@ macro_rules! tuple {
       };
       const ID: layout::Id = layout::Id::new("(..)", &[$($all::ID),+]);
     }
+
+    tuple_fields!([$($all)+] $($all $index)+);
   };
 }
 
-tuple!([A] 0);
-tuple_field!([A] 0 A ());
-tuple!([A B] 0 1);
-tuple_field!([A B] 0 A TupleField<(A, B), 1>);
-tuple_field!([A B] 1 B ());
-tuple!([A B C] 0 1 2);
-tuple_field!([A B C] 0 A TupleField<(A, B, C), 1>);
-tuple_field!([A B C] 1 B TupleField<(A, B, C), 2>);
-tuple_field!([A B C] 2 C ());
-tuple!([A B C D] 0 1 2 3);
-tuple_field!([A B C D] 0 A TupleField<(A, B, C, D), 1>);
-tuple_field!([A B C D] 1 B TupleField<(A, B, C, D), 2>);
-tuple_field!([A B C D] 2 C TupleField<(A, B, C, D), 3>);
-tuple_field!([A B C D] 3 D ());
+// As many elements as `core` implements its own traits for (see the documentation of `Pun`).
+tuple!(A 0);
+tuple!(A 0 B 1);
+tuple!(A 0 B 1 C 2);
+tuple!(A 0 B 1 C 2 D 3);
+tuple!(A 0 B 1 C 2 D 3 E 4);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8 J 9);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8 J 9 K 10);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8 J 9 K 10 L 11);
 
 macro_rules! impl_any {
   ($($ty:ty)+) => {$(
