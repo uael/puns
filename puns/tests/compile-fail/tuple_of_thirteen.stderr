@@ -1,0 +1,23 @@
+error[E0277]: `(u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8)` is not a `Pun` type: `puns` does not know its layout and its valid values
+ --> tests/compile-fail/tuple_of_thirteen.rs:6:33
+  |
+6 |   let _ = puns::pun::<[u8; 13], Thirteen<u8>>([1; 13]);
+  |                                 ^^^^^^^^^^^^ not a `Pun` type
+  |
+  = help: the trait `Scalar` is not implemented for `(u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8)`
+  = note: a struct, an enum or a union is one with `#[derive(Pun)]`, a scalar with `Scalar`
+help: the trait `Scalar` is implemented for `()`
+ --> src/lib.rs
+  |
+  |     unsafe impl Scalar for $ty {
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+  | impl_any!(() u8 u16 u32 u64 u128 usize);
+  | --------------------------------------- in this macro invocation
+  = note: required for `(u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8)` to implement `Pun`
+note: required by a bound in `pun`
+ --> src/lib.rs
+  |
+  | pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
+  |                                    ^^^ required by this bound in `pun`
+  = note: this error originates in the macro `impl_any` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -782,6 +782,19 @@ fn manually_drop_is_its_part_not_a_parameter() {
   assert!(<(ManuallyDrop<u8>, u16)>::LAYOUT.id.equals(&<(ManuallyDrop<u8>, u16)>::LAYOUT.id));
 }
 
+/// The identity of a tuple of 12 elements, the most that `Pun` is implemented for, is made of each
+/// of its elements, the last included, and of their number.
+#[test]
+fn a_tuple_of_twelve_is_named_by_each_element() {
+  type Twelve = (u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8);
+  type LastSigned = (u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, i8);
+  type Eleven = (u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8);
+  assert!(Twelve::LAYOUT.id.equals(&Twelve::LAYOUT.id));
+  assert!(!Twelve::LAYOUT.id.equals(&LastSigned::LAYOUT.id));
+  assert!(!Twelve::LAYOUT.id.equals(&Eleven::LAYOUT.id));
+  assert!(!<(Eleven, u8)>::LAYOUT.id.equals(&Twelve::LAYOUT.id));
+}
+
 /// Each value of a const parameter has an identity of its own, and one that a `usize` cannot hold
 /// once its sign is folded in has none.
 #[test]

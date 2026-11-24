@@ -395,6 +395,50 @@ mod walks {
   }
 }
 
+/// A tuple of 12 elements, the most that `Pun` is implemented for.
+type Twelve<T> = (T, T, T, T, T, T, T, T, T, T, T, T);
+
+/// A tuple of 12 elements of two types of 1 byte, which Rust may put in any order.
+type Mixed = (bool, u8, bool, u8, bool, u8, bool, u8, bool, u8, bool, u8);
+
+/// Checks that a tuple of 12 elements is proven and checked as a smaller one is. Rust leaves the
+/// order of its elements to the compiler, so each pun but the last is the same in every order.
+/// The cases `tuple_of_twelve` and `tuple_of_twelve_unspecified` of the compile-fail tests are
+/// refused, and `tuple_of_thirteen` is not a `Pun` type.
+#[test]
+fn a_tuple_of_twelve() {
+  let bytes: [u8; 12] = core::array::from_fn(|i| u8::try_from(i).unwrap());
+  // Proven: every byte is a `u8`, and every `bool` a `u8`, wherever it is.
+  assert_eq!(pun::<Twelve<u8>, [u8; 12]>(pun::<[u8; 12], Twelve<u8>>(bytes)), bytes);
+  let mixed: Mixed = pun([true; 12]);
+  assert_eq!(pun::<Mixed, [u8; 12]>(mixed), [1; 12]);
+  // The same type proves itself, whichever element each byte is.
+  assert_eq!(pun::<Mixed, Mixed>(mixed), mixed);
+  // Every two bytes at an even offset are a `u16`.
+  let words: Twelve<u16> = pun([0xab_u8; 24]);
+  assert_eq!(pun::<Twelve<u16>, [u16; 12]>(words), [0xabab; 12]);
+
+  // Checked: each byte is 0 or 1.
+  let bools = try_pun::<[u8; 12], Twelve<bool>>([1; 12]).map(pun::<Twelve<bool>, [bool; 12]>);
+  assert_eq!(bools, Ok([true; 12]));
+  let mut two = [1; 12];
+  two[11] = 2;
+  assert_eq!(try_pun::<[u8; 12], Twelve<bool>>(two), Err(Error::Validity));
+  assert!(puns::from_bytes::<Twelve<NonZero<u8>>>(&[1; 12]).is_ok());
+  assert_eq!(puns::from_bytes::<Twelve<NonZero<u8>>>(&two.map(|b| b - 1)), Err(Error::Validity));
+  // The layout that `rustc` chose tells which byte is the first `bool`.
+  #[cfg(feature = "unstable")]
+  {
+    type First = (bool, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8);
+    let first = core::mem::offset_of!(First, 0);
+    let mut flags = [2; 12];
+    flags[first] = 1;
+    assert_eq!(try_pun::<[u8; 12], First>(flags).map(|t| (t.0, t.1)), Ok((true, 2)));
+    flags[first] = 2;
+    assert_eq!(try_pun::<[u8; 12], First>(flags), Err(Error::Validity));
+  }
+}
+
 /// Checks that a signed `NonZero` accepts every bit pattern of its integer but 0, negative ones
 /// included, and that an `Option` of it has the same values as the integer.
 #[test]

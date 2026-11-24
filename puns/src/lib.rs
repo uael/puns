@@ -280,6 +280,15 @@
 //!   same union proves a union. A union may then hold a value even if none of its fields has one,
 //!   so a value that holds it may exist, though no value of it can be made.
 //!
+//! A `repr(C)` union may be `packed` or `packed(N)`. Packing lowers its alignment to at most `N`,
+//! which may lower its size, and moves no field: every field stays at offset 0
+//! ([`r-layout.repr.c.union.size-align`][c union],
+//! [`r-layout.repr.alignment.packed-fields`][alignment packed fields]). `puns` takes the size and
+//! the alignment from the compiler. A field may then be at an address that is not aligned for its
+//! type. `puns` checks such a field by reading its bytes, which needs no alignment, and makes no
+//! reference to a field. Safe code reads it by copy, since a reference to a field that may be
+//! unaligned does not compile.
+//!
 //! A field is only checked if no byte it reads may be padding in the source. If some field might
 //! read padding and no field is proven, the pun is refused. Checking only the other fields would be
 //! sound, but `puns` does not do it yet (see [Limitations](#limitations)).
@@ -780,7 +789,7 @@
 //! | A value is valid if its fields, or its elements, are. Padding may be uninitialized | R [`r-undefined.validity.struct`][validity struct], [`r-undefined.validity.undef`][validity undef] |
 //! | An enum has a valid discriminant, and the fields of its variant are valid | R [`r-undefined.validity.enum`][validity enum] |
 //! | A `repr(C)` struct has its fields in order, each at the next offset that its alignment allows | R [`r-layout.repr.c.struct`][c struct] |
-//! | A `repr(C)` union has every field at 0 | R [`r-layout.repr.c.union.size-align`][c union] |
+//! | A `repr(C)` union has every field at 0, and `packed(N)` lowers its alignment without moving a field | R [`r-layout.repr.c.union.size-align`][c union], [`r-layout.repr.alignment.packed-fields`][alignment packed fields] |
 //! | The validity of a union is not decided, so a target is one of its fields, and a source proves nothing | R [`r-undefined.validity.union`][union validity] |
 //! | An enum without fields, `repr(C)` or of a primitive representation, is that integer, which holds the discriminant | R [`r-layout.repr.c.enum`][c enum], [`r-layout.repr.primitive.enum`][primitive enum], [`r-items.enum.discriminant.access-memory`][discriminant memory] |
 //! | An enum with fields, `repr(C)`, of a primitive representation, or both ([RFC 2195]) | R [`r-layout.repr.c.adt`][c adt], [`r-layout.repr.primitive.adt`][primitive adt], [`r-layout.repr.primitive-c`][primitive c] |
@@ -930,9 +939,9 @@
 //!   how much more. A walk takes at most `8 * size + 128` steps, where `size` is the size of the
 //!   value, or, for a `size` or `len` rule, the number of bytes from the start of the value to the
 //!   end of the input.
-//! - Unions must be `repr(C)`, since the fields of other unions are not known to be at 0. A union
-//!   must not hold a scalar that a pun never makes, and as a source nothing is known about it (see
-//!   [Unions](#unions)).
+//! - Unions must be `repr(C)`, packed or not, since the fields of other unions are not known to be
+//!   at 0. A union must not hold a scalar that a pun never makes, and as a source nothing is known
+//!   about it (see [Unions](#unions)).
 //! - An enum of the `Rust` representation is refused if the sample of one of its variants needs a
 //!   value of a scalar that a pun never makes, since `puns` cannot make one. A sample holds the
 //!   least value of each field, and of an enum its first variant that has values. The direct tag of
@@ -1069,6 +1078,7 @@
 //! [primitive c]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.primitive-c
 //! [transparent]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.transparent.layout-abi
 //! [alignment]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.alignment
+//! [alignment packed fields]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.alignment.packed-fields
 //! [rust layout]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.rust.layout
 //! [rust struct]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.rust.struct
 //! [struct zst]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.rust.struct-zst
@@ -1180,8 +1190,8 @@ pub use layout::{crc32, sum16};
 /// square of that number, or faster in a release build, when the values of each variant are also
 /// values of the next.
 ///
-/// **Unions.** A union must be `repr(C)` and not packed. [Unions](crate#unions) says what a union
-/// accepts as a target and what it proves as a source.
+/// **Unions.** A union must be `repr(C)`, and may be `packed` or `packed(N)`. [Unions](crate#unions)
+/// says what a union accepts as a target and what it proves as a source.
 ///
 /// **Generic types.** Where only the same type proves a part, an instance of a generic type is
 /// the same type as another one with the same parameters, if each type parameter is bounded by
@@ -1426,7 +1436,7 @@ pub use layout::{crc32, sum16};
 ///
 /// For a union:
 ///
-/// - The union is `repr(C)`, and not packed.
+/// - The union is `repr(C)`.
 /// - No field holds a scalar that a pun never makes.
 ///
 /// The derive reports an unknown, misplaced or repeated option, and an expression that is not a
@@ -1810,11 +1820,14 @@ pub unsafe trait Scalar {
 /// A type of plain data, whose layout and valid values `puns` knows at compile time.
 ///
 /// Every function of this crate takes `Pun` types. These are the integer and floating-point types,
-/// `bool`, `char`, `NonZero`, `()`, `PhantomData`, arrays, slices, `str`, tuples of up to 4
+/// `bool`, `char`, `NonZero`, `()`, `PhantomData`, arrays, slices, `str`, tuples of up to 12
 /// elements, `Option` and `Result` of `Pun` types, `MaybeUninit`, `ManuallyDrop`, `Infallible`, the
 /// types of [`num`], every [`Scalar`], and the types that derive it. For a tuple, struct or enum of
 /// the `Rust` representation, a pun without the `unstable` feature relies only on what every layout
 /// that Rust allows has in common ([`layout::UNSTABLE`]).
+///
+/// The limit of 12 elements is arbitrary, and could be higher. It is the arity up to which `core`
+/// implements its own traits for tuples ([trait implementations of tuples][core tuples]).
 ///
 /// # Safety
 ///
@@ -1853,6 +1866,8 @@ pub unsafe trait Scalar {
 /// let (point, rest) = first::<Point>(&[1, 0, 2, 0, 9]).unwrap();
 /// assert_eq!((point.x.get(), point.y.get(), rest), (1, 2, &[9][..]));
 /// ```
+///
+/// [core tuples]: https://doc.rust-lang.org/1.99.0/core/primitive.tuple.html#trait-implementations-1
 #[diagnostic::on_unimplemented(
   message = "`{Self}` is not a `Pun` type: `puns` does not know its layout and its valid values",
   label = "not a `Pun` type",
@@ -2447,8 +2462,21 @@ macro_rules! tuple_field {
   };
 }
 
+/// Lists the fields of the tuple of the elements `$all`, from `$ty`, of index `$index`, to the
+/// last (`tuple_field!`).
+macro_rules! tuple_fields {
+  ([$($all:ident)+] $ty:ident $index:tt $next_ty:ident $next:tt $($rest:tt)*) => {
+    tuple_field!([$($all)+] $index $ty TupleField<($($all,)+), $next>);
+    tuple_fields!([$($all)+] $next_ty $next $($rest)*);
+  };
+  ([$($all:ident)+] $ty:ident $index:tt) => {
+    tuple_field!([$($all)+] $index $ty ());
+  };
+}
+
+/// Implements `Pun` for the tuple of the elements `$all`, whose indexes are `$index`.
 macro_rules! tuple {
-  ([$($all:ident)+] $($index:tt)+) => {
+  ($($all:ident $index:tt)+) => {
     // SAFETY: The layout is `Layout::structure` of the elements of the tuple, at the offsets that
     // `offset_of!` gives, each with the layout of its type. `Layout::structure` takes the size and
     // the alignment of the tuple from the compiler, and asserts that no two fields overlap and that
@@ -2486,23 +2514,24 @@ macro_rules! tuple {
       };
       const ID: layout::Id = layout::Id::new("(..)", &[$($all::ID),+]);
     }
+
+    tuple_fields!([$($all)+] $($all $index)+);
   };
 }
 
-tuple!([A] 0);
-tuple_field!([A] 0 A ());
-tuple!([A B] 0 1);
-tuple_field!([A B] 0 A TupleField<(A, B), 1>);
-tuple_field!([A B] 1 B ());
-tuple!([A B C] 0 1 2);
-tuple_field!([A B C] 0 A TupleField<(A, B, C), 1>);
-tuple_field!([A B C] 1 B TupleField<(A, B, C), 2>);
-tuple_field!([A B C] 2 C ());
-tuple!([A B C D] 0 1 2 3);
-tuple_field!([A B C D] 0 A TupleField<(A, B, C, D), 1>);
-tuple_field!([A B C D] 1 B TupleField<(A, B, C, D), 2>);
-tuple_field!([A B C D] 2 C TupleField<(A, B, C, D), 3>);
-tuple_field!([A B C D] 3 D ());
+// As many elements as `core` implements its own traits for (see the documentation of `Pun`).
+tuple!(A 0);
+tuple!(A 0 B 1);
+tuple!(A 0 B 1 C 2);
+tuple!(A 0 B 1 C 2 D 3);
+tuple!(A 0 B 1 C 2 D 3 E 4);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8 J 9);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8 J 9 K 10);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8 J 9 K 10 L 11);
 
 macro_rules! impl_any {
   ($($ty:ty)+) => {$(
