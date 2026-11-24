@@ -782,6 +782,23 @@ fn manually_drop_is_its_part_not_a_parameter() {
   assert!(<(ManuallyDrop<u8>, u16)>::LAYOUT.id.equals(&<(ManuallyDrop<u8>, u16)>::LAYOUT.id));
 }
 
+/// Each value of a const parameter has an identity of its own, and one that a `usize` cannot hold
+/// once its sign is folded in has none.
+#[test]
+fn each_value_of_a_const_parameter_is_another_type() {
+  use crate::layout::Id;
+  let (max, min) = (isize::MAX as i128, isize::MIN as i128);
+  let values = [0, 1, -1, 2, -2, max, min];
+  for (i, a) in values.iter().enumerate() {
+    for (j, b) in values.iter().enumerate() {
+      assert_eq!(Id::value(*a).equals(&Id::value(*b)), i == j, "{a} and {b}");
+    }
+  }
+  for beyond in [max + 1, min - 1, i128::MAX, i128::MIN] {
+    assert!(!Id::value(beyond).equals(&Id::value(beyond)), "{beyond}");
+  }
+}
+
 /// Returns the labels of the links of a Markdown text, in lowercase: `label` in `[label]: url`, in
 /// `[text][label]` and in `[label]` alone. A link with its URL inline, `[text](url)`, has none.
 fn link_labels(text: &str) -> Vec<String> {

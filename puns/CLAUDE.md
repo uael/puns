@@ -51,6 +51,12 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   `layout::Stable` records what is the same in every layout that Rust allows.
 - A requirement (`valid(..)`, a rule) never proves a guarantee of another type. Two layouts are
   equal only if they require and guarantee the same values.
+- An identity (`layout::Id`, `Pun::ID`) names a type by its declaration and by every parameter but
+  its lifetimes, so two types with one identity are one type. `ManuallyDrop<T>` is `T` only as the
+  whole of a part (`Id::equals`). An identity is made of the identities of the parameters, never of
+  their layouts, so that a type that holds itself through a generic type has a layout. The derive
+  gives a generic type one only where each type parameter is bounded by `Pun` (`identity` in
+  `puns-derive`).
 - No function makes a value that holds a scalar that a pun never makes (`Spec::never`), and no
   function gives a `&mut` to one. As a target, such a scalar is disjoint from every source
   (`atom_relation`), and a part of a target that holds one is proven by nothing, not even by

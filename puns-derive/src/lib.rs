@@ -130,26 +130,47 @@ fn find_reserved(tokens: TokenStream) -> Option<Ident> {
 // -------------------------------------------------------------------------------------------------
 // Attributes
 
-/// Returns the identity of the type of `input` (`puns::layout::Id`): where it is declared, and
-/// its name.
+/// Returns the identity of the type of `input` (`puns::layout::Id`): where it is declared, its
+/// name, and the identity of each of its type and const parameters, in order. `generics` are the
+/// generics of its implementation of `Pun`.
 ///
-/// A generic type has none (`Id::NONE`), since two of its instances are other types, which `rustc`
-/// may lay out differently, and what makes one is not all `Pun` (`PhantomData<T>`). Lifetime
-/// parameters do not count.
-fn identity(input: &DeriveInput, root: &TokenStream) -> TokenStream {
+/// Two instances of a generic type are other types, which `rustc` may lay out differently, so the
+/// identity of an instance has those of its parameters. The identity of a type parameter is the
+/// `ID` of its `Pun` implementation, so the type has one only if each type parameter is bounded by
+/// `Pun` where the derive sees it: in its bounds, in the `where` clause, in `#[pun(bound(..))]`, or
+/// in the bounds that the derive adds for a field or a region of that type. Otherwise it has none
+/// (`Id::NONE`), since the derive cannot leave out a parameter, nor name its identity. A bound is
+/// read by its name, so a parameter bounded by another trait named `Pun` does not compile. Lifetime
+/// parameters do not count, since `rustc` lays out a type whatever its lifetimes.
+fn identity(input: &DeriveInput, generics: &syn::Generics, root: &TokenStream) -> TokenStream {
   // One crate is expanded by one process, in which each derive takes the next number.
   static DERIVES: AtomicUsize = AtomicUsize::new(0);
-  let generic =
-    input.generics.params.iter().any(|param| !matches!(param, GenericParam::Lifetime(_)));
-  if generic {
-    return quote!(#root::layout::Id::NONE);
+  let mut args = vec![];
+  for param in &input.generics.params {
+    match param {
+      GenericParam::Lifetime(_) => {}
+      GenericParam::Type(param) if has_pun(generics, &param.ident.to_string()) => {
+        let ty = &param.ident;
+        args.push(quote!(<#ty as #root::Pun>::ID));
+      }
+      GenericParam::Type(_) => return quote!(#root::layout::Id::NONE),
+      GenericParam::Const(param) => {
+        let value = &param.ident;
+        // A const parameter is an integer, a `bool` or a `char`, which `as` casts to the `i128` of
+        // `Id::value` without naming a type.
+        args.push(quote!(#root::layout::Id::value(#value as _)));
+      }
+    }
   }
   let ident = &input.ident;
   let n = proc_macro2::Literal::usize_unsuffixed(DERIVES.fetch_add(1, Ordering::Relaxed));
-  // Of the type that `Layout::PIN` fixes, and that `Layout::identified` and `Scalar::ID` take,
-  // whatever type the path names.
+  // The identities of the parameters are values of the instance, which a `const` block makes
+  // `'static`.
+  let args = if args.is_empty() { quote!(&[]) } else { quote!(const { &[#(#args),*] }) };
+  // Of the type that `Layout::PIN` fixes, and that `Layout::identified`, `Pun::ID` and `Scalar::ID`
+  // take, whatever type the path names.
   quote!({
-    let id: #root::layout::Id = #root::layout::Id::new(#root::__site!(#ident, #n), &[]);
+    let id: #root::layout::Id = #root::layout::Id::new(#root::__site!(#ident, #n), #args);
     id
   })
 }
@@ -1402,26 +1423,29 @@ fn valid_ranges(
 /// A bound written twice is one that clippy sees twice, at the span of the one that the user
 /// wrote.
 fn bound(generics: &mut syn::Generics, ty: &Type, root: &TokenStream) {
+  if !has_pun(generics, &ty.to_token_stream().to_string()) {
+    generics.make_where_clause().predicates.push(parse_quote!(#ty: #root::Pun));
+  }
+}
+
+/// Returns whether `generics` bound the type written `name` by `Pun`, as `<T: Pun>` or
+/// `where T: Pun`.
+///
+/// The bound is read by its last name, as written: `Pun`, `puns::Pun` or `crate::Pun`.
+fn has_pun(generics: &syn::Generics, name: &str) -> bool {
   let pun = |bounds: &Punctuated<syn::TypeParamBound, Token![+]>| {
     bounds.iter().any(|bound| {
       matches!(bound, syn::TypeParamBound::Trait(bound)
         if bound.path.segments.last().is_some_and(|segment| segment.ident == "Pun"))
     })
   };
-  let name = ty.to_token_stream().to_string();
   // `<T: Pun>`
-  if generics.type_params().any(|param| param.ident == name && pun(&param.bounds)) {
-    return;
-  }
-  // `where T: Pun`
-  let clause = generics.make_where_clause();
-  let written = clause.predicates.iter().any(|predicate| {
-    matches!(predicate, syn::WherePredicate::Type(predicate)
-      if predicate.bounded_ty.to_token_stream().to_string() == name && pun(&predicate.bounds))
-  });
-  if !written {
-    clause.predicates.push(parse_quote!(#ty: #root::Pun));
-  }
+  generics.type_params().any(|param| param.ident == name && pun(&param.bounds))
+    // `where T: Pun`
+    || generics.where_clause.iter().flat_map(|clause| &clause.predicates).any(|predicate| {
+      matches!(predicate, syn::WherePredicate::Type(predicate)
+        if predicate.bounded_ty.to_token_stream().to_string() == name && pun(&predicate.bounds))
+    })
 }
 
 /// Returns the generics of `input`, with the bounds of its implementation of `Pun`: `bounds` if
@@ -1937,7 +1961,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     let pack = repr.packed.clone().unwrap_or_else(|| quote!(!0usize));
     quote!(.rust(#pack))
   });
-  let id = identity(input, &root);
+  let id = identity(input, &generics, &root);
   // A `repr(transparent)` struct around a type that `core` lays out in `Option` without a tag has
   // that guarantee too ("Representation" of `core::option`). Its other fields have size 0 and
   // alignment 1, which no such type has.
@@ -2027,7 +2051,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
           )
         }
         #rust
-        .identified(#id);
+        .identified(Self::ID);
+        const ID: #root::layout::Id = #id;
         #null_optimized
       }
 
@@ -2073,7 +2098,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
   let root = options.root.unwrap_or_else(|| quote!(::puns));
   let ident = &input.ident;
   let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-  let id = identity(input, &root);
+  let id = identity(input, &input.generics, &root);
   if data.variants.is_empty() {
     let (homes, _) = variant_homes(input, data);
     // No value: nothing is ever made of one, and nothing is valid for it.
@@ -2098,7 +2123,8 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         type Rules = ();
         const PROBE: *const Self = ::core::ptr::null();
         const LAYOUT: #root::layout::Layout =
-          #root::layout::Layout::uninhabited::<Self>().identified(#id);
+          #root::layout::Layout::uninhabited::<Self>().identified(Self::ID);
+        const ID: #root::layout::Id = #id;
       }
     });
   }
@@ -2387,12 +2413,12 @@ fn derive_tagged(
   if !repr.c && repr.int.is_none() {
     return derive_discovered(input, data, root, bounds);
   }
-  let id = identity(input, root);
   let (ident, vis) = (&input.ident, &input.vis);
   let (impl_generics, ty_generics, _) = input.generics.split_for_impl();
   let this = quote!(#ident #ty_generics);
   let types = data.variants.iter().flat_map(|variant| &variant.fields).map(|field| &field.ty);
   let generics = bounded(input, types, bounds, root);
+  let id = identity(input, &generics, root);
   let where_clause = &generics.where_clause;
 
   // The tag: an enum without fields of the same variants and discriminants, with `Self` replaced
@@ -2798,7 +2824,8 @@ fn derive_tagged(
             )
           },
         )
-        .identified(#id);
+        .identified(Self::ID);
+        const ID: #root::layout::Id = #id;
       }
     };
   })
@@ -2820,12 +2847,12 @@ fn derive_discovered(
   root: &TokenStream,
   bounds: Option<&Bounds>,
 ) -> Result<TokenStream> {
-  let id = identity(input, root);
   let (ident, vis) = (&input.ident, &input.vis);
   let (impl_generics, ty_generics, _) = input.generics.split_for_impl();
   let this = quote!(#ident #ty_generics);
   let types = data.variants.iter().flat_map(|variant| &variant.fields).map(|field| &field.ty);
   let generics = bounded(input, types, bounds, root);
+  let id = identity(input, &generics, root);
   let where_clause = &generics.where_clause;
   let count = data.variants.len();
   let usize = quote!(::core::primitive::usize);
@@ -3056,7 +3083,8 @@ fn derive_discovered(
         const LAYOUT: #root::layout::Layout =
           #layout::enumeration::<Self>(const { &<Self as __PunDiscover>::ENUM })
             .unspecified()
-            .identified(#id);
+            .identified(Self::ID);
+        const ID: #root::layout::Id = #id;
       }
     };
   })
@@ -3083,10 +3111,10 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
   let root = options.root.clone().unwrap_or_else(|| quote!(::puns));
   let (ident, vis) = (&input.ident, &input.vis);
   let (impl_generics, ty_generics, _) = input.generics.split_for_impl();
-  let id = identity(input, &root);
   let this = quote!(#ident #ty_generics);
   let types = data.fields.named.iter().map(|field| &field.ty);
   let generics = bounded(input, types, options.bounds.as_ref(), &root);
+  let id = identity(input, &generics, &root);
   let where_clause = &generics.where_clause;
   let count = data.fields.named.len();
   let shadows = (0..count).map(|i| format_ident!("__PunVariant{}", i)).collect::<Vec<_>>();
@@ -3211,7 +3239,8 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
         const LAYOUT: #root::layout::Layout = #root::layout::Layout::union::<Self>(
           const { &#root::layout::Enum::union(const { &[#(#variants),*] }) },
         )
-        .identified(#id);
+        .identified(Self::ID);
+        const ID: #root::layout::Id = #id;
       }
     };
   })
