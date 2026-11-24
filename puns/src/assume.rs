@@ -217,15 +217,15 @@ const fn tag_niche(variants: &'static [Variant], offset: usize, size: usize) -> 
 
 /// A set of values of a scalar, as ranges that may overlap, in no order.
 #[derive(Copy, Clone)]
-enum Set {
+enum Set<'a> {
   /// The ranges.
-  List(&'static [(u128, u128)]),
+  List(&'a [(u128, u128)]),
   /// The tags of the present variants but the `usize`th, and the valid range of a niche, which
   /// wraps if its start is greater than its end.
-  Tags(&'static [Variant], usize, Option<(u128, u128)>),
+  Tags(&'a [Variant], usize, Option<(u128, u128)>),
 }
 
-impl Set {
+impl Set<'_> {
   /// Returns the `index`th range of the variant `variant`, or of the list, or of the range of the
   /// niche after the variants (split in two where it wraps), or `None` past the last.
   ///
@@ -280,7 +280,7 @@ impl Set {
 }
 
 /// Returns the least value of `set` that is at least `from`, if there is one.
-const fn least_from(set: Set, from: u128, size: usize) -> Option<u128> {
+const fn least_from(set: Set<'_>, from: u128, size: usize) -> Option<u128> {
   let (mut least, mut v) = (None, 0);
   while v < set.lists() {
     let mut i = 0;
@@ -307,7 +307,7 @@ const fn least_from(set: Set, from: u128, size: usize) -> Option<u128> {
 
 /// Returns the last value of the run of consecutive values of `set` that starts at `start`, a value
 /// of the set.
-const fn run_end(set: Set, start: u128, size: usize) -> u128 {
+const fn run_end(set: Set<'_>, start: u128, size: usize) -> u128 {
   let (max, mut end) = (max_value(size), start);
   loop {
     let (mut grown, mut v) = (false, 0);
@@ -339,7 +339,7 @@ const fn run_end(set: Set, start: u128, size: usize) -> u128 {
 ///
 /// Returns `None` if the values are every value of the scalar, which leaves no value free, or if
 /// `set` is empty, which only an enum without values has, and `rustc` gives such an enum no niche.
-const fn arc(set: Set, size: usize) -> Option<(u128, u128)> {
+const fn arc(set: Set<'_>, size: usize) -> Option<(u128, u128)> {
   let max = max_value(size);
   let Some(least) = least_from(set, 0, size) else { return None };
   let mut end = run_end(set, least, size);
@@ -552,7 +552,7 @@ const fn assume<const V: usize>(fields: &[&[Field]; V]) -> Option<Assumed<V>> {
   }
   let narrowest = if last < 0x100 {
     1
-  } else if last < 0x1_0000 {
+  } else if (last as u128) < 0x1_0000 {
     2
   } else {
     4
@@ -862,11 +862,8 @@ mod tests {
   #[test]
   fn niches_take_the_values_that_rustc_gives() {
     for (a, b, count, start) in MEASURED {
-      let ranges: &'static [(u128, u128)] = if b == a + 1 {
-        Box::leak(Box::new([(a, b)]))
-      } else {
-        Box::leak(Box::new([(a, a), (b, b)]))
-      };
+      let (one, two) = ([(a, b)], [(a, a), (b, b)]);
+      let ranges: &[(u128, u128)] = if b == a + 1 { &one } else { &two };
       let Some(range) = arc(Set::List(ranges), 1) else { panic!("no range for {a} and {b}") };
       assert_eq!(reserve(range, 1, count), Some(start), "{a} and {b}, {count} variants");
     }
@@ -874,7 +871,7 @@ mod tests {
 
   #[test]
   fn valid_ranges_are_the_shortest() {
-    let arc_of = |ranges: &'static [(u128, u128)], size| arc(Set::List(ranges), size);
+    let arc_of = |ranges: &[(u128, u128)], size| arc(Set::List(ranges), size);
     // A `char`: the surrogates are inside.
     assert_eq!(arc_of(&[(0, 0xD7FF), (0xE000, 0x10_FFFF)], 4), Some((0, 0x10_FFFF)));
     // Equal gaps: the one that wraps is left in, else the first is left out.
