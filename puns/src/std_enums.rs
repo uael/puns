@@ -285,6 +285,7 @@ unsafe impl<T: Pun> Pun for Option<T> {
   type Fields = ();
   type Variants = OptionNone<T>;
   type Rules = ();
+  type Metadata = ();
   const PROBE: *const Self = core::ptr::null();
   const LAYOUT: Layout = if T::LAYOUT.is_never() {
     // SAFETY: This is the value of an associated constant, evaluated at compile time, as
@@ -306,6 +307,7 @@ unsafe impl<T: Pun, E: Pun> Pun for Result<T, E> {
   type Fields = ();
   type Variants = ResultOk<T, E>;
   type Rules = ();
+  type Metadata = ();
   const PROBE: *const Self = core::ptr::null();
   const LAYOUT: Layout = {
     let layout = Layout::enumeration::<Self>(const { &<Self as Found>::ENUM }).identified(Self::ID);

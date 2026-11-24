@@ -93,6 +93,22 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - Every scalar that a pun never makes in the repository is declared through the public API only,
   as another crate would declare it, with `Scalar` and `Spec::never`. Most of them share
   [`tests/support/never.rs`](tests/support/never.rs).
+- An eager aim (`layout::Check::Eager`) is checked with the struct that holds it, its target
+  within the bytes that the check reads (`validate::Input`), and code reads the target without a
+  check. So no function makes a value that holds one (`Plan::eager`), gives a `&mut` to or from
+  one (`Plan::eager_mut`), or checks one from a source whose bytes may be padding, and only the
+  same aim at the same place proves one (`Aim::equals`, with a known identity of the target). A
+  lazy aim is a region, whose target is `[u8]`: it is checked by what reads it (`region`, then
+  `from_bytes` for a region with a type).
+- A layout cannot hold itself, so an aim holds the size, the alignment and the identity of its
+  target, and the target is reached through `Pun::Rules` (`Rules::Target`). The identity of a type
+  is `Pun::ID`, made of the identities of its parameters and never of a layout, which its layout
+  holds too. `Pun::Metadata` is `()` exactly when the layout is sized (`Thin` asserts it), and
+  `Store`, a sealed trait, says what a `Thin` stores for it.
+- The check of eager aims recurses once for each level, up to `AIM_DEPTH`, which is set so that
+  the deepest check of the types of `tests/support/aims.rs` fits in 1 MiB of stack in a build
+  without optimizations (`tests/aims.rs` runs it on a thread of 1 MiB). A change of the validation
+  that makes its frames larger is measured again, and the bound lowered if it no longer fits.
 
 ## Not done yet
 
@@ -146,3 +162,11 @@ section lists changes that could lift some of them, and what each would cost.
   pattern, since safe code can write its fields. A rule `matches(DFA, start, end)` (`Op::Matches`)
   requires one instead. Two automata are equal only if their states and edges are: their `id`,
   which a user can choose, only tells different ones apart early.
+- **Aims other than self-relative pointers and regions.** `Aim::new` accepts an eager aim only
+  with a stored offset and a thin target, and a lazy aim only at the cursor and wide. An eager aim
+  at the cursor would check typed regions with the struct. An eager wide aim, a pointer with a
+  length beside it, needs a second expression in the item of its rule.
+- **The depth of the check of aims.** It recurses once for each level of eager aims, up to
+  `AIM_DEPTH`, with 12 to 15 KiB of stack for each level in a build without optimizations, and
+  less than 100 bytes in an optimized one. A stack of pending targets, as `nearest` has, would
+  lift the bound, but needs memory that `const fn` code cannot allocate, or a bound of its own.

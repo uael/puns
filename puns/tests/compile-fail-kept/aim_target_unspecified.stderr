@@ -1,0 +1,34 @@
+error[E0080]: evaluation panicked: the target of an aim has a part whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation), and something to check in it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`
+   --> $RUST/core/src/panic.rs
+    |
+    = note: evaluation of `puns::validate::follow::<aims::Near<Rusty>, puns::RuleAt<0, puns::steps::Two<puns::steps::Two<puns::steps::One<0>, puns::steps::Two<puns::steps::One<1>, puns::steps::One<2>>>, puns::steps::Two<puns::steps::Two<puns::steps::One<3>, puns::steps::One<4>>, puns::steps::Two<puns::steps::One<5>, puns::steps::One<6>>>>, (), puns::Thin<Rusty, i32>>, puns::Thin<Rusty, i32>>::{constant#0}` failed here
+    |
+   ::: src/validate.rs
+    |
+    | /     assert!(
+    | |       !eager || layout.checks_kept(),
+    | |       "the target of an aim has a part whose layout Rust leaves to the compiler (a struct, a \
+    | |        tuple or an enum of the `Rust` representation), and something to check in it.\nAdd \
+    | |        `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`"
+    | |     );
+    | |_____- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let (layout, rule) = const {
+  |  ________________________^
+  | |     let layout = D::LAYOUT;
+  | |     let eager =
+  | |       matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { check: layout::Check::Eager, .. })));
+... |
+  | |     (layout, rule)
+  | |   };
+  | |___^
+
+note: the above error was encountered while instantiating `fn puns::validate::follow::<Near<Rusty>, puns::RuleAt<0, puns::steps::Two<puns::steps::Two<puns::steps::One<0>, puns::steps::Two<puns::steps::One<1>, puns::steps::One<2>>>, puns::steps::Two<puns::steps::Two<puns::steps::One<3>, puns::steps::One<4>>, puns::steps::Two<puns::steps::One<5>, puns::steps::One<6>>>>, (), puns::Thin<Rusty, i32>>, puns::Thin<Rusty, i32>>`
+ --> src/validate.rs
+  |
+  |       if !unsafe { follow::<T, L, L::Target>(base, at, input) } {
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

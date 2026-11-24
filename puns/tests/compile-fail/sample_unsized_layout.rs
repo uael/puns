@@ -14,6 +14,7 @@ unsafe impl Pun for Wrong {
   type Fields = ();
   type Rules = ();
   type Variants = ();
+  type Metadata = ();
   const LAYOUT: Layout = <[u8] as Pun>::LAYOUT;
   const PROBE: *const Self = core::ptr::null();
 }

@@ -11,6 +11,12 @@
 //! with `as` casts (`Pun::PROBE`). If the representation changes, the crate fails to build
 //! instead of misbehaving.
 //!
+//! [`metadata`] and [`from_raw_parts`] take and give the length of the tail as a `usize`, though
+//! the metadata of a pointer to a `Pun` type is `Pun::Metadata`, which is `()` for a sized type.
+//! A `const fn` could make a generic `T::Metadata` from a `usize` only by another reinterpretation
+//! of its bytes, since no trait method is a `const fn` in stable Rust, and each caller, as
+//! [`Thin::get`](crate::Thin::get), has the length as an integer.
+//!
 //! # Miri
 //!
 //! CI runs the tests under Miri with `-Zmiri-strict-provenance`, with tree borrows on x86-64, and
@@ -256,6 +262,15 @@ pub const unsafe fn head_size<T: ?Sized>(probe: *const T) -> usize {
 /// of these is a `const fn` on Rust 1.99.
 #[inline(always)]
 pub const fn is_aligned(addr: *const u8, align: usize) -> bool {
+  address(addr) & (align - 1) == 0
+}
+
+/// Returns the address of `addr`, as an integer.
+///
+/// The address is read through a union, as [`is_aligned`] explains. A call evaluated at compile
+/// time does not compile, unless the pointer was made from an integer.
+#[inline(always)]
+pub const fn address(addr: *const u8) -> usize {
   // SAFETY: A pointer to a sized type has the size of a `usize` (see `from_raw_parts`). So the
   // bytes of `addr`, which are initialized, are a `usize` of the same size (see `Cast`). This
   // reinterprets a pointer as an integer, which `core` says to avoid at run time [1], since its
@@ -274,6 +289,5 @@ pub const fn is_aligned(addr: *const u8, align: usize) -> bool {
   //     use the resulting value for integer operations will abort const-evaluation. (And even
   //     outside `const`, such transmutation is touching on many unspecified aspects of the Rust
   //     memory model and should be avoided. [...])
-  let addr = unsafe { Cast::<*const u8, usize> { from: addr }.to };
-  addr & (align - 1) == 0
+  unsafe { Cast::<*const u8, usize> { from: addr }.to }
 }

@@ -22,6 +22,7 @@ unsafe impl Pun for Lax {
   type Fields = ();
   type Variants = ();
   type Rules = ();
+  type Metadata = usize;
   const PROBE: *const Self = <[u8] as Pun>::PROBE as *const Self;
   // SAFETY: `Lax` ends with a slice, and its probe is `<[u8] as Pun>::PROBE`, of 3 bytes.
   const LAYOUT: Layout = unsafe { Layout::pattern::<Self>(Self::PROBE, ANY) };

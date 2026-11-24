@@ -1,0 +1,110 @@
+error[E0080]: evaluation panicked:
+              cannot pun: the source or the target holds an eager aim, the target of a pointer that is checked with it and read without a check: a write through a `&mut` could move it away from that target.
+
+    --> src/lib.rs
+     |
+     |     Self::require(Self::eager_mut());
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<aims::Pair, aims::Pair>::BY_MUT` failed inside this call
+     |
+note: inside `puns::Plan::<Pair, Pair>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_MUT };
+  |           ^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_MUT };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn pun_mut::<Pair, Pair>`
+  --> tests/compile-fail/aim_pun_mut.rs:10:3
+   |
+10 |   puns::pun_mut(pair)
+   |   ^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked:
+              cannot pun: the source or the target holds an eager aim, the target of a pointer that is checked with it and read without a check: a write through a `&mut` could move it away from that target.
+
+    --> src/lib.rs
+     |
+     |     Self::require(Self::eager_mut());
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<aims::Pair, [u8; 12]>::BY_MUT` failed inside this call
+     |
+note: inside `puns::Plan::<Pair, [u8; 12]>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: the above error was encountered while instantiating `fn pun_mut::<Pair, [u8; 12]>`
+  --> tests/compile-fail/aim_pun_mut.rs:14:3
+   |
+14 |   puns::pun_mut(pair)
+   |   ^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked:
+              cannot pun: the source or the target holds an eager aim, the target of a pointer that is checked with it and read without a check: a write through a `&mut` could move it away from that target.
+
+    --> src/lib.rs
+     |
+     |   const HEAD_MUT: () = Self::require(Self::check_head_mut());
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<aims::Pair, aims::Near<str>>::HEAD_MUT` failed inside this call
+     |
+note: inside `puns::Plan::<Pair, Near<str>>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::HEAD_MUT };
+  |           ^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::HEAD_MUT };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn head_mut::<Pair, Near<str>>`
+  --> tests/compile-fail/aim_pun_mut.rs:18:3
+   |
+18 |   puns::head_mut(pair)
+   |   ^^^^^^^^^^^^^^^^^^^^

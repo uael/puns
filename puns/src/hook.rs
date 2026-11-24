@@ -6,7 +6,10 @@
 //! This module is not part of the API. It is compiled only with the `verdict` feature, which only
 //! tests may enable, and which changes nothing else.
 
-use crate::{Error, MESSAGE_LEN, Need, Plan, Pun, Root, pun_unchecked, validate::validate};
+use crate::{
+  Error, MESSAGE_LEN, Need, Plan, Pun, Root, pun_unchecked,
+  validate::{Input, validate},
+};
 
 /// Whether each of these public functions compiles for a pun from `S` to `D`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,7 +63,7 @@ const fn ok<S: ?Sized + Pun, D: ?Sized + Pun>(need: Need) -> bool {
 /// Returns which of the public functions of [`Verdict`] compile for a pun from `S` to `D`.
 #[must_use]
 pub const fn verdict<S: ?Sized + Pun, D: ?Sized + Pun>() -> Verdict {
-  let mutable = Plan::<S, D>::MUTABLE;
+  let mutable = Plan::<S, D>::MUTABLE && Plan::<S, D>::eager_mut().is_none();
   let why = match Plan::<S, D>::check(Need::TRY_REF) {
     None => ([0; MESSAGE_LEN], 0),
     Some(message) => (message.bytes, message.len),
@@ -118,13 +121,15 @@ pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Option<Result<D,
   if const { !verdict::<S, D>().try_pun } {
     return None;
   }
+  // `D` holds no eager aim (`Plan::check`), so nothing is looked for in these bytes.
+  let mut input = Input::new((&raw const value).cast(), size_of::<S>());
   // SAFETY: `verdict::<S, D>().try_pun` is `true`, so `check(Need::TRY)` is `None`, and the
   // analysis meets `Need::TRY`, as when `Plan::<S, D>::TRY` compiles. `S` and `D` are `Copy`, so
   // `Sized`, and the fit is `Exact::Always`: they have the same size. So `value` is valid for reads
   // of a `D`, which `validate` does not need aligned. The relation records no byte that may be
   // padding in `S` and that `D` requires to be initialized, or that a check marked by the analysis
   // reads. So every byte that `validate` reads is initialized.
-  if !unsafe { validate::<Plan<S, D>, Root, D>((&raw const value).cast()) } {
+  if !unsafe { validate::<Plan<S, D>, Root, D>((&raw const value).cast(), &mut input) } {
     return Some(Err(Error::Validity));
   }
   // SAFETY: `S` and `D` have the same size. `validate` found every part of `D` that the analysis

@@ -110,6 +110,7 @@ fn fallback(input: &DeriveInput) -> TokenStream {
       type Fields = ();
       type Variants = ();
       type Rules = ();
+      type Metadata = ();
       const PROBE: *const Self = ::core::panic!("`#[derive(Pun)]` failed");
       const LAYOUT: #root::layout::Layout = ::core::panic!("`#[derive(Pun)]` failed");
     }
@@ -1787,19 +1788,21 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   // Rules.
   let rule = quote!(#root::layout::Rule);
   let mut rules = vec![];
-  // The rules that have an expression: their index, and their operations as a type.
+  // The rules that have an expression or are aims: their index, their operations as a type, and
+  // the type of the target of an aim.
   let mut listed = vec![];
   if let Some(size) = &options.size {
     let Expression { ops, steps } = expression(size, Ty::Int, true, &fields, &root)?;
-    listed.push((rules.len(), steps));
+    listed.push((rules.len(), steps, None));
     rules.push(quote!(#rule::Size(#ops)));
   }
   for assert in &options.asserts {
     let Expression { ops, steps } = expression(assert, Ty::Bool, false, &fields, &root)?;
-    listed.push((rules.len(), steps));
+    listed.push((rules.len(), steps, None));
     rules.push(quote!(#rule::Assert(#ops)));
   }
   let mut accessors = vec![];
+  let mut aims_pin = None;
   for (i, field) in fields.iter().enumerate() {
     let last = i + 1 == count;
     if let Some(len) = &field.options.len {
@@ -1807,7 +1810,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         return Err(Error::new(len.span(), "`len` is an option of the last field"));
       }
       let Expression { ops, steps } = expression(len, Ty::Int, true, &fields, &root)?;
-      listed.push((rules.len(), steps));
+      listed.push((rules.len(), steps, None));
       rules.push(quote!(#rule::Len(#ops)));
     }
     if let Some(regions) = &field.options.regions {
@@ -1815,17 +1818,37 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         return Err(Error::new(field.member.span(), "`regions` is an option of the last field"));
       }
       let vis = field.vis;
+      let layout = quote!(#root::layout);
+      // The types of the aims, pinned as `pin` pins the others.
+      aims_pin = Some(quote! {
+        const _: (
+          fn(#layout::Aim),
+          fn(#layout::Start),
+          fn(#layout::Metadata),
+          fn(#layout::Check),
+        ) = #layout::Layout::PIN_AIMS;
+      });
       for (index, region) in regions.iter().enumerate() {
         let name = &region.name;
-        rules.push(match &region.size {
+        // A lazy, wide aim at the cursor, at the bytes of the region: as many as its expression
+        // gives, its metadata, or the rest of the tail. The accessor of a typed region reads its
+        // type from these bytes.
+        let target = quote!([::core::primitive::u8]);
+        let (metadata, steps) = match &region.size {
           Some(size) => {
             let Expression { ops, steps } = expression(size, Ty::Int, false, &fields, &root)?;
-            listed.push((rules.len(), steps));
-            quote!(#rule::Region(::core::option::Option::Some(#ops)))
+            // In a block of its own: what a function takes is not extended to `'static`.
+            (quote!(#layout::Metadata::Wide(const { #ops })), steps)
           }
-          None if index + 1 == regions.len() => quote!(#rule::Region(::core::option::Option::None)),
+          None if index + 1 == regions.len() => (quote!(#layout::Metadata::Rest), quote!(())),
           None => return Err(Error::new(name.span(), "only the last region can be unsized")),
-        });
+        };
+        listed.push((rules.len(), steps, Some(target.clone())));
+        rules.push(quote!(#rule::Aim(#layout::Aim::new::<#target>(
+          #layout::Start::Next,
+          #metadata,
+          #layout::Check::Lazy,
+        ))));
         accessors.push(region.ty.as_ref().map_or_else(
           || {
             let doc = format!(
@@ -1941,11 +1964,23 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     }
   });
 
-  // The list of the rules that have an expression, at the type level, with their operations.
-  let rule_list = listed
-    .iter()
-    .rev()
-    .fold(quote!(()), |next, (index, steps)| quote!(#root::RuleAt<#index, #steps, #next>));
+  // The metadata of a pointer to the struct is that of its last field, as in Rust.
+  let metadata = fields.last().map_or_else(
+    || quote!(()),
+    |last| {
+      let ty = &last.home;
+      quote!(<#ty as #root::Pun>::Metadata)
+    },
+  );
+
+  // The list of the rules that have an expression or are aims, at the type level, with their
+  // operations and the targets of the aims.
+  let rule_list = listed.iter().rev().fold(quote!(()), |next, (index, steps, target)| {
+    target.as_ref().map_or_else(
+      || quote!(#root::RuleAt<#index, #steps, #next>),
+      |target| quote!(#root::RuleAt<#index, #steps, #next, #target>),
+    )
+  });
 
   let accessors = (!accessors.is_empty()).then(|| {
     quote! {
@@ -2017,9 +2052,11 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   padding.
       //   Rules are requirements of `puns`, never of the language.
       // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules that
-      //   have an expression, which `validate::check_rules` asserts against the layout. The other
-      //   lists are `()`. `NULL_OPTIMIZED` changes only what the analysis takes to be the same in
-      //   every layout that Rust allows.
+      //   have an expression or are aims (the regions, whose target is `[u8]`), which
+      //   `validate::check_rules` asserts against the layout. `Metadata` is that of the last
+      //   field, which holds the tail of the struct, or `()` without fields, as in Rust. The
+      //   other lists are `()`. `NULL_OPTIMIZED` changes only what the analysis takes to be the
+      //   same in every layout that Rust allows.
       // - Each field is `Pun`, so no byte is inside an `UnsafeCell`.
       // The functions called are those of the types that `Layout::PIN` fixes, which no path can
       // replace. A struct whose private fields keep an invariant must not derive `Pun` (crate
@@ -2035,6 +2072,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         type Fields = #first;
         type Variants = ();
         type Rules = #rule_list;
+        type Metadata = #metadata;
         const PROBE: *const Self = #probe;
         // SAFETY: `Layout::structure` requires nothing of a `Sized` struct. An unsized struct has
         // an unsized last field, whose `Pun` type is a slice, `str`, or a struct whose last field
@@ -2057,6 +2095,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       }
 
       #accessors
+      #aims_pin
 
       #(#tags)*
     };
@@ -2121,6 +2160,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         type Fields = ();
         type Variants = ();
         type Rules = ();
+        type Metadata = ();
         const PROBE: *const Self = ::core::ptr::null();
         const LAYOUT: #root::layout::Layout =
           #root::layout::Layout::uninhabited::<Self>().identified(Self::ID);
@@ -2821,6 +2861,7 @@ fn derive_tagged(
         type Fields = ();
         type Variants = #first #ty_generics;
         type Rules = ();
+        type Metadata = ();
         const PROBE: *const Self = ::core::ptr::null();
         const LAYOUT: #root::layout::Layout = #root::layout::Layout::enumeration::<Self>(
           const {
@@ -3087,6 +3128,7 @@ fn derive_discovered(
         type Fields = ();
         type Variants = #first #ty_generics;
         type Rules = ();
+        type Metadata = ();
         const PROBE: *const Self = ::core::ptr::null();
         // Rust specifies nothing of it: the layout that `puns` assumes where it applies, checked
         // against what the experiments found, and otherwise opaque without the `unstable` feature.
@@ -3258,6 +3300,7 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
         type Fields = ();
         type Variants = #first;
         type Rules = ();
+        type Metadata = ();
         const PROBE: *const Self = ::core::ptr::null();
         const LAYOUT: #root::layout::Layout = #root::layout::Layout::union::<Self>(
           const { &#root::layout::Enum::union(const { &[#(#variants),*] }) },

@@ -1,0 +1,17 @@
+error[E0277]: the trait bound `Near<u32>: Copy` is not satisfied
+ --> tests/compile-fail/aim_by_value.rs:8:36
+  |
+8 |   let _ = puns::try_pun::<[u8; 4], aims::Near<u32>>([4, 0, 0, 0]);
+  |                                    ^^^^^^^^^^^^^^^ the trait `Copy` is not implemented for `Near<u32>`
+  |
+note: required by a bound in `try_pun`
+ --> src/lib.rs
+  |
+  | pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Result<D, Error> {
+  |                                              ^^^^ required by this bound in `try_pun`
+help: consider annotating `Near<u32>` with `#[derive(Copy)]`
+ -->  $DIR/tests/compile-fail/../support/aims.rs
+  |
+     + #[derive(Copy)]
+     | pub struct Near<T: ?Sized> {
+     |

@@ -12,18 +12,28 @@
 //! `from_head` turns the value of a `size` or `len` rule into a number of elements in a `usize`.
 //! There, the optimizer knows that the value of a field fits a `usize`.
 //!
+//! # Aims
+//!
+//! A rule of a struct may be an aim ([`layout::Aim`]), whose target type is the `Target` of its
+//! item in `Pun::Rules`. [`check_rules`] follows an eager aim: [`follow`] finds the target in the
+//! bytes that the check reads ([`Input`]), and checks it with [`validate`], which follows the eager
+//! aims of the target in turn. A type that points at itself is checked by a recursive call of the
+//! same instance, bounded by the depth and the bytes that [`Input`] counts. A lazy aim is checked
+//! only to fit in the tail of the struct, from the cursor, and [`region_at`] reads it.
+//!
 //! # No interpreter
 //!
 //! Every operation of every rule is applied by an instance of a function of its own ([`steps`]), in
 //! which the operation is a constant. What is compiled is the arithmetic of the expression and the
 //! loop of each walk, never a `match` on operations at run time.
 //!
-//! The derive writes the rules of a struct that have an expression as a list at the type level
-//! (`Pun::Rules`, `RuleAt<RULE, STEPS, NEXT>`). It writes the operations of each rule as a balanced
-//! tree (`steps::One<I>`, `steps::Two<A, B>`), and a walk as `steps::Walk<I, COND, NEXT>`, whose
-//! two expressions are trees of their own at any depth. The recursions down a tree are as deep as
-//! the logarithm of the number of operations. Because the list is a type, a struct without rules
-//! costs nothing more to compile.
+//! The derive writes the rules of a struct that have an expression or are aims as a list at the
+//! type level (`Pun::Rules`, `RuleAt<RULE, STEPS, NEXT, TARGET>`, where `TARGET` is the type of
+//! the target of an aim). It writes the operations of each rule as a balanced tree
+//! (`steps::One<I>`, `steps::Two<A, B>`), and a walk as `steps::Walk<I, COND, NEXT>`, whose two
+//! expressions are trees of their own at any depth. The recursions down a tree are as deep as the
+//! logarithm of the number of operations. Because the list is a type, a struct without rules costs
+//! nothing more to compile.
 //!
 //! Nothing that a list says is trusted. Where a list is used, it is checked against the layout
 //! ([`listed`], [`covers`]). Every rule with an expression must be listed once and in order, with
@@ -63,7 +73,9 @@
 use crate::{
   Fields, Path, Pun, Root, Rules, Steps, Variants,
   analysis::Marks,
-  layout::{self, Dfa, Enum, Kind, Machine, Op, Rule, Shape, load, op_at, walk_limit},
+  layout::{
+    self, Aim, Dfa, Enum, Kind, Machine, Metadata, Op, Rule, Shape, Start, load, op_at, walk_limit,
+  },
   narrow::{Planned, fit},
   ptr,
   steps::{InRule, ONE, Ops, TWO, WALK},
@@ -113,7 +125,10 @@ impl Checks for All {
 ///   ([`Layout::rules_read_bytes`]), all of its bytes, padding included.
 ///
 /// [`Layout::rules_read_bytes`]: layout::Layout::rules_read_bytes
-pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T) -> bool {
+pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
+  ptr: *const T,
+  input: &mut Input,
+) -> bool {
   if const { !C::MARKS.any(P::LEAF, T::LAYOUT.leaves) } {
     return true;
   }
@@ -139,11 +154,11 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
   unsafe {
     match const { T::LAYOUT.shape() } {
       Shape::Scalar(spec) => (const { C::NEVER } && spec.is_never()) || spec.matches(ptr.cast()),
-      Shape::Array(len) => validate_elems::<C, P, T::Elem>(ptr.cast(), len),
-      Shape::Slice => validate_elems::<C, P, T::Elem>(ptr.cast(), ptr::metadata(ptr)),
+      Shape::Array(len) => validate_elems::<C, P, T::Elem>(ptr.cast(), len, input),
+      Shape::Slice => validate_elems::<C, P, T::Elem>(ptr.cast(), ptr::metadata(ptr), input),
       Shape::Struct => {
-        validate_fields::<C, P, T, T::Fields>(ptr)
-          && (const { !rules_marked::<C, P, T>() } || check_rules(ptr))
+        validate_fields::<C, P, T, T::Fields>(ptr, input)
+          && (const { !rules_marked::<C, P, T>() } || check_rules(ptr, input))
       }
       // `str::from_utf8` checks the bytes where the automaton is that of UTF-8, by its states,
       // since an `id` proves nothing. This is decided at compile time.
@@ -151,8 +166,8 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
         Dfa::matches_utf8(ptr.cast(), ptr::metadata(ptr))
       }
       Shape::Pattern(dfa) => dfa.matches(ptr.cast(), ptr::metadata(ptr)),
-      Shape::Enum(layout) if layout.union => validate_union::<C, T, T::Variants>(ptr),
-      Shape::Enum(layout) => validate_enum::<C, T>(ptr, layout),
+      Shape::Enum(layout) if layout.union => validate_union::<C, T, T::Variants>(ptr, input),
+      Shape::Enum(layout) => validate_enum::<C, T>(ptr, layout, input),
     }
   }
 }
@@ -176,7 +191,11 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(ptr: *const T)
 /// - The tag of the enum is initialized, and so is every byte that the checks of the fields of that
 ///   tag's variant read, which check every part.
 #[inline(always)]
-const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout: &Enum) -> bool {
+const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(
+  ptr: *const T,
+  layout: &Enum,
+  input: &mut Input,
+) -> bool {
   let Kind::Scalar(spec) = layout.tag.layout.kind else { panic!() };
   // SAFETY: `Layout::enumeration` asserts that the tag is a scalar that `Spec::is_integer`
   // accepts, so of at most 16 bytes, at `layout.tag.offset` within the size of `T`. So `add`
@@ -186,7 +205,7 @@ const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout:
   // variants of `T`.
   unsafe {
     let tag = load(ptr.cast::<u8>().add(layout.tag.offset), spec.size, spec.endian);
-    validate_variants::<C, T, T::Variants>(ptr, tag)
+    validate_variants::<C, T, T::Variants>(ptr, tag, input)
   }
 }
 
@@ -208,6 +227,7 @@ const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(ptr: *const T, layout:
 const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
   ptr: *const T,
   tag: u128,
+  input: &mut Input,
 ) -> bool {
   let Some(expected) = (const { V::TAG }) else { return false };
   let this = match const { V::RANGES } {
@@ -224,9 +244,9 @@ const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
     if this {
       // No value is a variant of which a field has no value, so nothing of it is read. The
       // analysis does not look at such a variant either (`Variant::is_present`).
-      (const { inhabited::<V::Fields>() }) && every::<C, T, V::Fields>(ptr)
+      (const { inhabited::<V::Fields>() }) && every::<C, T, V::Fields>(ptr, input)
     } else {
-      validate_variants::<C, T, V::Next>(ptr, tag)
+      validate_variants::<C, T, V::Next>(ptr, tag, input)
     }
   }
 }
@@ -247,13 +267,16 @@ const fn inhabited<F: Fields>() -> bool {
 ///
 /// The requirements of `validate_fields` with every part marked.
 #[inline(always)]
-const unsafe fn every<C: Checks, T: ?Sized + Pun, F: Fields>(ptr: *const T) -> bool {
+const unsafe fn every<C: Checks, T: ?Sized + Pun, F: Fields>(
+  ptr: *const T,
+  input: &mut Input,
+) -> bool {
   // SAFETY: The requirements of `validate_fields`, by contract on the caller.
   unsafe {
     if const { C::NEVER } {
-      validate_fields::<AllButNever, Root, T, F>(ptr)
+      validate_fields::<AllButNever, Root, T, F>(ptr, input)
     } else {
-      validate_fields::<All, Root, T, F>(ptr)
+      validate_fields::<All, Root, T, F>(ptr, input)
     }
   }
 }
@@ -273,7 +296,10 @@ const unsafe fn every<C: Checks, T: ?Sized + Pun, F: Fields>(ptr: *const T) -> b
 /// - Every byte that the checks of `V` or of a field after it read, which check every part, is
 ///   initialized, for the fields that have values. The analysis refuses a union of which such a
 ///   field would read a byte that may be padding in the source.
-const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(ptr: *const T) -> bool {
+const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(
+  ptr: *const T,
+  input: &mut Input,
+) -> bool {
   if const { V::TAG.is_none() } {
     return false;
   }
@@ -284,8 +310,8 @@ const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(ptr: *co
   // call. Nothing is read of a field that has no value, which no bytes are, as in
   // `validate_variants`.
   unsafe {
-    (const { inhabited::<V::Fields>() } && every::<C, T, V::Fields>(ptr))
-      || validate_union::<C, T, V::Next>(ptr)
+    (const { inhabited::<V::Fields>() } && every::<C, T, V::Fields>(ptr, input))
+      || validate_union::<C, T, V::Next>(ptr, input)
   }
 }
 
@@ -299,7 +325,11 @@ const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(ptr: *co
 /// The caller must ensure that:
 ///
 /// - `ptr` is valid for reads of `len` consecutive `T`s, each as [`validate`] requires.
-const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(ptr: *const T, len: usize) -> bool {
+const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(
+  ptr: *const T,
+  len: usize,
+  input: &mut Input,
+) -> bool {
   let mut i = 0;
   // Without a stop within a block, the optimizer can vectorize the checks, which it cannot do in a
   // loop that may stop at each element.
@@ -311,7 +341,7 @@ const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(ptr: *const T, len: u
         // SAFETY: `i + j < len`, since `len - i >= block` and `j < block`. `ptr` is valid for
         // reads of `len` elements, by contract on the caller, so `add(i + j)` stays within them
         // and points to an element that meets the requirements of `validate`.
-        valid &= unsafe { validate::<C, P, T>(ptr.add(i + j)) };
+        valid &= unsafe { validate::<C, P, T>(ptr.add(i + j), input) };
         j += 1;
       }
       if !valid {
@@ -324,7 +354,7 @@ const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(ptr: *const T, len: u
     // SAFETY: `i < len`. `ptr` is valid for reads of `len` elements, by contract on the caller,
     // so `add(i)` stays within them and points to an element that meets the requirements of
     // `validate`.
-    if !unsafe { validate::<C, P, T>(ptr.add(i)) } {
+    if !unsafe { validate::<C, P, T>(ptr.add(i), input) } {
       return false;
     }
     i += 1;
@@ -352,6 +382,7 @@ const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(ptr: *const T, len: u
 /// writes the list with paths that the user may redefine, so this is checked.
 const unsafe fn validate_fields<C: Checks, P: Path, T: ?Sized + Pun, F: Fields>(
   ptr: *const T,
+  input: &mut Input,
 ) -> bool {
   let Some(field) = (const { F::FIELD }) else { return true };
   // Where the list says that the field is must be where its layout says it is: the list is made
@@ -381,9 +412,11 @@ const unsafe fn validate_fields<C: Checks, P: Path, T: ?Sized + Pun, F: Fields>(
         (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
           || spec.matches(ptr.cast::<u8>().add(field.offset()))
       }
-      None => validate::<C, F::Path<P>, F::Type>(ptr::field::<T, F::Type>(ptr, field.offset())),
+      None => {
+        validate::<C, F::Path<P>, F::Type>(ptr::field::<T, F::Type>(ptr, field.offset()), input)
+      }
     };
-    valid && validate_fields::<C, P, T, F::Next>(ptr)
+    valid && validate_fields::<C, P, T, F::Next>(ptr, input)
   }
 }
 
@@ -394,7 +427,8 @@ const fn rules_marked<C: Checks, P: Path, T: ?Sized + Pun>() -> bool {
   !T::LAYOUT.rules().is_empty() && C::MARKS.any(P::LEAF + T::LAYOUT.leaves - 1, 1)
 }
 
-/// Returns whether the struct at `ptr` meets the rules of the layout of `T`.
+/// Returns whether the struct at `ptr` meets the rules of the layout of `T`, and the targets of its
+/// eager aims are valid within the bytes of `input`.
 ///
 /// # Safety
 ///
@@ -404,76 +438,334 @@ const fn rules_marked<C: Checks, P: Path, T: ?Sized + Pun>() -> bool {
 /// - The bytes of that `T` that its rules read are initialized: those of the fields that the rules
 ///   load and, if one of the rules reads bytes by offset ([`Layout::rules_read_bytes`]), all of
 ///   them, padding included.
+/// - If `T` has an eager aim, the `T` is within the bytes of `input`, which are valid for reads
+///   and initialized ([`Input`]).
 ///
 /// # Compile-time errors
 ///
-/// An instance compiles only if `T::Rules` lists every rule of `T` that has an expression, once,
-/// in order, with every operation of each ([`listed`]).
+/// An instance compiles only if `T::Rules` lists every rule of `T` that has an expression or is an
+/// aim, once, in order, with every operation of each ([`listed`]).
 ///
 /// [`Layout::rules_read_bytes`]: layout::Layout::rules_read_bytes
 #[inline(always)]
-pub const unsafe fn check_rules<T: ?Sized + Pun>(ptr: *const T) -> bool {
+pub const unsafe fn check_rules<T: ?Sized + Pun>(ptr: *const T, input: &mut Input) -> bool {
   const { assert!(listed::<T, T::Rules>(0), "not the rules of the struct") };
   let (len, tail, size) = tail_of(ptr);
-  // SAFETY: `tail_of` returns `size`, the size of the `T` at `ptr`. That `T` is valid for reads,
-  // and the bytes that its rules read are initialized, by contract on the caller, as
-  // `check_listed` requires.
-  unsafe { check_listed::<T, T::Rules>(ptr.cast(), size, tail, len, 0) }
+  let head = const { T::LAYOUT.tail_shape().start };
+  // SAFETY: `tail_of` returns `size`, the size of the `T` at `ptr`, and the tail of `tail` bytes
+  // starts at `head`, so `head + tail <= size`. That `T` is valid for reads, the bytes that its
+  // rules read are initialized, and it is within `input` if it has an eager aim, by contract on
+  // the caller, as `check_listed` requires.
+  unsafe { check_listed::<T, T::Rules>(ptr.cast(), size, (head, tail), len, 0, input) }
 }
 
 /// Returns whether the struct at `base` meets the rule `L` of `T` and the ones after it.
 ///
-/// The struct is `size` bytes, and its tail is `tail` bytes of `len` elements. The regions before
-/// `L` take the first `regions` bytes of the tail. A `size` rule must be `size`, a `len` rule
-/// `len`, and an assertion not 0. A region must fit in what is left of the tail.
+/// The struct is `size` bytes, and its tail is the `tail` bytes from `head`, of `len` elements.
+/// The aims before `L` that start at the cursor end at `cursor` in the tail. A `size` rule must be
+/// `size`, a `len` rule `len`, and an assertion not 0. A lazy aim must fit in the tail, from the
+/// cursor rounded up to the alignment of its target, and the size that it gives moves the cursor.
+/// The target of an eager aim must be valid within the bytes of `input` ([`follow`]).
 ///
 /// # Safety
 ///
 /// The caller must ensure that:
 ///
-/// - `base` is valid for reads of the `size` bytes of a `T`.
-/// - The bytes of that `T` that its rules read are initialized, as [`check_rules`] requires.
+/// - `base` is valid for reads of the `size` bytes of a `T`, and `head + tail <= size`.
+/// - `cursor <= tail`.
+/// - The bytes of that `T` that its rules read are initialized, as [`check_rules`] requires, and
+///   so are the bytes of `input`, within which the `T` is if it has an eager aim.
 #[cfg_attr(not(debug_assertions), inline(always))]
 const unsafe fn check_listed<T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   size: usize,
-  tail: usize,
+  (head, tail): (usize, usize),
   len: usize,
-  regions: usize,
+  cursor: usize,
+  input: &mut Input,
 ) -> bool {
   if const { L::RULE == usize::MAX } {
     return true;
   }
-  // SAFETY: `InRule<T, L>` is the rule `L::RULE` of `T`. `base` is valid for reads of the `size`
-  // bytes of a `T`, which cover its sized fields, by contract on the caller. The bytes that the
-  // rule reads are initialized, by contract on the caller: those of the fields that it loads and,
-  // if it reads bytes by offset, all `size` bytes, since a rule of `T` then does. This is what
-  // `eval` requires.
-  let Some(value) = (unsafe { eval::<InRule<T, L>, L::Expr>(base, size) }) else { return false };
-  let regions = match const { T::LAYOUT.rule(L::RULE) } {
-    Some(Rule::Size(_)) if value == size as u128 => regions,
-    Some(Rule::Len(_)) if value == len as u128 => regions,
-    Some(Rule::Assert(_)) if value != 0 => regions,
-    Some(Rule::Region(_)) if value <= (tail - regions) as u128 => regions + value as usize,
-    _ => return false,
+  // The end of the list, which is not reached here, has no rule.
+  let rule = const {
+    match T::LAYOUT.rule(L::RULE) {
+      Some(rule) => rule,
+      None => Rule::Assert(&[]),
+    }
   };
-  // SAFETY: The requirement of the call for the next rules is that of this call.
-  unsafe { check_listed::<T, L::Next>(base, size, tail, len, regions) }
+  let cursor = match rule {
+    Rule::Aim(Aim { start: Start::Next, metadata, align, .. }) => {
+      // SAFETY: `base + head + cursor` is within the `size` bytes at `base`, by contract on the
+      // caller, as `start_at` requires.
+      let start = unsafe { start_at(base.add(head), cursor, tail, align) };
+      match metadata {
+        Metadata::Wide(_) => {
+          // SAFETY: `InRule<T, L>` is the rule `L::RULE` of `T`, whose expression is the metadata
+          // of the target. `base` is valid for reads of the `size` bytes of a `T`, which cover its
+          // sized fields, and the bytes that the rule reads are initialized, by contract on the
+          // caller. This is what `eval` requires.
+          let Some(len) = (unsafe { eval::<InRule<T, L>, L::Expr>(base, size) }) else {
+            return false;
+          };
+          match extent::<L::Target>(len) {
+            Some(n) if n <= tail - start => start + n,
+            _ => return false,
+          }
+        }
+        _ => tail,
+      }
+    }
+    Rule::Aim(Aim { start: Start::Stored(_), .. }) => {
+      // SAFETY: As for a lazy aim above, the requirements of `eval` hold.
+      let Some(at) = (unsafe { eval::<InRule<T, L>, L::Expr>(base, size) }) else { return false };
+      // SAFETY: The `T` at `base` has an eager aim, so it is within the bytes of `input`, which are
+      // valid for reads and initialized, by contract on the caller, as `follow` requires.
+      if !unsafe { follow::<T, L, L::Target>(base, at, input) } {
+        return false;
+      }
+      cursor
+    }
+    _ => {
+      // SAFETY: As for a lazy aim above, the requirements of `eval` hold.
+      let Some(value) = (unsafe { eval::<InRule<T, L>, L::Expr>(base, size) }) else {
+        return false;
+      };
+      match rule {
+        Rule::Size(_) if value == size as u128 => cursor,
+        Rule::Len(_) if value == len as u128 => cursor,
+        Rule::Assert(_) if value != 0 => cursor,
+        _ => return false,
+      }
+    }
+  };
+  // SAFETY: `cursor <= tail`: a lazy aim moves it to at most `tail`. The other requirements of the
+  // call for the next rules are those of this call.
+  unsafe { check_listed::<T, L::Next>(base, size, (head, tail), len, cursor, input) }
 }
 
-/// Returns whether `L` lists the rules of `T` that have an expression, from the `from`th rule on.
+/// Returns the size of a `D` whose tail has `len` elements, if it fits a `usize`.
+#[inline(always)]
+const fn extent<D: ?Sized + Pun>(len: u128) -> Option<usize> {
+  if len > usize::MAX as u128 {
+    return None;
+  }
+  const { D::LAYOUT }.size_of_val(len as usize)
+}
+
+/// Returns where a target that starts at the cursor starts in a tail of `tail` bytes at `at`: at
+/// `cursor`, rounded up to `align` as an address, or at `tail` if that is past it.
 ///
-/// Each must be listed once, in order, with every operation of its expression ([`covers`]).
+/// # Safety
+///
+/// The caller must ensure that `at + cursor` is within the allocation of `at`, or one past it.
+#[inline(always)]
+const unsafe fn start_at(at: *const u8, cursor: usize, tail: usize, align: usize) -> usize {
+  if cursor >= tail {
+    return tail;
+  }
+  if align <= 1 {
+    return cursor;
+  }
+  // SAFETY: `at + cursor` is in the allocation of `at`, by contract on the caller.
+  let address = ptr::address(unsafe { at.add(cursor) });
+  let pad = (align - address % align) % align;
+  if pad > tail - cursor { tail } else { cursor + pad }
+}
+
+/// How deep the check of eager aims goes: the target of an aim that holds an aim, and so on, this
+/// many times. The check recurses once for each level, and returns
+/// [`Error::Limit`](crate::Error::Limit) deeper.
+///
+/// The bound is set by the stack that the check takes. For the pairs, the trees and the
+/// expressions of `tests/support/aims.rs`, a level takes 12 to 15 KiB in a build without
+/// optimizations, and at most 96 bytes in an optimized build (Rust 1.100 on aarch64; the frames of
+/// x86-64 are smaller), so their deepest check takes at most 944 KiB, and fits in 1 MiB, which
+/// `tests/aims.rs` checks. A type whose eager aims are nested deeper in each of its values takes
+/// more for each level.
+pub const AIM_DEPTH: usize = 64;
+
+/// The bytes that a check reads, and what the check of eager aims may still spend in them.
+///
+/// The target of an eager aim must lie within these bytes ([`follow`]). Each target that is
+/// followed takes its size from a budget of twice the length of the bytes, at least 1 each. The
+/// targets of a tree, which share no byte, take at most that: their sizes add up to at most the
+/// length, and each target of size 0 is reached by an aim of at least one byte, and at most as
+/// many. So the time of a check grows with the bytes, though targets may be shared, and a cycle
+/// ends.
+pub struct Input {
+  /// The first byte.
+  start: *const u8,
+  /// The number of bytes.
+  len: usize,
+  /// What the targets that are still to be followed may take, in bytes.
+  budget: usize,
+  /// How many more aims may be followed from here, one within the target of another.
+  depth: usize,
+  /// Whether the check stopped at the depth or at the budget, rather than at an invalid value.
+  pub(crate) limit: bool,
+}
+
+impl Input {
+  /// The `len` bytes at `start`.
+  #[inline(always)]
+  pub const fn new(start: *const u8, len: usize) -> Self {
+    Self { start, len, budget: len.saturating_mul(2), depth: AIM_DEPTH, limit: false }
+  }
+
+  /// Takes a target of `size` bytes, and one level of depth, if there are enough left.
+  const fn enter(&mut self, size: usize) -> bool {
+    let cost = if size == 0 { 1 } else { size };
+    if self.depth == 0 || self.budget < cost {
+      self.limit = true;
+      return false;
+    }
+    self.depth -= 1;
+    self.budget -= cost;
+    true
+  }
+
+  /// Gives back the level of depth that [`Input::enter`] took.
+  const fn leave(&mut self) {
+    self.depth += 1;
+  }
+}
+
+/// Returns whether the `D` that the eager aim `L` of the struct `T` at `holder` points at, `at`
+/// bytes from `holder`, is valid within the bytes of `input`, every part of it checked.
+///
+/// `at` is read as an `i128` in two's complement. The target must start within the bytes, at an
+/// address aligned for `D`. A sized `D` takes its size, and an unsized one the size that its
+/// `size` or `len` rule gives. It must end within the bytes, and its checks follow its own eager
+/// aims, one level deeper.
+///
+/// # Compile-time errors
+///
+/// An instance for an eager aim compiles only if `D` is sized or has a `size` or `len` rule, and,
+/// without the `unstable` feature, nothing that the check of `D` reads depends on a layout that
+/// Rust leaves to the compiler. The function is named, though not called, for every rule, and
+/// asserts nothing of the target of a rule that is not an eager aim.
+///
+/// # Safety
+///
+/// The caller must ensure that:
+///
+/// - `holder` is within the bytes of `input`.
+/// - The bytes of `input` are in one allocation, valid for reads and initialized.
+const unsafe fn follow<T: ?Sized + Pun, L: Rules, D: ?Sized + Pun>(
+  holder: *const u8,
+  at: u128,
+  input: &mut Input,
+) -> bool {
+  let (layout, rule) = const {
+    let layout = D::LAYOUT;
+    let eager =
+      matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { check: layout::Check::Eager, .. })));
+    assert!(
+      !eager || layout.checks_kept(),
+      "the target of an aim has a part whose layout Rust leaves to the compiler (a struct, a \
+       tuple or an enum of the `Rust` representation), and something to check in it.\nAdd \
+       `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`"
+    );
+    let rule = layout.length_rule();
+    assert!(
+      !eager || !layout.is_unsized() || rule.is_some(),
+      "the target of an eager aim is sized, or stores its length"
+    );
+    (layout, rule)
+  };
+  // SAFETY: `holder` is within the bytes of `input`, at or after their start, in one allocation,
+  // by contract on the caller, as `offset_from_unsigned` requires.
+  let from = unsafe { holder.offset_from_unsigned(input.start) };
+  #[expect(clippy::cast_possible_wrap, reason = "two's complement, as the aim says")]
+  let at = at as i128;
+  let to = match (from as i128).checked_add(at) {
+    Some(to) if to >= 0 && to <= input.len as i128 => to.cast_unsigned() as usize,
+    _ => return false,
+  };
+  let room = input.len - to;
+  // SAFETY: `to <= input.len`, so `add` stays within the bytes of `input`, in one allocation.
+  let addr = unsafe { input.start.add(to) };
+  if const { D::LAYOUT.align() > 1 } && !ptr::is_aligned(addr, layout.align()) {
+    return false;
+  }
+  let (head, stride) = (layout.head(), layout.stride());
+  if room < head {
+    return false;
+  }
+  let len = match rule {
+    _ if stride == 0 => 0,
+    None => 0,
+    Some(rule) => {
+      // SAFETY: `addr` is valid for reads of the `room` initialized bytes of `input` from there,
+      // which cover the `head` bytes of the sized fields of `D`, and of the struct in it that has
+      // the rule, which `length_rule` returned. These are the requirements of `length`.
+      let Some(value) = (unsafe { length::<D>(addr, room) }) else { return false };
+      let before = head - rule.base;
+      if value > usize::MAX as u128 {
+        return false;
+      }
+      let value = value as usize;
+      match () {
+        () if rule.elements => value,
+        () if value >= before && (value - before).is_multiple_of(stride) => {
+          (value - before) / stride
+        }
+        () => return false,
+      }
+    }
+  };
+  if stride != 0 && len > (room - head) / stride {
+    return false;
+  }
+  let size = match layout.size_of_val(len) {
+    Some(size) if size <= room => size,
+    _ => return false,
+  };
+  if !input.enter(size) {
+    return false;
+  }
+  // SAFETY: The `D` of `size` bytes at `addr` is within the bytes of `input`, which are valid for
+  // reads and initialized, by contract on the caller, so every byte that a check reads is. These
+  // are the requirements of `validate`, and the targets of the aims of the `D` are within `input`
+  // too.
+  let valid = unsafe { validate::<All, Root, D>(ptr::from_raw_parts::<D>(addr, len), input) };
+  input.leave();
+  valid
+}
+
+/// Returns whether `L` lists the rules of `T` that have an expression or are aims, from the
+/// `from`th rule on.
+///
+/// Each must be listed once, in order, with every operation of its expression ([`covers`]), and
+/// an aim with a target of its size and alignment, and of its identity if it is known.
 const fn listed<T: ?Sized + Pun, L: Rules>(from: usize) -> bool {
   let rules = T::LAYOUT.rules();
   let mut i = from;
-  while i < rules.len() && rules[i].ops().is_none() {
+  while i < rules.len() && !rules[i].listed() {
     i += 1;
   }
   if L::RULE == usize::MAX {
     return i >= rules.len();
   }
-  L::RULE == i && covers::<InRule<T, L>, L::Expr>() && listed::<T, L::Next>(i + 1)
+  if L::RULE != i {
+    return false;
+  }
+  let expr = match rules[i].ops() {
+    Some(_) => covers::<InRule<T, L>, L::Expr>(),
+    None => <L::Expr as Steps>::KIND == crate::steps::NONE,
+  };
+  let target = match rules[i].aim() {
+    // SAFETY: `L::Target::PROBE` is a probe of its type (`Pun`, section Safety), as `head_size`
+    // requires, and `align_of_val_raw` has the same requirements.
+    Some(aim) => unsafe {
+      ptr::head_size(<L::Target as Pun>::PROBE) == aim.size
+        && core::mem::align_of_val_raw(<L::Target as Pun>::PROBE) == aim.align
+        && (!aim.id.known() || aim.id.equals(&<L::Target as Pun>::ID))
+    },
+    None => true,
+  };
+  expr && target && listed::<T, L::Next>(i + 1)
 }
 
 /// Returns whether `S` spans every operation of the expression `X`, from the first to the last.
@@ -589,17 +881,17 @@ const unsafe fn length_listed<T: ?Sized + Pun, L: Rules>(
   unsafe { length_listed::<T, L::Next>(base, n) }
 }
 
-/// Returns the bytes of the `index`th region of the tail of the struct `T` at `base`.
+/// Returns the bytes of the target of the `index`th lazy aim of the struct `T` at `base`, a region.
 ///
 /// The struct is `size` bytes. Its tail starts at `head` and is `tail` bytes long. The search
-/// starts at the rule `L`, after `count` regions that take the first `start` bytes of the tail. A
-/// region whose expression fails, or does not fit in what is left of the tail, takes what is
-/// left: the fields that size it are not trusted. The last region, which has no expression,
-/// takes what is left too.
+/// starts at the rule `L`, after `count` lazy aims that end at `cursor` in the tail. Each starts at
+/// the cursor rounded up to the alignment of its target, or at the end of the tail if that is past
+/// it. A size whose expression fails, or does not fit in what is left of the tail, is what is left:
+/// the fields that give it are not trusted.
 ///
 /// # Panics
 ///
-/// Panics if `T` has no `index`th region.
+/// Panics if `T` has no `index`th lazy aim.
 ///
 /// # Safety
 ///
@@ -607,7 +899,7 @@ const unsafe fn length_listed<T: ?Sized + Pun, L: Rules>(
 ///
 /// - `base` is valid for reads of the `size` bytes of a `T`, initialized, for `'a`.
 /// - These bytes are not written for `'a`.
-/// - `head + tail` is at most `size`, and `start` is at most `tail`.
+/// - `head + tail` is at most `size`, and `cursor` is at most `tail`.
 ///
 /// # Compile-time errors
 ///
@@ -618,19 +910,44 @@ pub const unsafe fn region_at<'a, T: ?Sized + Pun, L: Rules>(
   size: usize,
   (head, tail): (usize, usize),
   index: usize,
-  (start, count): (usize, usize),
+  (cursor, count): (usize, usize),
 ) -> &'a [u8] {
   const { assert!(listed::<T, T::Rules>(0), "not the rules of the struct") };
+  let aim = const {
+    match T::LAYOUT.rule(L::RULE) {
+      Some(Rule::Aim(aim)) if matches!(aim.start, Start::Next) => Some(aim),
+      _ => None,
+    }
+  };
+  let Some(aim) = aim else {
+    assert!(L::RULE != usize::MAX, "no such region");
+    // SAFETY: The requirements of the call for the next rules are those of this call.
+    return unsafe { region_at::<T, L::Next>(base, size, (head, tail), index, (cursor, count)) };
+  };
+  // SAFETY: `base + head + cursor` is within the `size` bytes at `base`, since
+  // `head + cursor <= head + tail <= size`, by contract on the caller.
+  let start = unsafe { start_at(base.add(head), cursor, tail, aim.align) };
   let rest = tail - start;
-  // The last region, which takes what remains, has no expression: it is not in the list.
-  if const { L::RULE == usize::MAX } {
-    assert!(count == index && T::LAYOUT.has_last_region(), "no such region");
-    // SAFETY: `head + start + rest` is `head + tail`, at most `size`, by contract on the caller. So
-    // `add(head + start)` stays within the `size` bytes at `base`. This satisfies the safety
-    // contract of `slice::from_raw_parts` [1]: the `rest` bytes from there are in one allocation,
-    // valid for reads for `'a`, so non-null [2], initialized, and not written for `'a`, by contract
-    // on the caller. A `u8` is aligned at any address, and `rest` bytes fit in an `isize`, since
-    // they are in an allocation.
+  let n = match aim.metadata {
+    // SAFETY: `InRule<T, L>` is a rule of `T`. `base` is valid for reads of the `size` bytes of a
+    // `T`, initialized, by contract on the caller, and these cover its sized fields. This is what
+    // `eval` requires.
+    Metadata::Wide(_) => match unsafe { eval::<InRule<T, L>, L::Expr>(base, size) } {
+      Some(len) => match extent::<L::Target>(len) {
+        Some(n) if n <= rest => n,
+        _ => rest,
+      },
+      None => rest,
+    },
+    _ => rest,
+  };
+  if count == index {
+    // SAFETY: `n <= rest`, so `head + start + n <= head + tail <= size`. So `add(head + start)`
+    // stays within the `size` bytes at `base`. This satisfies the safety contract of
+    // `slice::from_raw_parts` [1]: the `n` bytes from there are in one allocation, valid for reads
+    // for `'a`, so non-null [2], initialized, and not written for `'a`, by contract on the caller.
+    // A `u8` is aligned at any address, and `n` bytes fit in an `isize`, since they are in an
+    // allocation.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/core/slice/fn.from_raw_parts.html:
     //
@@ -648,29 +965,11 @@ pub const unsafe fn region_at<'a, T: ?Sized + Pun, L: Rules>(
     // [2] Per https://doc.rust-lang.org/1.99.0/core/ptr/index.html#safety:
     //
     //     A null pointer is never valid for reads/writes.
-    return unsafe { core::slice::from_raw_parts(base.add(head + start), rest) };
+    return unsafe { core::slice::from_raw_parts(base.add(head + start), n) };
   }
-  if const { !matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Region(_))) } {
-    // SAFETY: The requirements of the call for the next rules are those of this call.
-    return unsafe { region_at::<T, L::Next>(base, size, (head, tail), index, (start, count)) };
-  }
-  // A region that does not fit is truncated: the fields that size it are not trusted.
-  // SAFETY: `InRule<T, L>` is a rule of `T`. `base` is valid for reads of the `size` bytes of a
-  // `T`, initialized, by contract on the caller, and these cover its sized fields. This is what
-  // `eval` requires.
-  let region = match unsafe { eval::<InRule<T, L>, L::Expr>(base, size) } {
-    Some(region) if region <= rest as u128 => region as usize,
-    _ => rest,
-  };
-  if count == index {
-    // SAFETY: `region <= rest`, so `head + start + region <= head + tail <= size`. As for the last
-    // region above, the bytes are within the `size` bytes at `base`, and meet the safety contract
-    // of `slice::from_raw_parts`.
-    return unsafe { core::slice::from_raw_parts(base.add(head + start), region) };
-  }
-  // SAFETY: `start + region <= tail`, since `region <= rest`. The other requirements of the call
-  // for the next rules are those of this call.
-  unsafe { region_at::<T, L::Next>(base, size, (head, tail), index, (start + region, count + 1)) }
+  // SAFETY: `start + n <= tail`, since `n <= rest`. The other requirements of the call for the
+  // next rules are those of this call.
+  unsafe { region_at::<T, L::Next>(base, size, (head, tail), index, (start + n, count + 1)) }
 }
 
 // -------------------------------------------------------------------------------------------------

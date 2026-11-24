@@ -612,7 +612,8 @@
 //! Some scalars are valid for reasons that are not in their bytes. The offset of a self-relative
 //! pointer, like the ones in the regions of [`nearest`](https://docs.rs/nearest), is valid only at
 //! its place in a buffer, and only if what it aims at is there. A handle or an index into a table
-//! is another such scalar. A crate declares such a scalar as a [`Scalar`] whose `SPEC` is
+//! is another such scalar. A self-relative pointer can also be an eager [aim](#aims), whose target
+//! `puns` checks. A crate declares such a scalar as a [`Scalar`] whose `SPEC` is
 //! [`Spec::never`](layout::Spec::never): it accepts no value, and its bytes are known to be
 //! initialized.
 //!
@@ -634,6 +635,60 @@
 //! size depends on the niche that `rustc` gives it, which no documentation promises. That decides
 //! only whether the `Option` compiles, never what a pun checks or accepts, since nothing of it is
 //! checked.
+//!
+//! # Aims
+//!
+//! An *aim* is a value at a place of the checked bytes that a struct points at
+//! ([`Aim`](layout::Aim), a rule of the struct). The place is the address of the struct plus an
+//! offset that an expression over the struct gives ([`Start::Stored`](layout::Start::Stored)), as
+//! for the self-relative pointers of [`nearest`](https://docs.rs/nearest), or the *cursor*, where
+//! the target of the aim before it ends, from the start of the tail of the struct
+//! ([`Start::Next`](layout::Start::Next)), as for regions. As a pointer of Rust, an aim is thin or
+//! wide ([`Metadata`](layout::Metadata)): the target of a thin aim holds its own metadata, being
+//! sized or a [`Thin<T, M>`](Thin) that stores the length of `T` as an `M` before it, and a wide
+//! aim gives the length of the tail of its target by an expression. The target takes `size_of_val`
+//! of a value of that length. The type of the target is named in the hidden list of the rules of
+//! the struct, through which a check reaches the checks of the target, so that a type that points
+//! at itself is checked by a recursive call.
+//!
+//! The metadata of a pointer to a `Pun` type is a hidden item of [`Pun`], `Metadata`: `()` for a
+//! sized type, and `usize`, the length of its tail, for a slice, a `str` or a struct that ends with
+//! one, as in Rust. The sealed trait [`Store`] says what a `Thin<T, M>` stores for it: nothing for
+//! `()`, and an `M` for `usize`. So a `Thin` stores the length of any unsized `Pun` type, and its
+//! `len` rule reads it, a negative length failing.
+//!
+//! An aim is checked with the struct ([`Check::Eager`](layout::Check::Eager)), or when its target
+//! is read ([`Check::Lazy`](layout::Check::Lazy)).
+//!
+//! - A check of a struct with an eager aim follows the aim, in the bytes that the check reads:
+//!   those of `from_bytes`, `from_head` and `from_tail`, or the source of a `try_` function. The
+//!   target must start within them, aligned for its type, and end within them, and every part of
+//!   it is checked, its own eager aims included, one level deeper. A target may be before the
+//!   struct, and may be shared by several aims. The check goes at most [`AIM_DEPTH`] levels deep,
+//!   and follows targets of at most twice as many bytes as it reads, so it ends on a cycle. Past
+//!   either limit, it returns [`Error::Limit`]. It allocates nothing, and recurses once for each
+//!   level, which takes about 15 KiB of stack in a build without optimizations, so that the
+//!   deepest check of a list or a tree fits in 1 MiB.
+//! - So a reference to a struct with an eager aim is a reference to a valid target, which code
+//!   may read without a check, as the `Deref` of a pointer does. No function makes a value that
+//!   holds an eager aim (`pun`, `try_pun`, `zeroed` and the other functions that return a value
+//!   do not compile), nor gives a `&mut` to or from one (`pun_mut`, `try_pun_mut`,
+//!   `from_bytes_mut` and the `_mut` parts), nor checks one from a source whose bytes may be
+//!   padding (`try_pun_ref` from such a source). Only the same aim, at the same place of the
+//!   source, of a target of the same identity, proves one, since its target was checked where the
+//!   source was made. An instance of a generic type has an identity only if its parameters are
+//!   bounded by `Pun` ([The same type](#the-same-type)), so a `Pair<O: Pun>` that points at a
+//!   `Pair<O>` proves itself, and a `Pair<O>` with an unbounded `O` does not.
+//! - A lazy aim is a region of `#[pun(regions(..))]`, a wide aim at the bytes of the region from
+//!   the cursor ([`region`]). A check of the struct requires only that the region fits in the
+//!   tail. Where safe code wrote the fields so that it does not, the reader truncates the region to
+//!   the tail, and a size whose expression fails takes what remains. The target of a region is
+//!   `[u8]`, whose metadata is its number of bytes, even for a region with a type: the accessor of
+//!   that region reads its type from those bytes with [`from_bytes`], which checks it then. So the
+//!   type of a region is checked only when it is read, and plays no part in a proof.
+//!
+//! The type that holds an eager aim implements [`Pun`] by hand, with the hidden items that the
+//! derive writes for a struct. `tests/support/aims.rs` declares such a pointer, as `nearest` would.
 //!
 //! # Cargo features
 //!
@@ -1031,6 +1086,10 @@
 //!   `&mut` to a part of an array whose elements have rules looks at no more than 64 elements, and
 //!   is refused past them.
 //! - A packed struct whose unsized field has trailing padding of its own is refused.
+//! - The check of eager [aims](#aims) follows targets at most [`AIM_DEPTH`] levels deep, and
+//!   targets of at most twice the bytes that it reads, and returns [`Error::Limit`] past either.
+//!   An aim is an eager, thin pointer at a stored offset, or a lazy, wide region at the cursor
+//!   ([`Aim::new`](layout::Aim::new) refuses the other kinds).
 //! - The build time of a view enum whose variants overlap grows with the square of the number of
 //!   variants, or faster.
 //! - `PhantomData<T>` is a [`Scalar`] for any `T`, and deriving `Pun` exposes private fields. [What
@@ -1219,6 +1278,7 @@ mod ptr;
 mod std_enums;
 #[cfg(test)]
 mod tests;
+mod thin;
 mod validate;
 #[doc(hidden)]
 pub mod view;
@@ -1803,7 +1863,11 @@ pub use layout::{crc32, sum16};
 /// }
 /// ```
 pub use puns_derive::Pun;
-use validate::{Checks, validate};
+#[doc(hidden)]
+pub use thin::{LenOps, Length, NoLength};
+pub use thin::{Store, Thin};
+pub use validate::AIM_DEPTH;
+use validate::{Checks, Input, validate};
 
 /// Where the type `$name` is declared, its name, and `$n`, the number of the derive in its crate,
 /// as its identity (`layout::Id`), for `#[derive(Pun)]`, which names `core` through this crate (a
@@ -1945,15 +2009,21 @@ pub unsafe trait Scalar {
 ///
 /// `Pun` must not be implemented by hand, because its items are hidden, and may change in any
 /// release. It is implemented by `#[derive(Pun)]`, and by `puns` for the types listed above, a
-/// [`Scalar`] included.
+/// [`Scalar`] included. The exception is a type with an eager aim, such as a self-relative pointer
+/// ([Aims](crate#aims)), which the derive does not write: its crate implements it by hand, with
+/// the same hidden items, and follows their changes. It must have no constructor, and must not be
+/// `Clone`, `Copy` or `Default`, so that a value of it exists only where `puns` checked its
+/// targets.
 ///
 /// An implementation guarantees that the layout it describes is the layout of `Self`: its size, its
 /// alignment, the offset of each field, the values each scalar may hold, and its rules. Every value
 /// of `Self` holds what the layout says every value holds, and every value that the layout accepts
 /// is a valid `Self`. The lists of the implementation are those of the layout: its fields if it is a
 /// struct, its variants if it is an enum or a union, and its element if it is an array or a slice.
-/// `puns` reads no list of a layout of another kind, which may then be anything. No byte of `Self`
-/// is inside an [`UnsafeCell`](core::cell::UnsafeCell).
+/// `puns` reads no list of a layout of another kind, which may then be anything. The list of the
+/// rules names the type of the target of each aim. `Metadata` is `()` exactly when the layout is
+/// sized, and `usize` otherwise. No byte of `Self` is inside an
+/// [`UnsafeCell`](core::cell::UnsafeCell).
 ///
 /// If `T: Pun`, unsafe code may assume that the layout of `T` is exact in this sense, and that `T`
 /// holds no `UnsafeCell`. The functions of `puns` are sound only under this assumption.
@@ -1995,9 +2065,13 @@ pub unsafe trait Pun {
   /// First variant of an enum with fields, `()` otherwise.
   #[doc(hidden)]
   type Variants: Variants;
-  /// First of the rules of a struct that have an expression, `()` if none.
+  /// First of the rules of a struct that have an expression or are aims, `()` if none.
   #[doc(hidden)]
   type Rules: Rules;
+  /// The metadata of a pointer to `Self`: `()` if `Self` is sized, and `usize`, the length of its
+  /// tail, otherwise.
+  #[doc(hidden)]
+  type Metadata: Store;
   /// A null pointer to `Self`, whose slice length is [`ptr::PROBE_LEN`] if `Self` is unsized.
   /// It must be made with `as` casts only, since the pointer tricks are checked against it.
   #[doc(hidden)]
@@ -2134,24 +2208,29 @@ unsafe impl Variants for () {
 pub trait Rules: sealed::Sealed {
   /// Index of the rule in the layout of the struct, `usize::MAX` at the end of the list.
   const RULE: usize;
-  /// The operations of its expression.
+  /// The operations of its expression, `()` if it has none.
   type Expr: Steps;
+  /// The type of the target of an aim, and `()` for another rule.
+  type Target: ?Sized + Pun;
   type Next: Rules;
 }
 
 impl Rules for () {
   const RULE: usize = usize::MAX;
   type Expr = ();
+  type Target = ();
   type Next = ();
 }
 
-/// The rule `R` of a struct, whose expression is `E`, then the list `N`.
+/// The rule `R` of a struct, whose expression is `E`, and whose target is `T` if it is an aim,
+/// then the list `N`.
 #[doc(hidden)]
-pub struct RuleAt<const R: usize, E, N>(PhantomData<(E, N)>);
+pub struct RuleAt<const R: usize, E, N, T: ?Sized = ()>(PhantomData<(E, N)>, PhantomData<T>);
 
-impl<const R: usize, E: Steps, N: Rules> Rules for RuleAt<R, E, N> {
+impl<const R: usize, E: Steps, N: Rules, T: ?Sized + Pun> Rules for RuleAt<R, E, N, T> {
   const RULE: usize = R;
   type Expr = E;
+  type Target = T;
   type Next = N;
 }
 
@@ -2212,7 +2291,7 @@ pub mod steps {
   impl<const I: usize> Sealed for One<I> {}
   impl<A: Steps, B: Steps> Sealed for Two<A, B> {}
   impl<const I: usize, C: Steps, N: Steps> Sealed for Walk<I, C, N> {}
-  impl<const R: usize, E: Steps, N: Rules> Sealed for super::RuleAt<R, E, N> {}
+  impl<const R: usize, E: Steps, N: Rules, T: ?Sized + Pun> Sealed for super::RuleAt<R, E, N, T> {}
 
   impl Steps for () {
     const KIND: u8 = NONE;
@@ -2385,6 +2464,7 @@ unsafe impl<T: Scalar> Pun for T {
   type Fields = ();
   type Variants = ();
   type Rules = ();
+  type Metadata = ();
   const PROBE: *const Self = core::ptr::null();
   const LAYOUT: Layout = {
     let layout = Layout::scalar::<T>(T::SPEC).identified(T::ID);
@@ -2415,6 +2495,7 @@ unsafe impl<T: Pun, const N: usize> Pun for [T; N] {
   type Fields = ();
   type Variants = ();
   type Rules = ();
+  type Metadata = ();
   const PROBE: *const Self = core::ptr::null();
   const LAYOUT: Layout = Layout::array(&T::LAYOUT, N).identified(Self::ID);
   const ID: layout::Id = layout::Id::sized("[T; N]", &[T::ID], N);
@@ -2434,6 +2515,7 @@ unsafe impl<T: Pun> Pun for [T] {
   type Fields = ();
   type Variants = ();
   type Rules = ();
+  type Metadata = usize;
   const PROBE: *const Self = core::ptr::slice_from_raw_parts(core::ptr::null(), ptr::PROBE_LEN);
   // SAFETY: `Self::PROBE` is `<[T] as Pun>::PROBE`, as `Layout::slice` requires.
   const LAYOUT: Layout =
@@ -2460,6 +2542,7 @@ unsafe impl Pun for str {
   type Fields = ();
   type Variants = ();
   type Rules = ();
+  type Metadata = usize;
   const PROBE: *const Self = <[u8] as Pun>::PROBE as *const str;
   // SAFETY: `str` is `str`, and `Self::PROBE` is `<[u8] as Pun>::PROBE` cast to `*const str` with
   // an `as` cast. Its tail has `PROBE_LEN` (3) bytes, whose size fits in an `isize`. These are the
@@ -2483,6 +2566,7 @@ unsafe impl<T: ?Sized + Pun> Pun for ManuallyDrop<T> {
   type Fields = T::Fields;
   type Variants = T::Variants;
   type Rules = T::Rules;
+  type Metadata = T::Metadata;
   const PROBE: *const Self = T::PROBE as *const Self;
   const LAYOUT: Layout = {
     if T::LAYOUT.unsized_ {
@@ -2526,6 +2610,7 @@ unsafe impl<T: Pun> Pun for core::mem::MaybeUninit<T> {
   type Fields = ();
   type Variants = ();
   type Rules = ();
+  type Metadata = ();
   const PROBE: *const Self = core::ptr::null();
   #[cfg(not(feature = "unstable"))]
   const LAYOUT: Layout = Layout::padding::<Self>().sized_like(&T::LAYOUT).identified(Self::ID);
@@ -2549,6 +2634,7 @@ unsafe impl Pun for core::convert::Infallible {
   type Fields = ();
   type Variants = ();
   type Rules = ();
+  type Metadata = ();
   const PROBE: *const Self = core::ptr::null();
   const LAYOUT: Layout = Layout::uninhabited::<Self>().identified(Self::ID);
   const ID: layout::Id = layout::Id::new("!", &[]);
@@ -2608,6 +2694,7 @@ macro_rules! tuple {
       type Fields = TupleField<Self, 0>;
       type Variants = ();
       type Rules = ();
+      type Metadata = ();
       const PROBE: *const Self = core::ptr::null();
       // SAFETY: A tuple is `Sized`, and `Layout::structure` requires nothing of a `Sized` type.
       const LAYOUT: Layout = unsafe {
@@ -2798,8 +2885,13 @@ pub enum Error {
   /// the target needs.
   Size,
   /// The bytes are not a valid target, because a scalar holds a value that the target does not
-  /// accept, a `str` is not UTF-8, or a rule of the target does not hold or cannot be computed.
+  /// accept, a `str` is not UTF-8, a rule of the target does not hold or cannot be computed, or
+  /// the target of an eager aim is not a valid value within the bytes.
   Validity,
+  /// The check of the targets of eager aims ([`Check::Eager`](layout::Check::Eager)) stopped at its
+  /// limit before it found the bytes valid or not: a target within another, this many deep
+  /// ([`AIM_DEPTH`]), or targets of more than twice as many bytes as are checked in all.
+  Limit,
 }
 
 impl core::fmt::Display for Error {
@@ -2808,6 +2900,7 @@ impl core::fmt::Display for Error {
       Error::Alignment => "value is not aligned for the target type",
       Error::Size => "value does not have the size of the target type",
       Error::Validity => "value is not valid for the target type",
+      Error::Limit => "the targets of the value are too deep or too large to check",
     })
   }
 }
@@ -2869,6 +2962,21 @@ const UNSPECIFIED_MUT: &str = "what may be written through the `&mut` is a valid
   layout Rust leaves to the compiler (a struct, a tuple or an enum of the \
   `Rust` representation).\nAdd `#[repr(C)]` (or `#[repr(u8)]` to an enum), or \
   enable the `unstable` feature of `puns`";
+
+/// A value that holds an eager aim, which no function makes.
+const EAGER_BY_VALUE: &str = "the target holds an eager aim, the target of a pointer that is \
+  checked with it and read without a check: a value of it would not be at the place where its \
+  target was checked.\nTake a reference to it with `try_pun_ref`, `from_bytes` or `from_head`";
+
+/// A `&mut` to or from a value that holds an eager aim, which no function makes.
+const EAGER_MUT: &str = "the source or the target holds an eager aim, the target of a pointer \
+  that is checked with it and read without a check: a write through a `&mut` could move it away \
+  from that target";
+
+/// A check of an eager aim whose target could be in bytes that are not initialized.
+const EAGER_UNINIT: &str = "the target holds an eager aim, whose check reads its target in the \
+  bytes of the source, and some of them may be padding.\nCheck the bytes of the source instead, \
+  with `from_bytes` or `from_head`";
 
 /// Why a pun of which `analysis` is the analysis does not meet the `need`, if it does not.
 /// `source` and `target` are the layouts of the two types, which explain a refusal.
@@ -2957,7 +3065,34 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
 
   /// Why the pun does not meet the `need`, if it does not.
   const fn check(need: Need) -> Option<Message> {
+    if let Some(message) = Self::eager(need) {
+      return Some(message);
+    }
     check(&Self::ANALYSIS, need, &S::LAYOUT, &D::LAYOUT)
+  }
+
+  /// Why the eager aims of the target do not let the pun meet the `need`, if they do not: no value
+  /// holds one, and a check follows one only in initialized bytes.
+  const fn eager(need: Need) -> Option<Message> {
+    if !D::LAYOUT.holds_eager() {
+      return None;
+    }
+    if !need.reference {
+      return Some(Message::new(EAGER_BY_VALUE));
+    }
+    if need.fallible && !S::LAYOUT.initialized() {
+      return Some(Message::new(EAGER_UNINIT));
+    }
+    None
+  }
+
+  /// Why no `&mut` is made from a `&mut` to an `S` to a `D`, for their eager aims, if it is not.
+  const fn eager_mut() -> Option<Message> {
+    if S::LAYOUT.holds_eager() || D::LAYOUT.holds_eager() {
+      Some(Message::new(EAGER_MUT))
+    } else {
+      None
+    }
   }
 
   /// Why a `&mut` to a `D` cannot be made from a `&mut` to an `S`, when [`Plan::MUTABLE`] says
@@ -2972,6 +3107,9 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
   /// Why the pun of the last bytes of the source does not meet the `need` (a part), if it does
   /// not.
   const fn check_tail(need: Need) -> Option<Message> {
+    if let Some(message) = Self::eager(need) {
+      return Some(message);
+    }
     if S::LAYOUT.is_unsized() {
       return Some(Message::new(TAIL_UNSIZED_SOURCE));
     }
@@ -2991,6 +3129,7 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
   const BY_REF: () = Self::require(Self::check(Need::REF));
   const BY_MUT: () = {
     let () = Self::BY_REF;
+    Self::require(Self::eager_mut());
     if !Self::MUTABLE {
       Message::new(Self::NOT_MUTABLE).panic();
     }
@@ -3006,6 +3145,7 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
   const FROM_TAIL: () = Self::require(Self::check_from_tail());
   const FROM_TAIL_MUT: () = {
     let () = Self::FROM_TAIL;
+    Self::require(Self::eager_mut());
     if !Self::MUTABLE {
       Message::new(Self::NOT_MUTABLE).panic();
     }
@@ -3029,6 +3169,9 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
     if let Some(message) = Self::check(Need::PART_REF) {
       return Some(message);
     }
+    if let Some(message) = Self::eager_mut() {
+      return Some(message);
+    }
     match mutable_part(&S::LAYOUT, &D::LAYOUT, &Self::ANALYSIS.fit, 0) {
       Some(why) => Some(Message::new(why)),
       None => None,
@@ -3040,6 +3183,9 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
     if let Some(message) = Self::check_tail(Need::PART_REF) {
       return Some(message);
     }
+    if let Some(message) = Self::eager_mut() {
+      return Some(message);
+    }
     let Analysis { fit, shift, .. } = Self::TAIL_ANALYSIS;
     match mutable_part(&S::LAYOUT, &D::LAYOUT, &fit, shift) {
       Some(why) => Some(Message::new(why)),
@@ -3049,6 +3195,7 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
 
   const TRY_MUT: () = {
     let () = Self::TRY_REF;
+    Self::require(Self::eager_mut());
     if !Self::MUTABLE {
       Message::new(Self::NOT_MUTABLE).panic();
     }
@@ -3157,6 +3304,8 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
       }
     }
     let target = ptr::from_raw_parts::<D>(addr, len);
+    // The targets of eager aims are looked for in the bytes of the source.
+    let mut input = Input::new(addr, extent);
     // SAFETY: This satisfies the safety contract of `validate`, which does not require `target` to
     // be aligned. `target` is at the address of `source`, and its extent is the extent of `source`,
     // which is checked above. Its size is at most the size of `source`. This is checked above if
@@ -3164,8 +3313,8 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
     // or it is unsized and its extent is rounded up to an alignment that divides that of `S`. So
     // `target` is valid for reads of a `D`, by contract on the caller. Every byte that a marked
     // check reads is initialized, by contract on the caller.
-    if !unsafe { validate::<C, Root, D>(target) } {
-      return Err(Error::Validity);
+    if !unsafe { validate::<C, Root, D>(target, &mut input) } {
+      return Err(if input.limit { Error::Limit } else { Error::Validity });
     }
     Ok(target)
   }
@@ -3424,12 +3573,14 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 #[inline]
 pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Result<D, Error> {
   const { Plan::<S, D>::TRY };
+  // `D` holds no eager aim (`Plan::TRY`), so nothing is looked for in these bytes.
+  let mut input = Input::new((&raw const value).cast(), size_of::<S>());
   // SAFETY: `Plan::<S, D>::TRY` compiled, so the analysis meets `Need::TRY`. `S` and `D` are
   // `Copy`, so `Sized`, and the fit is `Exact::Always`: they have the same size. So `value` is
   // valid for reads of a `D`, which `validate` does not need aligned. The relation records no byte
   // that may be padding in `S` and that `D` requires to be initialized, or that a check marked by
   // the analysis reads. So every byte that `validate` reads is initialized.
-  if !unsafe { validate::<Plan<S, D>, Root, D>((&raw const value).cast()) } {
+  if !unsafe { validate::<Plan<S, D>, Root, D>((&raw const value).cast(), &mut input) } {
     return Err(Error::Validity);
   }
   // SAFETY: `S` and `D` have the same size. `validate` found every part of `D` that the analysis
@@ -4030,6 +4181,9 @@ pub const fn zeroed<T: Pun + Copy>() -> T {
   const {
     assert!(T::LAYOUT.zeroable(), "zero is not a valid value of this type");
   };
+  const {
+    assert!(!T::LAYOUT.holds_eager(), "a value of this type would hold an eager aim");
+  };
   // SAFETY: `zeroed` requires that bytes that are all zero are a valid `T` [1]. The assertion above
   // found that the layout of `T` accepts them (`Layout::zeroable`), and every value that the
   // layout accepts is a valid `T` (`Pun`, section Safety). Rules are requirements of `puns`, not
@@ -4432,12 +4586,14 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
       _ => return Err(Error::Size),
     };
     let target = ptr::from_raw_parts::<D>(addr, len);
+    // The targets of eager aims are looked for in the `n` bytes.
+    let mut input = Input::new(addr, n);
     // SAFETY: This satisfies the safety contract of `validate`. `target` is at `addr`, and its
     // size, `size`, is at most `n`, which is checked above. So it is valid for reads of a `D`, by
     // contract on the caller. Every one of the `n` bytes is initialized, by contract on the
     // caller, so every byte that a check reads is.
-    if !unsafe { validate::<C, Root, D>(target) } {
-      return Err(Error::Validity);
+    if !unsafe { validate::<C, Root, D>(target, &mut input) } {
+      return Err(if input.limit { Error::Limit } else { Error::Validity });
     }
     Ok((target, size))
   }
@@ -4454,6 +4610,8 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
   #[inline(always)]
   const unsafe fn back(addr: *const u8, n: usize) -> Result<(usize, *const D), Error> {
     let layout = const { D::LAYOUT };
+    // The targets of eager aims are looked for in the `n` bytes, before the `D` too.
+    let mut input = Input::new(addr, n);
     let Some(start) = n.checked_sub(layout.size()) else { return Err(Error::Size) };
     // SAFETY: `start <= n`, and `addr` is valid for reads of `n` bytes, by contract on the
     // caller. So `addr..addr + start` is in bounds of one allocation, as `add` requires.
@@ -4465,8 +4623,8 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     // SAFETY: This satisfies the safety contract of `validate`. `D` is `Sized`, by contract on the
     // caller, and `target` is the `size_of::<D>()` bytes from `start`, which end at `n`. So it is
     // valid for reads of a `D`, and its bytes are initialized, by contract on the caller.
-    if !unsafe { validate::<Self, Root, D>(target) } {
-      return Err(Error::Validity);
+    if !unsafe { validate::<Self, Root, D>(target, &mut input) } {
+      return Err(if input.limit { Error::Limit } else { Error::Validity });
     }
     Ok((start, target))
   }
