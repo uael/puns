@@ -814,3 +814,23 @@ fn a_check_takes_bytes_at_any_address() {
   // An alignment of 2 is less than a `Pair` needs.
   assert_eq!(image_of(bytes, 2, true), Err(Failure { error: Error::Alignment, at: 0 }));
 }
+
+/// The `InPlace` of an offset, by another name.
+type Offset = puns::InPlace<i8>;
+
+/// A pointer to the next byte, whose offset is an `InPlace` by an alias, and which is `Debug`.
+#[derive(Pun, Debug)]
+#[repr(transparent)]
+struct Aliased {
+  #[pun(pointer(next: u8 = off as u128))]
+  off: Offset,
+}
+
+#[test]
+fn the_field_of_an_eager_aim_is_an_in_place_of_any_spelling() {
+  let bytes = [1, 7];
+  let aliased = puns::from_head::<Aliased>(&bytes).unwrap().0;
+  assert_eq!(format!("{aliased:?}"), "Aliased { off: InPlace(1) }");
+  // SAFETY: `puns` checked `aliased` with its pointee, in `bytes`, which are not written.
+  assert_eq!(unsafe { Aliased::next(within(aliased, &bytes)) }, &7);
+}

@@ -473,7 +473,8 @@ const ALL_OPTIONS: [&str; 10] =
 struct FieldInfo<'a> {
   member: Member,
   /// Its type, as written: what the bounds name, and what the derive reads of it. For the field
-  /// of an eager aim, written `InPlace<T>`, it is `T`, the type of the field in the layout.
+  /// of an eager aim, an `InPlace<T>`, it is `T`, the type of the field in the layout
+  /// (`<F as InPlaceOf>::Inner`).
   ty: &'a Type,
   /// Its type, from its home (see [`homes`]): what the generated code names.
   home: TokenStream,
@@ -1538,41 +1539,52 @@ fn valid_ranges(
 /// wrote.
 fn bound(generics: &mut syn::Generics, ty: &Type, root: &TokenStream) {
   if !has_pun(generics, &ty.to_token_stream().to_string()) {
-    constrain(generics, parse_quote!(#ty: #root::Pun));
+    generics.make_where_clause().predicates.push(parse_quote!(#ty: #root::Pun));
   }
 }
 
-/// Adds `predicate` to `generics`: to the bounds of the type parameter or of the predicate of the
-/// `where` clause that bounds the same type, if there is one, and otherwise as a predicate of its
-/// own.
+/// Adds `predicate` to `generics`: if it bounds a type parameter, to the bounds of that parameter
+/// where it is declared, or of the predicate of the `where` clause that bounds it alone, and
+/// otherwise as a predicate of its own.
 ///
-/// A type bounded in two places is one that clippy sees twice (`type_repetition_in_bounds`), at
-/// the span of the bounds that the user wrote.
+/// A type parameter bounded in two places is one that clippy sees twice
+/// (`type_repetition_in_bounds`), at the span of the bounds that the user wrote, as in
+/// `struct Near<T: ?Sized>` with `#[pun(bound(T: Pun))]`. A type parameter is named by its
+/// identifier alone ([`parameter`]).
 fn constrain(generics: &mut syn::Generics, predicate: syn::WherePredicate) {
   if let syn::WherePredicate::Type(predicate) = &predicate
     && predicate.lifetimes.is_none()
+    && let Some(name) = parameter(&predicate.bounded_ty)
   {
-    let name = predicate.bounded_ty.to_token_stream().to_string();
-    if let Some(param) = generics.type_params_mut().find(|param| param.ident == name) {
-      param.bounds.extend(predicate.bounds.iter().cloned());
+    let same = generics.where_clause.as_mut().and_then(|clause| {
+      clause.predicates.iter_mut().find_map(|existing| match existing {
+        syn::WherePredicate::Type(existing)
+          if existing.lifetimes.is_none() && parameter(&existing.bounded_ty) == Some(name) =>
+        {
+          Some(&mut existing.bounds)
+        }
+        _ => None,
+      })
+    });
+    if let Some(bounds) = same {
+      bounds.extend(predicate.bounds.iter().cloned());
       return;
     }
-    let clause = generics.make_where_clause();
-    let same = clause.predicates.iter_mut().find_map(|existing| match existing {
-      syn::WherePredicate::Type(existing)
-        if existing.lifetimes.is_none()
-          && existing.bounded_ty.to_token_stream().to_string() == name =>
-      {
-        Some(existing)
-      }
-      _ => None,
-    });
-    if let Some(existing) = same {
-      existing.bounds.extend(predicate.bounds.iter().cloned());
+    if let Some(param) = generics.type_params_mut().find(|param| param.ident == *name) {
+      param.bounds.extend(predicate.bounds.iter().cloned());
       return;
     }
   }
   generics.make_where_clause().predicates.push(predicate);
+}
+
+/// Returns the identifier of the type parameter that `ty` names, if it is one identifier alone,
+/// which is how a type parameter is named.
+fn parameter(ty: &Type) -> Option<&Ident> {
+  match ty {
+    Type::Path(path) if path.qself.is_none() => path.path.get_ident(),
+    _ => None,
+  }
 }
 
 /// Returns whether `generics` bound the type written `name` by `Pun`, as `<T: Pun>` or
@@ -1747,27 +1759,11 @@ fn variant_homes(input: &DeriveInput, data: &DataEnum) -> (TokenStream, Vec<Vec<
 // -------------------------------------------------------------------------------------------------
 // Structs
 
-/// Returns the `T` of the type of the field of an eager aim, written `InPlace<T>`.
-///
-/// # Errors
-///
-/// Returns an error if `ty` is not written so.
-fn in_place(ty: &Type) -> Result<&Type> {
-  if let Type::Path(path) = ty
-    && path.qself.is_none()
-    && let Some(last) = path.path.segments.last()
-    && last.ident == "InPlace"
-    && let syn::PathArguments::AngleBracketed(arguments) = &last.arguments
-    && arguments.args.len() == 1
-    && let Some(syn::GenericArgument::Type(inner)) = arguments.args.first()
-  {
-    return Ok(inner);
-  }
-  Err(Error::new_spanned(
-    ty,
-    "the field of an eager aim is written `InPlace<T>`: a `T` that holds where the pointee is, \
-     which only `puns` makes",
-  ))
+/// Returns the `T` of the type `ty` of the field of an eager aim, an `InPlace<T>`, however it is
+/// spelled: `<ty as InPlaceOf>::Inner`, which compiles only for an `InPlace<T>`.
+fn in_place(ty: &Type, root: &TokenStream) -> Type {
+  let span = ty.span();
+  syn::parse_quote_spanned!(span=> <#ty as #root::InPlaceOf>::Inner)
 }
 
 /// Returns whether a field with `options` holds an eager aim, and is then an `InPlace<T>`: the
@@ -2037,6 +2033,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     Fields::Unit => None,
   };
   let declared = fields.into_iter().flatten().collect::<Vec<_>>();
+  // The `T` of each field, were it the `InPlace<T>` of an eager aim.
+  let inner = declared.iter().map(|field| in_place(&field.ty, &root)).collect::<Vec<_>>();
   let mut fields = declared
     .iter()
     .enumerate()
@@ -2053,7 +2051,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       }
       // The field of an eager aim is an `InPlace<T>`, a `T` in the layout, whose home is apart.
       let (ty, name) = if in_place_field(&options) {
-        (in_place(&field.ty)?, format_ident!("I{}", i))
+        (&inner[i], format_ident!("I{}", i))
       } else {
         (&field.ty, format_ident!("F{}", i))
       };

@@ -1434,7 +1434,7 @@ pub use layout::{crc32, sum16};
 ///   field `off` that holds the distance is `off as u128`. The pointee is of the size of its type,
 ///   and of the length that it stores in its sized fields if it is unsized, unless `size = EXPR`
 ///   follows, a size in bytes, or `size = ..`, the rest of the bytes. The aim is eager, and its
-///   field is written [`InPlace<T>`](InPlace), a `T` in the layout and in rules, which may name it.
+///   field is an [`InPlace<T>`](InPlace), a `T` in the layout and in rules, which may name it.
 ///   No code makes an `InPlace`, so no safe code makes a value of the struct, and code may read the
 ///   pointee through a reference to it without a check. `pointer(lazy Type = EXPR)` is a lazy
 ///   aim, whose field is of any type. The derive requires the type of the field and `Type` to be
@@ -1618,7 +1618,7 @@ pub use layout::{crc32, sum16};
 ///   requires, and each field it names is an unsigned integer, or a signed one under a cast, as
 ///   above. The `N` of each `le` and `be` is 1 to 16.
 /// - The field of each eager aim, that of an eager `pointer` or of `regions` of which one is eager,
-///   is written `InPlace<T>`, and is of the type [`InPlace<T>`](InPlace). The pointee of an aim of
+///   is of the type [`InPlace<T>`](InPlace), by any name. The pointee of an aim of
 ///   its own size is sized, or stores its length in its sized fields: a `size` or `len` rule that
 ///   reads no byte by offset.
 /// - A rule has at most 256 operations, needs a stack of at most 16 values, and has at most 8 names
@@ -1723,9 +1723,10 @@ pub use layout::{crc32, sum16};
 /// - The trait that says where a field is (`Path`) is sealed, and the leaf at which a list of
 ///   fields places a field is checked against the layout.
 /// - The field of each eager aim has the type [`InPlace<T>`](InPlace), where `T` is its type in the
-///   layout, which the function that ties the fields to the type as compiled requires, below, as it
-///   requires the type of every field. So a struct to which the derive gives an eager aim has no
-///   value that safe code makes.
+///   layout, `<F as InPlaceOf>::Inner` for a field of type `F`, which compiles only for an
+///   `InPlace<T>` (a sealed trait). The function that ties the fields to the type as compiled
+///   requires it too, below, as it requires the type of every field. So a struct to which the
+///   derive gives an eager aim has no value that safe code makes.
 /// - The type of each field is written once, as an associated type of a trait that the derive
 ///   declares and implements for the type, where `Self` is the type, as in its declaration. The
 ///   rest of the generated code names the type of a field there. A function that is never called
@@ -2247,6 +2248,35 @@ impl<K: Pun + Copy> Tag<K> for [u8] {
 #[repr(transparent)]
 pub struct InPlace<T: ?Sized>(T);
 
+impl<T: ?Sized + core::fmt::Debug> core::fmt::Debug for InPlace<T> {
+  /// Formats the `T`, which makes no `InPlace`.
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    f.debug_tuple("InPlace").field(&&self.0).finish()
+  }
+}
+
+/// The `T` of an [`InPlace<T>`](InPlace), which the derive names for the field of an eager aim,
+/// whatever the spelling of its type (an alias, a path).
+///
+/// Sealed: `InPlace<T>` is the one type that implements it, so the field of an eager aim is one.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+  message = "the field of an eager aim is an `InPlace<T>`, not `{Self}`",
+  label = "not an `InPlace<T>`",
+  note = "an `InPlace<T>` is a `T` that only `puns` makes, so that no safe code makes a value of a \
+          struct whose pointee `puns` did not check"
+)]
+pub trait InPlaceOf: sealed::InPlace {
+  /// The `T`.
+  type Inner: ?Sized;
+}
+
+impl<T: ?Sized> sealed::InPlace for InPlace<T> {}
+
+impl<T: ?Sized> InPlaceOf for InPlace<T> {
+  type Inner = T;
+}
+
 impl<T: Copy> InPlace<T> {
   /// Returns the `T`.
   ///
@@ -2542,10 +2572,14 @@ pub mod steps {
   }
 }
 
-/// Implemented by this crate only, because what implements [`Path`], [`Rules`] and [`Steps`] is
-/// trusted.
+/// Implemented by this crate only, because what implements [`Path`], [`Rules`], [`Steps`] and
+/// [`InPlaceOf`] is trusted.
 mod sealed {
   pub trait Sealed {}
+
+  /// The seal of [`InPlaceOf`](super::InPlaceOf), apart, so that the errors about the others do
+  /// not list `InPlace`.
+  pub trait InPlace {}
 }
 
 impl sealed::Sealed for Root {}

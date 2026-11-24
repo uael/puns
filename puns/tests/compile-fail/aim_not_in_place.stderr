@@ -1,5 +1,41 @@
-error: the field of an eager aim is written `InPlace<T>`: a `T` that holds where the pointee is, which only `puns` makes
+error[E0277]: the field of an eager aim is an `InPlace<T>`, not `i32`
  --> tests/compile-fail/aim_not_in_place.rs:8:8
   |
 8 |   off: i32,
-  |        ^^^
+  |        ^^^ not an `InPlace<T>`
+  |
+  = help: the trait `puns::InPlaceOf` is not implemented for `i32`
+  = note: an `InPlace<T>` is a `T` that only `puns` makes, so that no safe code makes a value of a struct whose pointee `puns` did not check
+help: the trait `puns::InPlaceOf` is implemented for `InPlace<T>`
+ --> src/lib.rs
+  |
+  | impl<T: ?Sized> InPlaceOf for InPlace<T> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0277]: the field of an eager aim is an `InPlace<T>`, not `i32`
+ --> tests/compile-fail/aim_not_in_place.rs:4:10
+  |
+4 | #[derive(puns::Pun)]
+  |          ^^^^^^^^^ not an `InPlace<T>`
+  |
+  = help: the trait `puns::InPlaceOf` is not implemented for `i32`
+  = note: an `InPlace<T>` is a `T` that only `puns` makes, so that no safe code makes a value of a struct whose pointee `puns` did not check
+help: the trait `puns::InPlaceOf` is implemented for `InPlace<T>`
+ --> src/lib.rs
+  |
+  | impl<T: ?Sized> InPlaceOf for InPlace<T> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+ --> tests/compile-fail/aim_not_in_place.rs:8:8
+  |
+4 | #[derive(puns::Pun)]
+  |          --------- in this derive macro expansion
+...
+8 |   off: i32,
+  |        ^^^ expected `&mut *mut InPlace<_>`, found `&mut *mut i32`
+  |
+  = note: expected mutable reference `&mut *mut InPlace<_>`
+             found mutable reference `&mut *mut i32`
+  = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
