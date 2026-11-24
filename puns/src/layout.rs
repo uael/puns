@@ -6270,6 +6270,16 @@ pub(crate) struct LengthRule {
   pub(crate) ops: &'static [Op],
 }
 
+impl LengthRule {
+  /// Returns whether the rule reads the sized fields of the value only, so that its value is known
+  /// from them: it reads no byte by offset ([`ops_read_bytes`]), and a `size` or `len` rule never
+  /// reads the extent ([`check_ops`]). Its walks are evaluated over the sized fields too, wherever
+  /// it is evaluated, so that the number of their steps is bounded the same way.
+  pub(crate) const fn in_head(&self) -> bool {
+    !ops_read_bytes(self.ops)
+  }
+}
+
 /// The depth of the stack of the evaluator ([`Machine`]).
 pub(crate) const STACK: usize = 16;
 /// The number of variables of an expression.

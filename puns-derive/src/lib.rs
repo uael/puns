@@ -1802,9 +1802,8 @@ fn read_aim(
   root: &TokenStream,
 ) -> TokenStream {
   let name_mut = format_ident!("{name}_mut");
-  let safety = "# Panics\n\nPanics if the `size` or `len` rule of the target reads a byte after its \
-                sized fields.\n\n# Compile-time errors\n\nA call compiles only if the target is \
-                sized or has a `size` or `len` rule.\n\n# Safety\n\nThe caller must ensure";
+  let safety = "# Compile-time errors\n\nA call compiles only if the target is sized or stores \
+                its length in its sized fields.\n\n# Safety\n\nThe caller must ensure";
   let doc = format!(
     "Returns the target of the aim `{name}`, where the value at `this` points.\n\n{safety} the \
      requirements of `puns::aim`: in short, the aim of the value at `this` gives the address of a \

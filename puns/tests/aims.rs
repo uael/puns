@@ -250,6 +250,21 @@ fn thin_over_a_struct_with_a_tail() {
   assert_eq!(<Thin<[u32], i16> as Pun>::LAYOUT.size(), 4);
 }
 
+#[test]
+fn the_length_of_a_thin_has_the_sign_of_its_type() {
+  // An unsigned length takes every value of its type.
+  let mut bytes = [0u8; 201];
+  bytes[0] = 200;
+  let thin = puns::from_bytes::<Thin<[u8], u8>>(&bytes).unwrap();
+  assert_eq!(thin.value().len(), 200);
+  let mut words = vec![0u16; 20_001];
+  words[0] = 40_000;
+  let thin = puns::from_bytes::<Thin<[u8], u16>>(puns::as_bytes(&words[..])).unwrap();
+  assert_eq!(thin.value().len(), 40_000);
+  // The same byte as a signed length is negative, a size that no bytes have.
+  assert_eq!(puns::from_head::<Thin<[u8], i8>>(&bytes).err(), Some(Error::Size));
+}
+
 /// A pointer to a `u16` before it or after it, stored as the distance from its own address.
 #[derive(Pun)]
 #[repr(transparent)]
@@ -392,34 +407,6 @@ fn an_unsized_target_is_read_with_its_length() {
   let text = unsafe { ToText::text_mut(to) };
   text.data.make_ascii_uppercase();
   assert_eq!(&puns::as_bytes(&words)[4..7], b"ABC");
-}
-
-/// A list whose length is its first element, after a byte: `size` and `len` rules are read from the
-/// sized fields of a target only.
-#[derive(Pun)]
-#[repr(C)]
-struct Counted {
-  first: u8,
-  #[pun(len = le(1, 1))]
-  data: [u8],
-}
-
-/// A pointer to a `Counted`.
-#[derive(Pun)]
-#[repr(transparent)]
-struct ToCounted {
-  #[pun(aim(counted: Counted = off as u128))]
-  off: InPlace<i8>,
-}
-
-#[test]
-#[should_panic = "the length of the target of an eager aim is read after its sized fields"]
-fn a_length_after_the_sized_fields_is_not_read() {
-  // A pointer at 0 to the list at 1, whose length, 2, is its first element.
-  let bytes = [1, 0, 2, 5];
-  let to = puns::from_head::<ToCounted>(&bytes).unwrap().0;
-  // SAFETY: `puns` checked `to` with its target, in `bytes`, which are not written.
-  let _ = unsafe { ToCounted::counted(within(to, &bytes)) };
 }
 
 /// An image under construction: values written at positions aligned for them, as a writer of

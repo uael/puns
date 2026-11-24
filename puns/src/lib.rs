@@ -5056,10 +5056,6 @@ const unsafe fn target<S: ?Sized + Pun, D: ?Sized + Pun, const RULE: usize>(
 /// type of a value does not tell that its target was checked. A reference to a value with an eager
 /// aim that a function of `puns` returned does, and so does one to a value within it.
 ///
-/// # Panics
-///
-/// Panics if the `size` or `len` rule of `D` reads a byte after its sized fields.
-///
 /// # Safety
 ///
 /// The caller must ensure that:
@@ -5085,8 +5081,9 @@ const unsafe fn target<S: ?Sized + Pun, D: ?Sized + Pun, const RULE: usize>(
 /// # Compile-time errors
 ///
 /// A call compiles only if the rule `RULE` of the struct of `S` is an eager aim at a target of the
-/// size and alignment of `D`, and of its identity if the aim knows it, and `D` is sized or has a
-/// `size` or `len` rule.
+/// size and alignment of `D`, and of its identity if the aim knows it, and `D` is sized or stores
+/// the length of its tail in its sized fields: a `size` or `len` rule that reads no byte by
+/// offset, as the check of the aim requires.
 ///
 /// # Examples
 ///
@@ -5121,10 +5118,6 @@ pub const unsafe fn aim<'a, S: ?Sized + Pun, D: ?Sized + Pun, const RULE: usize>
 
 /// Returns the target of the eager aim that the rule `RULE` of the struct of `S` is, for the value
 /// of `S` at `holder`, as a `&mut D`: what [`aim`] returns, to write.
-///
-/// # Panics
-///
-/// As for [`aim`].
 ///
 /// # Safety
 ///

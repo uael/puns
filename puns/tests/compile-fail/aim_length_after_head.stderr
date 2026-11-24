@@ -1,0 +1,28 @@
+error[E0080]: evaluation panicked: the target of an eager aim is sized, or stores its length in its sized fields: a `size` or `len` rule that reads no byte by offset
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `puns::validate::follow::<ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>, Counted>::{constant#0}` failed here
+  |
+ ::: src/validate.rs
+  |
+  |     assert!(!eager || stores_length::<D>(), "{}", STORES_LENGTH);
+  |     ------------------------------------------------------------ in this macro invocation
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let (layout, rule) = const {
+  |  ________________________^
+  | |     let layout = D::LAYOUT;
+  | |     let eager =
+  | |       matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { check: layout::Check::Eager, .. })));
+... |
+  | |     (layout, rule)
+  | |   };
+  | |___^
+
+note: the above error was encountered while instantiating `fn puns::validate::follow::<ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>, Counted>`
+ --> src/validate.rs
+  |
+  |       if !unsafe { follow::<T, L, L::Target>(base, at, input) } {
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

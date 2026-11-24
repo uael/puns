@@ -87,15 +87,16 @@ type LenSteps = One<0>;
 pub struct LenOps<M>(PhantomData<M>);
 
 impl<M: Pun> LenOps<M> {
-  /// The length, the integer of the size and the byte order of `M`, signed whatever `M` is. A
-  /// negative one is sign-extended to more than any length ([`Op::Load`]), which no value has, so
-  /// the rule fails where the highest bit is set.
+  /// The length, the integer of the size, the byte order and the sign of `M`. A negative one of a
+  /// signed `M` is sign-extended to more than any length ([`Op::Load`]), which no value has, so the
+  /// rule fails where its highest bit is set.
   const OPS: [Op; 1] = {
     let Some(spec) = M::LAYOUT.as_bits() else {
       panic!("the length of a `Thin` is an integer of 1 to 8 bytes, any of whose values is valid")
     };
     let big = matches!(spec.endian, layout::Endian::Big);
-    [Op::Load { offset: 0, size: spec.size as u8, big, signed: true }]
+    let signed = matches!(spec.number, layout::Number::Signed);
+    [Op::Load { offset: 0, size: spec.size as u8, big, signed }]
   };
 }
 

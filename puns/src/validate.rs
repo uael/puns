@@ -635,10 +635,7 @@ const unsafe fn follow<T: ?Sized + Pun, L: Rules, D: ?Sized + Pun>(
        `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`"
     );
     let rule = layout.length_rule();
-    assert!(
-      !eager || !layout.is_unsized() || rule.is_some(),
-      "the target of an eager aim is sized, or stores its length"
-    );
+    assert!(!eager || stores_length::<D>(), "{}", STORES_LENGTH);
     (layout, rule)
   };
   // SAFETY: `holder` is within the bytes of `input`, at or after their start, in one allocation,
@@ -663,10 +660,12 @@ const unsafe fn follow<T: ?Sized + Pun, L: Rules, D: ?Sized + Pun>(
   let len = if stride == 0 || rule.is_none() {
     0
   } else {
+    // The rule reads the sized fields only (`stores_length`), and is evaluated over them, as
+    // `thin` evaluates it.
     // SAFETY: `addr` is valid for reads of the `room` initialized bytes of `input` from there,
     // which cover the `head` bytes of the sized fields of `D`, and of the struct in it that has the
     // rule, which `length_rule` returned. These are the requirements of `length`.
-    let Some(value) = (unsafe { length::<D>(addr, room) }) else { return false };
+    let Some(value) = (unsafe { length::<D>(addr, head) }) else { return false };
     if value > usize::MAX as u128 {
       return false;
     }
@@ -714,15 +713,29 @@ const fn elements<D: ?Sized + Pun>(value: usize) -> Option<usize> {
   }
 }
 
+/// Returns whether a `D` stores the length of its tail in its sized fields, as the target of an
+/// eager aim does: it is sized, or its `size` or `len` rule reads only its sized fields
+/// ([`LengthRule::in_head`](layout::LengthRule::in_head)). The check of an eager aim ([`follow`])
+/// and the read of its target ([`thin`]) both require it at compile time, and evaluate the rule
+/// over the sized fields, so that a target that the check accepts is one that the read reads.
+const fn stores_length<D: ?Sized + Pun>() -> bool {
+  let layout = D::LAYOUT;
+  match layout.length_rule() {
+    _ if !layout.is_unsized() => true,
+    Some(rule) => rule.in_head(),
+    None => false,
+  }
+}
+
+/// Why the target of an eager aim does not compile, if [`stores_length`] is false.
+const STORES_LENGTH: &str = "the target of an eager aim is sized, or stores its length in its \
+                             sized fields: a `size` or `len` rule that reads no byte by offset";
+
 /// Returns a pointer to the `D` at `addr`, the target of an eager aim, with the length of its tail
 /// if it is unsized: the length that its `size` or `len` rule gives, as [`follow`] finds it.
 ///
 /// The rule is evaluated over the sized fields of `D` only, where a `Thin` and the blocks of
-/// `nearest` store a length.
-///
-/// # Panics
-///
-/// Panics if the rule reads a byte after the sized fields of `D`.
+/// `nearest` store a length, as [`follow`] evaluates it.
 ///
 /// # Safety
 ///
@@ -732,15 +745,12 @@ const fn elements<D: ?Sized + Pun>(value: usize) -> Option<usize> {
 ///
 /// # Compile-time errors
 ///
-/// An instance compiles only if `D` is sized or has a `size` or `len` rule.
+/// An instance compiles only if `D` stores its length ([`stores_length`]).
 #[inline(always)]
 pub const unsafe fn thin<D: ?Sized + Pun>(addr: *const u8) -> *const D {
   let (unsized_, stride, head) = const {
     let layout = D::LAYOUT;
-    assert!(
-      !layout.is_unsized() || layout.length_rule().is_some(),
-      "the target of an eager aim is sized, or stores its length"
-    );
+    assert!(stores_length::<D>(), "{}", STORES_LENGTH);
     (layout.is_unsized(), layout.stride(), layout.head())
   };
   if !unsized_ || stride == 0 {
@@ -750,14 +760,15 @@ pub const unsafe fn thin<D: ?Sized + Pun>(addr: *const u8) -> *const D {
   // reads and initialized, by contract on the caller. They cover the sized fields of the struct in
   // `D` that has the rule. These are the requirements of `length`. An unsized `D` has the rule, as
   // the assertion above shows.
-  let Some(value) = (unsafe { length::<D>(addr, head) }) else {
-    panic!("the length of the target of an eager aim is read after its sized fields")
-  };
-  let Some(len) = (if value > usize::MAX as u128 { None } else { elements::<D>(value as usize) })
-  else {
-    // SAFETY: The rule of the `D` at `addr` gives the length of its tail, by contract on the
-    // caller: the length itself for a `len` rule, or the size of a `D` with that many elements for
-    // a `size` rule, which `elements` turns into that length, as it does in `follow`.
+  let value = unsafe { length::<D>(addr, head) };
+  let Some(len) = (match value {
+    Some(value) if value <= usize::MAX as u128 => elements::<D>(value as usize),
+    _ => None,
+  }) else {
+    // SAFETY: The rule of the `D` at `addr`, evaluated over its sized fields, gives the length of
+    // its tail, by contract on the caller: the length itself for a `len` rule, or the size of a
+    // `D` with that many elements for a `size` rule, which `elements` turns into that length, as
+    // it does in `follow`.
     unsafe { core::hint::unreachable_unchecked() }
   };
   ptr::from_raw_parts::<D>(addr, len)
