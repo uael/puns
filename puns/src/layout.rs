@@ -5829,6 +5829,23 @@ pub enum Rule {
 /// before regions were aims, and a region of a sized type has the metadata that a region of
 /// `[u8]` has. A type with an eager aim, such as the pointer of `nearest`, writes its
 /// implementation of [`Pun`](crate::Pun) by hand.
+///
+/// # Examples
+///
+/// ```
+/// use puns::layout::{Aim, Check, Metadata, Op, Start};
+///
+/// // The target of a self-relative pointer: a `u64` at the address of the struct plus the `u32`
+/// // at its offset 0, checked with the struct.
+/// const AT: [Op; 1] = [Op::load::<u32>(0)];
+/// const POINTER: Aim = Aim::new::<u64>(Start::Stored(&AT), Metadata::Thin, Check::Eager);
+///
+/// // A region: as many bytes as the `u16` at offset 4 says, from the cursor, checked when read.
+/// const LEN: [Op; 1] = [Op::load::<u16>(4)];
+/// const REGION: Aim = Aim::new::<[u8]>(Start::Next, Metadata::Wide(&LEN), Check::Lazy);
+///
+/// assert_eq!((POINTER.check(), REGION.check()), (Check::Eager, Check::Lazy));
+/// ```
 #[derive(Copy, Clone, Debug)]
 pub struct Aim {
   /// Where the target starts.
@@ -5846,6 +5863,19 @@ pub struct Aim {
 }
 
 /// Where the target of an [`Aim`] starts.
+///
+/// # Examples
+///
+/// ```
+/// use puns::layout::{Op, Start};
+///
+/// // At the address of the struct plus the `u32` at its offset 0.
+/// const AT: [Op; 1] = [Op::load::<u32>(0)];
+/// let pointer = Start::Stored(&AT);
+/// // Where the target before it ends: a region.
+/// let region = Start::Next;
+/// assert!(matches!((pointer, region), (Start::Stored(_), Start::Next)));
+/// ```
 #[derive(Copy, Clone, Debug)]
 pub enum Start {
   /// At the address of the struct that holds the aim, plus the value of the expression, read as
@@ -5857,6 +5887,19 @@ pub enum Start {
 }
 
 /// Where the metadata of the target of an [`Aim`] is, as for a pointer of Rust.
+///
+/// # Examples
+///
+/// ```
+/// use puns::layout::{Metadata, Op};
+///
+/// // A target that is sized, or that stores its length.
+/// let thin = Metadata::Thin;
+/// // A target of as many elements as the `u16` at offset 4 of the struct says.
+/// const LEN: [Op; 1] = [Op::load::<u16>(4)];
+/// let wide = Metadata::Wide(&LEN);
+/// assert!(matches!((thin, wide), (Metadata::Thin, Metadata::Wide(_))));
+/// ```
 #[derive(Copy, Clone, Debug)]
 pub enum Metadata {
   /// At the target: its type is sized, or stores its length, as [`Thin<T, M>`](crate::Thin) does,
@@ -5870,6 +5913,16 @@ pub enum Metadata {
 }
 
 /// When the target of an [`Aim`] is checked.
+///
+/// # Examples
+///
+/// ```
+/// use puns::layout::{Aim, Check, Metadata, Start};
+///
+/// // A region is checked when it is read.
+/// let region = Aim::new::<[u8]>(Start::Next, Metadata::Rest, Check::Lazy);
+/// assert_eq!(region.check(), Check::Lazy);
+/// ```
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Check {
   /// With the struct that holds it: a check of the struct follows the aim, and checks the target
@@ -5898,6 +5951,25 @@ impl Aim {
   /// Panics if the aim is eager and starts at the cursor or is wide, or if it is lazy and its start
   /// is stored or it is thin. An eager aim is the target of a self-relative pointer, and a lazy aim
   /// is a region: no function of `puns` checks or reads another kind.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::layout::{Aim, Check, Metadata, Op, Start};
+  ///
+  /// // The target of a self-relative pointer, a `u64` at the address of the struct plus the `u32`
+  /// // at its offset 0.
+  /// const AT: [Op; 1] = [Op::load::<u32>(0)];
+  /// let _ = Aim::new::<u64>(Start::Stored(&AT), Metadata::Thin, Check::Eager);
+  /// ```
+  ///
+  /// An eager aim at the cursor is neither:
+  ///
+  /// ```should_panic
+  /// use puns::layout::{Aim, Check, Metadata, Start};
+  ///
+  /// let _ = Aim::new::<u64>(Start::Next, Metadata::Thin, Check::Eager);
+  /// ```
   #[must_use]
   pub const fn new<T: ?Sized + crate::Pun>(start: Start, metadata: Metadata, check: Check) -> Self {
     match check {
@@ -5924,6 +5996,16 @@ impl Aim {
   }
 
   /// Returns when the target is checked.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::layout::{Aim, Check, Metadata, Op, Start};
+  ///
+  /// const AT: [Op; 1] = [Op::load::<u32>(0)];
+  /// let pointer = Aim::new::<u64>(Start::Stored(&AT), Metadata::Thin, Check::Eager);
+  /// assert_eq!(pointer.check(), Check::Eager);
+  /// ```
   #[must_use]
   pub const fn check(&self) -> Check {
     self.check
