@@ -1,0 +1,32 @@
+error[E0080]: evaluation panicked: the rule is not an eager aim at this type
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `puns::target::<Next, u32, 0>::{constant#0}` failed here
+  |
+ ::: src/lib.rs
+  |
+  | /     assert!(
+  | |       matches!(rule, Some(layout::Rule::Aim(aim)) if matches!(aim.check, layout::Check::Eager)
+  | |         && aim.size == size
+  | |         && aim.align == align
+  | |         && (!aim.id.known() || aim.id.equals(&D::ID))),
+  | |       "the rule is not an eager aim at this type"
+  | |     );
+  | |_____- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |     let head = const {
+  |  ______________^
+  | |     let rule = S::LAYOUT.rule(RULE);
+... |
+  | |     S::LAYOUT.tail_shape().start
+  | |   };
+  | |___^
+
+note: the above error was encountered while instantiating `fn puns::target::<Next, u32, 0>`
+ --> src/lib.rs
+  |
+  |   unsafe { &*target::<S, D, RULE>(holder) }
+  |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -16,8 +16,8 @@ use core::marker::PhantomData;
 use crate::{
   Fields, Path, Pun, RuleAt, Rules, Steps,
   layout::{self, Field, Id, Layout, Offsets, Op, Rule},
-  ptr,
   steps::One,
+  validate,
 };
 
 /// The seal of [`Store`].
@@ -152,29 +152,11 @@ impl<T: ?Sized + Pun, M: Copy + Pun> Thin<T, M> {
   #[inline(always)]
   #[must_use]
   pub const unsafe fn get<'a>(at: *const u8) -> &'a T {
-    // The integer that stores the length, for an unsized `T`.
-    let stored = const {
-      match (T::LAYOUT.is_unsized(), <Stored<T, M> as Pun>::LAYOUT.as_bits()) {
-        (false, _) => None,
-        (true, Some(spec)) => Some(spec),
-        (true, None) => panic!("the length of a `Thin` is an integer of 1 to 8 bytes"),
-      }
-    };
-    let len = if let Some(spec) = stored {
-      // SAFETY: `at` is the address of a valid `Thin<T, M>`, whose first field is the length, an
-      // integer of `spec.size` bytes (`Store`), valid for reads and initialized, by contract on the
-      // caller. These are the requirements of `load`.
-      let len = unsafe { layout::load(at, spec.size, spec.endian) };
-      // The `len` rule of a valid `Thin` makes it the length of a value that exists, which fits.
-      len as usize
-    } else {
-      0
-    };
-    let thin = ptr::from_raw_parts::<Self>(at, len);
-    // SAFETY: `thin` is `at`, with the length that its metadata stores if `T` is unsized, which is
-    // the length of the `Thin<T, M>` there. It is valid, aligned, and not written for `'a`, by
-    // contract on the caller, and so is its field `data`.
-    unsafe { &(*thin).data }
+    // SAFETY: `at` is the address of a valid `Thin<T, M>`, aligned, by contract on the caller, as
+    // `thin` requires. The pointer that it returns is `at`, with the length that the `Thin` stores
+    // if `T` is unsized, so it points to that `Thin`, which is not written for `'a`, by contract on
+    // the caller, and neither is its field `data`.
+    unsafe { &(*validate::thin::<Self>(at)).data }
   }
 }
 

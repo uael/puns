@@ -19,7 +19,11 @@
 //! bytes that the check reads ([`Input`]), and checks it with [`validate`], which follows the eager
 //! aims of the target in turn. A type that points at itself is checked by a recursive call of the
 //! same instance, bounded by the depth and the bytes that [`Input`] counts. A lazy aim is checked
-//! only to fit in the tail of the struct, from the cursor, and [`region_at`] reads it.
+//! only to fit in the tail of the struct, from the cursor.
+//!
+//! What reads a target finds it as the check does, in one place for both kinds: [`aim_at`] tells
+//! where the target of an aim of a struct starts, and for a lazy aim, how many bytes it has, and
+//! [`thin`] makes a pointer to the target of an eager aim, with the length that its bytes store.
 //!
 //! # No interpreter
 //!
@@ -656,27 +660,18 @@ const unsafe fn follow<T: ?Sized + Pun, L: Rules, D: ?Sized + Pun>(
   if room < head {
     return false;
   }
-  let len = match rule {
-    _ if stride == 0 => 0,
-    None => 0,
-    Some(rule) => {
-      // SAFETY: `addr` is valid for reads of the `room` initialized bytes of `input` from there,
-      // which cover the `head` bytes of the sized fields of `D`, and of the struct in it that has
-      // the rule, which `length_rule` returned. These are the requirements of `length`.
-      let Some(value) = (unsafe { length::<D>(addr, room) }) else { return false };
-      let before = head - rule.base;
-      if value > usize::MAX as u128 {
-        return false;
-      }
-      let value = value as usize;
-      match () {
-        () if rule.elements => value,
-        () if value >= before && (value - before).is_multiple_of(stride) => {
-          (value - before) / stride
-        }
-        () => return false,
-      }
+  let len = if stride == 0 || rule.is_none() {
+    0
+  } else {
+    // SAFETY: `addr` is valid for reads of the `room` initialized bytes of `input` from there,
+    // which cover the `head` bytes of the sized fields of `D`, and of the struct in it that has the
+    // rule, which `length_rule` returned. These are the requirements of `length`.
+    let Some(value) = (unsafe { length::<D>(addr, room) }) else { return false };
+    if value > usize::MAX as u128 {
+      return false;
     }
+    let Some(len) = elements::<D>(value as usize) else { return false };
+    len
   };
   if stride != 0 && len > (room - head) / stride {
     return false;
@@ -695,6 +690,77 @@ const unsafe fn follow<T: ?Sized + Pun, L: Rules, D: ?Sized + Pun>(
   let valid = unsafe { validate::<All, Root, D>(ptr::from_raw_parts::<D>(addr, len), input) };
   input.leave();
   valid
+}
+
+/// Returns the number of elements of the tail of an unsized `D` whose `size` or `len` rule
+/// ([`length`]) gives `value`, which fits a `usize`: the value of a `len` rule, or the elements
+/// that make the size that a `size` rule gives, if they make exactly that size. A `D` without such
+/// a rule has no length to read, and this function is not called for one.
+#[inline(always)]
+const fn elements<D: ?Sized + Pun>(value: usize) -> Option<usize> {
+  let (stride, before, count) = const {
+    let layout = D::LAYOUT;
+    match layout.length_rule() {
+      Some(rule) => (layout.stride(), layout.head() - rule.base, rule.elements),
+      None => (0, 0, true),
+    }
+  };
+  match () {
+    () if count => Some(value),
+    () if value >= before && (value - before).is_multiple_of(stride) => {
+      Some((value - before) / stride)
+    }
+    () => None,
+  }
+}
+
+/// Returns a pointer to the `D` at `addr`, the target of an eager aim, with the length of its tail
+/// if it is unsized: the length that its `size` or `len` rule gives, as [`follow`] finds it.
+///
+/// The rule is evaluated over the sized fields of `D` only, where a `Thin` and the blocks of
+/// `nearest` store a length.
+///
+/// # Panics
+///
+/// Panics if the rule reads a byte after the sized fields of `D`.
+///
+/// # Safety
+///
+/// The caller must ensure that a value of `D`, aligned, valid as Rust requires of the referent of a
+/// `&D`, is at `addr`, and, if `D` is unsized, that its `size` or `len` rule, evaluated over its
+/// sized fields, gives the length of its tail. A `D` that [`follow`] checked is one.
+///
+/// # Compile-time errors
+///
+/// An instance compiles only if `D` is sized or has a `size` or `len` rule.
+#[inline(always)]
+pub const unsafe fn thin<D: ?Sized + Pun>(addr: *const u8) -> *const D {
+  let (unsized_, stride, head) = const {
+    let layout = D::LAYOUT;
+    assert!(
+      !layout.is_unsized() || layout.length_rule().is_some(),
+      "the target of an eager aim is sized, or stores its length"
+    );
+    (layout.is_unsized(), layout.stride(), layout.head())
+  };
+  if !unsized_ || stride == 0 {
+    return ptr::from_raw_parts::<D>(addr, 0);
+  }
+  // SAFETY: The `head` bytes at `addr` are the sized fields of the valid `D` there, valid for
+  // reads and initialized, by contract on the caller. They cover the sized fields of the struct in
+  // `D` that has the rule. These are the requirements of `length`. An unsized `D` has the rule, as
+  // the assertion above shows.
+  let Some(value) = (unsafe { length::<D>(addr, head) }) else {
+    panic!("the length of the target of an eager aim is read after its sized fields")
+  };
+  let Some(len) = (if value > usize::MAX as u128 { None } else { elements::<D>(value as usize) })
+  else {
+    // SAFETY: The rule of the `D` at `addr` gives the length of its tail, by contract on the
+    // caller: the length itself for a `len` rule, or the size of a `D` with that many elements for
+    // a `size` rule, which `elements` turns into that length, as it does in `follow`.
+    unsafe { core::hint::unreachable_unchecked() }
+  };
+  ptr::from_raw_parts::<D>(addr, len)
 }
 
 /// Returns whether `L` lists the rules of `T` that have an expression or are aims, from the
@@ -844,95 +910,86 @@ const unsafe fn length_listed<T: ?Sized + Pun, L: Rules>(
   unsafe { length_listed::<T, L::Next>(base, n) }
 }
 
-/// Returns the bytes of the target of the `index`th lazy aim of the struct `T` at `base`, a region.
+/// Returns where the target of the rule `rule` of the struct `T` at `base`, an aim, starts, in
+/// bytes from `base`, and the bytes that it has if the aim is lazy: what the check of the struct
+/// finds ([`check_listed`]), for what reads the target.
 ///
 /// The struct is `size` bytes. Its tail starts at `head` and is `tail` bytes long. The search
-/// starts at the rule `L`, after `count` lazy aims that end at `cursor` in the tail. Each starts at
-/// the cursor rounded up to the alignment of its target, or at the end of the tail if that is past
-/// it. A size whose expression fails, or does not fit in what is left of the tail, is what is left:
-/// the fields that give it are not trusted.
+/// starts at the rule `L`, after lazy aims that end at `cursor` in the tail. A lazy aim, a region,
+/// starts at the cursor rounded up to the alignment of its target, or at the end of the tail if that
+/// is past it. A size whose expression fails, or does not fit in what is left of the tail, is what
+/// is left: the fields that give it are not trusted. So a region ends within the tail, at most
+/// `size` bytes from `base`. An eager aim starts where its expression says, an `i128` in two's
+/// complement that has no bytes, or `None` if the expression fails.
 ///
 /// # Panics
 ///
-/// Panics if `T` has no `index`th lazy aim.
+/// Panics if the rule `rule` of `T` is not an aim.
 ///
 /// # Safety
 ///
 /// The caller must ensure that:
 ///
-/// - `base` is valid for reads of the `size` bytes of a `T`, initialized, for `'a`.
-/// - These bytes are not written for `'a`.
+/// - `base` is valid for reads of the `size` bytes of a `T`, and the bytes that its rules read
+///   are initialized.
 /// - `head + tail` is at most `size`, and `cursor` is at most `tail`.
 ///
 /// # Compile-time errors
 ///
 /// An instance compiles only if `T::Rules` lists the rules of `T` ([`listed`]).
 #[inline(always)]
-pub const unsafe fn region_at<'a, T: ?Sized + Pun, L: Rules>(
+pub const unsafe fn aim_at<T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   size: usize,
   (head, tail): (usize, usize),
-  index: usize,
-  (cursor, count): (usize, usize),
-) -> &'a [u8] {
+  rule: usize,
+  cursor: usize,
+) -> Option<(u128, usize)> {
   const { assert!(listed::<T, T::Rules>(0), "not the rules of the struct") };
   let aim = const {
     match T::LAYOUT.rule(L::RULE) {
-      Some(Rule::Aim(aim)) if matches!(aim.start, Start::Next) => Some(aim),
+      Some(Rule::Aim(aim)) => Some(aim),
       _ => None,
     }
   };
-  let Some(aim) = aim else {
-    assert!(L::RULE != usize::MAX, "no such region");
-    // SAFETY: The requirements of the call for the next rules are those of this call.
-    return unsafe { region_at::<T, L::Next>(base, size, (head, tail), index, (cursor, count)) };
-  };
-  // SAFETY: `base + head + cursor` is within the `size` bytes at `base`, since
-  // `head + cursor <= head + tail <= size`, by contract on the caller.
-  let start = unsafe { start_at(base.add(head), cursor, tail, aim.align) };
-  let rest = tail - start;
-  let n = match aim.metadata {
-    // SAFETY: `InRule<T, L>` is a rule of `T`. `base` is valid for reads of the `size` bytes of a
-    // `T`, initialized, by contract on the caller, and these cover its sized fields. This is what
-    // `eval` requires.
-    Metadata::Wide(_) => match unsafe { eval::<InRule<T, L>, L::Expr>(base, size) } {
-      Some(len) => match extent::<L::Target>(len) {
-        Some(n) if n <= rest => n,
+  let next = match aim {
+    _ if L::RULE == usize::MAX => panic!("no such aim"),
+    Some(Aim { start: Start::Stored(_), .. }) if L::RULE == rule => {
+      // SAFETY: `InRule<T, L>` is a rule of `T`. `base` is valid for reads of the `size` bytes of a
+      // `T`, which cover its sized fields, and the bytes that the rule reads are initialized, by
+      // contract on the caller. This is what `eval` requires.
+      return match unsafe { eval::<InRule<T, L>, L::Expr>(base, size) } {
+        Some(at) => Some((at, 0)),
+        None => None,
+      };
+    }
+    // Another rule, or another eager aim, whose target takes nothing of the tail.
+    None | Some(Aim { start: Start::Stored(_), .. }) => cursor,
+    Some(aim) => {
+      // SAFETY: `base + head + cursor` is within the `size` bytes at `base`, since
+      // `head + cursor <= head + tail <= size`, by contract on the caller.
+      let start = unsafe { start_at(base.add(head), cursor, tail, aim.align) };
+      let rest = tail - start;
+      let n = match aim.metadata {
+        // SAFETY: As for an eager aim above, the requirements of `eval` hold.
+        Metadata::Wide(_) => match unsafe { eval::<InRule<T, L>, L::Expr>(base, size) } {
+          Some(len) => match extent::<L::Target>(len) {
+            Some(n) if n <= rest => n,
+            _ => rest,
+          },
+          None => rest,
+        },
         _ => rest,
-      },
-      None => rest,
-    },
-    _ => rest,
+      };
+      if L::RULE == rule {
+        return Some(((head + start) as u128, n));
+      }
+      start + n
+    }
   };
-  if count == index {
-    // SAFETY: `n <= rest`, so `head + start + n <= head + tail <= size`. So `add(head + start)`
-    // stays within the `size` bytes at `base`. This satisfies the safety contract of
-    // `slice::from_raw_parts` [1]: the `n` bytes from there are in one allocation, valid for reads
-    // for `'a`, so non-null [2], initialized, and not written for `'a`, by contract on the caller.
-    // A `u8` is aligned at any address, and `n` bytes fit in an `isize`, since they are in an
-    // allocation.
-    //
-    // [1] Per https://doc.rust-lang.org/1.99.0/core/slice/fn.from_raw_parts.html:
-    //
-    //     Behavior is undefined if any of the following conditions are violated:
-    //
-    //     - `data` must be non-null, valid for reads for `len * size_of::<T>()` many bytes, and
-    //       it must be properly aligned. [...]
-    //     - `data` must point to `len` consecutive properly initialized values of type `T`.
-    //     - The memory referenced by the returned slice must not be mutated for the duration of
-    //       lifetime `'a`, except inside an `UnsafeCell`.
-    //     - The total size `len * size_of::<T>()` of the slice must be no larger than
-    //       `isize::MAX`, and adding that size to `data` must not "wrap around" the address
-    //       space.
-    //
-    // [2] Per https://doc.rust-lang.org/1.99.0/core/ptr/index.html#safety:
-    //
-    //     A null pointer is never valid for reads/writes.
-    return unsafe { core::slice::from_raw_parts(base.add(head + start), n) };
-  }
-  // SAFETY: `start + n <= tail`, since `n <= rest`. The other requirements of the call for the
-  // next rules are those of this call.
-  unsafe { region_at::<T, L::Next>(base, size, (head, tail), index, (start + n, count + 1)) }
+  // SAFETY: `next <= tail`: a lazy aim ends at most at `tail`. The other requirements of the call
+  // for the next rules are those of this call.
+  unsafe { aim_at::<T, L::Next>(base, size, (head, tail), rule, next) }
 }
 
 // -------------------------------------------------------------------------------------------------

@@ -668,7 +668,14 @@
 //! checked its target, or where unsafe code put it. A reference to the struct is then a reference
 //! to a valid target, as above. A struct with an eager aim is not `Clone`, `Copy` or `Default`,
 //! since an `InPlace` is none of these. `tests/support/aims.rs` declares a self-relative pointer
-//! this way, as `nearest` does:
+//! this way, as `nearest` does.
+//!
+//! The target is read by the methods that the derive writes for an aim with a name, as for a
+//! region, which find it as the check does. They are `unsafe`: the caller ensures that `puns`
+//! checked the value, or that unsafe code that wrote it upholds the same, and gives a pointer to
+//! the value with the provenance of the bytes of the target. A pointer made from a reference to the
+//! value has it under the tree borrows model of Miri, but under stacked borrows, it is made from a
+//! pointer to the bytes that hold both.
 //!
 //! ```
 //! use puns::{InPlace, Pun};
@@ -677,13 +684,17 @@
 //! #[derive(Pun)]
 //! #[repr(transparent)]
 //! struct Ptr {
-//!   #[pun(aim(u32 = off as u128))]
+//!   #[pun(aim(target: u32 = off as u128))]
 //!   off: InPlace<i32>,
 //! }
 //!
 //! // A distance of 4, to the word after the pointer.
 //! let words = [4u32, 7];
-//! assert!(puns::from_head::<Ptr>(puns::as_bytes(&words)).is_ok());
+//! let bytes = puns::as_bytes(&words);
+//! let ptr = puns::from_head::<Ptr>(bytes).unwrap().0;
+//! // SAFETY: `puns` checked `ptr` with its target, in `bytes`, from which the pointer is made, and
+//! // which are not written.
+//! assert_eq!(unsafe { Ptr::target(bytes.as_ptr().cast()) }, &7);
 //! // A distance of 8 is past the bytes, and -4 before them.
 //! assert!(puns::from_head::<Ptr>(puns::as_bytes(&[8u32, 7])).is_err());
 //! assert!(puns::from_head::<Ptr>(puns::as_bytes(&[(-4i32).cast_unsigned(), 7])).is_err());
@@ -1425,7 +1436,12 @@ pub use layout::{crc32, sum16};
 ///   does, with a `size` or `len` rule. The field is a `T` in the layout and in rules, which may
 ///   name it. No code makes an `InPlace`, so no safe code makes a value of the struct, and code may
 ///   read the target through a reference to it without a check. The derive requires `T` and
-///   `Type` to be `Pun`, as it requires the type of a field.
+///   `Type` to be `Pun`, as it requires the type of a field. With a name (`name: Type = EXPR`),
+///   methods `unsafe fn name(this: *const Self) -> &Type` and
+///   `unsafe fn name_mut(this: *mut Self) -> &mut Type`, as visible as the field, read the target,
+///   with the length that it stores if it is unsized. They cannot be safe, since the derive is: the
+///   type of a value does not tell that `puns` checked it. Their `# Safety` says what the caller
+///   ensures.
 /// - `#[pun(regions(first = EXPR, second = EXPR, last))]`, on the last field: the bytes of the
 ///   field are consecutive regions of `EXPR` bytes each, lazy, wide aims from the cursor. The last
 ///   region may omit its size, and then takes whatever remains. A method with each name, as visible
@@ -4912,45 +4928,225 @@ pub const fn from_tail_mut<D: ?Sized + Pun>(
   }
 }
 
-/// Returns the bytes of the `index`th region of the tail of `value`, as the `regions` rule of its
-/// struct cuts them (see `#[derive(Pun)]`).
+/// Returns the bytes of the region of the tail of `value` that the rule `RULE` of its struct
+/// cuts, a lazy aim of `#[pun(regions(..))]` (see `#[derive(Pun)]`).
 ///
 /// The type system does not enforce regions. If the fields of `value` give regions that do not fit
 /// in its tail, they are truncated. A region whose expression fails takes the rest of the tail.
 ///
-/// # Panics
-///
-/// Panics if the struct of `S` has no `index`th region.
-///
 /// # Compile-time errors
 ///
-/// A call compiles only if every byte of every value of `S`, up to the end of its slice, is
-/// initialized and, without the `unstable` feature, this does not depend on a layout that Rust
-/// leaves to the compiler. This is checked after monomorphization, as
-/// [the crate documentation](crate#compile-time-errors) explains.
+/// A call compiles only if the rule `RULE` of the struct of `S` is a lazy aim, every byte of every
+/// value of `S`, up to the end of its slice, is initialized and, without the `unstable` feature,
+/// this does not depend on a layout that Rust leaves to the compiler. This is checked after
+/// monomorphization, as [the crate documentation](crate#compile-time-errors) explains.
 #[doc(hidden)]
 #[inline(always)]
-pub const fn region<S: ?Sized + Pun>(value: &S, index: usize) -> &[u8] {
+pub const fn region<S: ?Sized + Pun, const RULE: usize>(value: &S) -> &[u8] {
   // The bytes of the value can be read: it has no padding.
   const { Plan::<S, [u8]>::BY_REF };
-  let head = const { S::LAYOUT.tail_shape().start };
+  let head = const {
+    assert!(
+      matches!(
+        S::LAYOUT.rule(RULE),
+        Some(layout::Rule::Aim(layout::Aim { check: layout::Check::Lazy, .. }))
+      ),
+      "no such region"
+    );
+    S::LAYOUT.tail_shape().start
+  };
   let (_, tail, size) = validate::tail_of::<S>(value);
-  // SAFETY: This satisfies the safety contract of `validate::region_at`:
+  let base = core::ptr::from_ref::<S>(value).cast::<u8>();
+  // SAFETY: This satisfies the safety contract of `validate::aim_at`:
   // - `value` is a reference, so it is valid for reads of its `size` bytes while the borrow lives,
-  //   and they are not written during it. The lifetime of the borrow is that of the result. `size`
-  //   is the extent of the value, up to the end of its slice (`tail_of`). `Plan::<S, [u8]>::BY_REF`
-  //   compiled, so every byte of `S` up to the end of its slice is initialized: bytes take no
-  //   padding.
+  //   and they are not written during it. `size` is the extent of the value, up to the end of its
+  //   slice (`tail_of`). `Plan::<S, [u8]>::BY_REF` compiled, so every byte of `S` up to the end of
+  //   its slice is initialized: bytes take no padding.
   // - `head` is where the tail starts, and `tail` its size in bytes (`tail_shape`, `tail_of`).
   //   The tail is the last part of the struct, so `head + tail <= size`. The search starts at
   //   0, which is at most `tail`.
-  unsafe {
-    validate::region_at::<S, S::Rules>(
-      core::ptr::from_ref::<S>(value).cast::<u8>(),
-      size,
-      (head, tail),
-      index,
-      (0, 0),
-    )
-  }
+  let place = unsafe { validate::aim_at::<S, S::Rules>(base, size, (head, tail), RULE, 0) };
+  let Some((start, n)) = place else { unreachable!() };
+  // SAFETY: The rule `RULE` is a lazy aim, so `start` and `n` are a region within the tail, which
+  // ends at most `size` bytes from `base` (`aim_at`). So `add(start)` stays within the bytes of
+  // `value`. This satisfies the safety contract of `slice::from_raw_parts` [1]: the `n` bytes from
+  // there are in one allocation, valid for reads while the borrow of `value` lives, so non-null
+  // [2], initialized, and not written during it, as above. A `u8` is aligned at any address, and
+  // `n` bytes fit in an `isize`, since they are in an allocation.
+  //
+  // [1] Per https://doc.rust-lang.org/1.99.0/core/slice/fn.from_raw_parts.html:
+  //
+  //     Behavior is undefined if any of the following conditions are violated:
+  //
+  //     - `data` must be non-null, valid for reads for `len * size_of::<T>()` many bytes, and
+  //       it must be properly aligned. [...]
+  //     - `data` must point to `len` consecutive properly initialized values of type `T`.
+  //     - The memory referenced by the returned slice must not be mutated for the duration of
+  //       lifetime `'a`, except inside an `UnsafeCell`.
+  //     - The total size `len * size_of::<T>()` of the slice must be no larger than
+  //       `isize::MAX`, and adding that size to `data` must not "wrap around" the address
+  //       space.
+  //
+  // [2] Per https://doc.rust-lang.org/1.99.0/core/ptr/index.html#safety:
+  //
+  //     A null pointer is never valid for reads/writes.
+  unsafe { core::slice::from_raw_parts(base.add(start as usize), n) }
+}
+
+/// Returns a pointer to the target of the eager aim that the rule `RULE` of the struct of `S` is,
+/// for the value of `S` at `holder`: where its expression says, a `D`, with the length that the
+/// `D` stores if it is unsized ([`aim`]).
+///
+/// # Safety
+///
+/// The caller must ensure the requirements of [`aim`] but the ones on `'a`.
+///
+/// # Compile-time errors
+///
+/// As for [`aim`].
+#[inline(always)]
+const unsafe fn target<S: ?Sized + Pun, D: ?Sized + Pun, const RULE: usize>(
+  holder: *const S,
+) -> *const D {
+  let head = const {
+    let rule = S::LAYOUT.rule(RULE);
+    // SAFETY: `D::PROBE` is a probe of `D` (`Pun`, section Safety), as `head_size` requires, and
+    // `align_of_val_raw` has the same requirements.
+    let (size, align) =
+      unsafe { (ptr::head_size(D::PROBE), core::mem::align_of_val_raw(D::PROBE)) };
+    assert!(
+      matches!(rule, Some(layout::Rule::Aim(aim)) if matches!(aim.check, layout::Check::Eager)
+        && aim.size == size
+        && aim.align == align
+        && (!aim.id.known() || aim.id.equals(&D::ID))),
+      "the rule is not an eager aim at this type"
+    );
+    S::LAYOUT.tail_shape().start
+  };
+  let (_, tail, size) = validate::tail_of::<S>(holder);
+  let base = holder.cast::<u8>();
+  // SAFETY: This satisfies the safety contract of `validate::aim_at`: `holder` points to a value
+  // of `S`, valid for reads, by contract on the caller, so its `size` bytes, the extent of the value
+  // (`tail_of`), are valid for reads, and the bytes that its rules read are initialized. `head` and
+  // `tail` are its tail, which is its last part, so `head + tail <= size`. The search starts at 0,
+  // which is at most `tail`.
+  let Some((at, _)) =
+    (unsafe { validate::aim_at::<S, S::Rules>(base, size, (head, tail), RULE, 0) })
+  else {
+    // SAFETY: The expression of the aim succeeds over the bytes of the value, by contract on the
+    // caller.
+    unsafe { core::hint::unreachable_unchecked() }
+  };
+  #[expect(clippy::cast_possible_wrap, reason = "two's complement, as the aim says")]
+  let addr = base.wrapping_offset(at as i128 as isize);
+  // SAFETY: A valid `D`, aligned, is at `addr`, the address that the expression gives, and its
+  // rule gives the length of its tail, by contract on the caller, as `validate::thin` requires.
+  unsafe { validate::thin::<D>(addr) }
+}
+
+/// Returns the target of the eager aim that the rule `RULE` of the struct of `S` is, for the value
+/// of `S` at `holder`, as a `&D`.
+///
+/// This is the read of the target of `#[pun(aim(name: Type = EXPR))]`, which the method `name`
+/// that the derive writes calls ([`macro@Pun`]). The address is that of `holder`, plus the value
+/// of `EXPR`, an `i128` in two's complement, and the length of an unsized `D` is what its `size`
+/// or `len` rule reads from its sized fields, as when `puns` checked it.
+///
+/// It cannot be safe: any crate can declare an eager aim through the derive, which is safe, so the
+/// type of a value does not tell that its target was checked. A reference to a value with an eager
+/// aim that a function of `puns` returned does, and so does one to a value within it.
+///
+/// # Panics
+///
+/// Panics if the `size` or `len` rule of `D` reads a byte after its sized fields.
+///
+/// # Safety
+///
+/// The caller must ensure that:
+///
+/// - `holder` points to a value of `S`, valid for reads, whose bytes that its rules read are
+///   initialized, and over which the expression of the aim succeeds.
+/// - At the address that the expression gives, there is a value of `D`, aligned, that is valid as
+///   Rust requires of the referent of a `&D`, and, if `D` is unsized, whose `size` or `len` rule,
+///   evaluated over its sized fields, gives the length of its tail.
+/// - `holder` has the provenance of the bytes of that `D`. One made from a reference to the value
+///   alone has it under the tree borrows model of Miri, but not under stacked borrows, where a
+///   reference gives access to the bytes of its referent only: there, `holder` is made from a
+///   pointer to bytes that hold both, such as the bytes that `puns` checked.
+/// - The bytes of the value and of the `D` are not written for `'a`, except inside an
+///   `UnsafeCell`.
+///
+/// A value that a function of `puns` checked with its eager aims meets the first two, such as one
+/// that a reference that `puns` returned points to, or a value within one. Unsafe code that writes
+/// a value with an eager aim, as `nearest` writes its regions, keeps them for each value that it
+/// reads this way. Rules of `D` that do not give its length, such as an `assert`, are not needed:
+/// the read relies on none.
+///
+/// # Compile-time errors
+///
+/// A call compiles only if the rule `RULE` of the struct of `S` is an eager aim at a target of the
+/// size and alignment of `D`, and of its identity if the aim knows it, and `D` is sized or has a
+/// `size` or `len` rule.
+///
+/// # Examples
+///
+/// ```
+/// use puns::{InPlace, Pun};
+///
+/// #[derive(Pun)]
+/// #[repr(transparent)]
+/// struct Next {
+///   #[pun(aim(next: u8 = off as u128))]
+///   off: InPlace<u8>,
+/// }
+///
+/// let bytes = [1, 9];
+/// let next = puns::from_head::<Next>(&bytes).unwrap().0;
+/// // SAFETY: `puns` checked `next` with its target, and the pointer has the provenance of the
+/// // bytes that hold both, which are not written while it is used.
+/// let target = unsafe { Next::next(bytes.as_ptr().with_addr(core::ptr::from_ref(next).addr()).cast()) };
+/// assert_eq!(*target, 9);
+/// ```
+#[doc(hidden)]
+#[inline(always)]
+#[must_use]
+pub const unsafe fn aim<'a, S: ?Sized + Pun, D: ?Sized + Pun, const RULE: usize>(
+  holder: *const S,
+) -> &'a D {
+  // SAFETY: The requirements of `target` are those of this call. The `D` at the address that it
+  // returns, with its length, is valid and aligned, and is not written for `'a`, by contract on the
+  // caller, so it can be borrowed for `'a`.
+  unsafe { &*target::<S, D, RULE>(holder) }
+}
+
+/// Returns the target of the eager aim that the rule `RULE` of the struct of `S` is, for the value
+/// of `S` at `holder`, as a `&mut D`: what [`aim`] returns, to write.
+///
+/// # Panics
+///
+/// As for [`aim`].
+///
+/// # Safety
+///
+/// The caller must ensure the requirements of [`aim`] but the last, and that for `'a`, the bytes of
+/// the `D` are accessed only through the result, and the bytes of the value are not written.
+///
+/// A reference that `puns` returned is shared, so the bytes of a value that `puns` checked are not
+/// for this function while it lives: it is for the bytes that unsafe code owns, as `nearest` owns
+/// a region. What is written through the result is what later reads of the target rely on.
+///
+/// # Compile-time errors
+///
+/// As for [`aim`].
+#[doc(hidden)]
+#[inline(always)]
+#[must_use]
+pub const unsafe fn aim_mut<'a, S: ?Sized + Pun, D: ?Sized + Pun, const RULE: usize>(
+  holder: *mut S,
+) -> &'a mut D {
+  // SAFETY: The requirements of `target` are those of this call. The `D` at the address that it
+  // returns, with its length, is valid and aligned, and accessed only through the result for `'a`,
+  // by contract on the caller, so it can be borrowed mutably for `'a`. The pointer is made from
+  // `holder`, a `*mut S`, so it may write.
+  unsafe { &mut *target::<S, D, RULE>(holder.cast_const()).cast_mut() }
 }

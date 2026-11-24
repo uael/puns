@@ -271,17 +271,27 @@ impl Parse for TagOption {
   }
 }
 
-/// The eager aim of `#[pun(aim(..))]`: `Type = EXPR`, the type of the target and where it starts.
+/// The eager aim of `#[pun(aim(..))]`: `name: Type = EXPR` or `Type = EXPR`, the name of the
+/// methods that read the target, if any, the type of the target and where it starts.
 struct AimOption {
+  name: Option<Ident>,
   target: Type,
   start: Expr,
 }
 
 impl Parse for AimOption {
   fn parse(input: ParseStream) -> Result<Self> {
+    // A name is an identifier then one colon, where a type may start with an identifier then two.
+    let name = if input.peek(Ident) && input.peek2(Token![:]) && !input.peek2(Token![::]) {
+      let name = input.parse()?;
+      input.parse::<Token![:]>()?;
+      Some(name)
+    } else {
+      None
+    };
     let target = input.parse()?;
     input.parse::<Token![=]>()?;
-    Ok(Self { target, start: input.parse()? })
+    Ok(Self { name, target, start: input.parse()? })
   }
 }
 
@@ -1782,6 +1792,48 @@ fn aim_rule(
   Ok((rule, steps))
 }
 
+/// Returns the methods `name` and `name_mut` that read the target of the eager aim of the rule
+/// `index` of `Self`, a `target`, as visible as its field.
+fn read_aim(
+  name: &Ident,
+  target: &Type,
+  index: usize,
+  vis: &Visibility,
+  root: &TokenStream,
+) -> TokenStream {
+  let name_mut = format_ident!("{name}_mut");
+  let safety = "# Panics\n\nPanics if the `size` or `len` rule of the target reads a byte after its \
+                sized fields.\n\n# Compile-time errors\n\nA call compiles only if the target is \
+                sized or has a `size` or `len` rule.\n\n# Safety\n\nThe caller must ensure";
+  let doc = format!(
+    "Returns the target of the aim `{name}`, where the value at `this` points.\n\n{safety} the \
+     requirements of `puns::aim`: in short, the aim of the value at `this` gives the address of a \
+     valid target, as for a value that `puns` checked, `this` has the provenance of the bytes of \
+     the target, and these bytes and those of the value are not written for `'a`."
+  );
+  let doc_mut = format!(
+    "Returns the target of the aim `{name}`, to write, where the value at `this` points.\n\n\
+     {safety} the requirements of `puns::aim_mut`: in short, those of `{name}`, but that for `'a` \
+     the bytes of the target are accessed only through the result."
+  );
+  quote! {
+    #[doc = #doc]
+    #[inline]
+    #vis const unsafe fn #name<'a>(this: *const Self) -> &'a #target {
+      // SAFETY: The requirements of `aim` are those of this call. The rule `#index` is the aim.
+      unsafe { #root::aim::<Self, #target, #index>(this) }
+    }
+
+    #[doc = #doc_mut]
+    #[inline]
+    #[allow(dead_code, reason = "written with the method that reads, which the name asks for")]
+    #vis const unsafe fn #name_mut<'a>(this: *mut Self) -> &'a mut #target {
+      // SAFETY: The requirements of `aim_mut` are those of this call. The rule `#index` is the aim.
+      unsafe { #root::aim_mut::<Self, #target, #index>(this) }
+    }
+  }
+}
+
 /// Returns the constant that pins the types whose functions the generated code calls to make the
 /// aims of a struct, and the type of the field of an eager aim, as [`pin`] pins the others.
 fn pin_aims(root: &TokenStream) -> TokenStream {
@@ -2018,12 +2070,16 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   let mut has_aims = false;
   for (i, field) in fields.iter().enumerate() {
     let last = i + 1 == count;
-    if let Some(AimOption { target, start }) = &field.options.aim {
+    if let Some(AimOption { name, target, start }) = &field.options.aim {
       let (aim, steps) =
         aim_rule(&target.to_token_stream(), &Door::Pointer(start), &fields, &root)?;
-      listed.push((rules.len(), steps, Some(target.to_token_stream())));
+      let index = rules.len();
+      listed.push((index, steps, Some(target.to_token_stream())));
       rules.push(aim);
       has_aims = true;
+      if let Some(name) = name {
+        accessors.push(read_aim(name, target, index, field.vis, &root));
+      }
     }
     if let Some(len) = &field.options.len {
       if !last {
@@ -2047,7 +2103,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         // reads from these bytes.
         let target = quote!([::core::primitive::u8]);
         let (aim, steps) = aim_rule(&target, &Door::Region(region.size.as_ref()), &fields, &root)?;
-        listed.push((rules.len(), steps, Some(target)));
+        let rule_index = rules.len();
+        listed.push((rule_index, steps, Some(target)));
         rules.push(aim);
         has_aims = true;
         accessors.push(region.ty.as_ref().map_or_else(
@@ -2064,7 +2121,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
               #[doc = #doc]
               #[inline]
               #vis const fn #name(&self) -> &[::core::primitive::u8] {
-                #root::region(self, #index)
+                #root::region::<Self, #rule_index>(self)
               }
             }
           },
@@ -2085,7 +2142,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
               #[doc = #doc]
               #[inline]
               #vis const fn #name(&self) -> ::core::result::Result<&#ty, #root::Error> {
-                #root::from_bytes::<#ty>(#root::region(self, #index))
+                #root::from_bytes::<#ty>(#root::region::<Self, #rule_index>(self))
               }
             }
           },

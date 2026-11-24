@@ -20,7 +20,7 @@ use puns::{InPlace, Pun, Thin};
 #[repr(transparent)]
 pub struct Near<T: ?Sized> {
   /// The distance to the target, from the address of the `Near`.
-  #[pun(aim(Thin<T, i32> = off as u128))]
+  #[pun(aim(target: Thin<T, i32> = off as u128))]
   off: InPlace<NonZero<i32>>,
   _t: PhantomData<T>,
   _pin: PhantomPinned,
@@ -37,11 +37,12 @@ impl<T: ?Sized + Pun> Near<T> {
   ///
   /// `image` holds the bytes in which `puns` checked this `Near`, and its target with it.
   pub unsafe fn get<'a>(&'a self, image: &'a [u8]) -> &'a T {
-    let at = ptr::from_ref(self).addr().wrapping_add_signed(self.off.get().get() as isize);
-    // SAFETY: A `Near` exists only where `puns` checked that its target is a valid `Thin<T, i32>`,
-    // aligned, in the bytes that it checked, which `image` holds (the caller's contract), so a
-    // pointer to it with the provenance of `image` may read it.
-    unsafe { Thin::<T, i32>::get(image.as_ptr().with_addr(at)) }
+    #[expect(clippy::cast_ptr_alignment, reason = "the address of `self`, which is aligned")]
+    let this = image.as_ptr().with_addr(ptr::from_ref(self).addr()).cast::<Self>();
+    // SAFETY: A `Near` exists only where `puns` checked it with its target, in the bytes that it
+    // checked, which `image` holds (the caller's contract), so `this` has the provenance of the
+    // bytes of both, which are not written while `image` is borrowed.
+    unsafe { Self::target(this) }.value()
   }
 }
 

@@ -254,8 +254,14 @@ fn thin_over_a_struct_with_a_tail() {
 #[derive(Pun)]
 #[repr(transparent)]
 struct Back {
-  #[pun(aim(u16 = off as u128))]
+  #[pun(aim(back: u16 = off as u128))]
   off: InPlace<i16>,
+}
+
+/// `value`, which `puns` checked in `bytes`, at its address in them with their provenance: what the
+/// read of a target needs under the stacked borrows model of Miri.
+fn within<T>(value: &T, bytes: &[u8]) -> *const T {
+  bytes.as_ptr().with_addr(core::ptr::from_ref(value).addr()).cast()
 }
 
 #[test]
@@ -263,7 +269,10 @@ fn a_target_before_the_pointer() {
   // The target, 7, then a pointer 2 bytes after it, which points back at it.
   let words = [7, (-2i16).cast_unsigned(), 0];
   let bytes = puns::as_bytes(&words);
-  assert_eq!(puns::from_tail::<Back>(&bytes[..4]).map(|(_, back)| back.off.get()), Ok(-2));
+  let (_, back) = puns::from_tail::<Back>(&bytes[..4]).unwrap();
+  assert_eq!(back.off.get(), -2);
+  // SAFETY: `puns` checked `back` with its target, in `bytes`, which are not written.
+  assert_eq!(unsafe { Back::back(within(back, bytes)) }, &7);
   // The target is not in the bytes that are checked.
   assert_eq!(puns::from_bytes::<Back>(&bytes[2..4]).err(), Some(Error::Validity));
   // One byte before the target is not aligned for a `u16`.
@@ -276,7 +285,7 @@ fn a_target_before_the_pointer() {
 #[derive(Pun)]
 #[repr(transparent)]
 struct Second {
-  #[pun(aim([u32; 2] = signed(0, 4, Endian::Big) - 4))]
+  #[pun(aim(pair: [u32; 2] = signed(0, 4, Endian::Big) - 4))]
   off: InPlace<[u8; 4]>,
 }
 
@@ -285,8 +294,11 @@ fn where_a_target_starts_is_a_rule() {
   let at = |off: i32| [u32::from_ne_bytes(off.to_be_bytes()), 1, 2];
   // At 8, the second word of the pair at 4.
   let words = at(8);
-  let second = puns::from_head::<Second>(puns::as_bytes(&words)).unwrap().0;
+  let bytes = puns::as_bytes(&words);
+  let second = puns::from_head::<Second>(bytes).unwrap().0;
   assert_eq!(second.off.get(), 8i32.to_be_bytes());
+  // SAFETY: `puns` checked `second` with its target, in `bytes`, which are not written.
+  assert_eq!(unsafe { Second::pair(within(second, bytes)) }, &[1, 2]);
   // At 4: the pair at 0, which holds the pointer, as a target may.
   assert!(puns::from_head::<Second>(puns::as_bytes(&at(4))).is_ok());
   // At 12: the pair at 8 ends past the bytes.
@@ -300,7 +312,7 @@ fn where_a_target_starts_is_a_rule() {
 #[derive(Pun)]
 #[repr(C)]
 struct Message {
-  #[pun(aim(u16 = off as u128))]
+  #[pun(aim(word: u16 = off as u128))]
   off: InPlace<i16>,
   body_len: u16,
   #[pun(regions(header = 2, body: [Back] = body_len))]
@@ -315,10 +327,27 @@ fn regions_and_eager_aims_compose() {
   let words = message(-2);
   let message_at =
     |words: &[u16; 5]| puns::from_bytes::<Message>(puns::as_bytes(words)).map(|_| ());
-  let read = puns::from_bytes::<Message>(puns::as_bytes(&words)).unwrap();
+  let bytes = puns::as_bytes(&words);
+  let read = puns::from_bytes::<Message>(bytes).unwrap();
   assert_eq!(read.header(), &0x1234u16.to_ne_bytes()[..]);
   let body = read.body().unwrap();
   assert_eq!((body.len(), body[0].off.get(), body[1].off.get()), (2, 2, -2));
+  // The two doors read through one place: the word that the message points at is the header, and
+  // the targets of the pointers of the body are their words, read with the provenance of the
+  // bytes, which hold them all. The message is at the start of the bytes, and unsized: a pointer to
+  // its slice, cast to a pointer to it, has the same metadata.
+  #[expect(clippy::cast_ptr_alignment, reason = "the address of `read`, which is aligned")]
+  let holder = core::ptr::slice_from_raw_parts(bytes.as_ptr(), read.rest.len()) as *const Message;
+  // SAFETY: `puns` checked `read` with its target, and the region `body` with the targets of its
+  // pointers, in `bytes`, which are not written.
+  let (word, first, second) = unsafe {
+    (
+      Message::word(holder),
+      Back::back(within(&body[0], bytes)),
+      Back::back(within(&body[1], bytes)),
+    )
+  };
+  assert_eq!((*word, *first, *second), (0x1234, (-2i16).cast_unsigned(), 2));
   // The eager aim is checked with the message, and the pointers of the body when it is read,
   // within its bytes: one that points at the header is not.
   let words = message(-4);
@@ -328,6 +357,69 @@ fn regions_and_eager_aims_compose() {
   let mut words = message(-2);
   words[0] = 100;
   assert_eq!(message_at(&words), Err(Error::Validity));
+}
+
+/// A text that stores its length before its bytes, as a block of `nearest` does.
+#[derive(Pun)]
+#[repr(C)]
+struct Text {
+  len: u16,
+  #[pun(len = len)]
+  data: str,
+}
+
+/// A pointer to a `Text`.
+#[derive(Pun)]
+#[repr(transparent)]
+struct ToText {
+  #[pun(aim(text: Text = off as u128))]
+  off: InPlace<i16>,
+}
+
+#[test]
+fn an_unsized_target_is_read_with_its_length() {
+  // A pointer at 0 to the text at 2, of 3 bytes.
+  let mut words = [2, 3, u16::from_ne_bytes(*b"ab"), u16::from_ne_bytes([b'c', 0])];
+  let bytes = puns::as_bytes(&words);
+  let to = puns::from_head::<ToText>(bytes).unwrap().0;
+  // SAFETY: `puns` checked `to` with its target, in `bytes`, which are not written.
+  let text = unsafe { ToText::text(within(to, bytes)) };
+  assert_eq!((text.len, &text.data), (3, "abc"));
+  // To write, through a pointer to the bytes that `puns` checked, with their provenance.
+  let to = words.as_mut_ptr().cast::<ToText>();
+  // SAFETY: `puns` checked the `ToText` at `to` with its target, and neither changed. The bytes
+  // are accessed only through `text` while it lives, and an uppercase ASCII text is still one.
+  let text = unsafe { ToText::text_mut(to) };
+  text.data.make_ascii_uppercase();
+  assert_eq!(&puns::as_bytes(&words)[4..7], b"ABC");
+}
+
+/// A list whose length is its first element, after a byte: `size` and `len` rules are read from the
+/// sized fields of a target only.
+#[derive(Pun)]
+#[repr(C)]
+struct Counted {
+  first: u8,
+  #[pun(len = le(1, 1))]
+  data: [u8],
+}
+
+/// A pointer to a `Counted`.
+#[derive(Pun)]
+#[repr(transparent)]
+struct ToCounted {
+  #[pun(aim(counted: Counted = off as u128))]
+  off: InPlace<i8>,
+}
+
+#[test]
+#[should_panic = "the length of the target of an eager aim is read after its sized fields"]
+fn a_length_after_the_sized_fields_is_not_read() {
+  // A pointer at 0 to the list at 1, whose length, 2, is its first element.
+  let bytes = [1, 0, 2, 5];
+  let to = puns::from_head::<ToCounted>(&bytes).unwrap().0;
+  // SAFETY: `puns` checked `to` with its target, in `bytes`, which are not written.
+  let _ = unsafe { ToCounted::counted(within(to, &bytes)) };
 }
 
 /// An image under construction: values written at positions aligned for them, as a writer of

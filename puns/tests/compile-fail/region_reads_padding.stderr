@@ -34,7 +34,7 @@ note: erroneous constant encountered
   |   const { Plan::<S, [u8]>::BY_REF };
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-note: the above error was encountered while instantiating `fn puns::region::<Record>`
+note: the above error was encountered while instantiating `fn puns::region::<Record, 0>`
  --> tests/compile-fail/region_reads_padding.rs:2:10
   |
 2 | #[derive(puns::Pun)]

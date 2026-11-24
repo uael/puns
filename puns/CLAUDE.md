@@ -97,10 +97,17 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   safe code makes a value of the struct either. An `InPlace<T>` is a `T` in the layout. A
   lazy aim is a region, whose target is `[u8]`: it is checked by what reads it (`region`, then
   `from_bytes` for a region with a type).
-- Both kinds of aim are one rule (`Rule::Aim`), checked in one place (`validate::check_listed`)
-  and written by the derive in one place (`aim_rule` in `puns-derive`), which `aim(..)` and
-  `regions(..)` enter. A struct may have both, and the type of a region may hold eager aims
-  (`tests/aims.rs`).
+- Both kinds of aim are one rule (`Rule::Aim`), checked in one place (`validate::check_listed`),
+  written by the derive in one place (`aim_rule` in `puns-derive`), which `aim(..)` and
+  `regions(..)` enter, and found by what reads a target in one place (`validate::aim_at`), which
+  `region` and `aim`/`aim_mut` call by the index of the rule. A struct may have both, and the type
+  of a region may hold eager aims (`tests/aims.rs`).
+- The read of the target of an eager aim (`aim`, `aim_mut`, the methods of `aim(name: ..)`) is
+  `unsafe` and stays so: the derive is safe, so the type of a value does not tell that `puns`
+  checked it. Its `# Safety` is the contract of a writer such as `nearest`. It takes a pointer,
+  not a reference, so that a caller under stacked borrows can give the provenance of the checked
+  bytes. The length of an unsized target is read from its sized fields only (`validate::thin`,
+  which `Thin::get` uses too).
 - A layout cannot hold itself, so an aim holds the size, the alignment and the identity of its
   target, and the target is reached through `Pun::Rules` (`Rules::Target`). The identity of a type
   is `Pun::ID`, made of the identities of its parameters and never of a layout, which its layout
