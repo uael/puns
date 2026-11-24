@@ -5,7 +5,7 @@
 //! types that are not enums.
 //!
 //! This file needs the `unstable` feature (`required-features` in `puns/Cargo.toml`). Without it,
-//! `puns` does not depend on the layout that `rustc` chose.
+//! `puns` uses the layout that `rustc` chose only where it assumes it (`tests/assumed.rs`).
 
 // Validation recurses over the variants of an enum: `Many` has 300.
 #![recursion_limit = "1024"]

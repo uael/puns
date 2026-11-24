@@ -3,13 +3,16 @@
 //! Both are enums of the `Rust` representation. Their layouts are found in the same way as the
 //! layout of an enum of that representation that derives `Pun` ([`discover`](crate::discover)), for
 //! any `T` and `E` whose layout is known. Where `core` documents the layout, as for an `Option` of
-//! a `NonZero` (`Pun::NULL_OPTIMIZED`), it is a layout that Rust specifies. Otherwise it is a
-//! layout that Rust leaves to the compiler.
+//! a `NonZero` (`Pun::NULL_OPTIMIZED`), it is a layout that Rust specifies. Otherwise it is the
+//! layout that `puns` assumes of an enum of the `Rust` representation, checked against what is
+//! found ([`assume`](crate::assume)), where the assumption applies, and a layout that Rust leaves to
+//! the compiler elsewhere.
 //!
 //! `Option<NonZero<u32>>` is a niche at 0, so every `u32` is one, proven both ways.
 //! `Option<bool>` is the niche 2. `Option<Option<bool>>` has two niches, and `rustc` puts `None`
-//! at 255 today, below the valid values rather than after them. This is found, not assumed.
-//! `Option<u16>` has a tag of two bytes. `Result<u32, Infallible>` is a struct of its `u32`.
+//! at 255 today, below the valid values rather than after them. This is found, and the assumption
+//! gives the same. `Option<u16>` has a tag of two bytes. `Result<u32, Infallible>` is a struct of
+//! its `u32`.
 //!
 //! An `Option` of a scalar that a pun never makes ([`Spec::never`](crate::layout::Spec::never)) is
 //! not found so, since `puns` has no sample value of such a scalar. Its layout is a scalar of the
@@ -53,6 +56,8 @@ trait Found: Sized {
   const SAMPLES: [MaybeUninit<Self>; 2];
   /// The offset of the field of each variant, or 0 if it has none.
   const OFFSETS: [usize; 2];
+  /// The fields of each variant, at the offsets observed on its sample.
+  const FIELDS: [&'static [Field]; 2];
   /// What the experiments on the samples find.
   const DESC: Desc<2>;
   /// The layout of the tag.
@@ -144,9 +149,13 @@ const fn discovered<T: Pun>() -> Layout {
   let layout = Layout::enumeration::<Option<T>>(const { &<Option<T> as Found>::ENUM })
     .identified(<Option<T> as Pun>::ID);
   // Where `core` documents it (a `NonZero`, a `repr(transparent)` struct around one), what is
-  // found is what it documents: a niche at zero, which is `None`. Else Rust specifies nothing of
-  // it (see "The `unstable` feature" in the crate documentation).
-  if T::NULL_OPTIMIZED { layout } else { layout.unspecified() }
+  // found is what it documents: a niche at zero, which is `None`. Else it is the layout that
+  // `puns` assumes of an enum of the `Rust` representation, where it applies.
+  if T::NULL_OPTIMIZED {
+    layout
+  } else {
+    layout.assumed::<Option<T>, 2>(&<Option<T> as Found>::DESC, &<Option<T> as Found>::FIELDS)
+  }
 }
 
 impl<T: Pun> Found for Option<T> {
@@ -181,13 +190,12 @@ impl<T: Pun> Found for Option<T> {
   } else {
     [0, 0]
   };
+  const FIELDS: [&'static [Field]; 2] =
+    [&[], &[Field::new(<Self as Found>::OFFSETS[1], &T::LAYOUT)]];
   // SAFETY: `DESC` is an associated constant, so the call is evaluated at compile time, which is
   // what `discover` requires.
   const DESC: Desc<2> = unsafe {
-    crate::discover::discover::<Self, 2>(
-      &<Self as Found>::SAMPLES,
-      &[&[], &[Field::new(<Self as Found>::OFFSETS[1], &T::LAYOUT)]],
-    )
+    crate::discover::discover::<Self, 2>(&<Self as Found>::SAMPLES, &<Self as Found>::FIELDS)
   };
   const TAG: Layout = const { &<Self as Found>::DESC }.tag();
   const VARIANTS: [Variant; 2] = [variant!(Self, 0), variant!(Self, 1, T)];
@@ -245,16 +253,14 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
     };
     [at, other]
   };
+  const FIELDS: [&'static [Field]; 2] = [
+    &[Field::new(<Self as Found>::OFFSETS[0], &T::LAYOUT)],
+    &[Field::new(<Self as Found>::OFFSETS[1], &E::LAYOUT)],
+  ];
   // SAFETY: `DESC` is an associated constant, so the call is evaluated at compile time, which is
   // what `discover` requires.
   const DESC: Desc<2> = unsafe {
-    crate::discover::discover::<Self, 2>(
-      &<Self as Found>::SAMPLES,
-      &[
-        &[Field::new(<Self as Found>::OFFSETS[0], &T::LAYOUT)],
-        &[Field::new(<Self as Found>::OFFSETS[1], &E::LAYOUT)],
-      ],
-    )
+    crate::discover::discover::<Self, 2>(&<Self as Found>::SAMPLES, &<Self as Found>::FIELDS)
   };
   const TAG: Layout = const { &<Self as Found>::DESC }.tag();
   const VARIANTS: [Variant; 2] = [variant!(Self, 0, T), variant!(Self, 1, E)];
@@ -306,11 +312,12 @@ unsafe impl<T: Pun, E: Pun> Pun for Result<T, E> {
     // `core` documents the layout where one of `T` and `E` is a type for which it documents
     // `Option`, and the other has size 0 and alignment 1: `Result<T, E>` has the size of that type,
     // and its variant has the bytes of its value. The other variant, if it has a value, is then the
-    // one initialized value that is not a value of that type, all zeros.
+    // one initialized value that is not a value of that type, all zeros. Else it is the layout that
+    // `puns` assumes of an enum of the `Rust` representation, where it applies.
     if T::NULL_OPTIMIZED && is_1_zst::<E>() || E::NULL_OPTIMIZED && is_1_zst::<T>() {
       layout
     } else {
-      layout.unspecified()
+      layout.assumed::<Self, 2>(&<Self as Found>::DESC, &<Self as Found>::FIELDS)
     }
   };
   const ID: Id = Id::new("Result", &[T::ID, E::ID]);

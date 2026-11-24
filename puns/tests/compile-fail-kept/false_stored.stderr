@@ -1,0 +1,426 @@
+error[E0080]: evaluation panicked: an enum of the `Rust` representation is not laid out as `puns` assumes (see "What `puns` assumes" in the crate documentation): `rustc` lays out enums otherwise, or the `Spec` of a scalar in it declares a type that its bytes are not (`Spec::stored_as`); enable the `unstable` feature, which uses the layout that `rustc` chose
+ --> src/std_enums.rs
+  |
+  |     discovered::<T>()
+  |     ^^^^^^^^^^^^^^^^^ evaluation of `puns::std_enums::<impl puns::Pun for std::option::Option<Plain>>::LAYOUT` failed inside this call
+  |
+note: inside `puns::std_enums::discovered::<Plain>`
+ --> src/std_enums.rs
+  |
+  |     layout.assumed::<Option<T>, 2>(&<Option<T> as Found>::DESC, &<Option<T> as Found>::FIELDS)
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::layout::Layout::assumed::<Option<Plain>, 2>`
+ --> src/layout.rs
+  |
+  |     if !UNSTABLE && crate::assume::holds::<E, V>(desc, fields) { self } else { self.unspecified() }
+  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: inside `puns::assume::holds::<Option<Plain>, 2>`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/assume.rs
+  |
+  | /   assert!(
+  | |     agrees,
+  | |     "an enum of the `Rust` representation is not laid out as `puns` assumes (see \"What `puns` \
+  | |      assumes\" in the crate documentation): `rustc` lays out enums otherwise, or the `Spec` of a \
+  | |      scalar in it declares a type that its bytes are not (`Spec::stored_as`); enable the \
+  | |      `unstable` feature, which uses the layout that `rustc` chose"
+  | |   );
+  | |___- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const ANALYSIS: Analysis = analyze(&S::LAYOUT, &D::LAYOUT);
+  |                                                   ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |     check(&Self::ANALYSIS, need, &S::LAYOUT, &D::LAYOUT)
+  |            ^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY };
+  |           ^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn try_pun::<[u8; 2], Option<Plain>>`
+  --> tests/compile-fail-kept/false_stored.rs:21:11
+   |
+21 |   let _ = puns::try_pun::<[u8; 2], Option<Plain>>([0; 2]);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const MARKS: Marks = Self::ANALYSIS.relation.marks;
+  |                        ^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   if const { !C::MARKS.any(P::LEAF, T::LAYOUT.leaves) } {
+  |               ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |       Shape::Pattern(_) if const { matches!(T::LAYOUT.kind, Kind::Pattern(dfa) if dfa.is_utf8()) } => {
+  |                                             ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   !T::LAYOUT.rules().is_empty() && C::MARKS.any(P::LEAF + T::LAYOUT.leaves - 1, 1)
+  |    ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   if const { !C::MARKS.any(P::LEAF, T::LAYOUT.leaves) } {
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     match const { T::LAYOUT.shape() } {
+  |                   ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     match const { T::LAYOUT.shape() } {
+  |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |       Shape::Enum(layout) if layout.union => validate_union::<C, T, T::Variants>(ptr),
+  |                   ^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |       Shape::Pattern(_) if const { matches!(T::LAYOUT.kind, Kind::Pattern(dfa) if dfa.is_utf8()) } => {
+  |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |           && (const { !rules_marked::<C, P, T>() } || check_rules(ptr))
+  |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
+  |                   ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   !T::LAYOUT.rules().is_empty() && C::MARKS.any(P::LEAF + T::LAYOUT.leaves - 1, 1)
+  |                                    ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/ptr.rs
+  |
+  |   if const { !T::LAYOUT.unsized_ } {
+  |               ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/ptr.rs
+  |
+  |   if const { !T::LAYOUT.unsized_ } {
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let rules = T::LAYOUT.rules();
+  |               ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   const { assert!(listed::<T, T::Rules>(0), "not the rules of the struct") };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   if const { T::LAYOUT.is_unsized() } {
+  |              ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let (layout, shape) = const { (T::LAYOUT, T::LAYOUT.tail_shape()) };
+  |                                             ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let (layout, shape) = const { (T::LAYOUT, T::LAYOUT.tail_shape()) };
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   if const { T::LAYOUT.is_unsized() } {
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let regions = match const { T::LAYOUT.rule(L::RULE) } {
+  |                               ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let regions = match const { T::LAYOUT.rule(L::RULE) } {
+  |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |     const OPS: &'static [Op] = T::LAYOUT.rule_ops(R::RULE);
+  |                                ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |       S::KIND != ONE || matches!(op_at(X::OPS, S::AT), Some(op) if !matches!(op, Op::Walk { .. })),
+  |                                        ^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  | /   const {
+  | |     assert!(
+  | |       S::KIND != ONE || matches!(op_at(X::OPS, S::AT), Some(op) if !matches!(op, Op::Walk { .. })),
+  | |       "not the operations of the expression"
+  | |     );
+  | |   };
+  | |___^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |       ONE => match const { op_at(X::OPS, S::AT) } {
+  |                                  ^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |       ONE => match const { op_at(X::OPS, S::AT) } {
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/narrow.rs
+  |
+  |   pub const PLAN: Plan = plan(X::OPS, &X::ENTRY);
+  |                               ^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         Some(op) => machine.apply(op, S::AT, const { Planned::<X>::PLAN.how[S::AT] }, base, size),
+  |                                                      ^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         Some(op) => machine.apply(op, S::AT, const { Planned::<X>::PLAN.how[S::AT] }, base, size),
+  |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         || matches!(op_at(X::OPS, W::AT), Some(Op::Walk { .. }))
+  |                           ^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  | /   const {
+  | |     assert!(
+  | |       W::KIND != WALK
+  | |         || matches!(op_at(X::OPS, W::AT), Some(Op::Walk { .. }))
+... |
+  | |     );
+  | |   };
+  | |___^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let Some(Op::Walk { var, .. }) = (const { op_at(X::OPS, W::AT) }) else {
+  |                                                   ^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let Some(Op::Walk { var, .. }) = (const { op_at(X::OPS, W::AT) }) else {
+  |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let fits = const { Planned::<X>::PLAN.how[W::AT].result };
+  |                      ^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let fits = const { Planned::<X>::PLAN.how[W::AT].result };
+  |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/std_enums.rs
+  |
+  |   if is_enum::<E>() { E::LAYOUT.variant_tag(index) } else { 0 }
+  |                       ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   if const { V::TAG.is_none() } {
+  |              ^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   if const { V::TAG.is_none() } {
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/std_enums.rs
+  |
+  |   matches!(E::LAYOUT.kind, Kind::Enum(_))
+  |            ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   match F::FIELD {
+  |         ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     (const { inhabited::<V::Fields>() } && every::<C, T, V::Fields>(ptr))
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |     + match F::FIELD {
+  |             ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
+  |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let Some(field) = (const { F::FIELD }) else { return true };
+  |                              ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let Some(field) = (const { F::FIELD }) else { return true };
+  |                     ^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let leaf = match F::FIELD {
+  |                      ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  | /   const {
+  | |     let leaf = match F::FIELD {
+  | |       Some(field) => P::LEAF + field.leaf(),
+  | |       None => P::LEAF,
+  | |     };
+  | |     assert!(<F::Path<P> as Path>::LEAF == leaf, "not where the field is");
+  | |   };
+  | |___^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   if const { !C::MARKS.any(P::LEAF, T::LAYOUT.leaves) } {
+  |                            ^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   !T::LAYOUT.rules().is_empty() && C::MARKS.any(P::LEAF + T::LAYOUT.leaves - 1, 1)
+  |                                                 ^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |       Some(field) => P::LEAF + field.leaf(),
+  |                      ^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let Some(expected) = (const { V::TAG }) else { return false };
+  |                                 ^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let Some(expected) = (const { V::TAG }) else { return false };
+  |                        ^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/std_enums.rs
+  |
+  |   if is_enum::<E>() { E::LAYOUT.variant_ranges(index) } else { None }
+  |                       ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let this = match const { V::RANGES } {
+  |                            ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let this = match const { V::RANGES } {
+  |                    ^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |       (const { inhabited::<V::Fields>() }) && every::<C, T, V::Fields>(ptr)
+  |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

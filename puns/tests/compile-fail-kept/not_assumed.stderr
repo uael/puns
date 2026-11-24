@@ -1,0 +1,180 @@
+error[E0080]: evaluation panicked:
+              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct or a tuple of the `Rust` representation, or an enum of it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+              This is at byte 0 of the target.
+
+    --> src/lib.rs
+     |
+     |   const TRY: () = Self::require(Self::check(Need::TRY));
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8; 4], std::option::Option<(bool, u16)>>::TRY` failed inside this call
+     |
+note: inside `puns::Plan::<[u8; 4], Option<(bool, u16)>>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY };
+  |           ^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn try_pun::<[u8; 4], Option<(bool, u16)>>`
+  --> tests/compile-fail-kept/not_assumed.rs:50:11
+   |
+50 |   let _ = puns::try_pun::<[u8; 4], Option<(bool, u16)>>([0; 4]);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked:
+              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct or a tuple of the `Rust` representation, or an enum of it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+              This is at byte 0 of the target.
+
+    --> src/lib.rs
+     |
+     |   const TRY: () = Self::require(Self::check(Need::TRY));
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8; 2], Twins>::TRY` failed inside this call
+     |
+note: inside `puns::Plan::<[u8; 2], Twins>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: the above error was encountered while instantiating `fn try_pun::<[u8; 2], Twins>`
+  --> tests/compile-fail-kept/not_assumed.rs:51:11
+   |
+51 |   let _ = puns::try_pun::<[u8; 2], Twins>([0; 2]);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked:
+              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct or a tuple of the `Rust` representation, or an enum of it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+              This is at byte 0 of the target.
+
+    --> src/lib.rs
+     |
+     |   const TRY: () = Self::require(Self::check(Need::TRY));
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u16; 3], Uneven>::TRY` failed inside this call
+     |
+note: inside `puns::Plan::<[u16; 3], Uneven>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: the above error was encountered while instantiating `fn try_pun::<[u16; 3], Uneven>`
+  --> tests/compile-fail-kept/not_assumed.rs:52:11
+   |
+52 |   let _ = puns::try_pun::<[u16; 3], Uneven>([0; 3]);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked:
+              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct or a tuple of the `Rust` representation, or an enum of it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+              This is at byte 0 of the target.
+              The source or the target has such a part that has no identity, so that not even the same type proves it: an instance of a generic type has an identity only if each of its type parameters has one, which `PhantomData` and a `Scalar` implemented by hand do not, and a generic type that derives `Pun` only if each of its type parameters is bounded by `Pun` where the derive sees it (`<T: Pun>`, `where T: Pun`, or `#[pun(bound(T: Pun))]`).
+
+    --> src/lib.rs
+     |
+     |   const TRY: () = Self::require(Self::check(Need::TRY));
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8; 2], std::option::Option<Percent>>::TRY` failed inside this call
+     |
+note: inside `puns::Plan::<[u8; 2], Option<Percent>>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: the above error was encountered while instantiating `fn try_pun::<[u8; 2], Option<Percent>>`
+  --> tests/compile-fail-kept/not_assumed.rs:54:11
+   |
+54 |   let _ = puns::try_pun::<[u8; 2], Option<Percent>>([0; 2]);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked:
+              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct or a tuple of the `Rust` representation, or an enum of it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+              This is at byte 0 of the target.
+              The source or the target has such a part that has no identity, so that not even the same type proves it: an instance of a generic type has an identity only if each of its type parameters has one, which `PhantomData` and a `Scalar` implemented by hand do not, and a generic type that derives `Pun` only if each of its type parameters is bounded by `Pun` where the derive sees it (`<T: Pun>`, `where T: Pun`, or `#[pun(bound(T: Pun))]`).
+
+    --> src/lib.rs
+     |
+     |   const BY_VALUE: () = Self::require(Self::check(Need::VALUE));
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8; 4], std::option::Option<U32le>>::BY_VALUE` failed inside this call
+     |
+note: inside `puns::Plan::<[u8; 4], Option<U32le>>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_VALUE };
+  |           ^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_VALUE };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn pun::<[u8; 4], Option<U32le>>`
+  --> tests/compile-fail-kept/not_assumed.rs:55:11
+   |
+55 |   let _ = puns::pun::<[u8; 4], Option<U32le>>([0; 4]);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

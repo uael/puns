@@ -59,6 +59,12 @@
 //! `puns` cannot make a value of one ([`sample`]). `Option<T>` and `Result<T, E>` are found the
 //! same way (`std_enums.rs`).
 //!
+//! Without the `unstable` feature, the layout found is compared with the one that `puns` assumes
+//! of such an enum ([`assume`](crate::assume)), where the assumption applies. The two must be the
+//! same, or the build fails, and the layout is then used as a layout that does not depend on the
+//! choices of the compiler. Where the assumption does not apply, it is a layout that Rust leaves
+//! to the compiler, which only the same type proves.
+//!
 //! # What the experiments rely on
 //!
 //! The experiments rely on these facts of the compiler, and on one fact of this crate.
@@ -473,6 +479,16 @@ impl<const V: usize> Desc<V> {
   #[must_use]
   pub const fn tag_offset(&self) -> usize {
     self.tag.0
+  }
+
+  /// Returns the size of the tag, 0 if there is none.
+  pub(crate) const fn tag_size(&self) -> usize {
+    self.tag.1
+  }
+
+  /// Returns the tag of the `variant`th variant, if it has values and does not hold the tag.
+  pub(crate) const fn tag_of(&self, variant: usize) -> u128 {
+    self.tags[variant].0
   }
 
   /// Returns whether the `variant`th variant holds the tag in a niche.
