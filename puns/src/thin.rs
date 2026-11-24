@@ -17,7 +17,7 @@ use crate::{
   Fields, Path, Pun, RuleAt, Rules, Steps,
   layout::{self, Field, Id, Layout, Offsets, Op, Rule},
   ptr,
-  steps::{One, Two},
+  steps::One,
 };
 
 /// The seal of [`Store`].
@@ -79,26 +79,23 @@ impl Length for NoLength {
   const META: Id = Id::new("()", &[]);
 }
 
-/// The steps of the `len` rule of a `Thin` of an unsized type (`LenOps`): seven operations.
-type LenSteps =
-  Two<Two<One<0>, Two<One<1>, One<2>>>, Two<Two<One<3>, One<4>>, Two<One<5>, One<6>>>>;
+/// The steps of the `len` rule of a `Thin` of an unsized type (`LenOps`): one operation.
+type LenSteps = One<0>;
 
 /// The `len` rule of a `Thin` whose length is stored as an `M` at its start.
 #[doc(hidden)]
 pub struct LenOps<M>(PhantomData<M>);
 
 impl<M: Pun> LenOps<M> {
-  /// The length, an integer of the size and the byte order of `M`, whose highest bit is clear,
-  /// as that of a signed `M` that is not negative: `len - (len >> (bits - 1)) * 2^bits`, which
-  /// fails where that bit is set, since a difference below zero fails.
-  const OPS: [Op; 7] = {
+  /// The length, the integer of the size and the byte order of `M`, signed whatever `M` is. A
+  /// negative one is sign-extended to more than any length ([`Op::Load`]), which no value has, so
+  /// the rule fails where the highest bit is set.
+  const OPS: [Op; 1] = {
     let Some(spec) = M::LAYOUT.as_bits() else {
       panic!("the length of a `Thin` is an integer of 1 to 8 bytes, any of whose values is valid")
     };
     let big = matches!(spec.endian, layout::Endian::Big);
-    let load = Op::Load { offset: 0, size: spec.size as u8, big };
-    let bits = 8 * spec.size as u32;
-    [load, load, Op::Lit((bits - 1) as u128), Op::Shr, Op::Lit(1 << bits), Op::Mul, Op::Sub]
+    [Op::Load { offset: 0, size: spec.size as u8, big, signed: true }]
   };
 }
 
@@ -288,5 +285,5 @@ type Len<T, M> = <<T as Pun>::Metadata as Store>::Len<M>;
 
 /// The steps of the `len` rule, checked against the operations where the rule is applied.
 const _: () = {
-  assert!(<LenSteps as Steps>::FIRST == 0 && <LenSteps as Steps>::END == 7);
+  assert!(<LenSteps as Steps>::FIRST == 0 && <LenSteps as Steps>::END == 1);
 };

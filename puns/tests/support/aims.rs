@@ -25,7 +25,7 @@ pub struct Near<T: ?Sized> {
 /// The offset of a `Near`, sign-extended to an `i128` in two's complement:
 /// `off | (off >> 31) * (u128::MAX << 32)`.
 const AT: [Op; 7] = {
-  let load = Op::Load { offset: 0, size: 4, big: cfg!(target_endian = "big") };
+  let load = Op::Load { offset: 0, size: 4, big: cfg!(target_endian = "big"), signed: false };
   [load, load, Op::Lit(31), Op::Shr, Op::Lit(u128::MAX << 32), Op::Mul, Op::Or]
 };
 

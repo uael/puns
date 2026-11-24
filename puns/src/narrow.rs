@@ -14,12 +14,12 @@
 //!
 //! A value is known as two intervals, one for each half of a `u128` ([`Range`]). For example,
 //! `(kind << 64) + start` is a kind of `0..=255` in the high half and an offset in the low half. A
-//! field, a read of `n` bytes and a checksum may be any value of their width. A literal is itself,
-//! and a comparison is `0..=1`. `size_of_val(self)` is at most `isize::MAX` ([`SIZE_MAX`]). A QUIC
-//! integer is 62 bits, and the other integers of variable length may be anything. Each operation
-//! makes the range of its result from those of its operands, and tells whether it may fail. A sum
-//! whose bounds do not overflow cannot fail. Nor can a difference whose left side is never less
-//! than its right side.
+//! field, a read of `n` bytes and a checksum may be any value of their width, and a signed one,
+//! sign-extended, any value of 128 bits. A literal is itself, and a comparison is `0..=1`.
+//! `size_of_val(self)` is at most `isize::MAX` ([`SIZE_MAX`]). A QUIC integer is 62 bits, and the
+//! other integers of variable length may be anything. Each operation makes the range of its result
+//! from those of its operands, and tells whether it may fail. A sum whose bounds do not overflow
+//! cannot fail. Nor can a difference whose left side is never less than its right side.
 //!
 //! A read that succeeds tells that its offsets are in the value. Examples are `be(at, 1)` and a
 //! checksum over `start..end`. After the read, a variable that was read at is at most `isize::MAX`
@@ -616,7 +616,8 @@ const fn analyze(ops: &[Op], vars: Vars, stop: usize, walks: usize) -> Plan {
     }
     let (pops, value) = match op {
       Op::Lit(value) => (0, Range::exact(value)),
-      Op::Load { size, .. } => (0, Range::bytes(size)),
+      // A signed integer is sign-extended: its high bits are all ones where it is negative.
+      Op::Load { size, signed, .. } => (0, if signed { Range::ANY } else { Range::bytes(size) }),
       Op::Size => (0, Range::new(0, SIZE_MAX)),
       Op::Get(index) => {
         stack[depth] = vars[index as usize];
@@ -641,9 +642,9 @@ const fn analyze(ops: &[Op], vars: Vars, stop: usize, walks: usize) -> Plan {
         continue;
       }
       Op::Not => (1, Range::new(0, 1)),
-      Op::At { size, .. } => {
+      Op::At { size, signed, .. } => {
         refine(&mut vars, tags[depth - 1], SIZE_MAX - size as u128);
-        (1, Range::bytes(size))
+        (1, if signed { Range::ANY } else { Range::bytes(size) })
       }
       Op::Varint { form, length } => {
         refine(&mut vars, tags[depth - 1], SIZE_MAX);

@@ -169,9 +169,8 @@ pub struct Spec {
   /// known beyond what its type guarantees (safe code may write any value of that type to the
   /// field), and for a scalar that may be uninitialized.
   pub(crate) known: Valid,
-  /// Whether the value of the scalar is the value of an unsigned integer, which rules can read. It
-  /// is not for a signed or floating-point number, a `bool`, a `char` or an enum.
-  pub(crate) number: bool,
+  /// How the rules of `#[derive(Pun)]` read the value of the scalar, if they read it.
+  pub(crate) number: Number,
   /// Whether the values that `known` lists are exactly those that Rust allows for the type. This is
   /// so only for the types of `core` that `puns` knows and whose validity Rust restricts (`bool`,
   /// `char`, `NonZero`) and for the enums without fields that derive `Pun`. `rustc` puts a niche
@@ -180,6 +179,20 @@ pub struct Spec {
   /// The layout of the type that the bytes of the scalar are, if its `Scalar` declares one
   /// ([`Spec::stored_as`]). Its niche is the niche of the scalar.
   pub(crate) stored: Option<&'static Layout>,
+}
+
+/// How the rules of `#[derive(Pun)]` read the value of a scalar ([`Spec::signed`],
+/// [`Spec::not_a_number`]).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Number {
+  /// An unsigned integer, whose value is its bytes in its byte order. A rule reads it as it is.
+  Unsigned,
+  /// A signed integer in two's complement. A rule reads it under a cast, as Rust converts it:
+  /// sign-extended, so that `-1` is `u128::MAX`.
+  Signed,
+  /// A floating-point number, a `bool`, a `char` or an enum, whose bits are not an integer. A rule
+  /// does not read it.
+  Not,
 }
 
 /// Returns the greatest value of an unsigned integer of `size` bytes, `u128::MAX` from 16 bytes.
@@ -213,7 +226,7 @@ impl Spec {
       endian: Endian::NATIVE,
       valid: Valid::Any,
       known: Valid::Any,
-      number: true,
+      number: Number::Unsigned,
       validity: false,
       stored: None,
     }
@@ -235,7 +248,7 @@ impl Spec {
       endian: Endian::NATIVE,
       valid: Valid::Any,
       known: Valid::Any,
-      number: true,
+      number: Number::Unsigned,
       validity: false,
       stored: None,
     }
@@ -264,7 +277,7 @@ impl Spec {
       endian,
       valid: Valid::Uninit,
       known: Valid::Uninit,
-      number: true,
+      number: Number::Unsigned,
       validity: false,
       stored: None,
     }
@@ -299,7 +312,7 @@ impl Spec {
       endian,
       valid: Valid::Any,
       known: Valid::Any,
-      number: true,
+      number: Number::Unsigned,
       validity: false,
       stored: None,
     }
@@ -396,20 +409,63 @@ impl Spec {
     matches!(self.known, Valid::Uninit)
   }
 
-  /// Returns the same scalar, whose bytes are not the value of an unsigned integer.
+  /// Returns the same scalar, whose bytes are not an integer.
   ///
-  /// This is the scalar of a signed or floating-point number, a `bool`, a `char` or an enum. The
-  /// expressions of `#[pun(..)]` compute on unsigned integers, and do not read such a scalar.
+  /// This is the scalar of a floating-point number, a `bool`, a `char` or an enum, whose bits are
+  /// not its value. The expressions of `#[pun(..)]` compute on integers, and do not read such a
+  /// scalar. A signed integer is [`Spec::signed`].
   ///
   /// # Examples
   ///
-  /// The `Spec` of `i16` is `Spec::any::<i16>().not_a_number()`. A type of two bytes that are a
-  /// signed number is declared the same way, and a rule then does not read it:
+  /// The `Spec` of `f32` is `Spec::any::<f32>().not_a_number()`. A type of two bytes that are a
+  /// floating-point number is declared the same way, and a rule then does not read it:
   ///
   /// ```should_panic
   /// use puns::{
   ///   Scalar,
   ///   layout::{Endian, Op, Spec},
+  /// };
+  ///
+  /// /// A floating-point number of two bytes (half precision), the most significant first.
+  /// #[derive(Clone, Copy)]
+  /// #[repr(transparent)]
+  /// struct F16be([u8; 2]);
+  ///
+  /// // SAFETY: `F16be` is `repr(transparent)` over `[u8; 2]`, so it has the layout of a `[u8; 2]`
+  /// // [1], and `SPEC` has its size. Every value is two initialized bytes, which `Spec::any`
+  /// // accepts, any two initialized bytes are a valid `F16be`, and it holds no `UnsafeCell`.
+  /// //
+  /// // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi:
+  /// //
+  /// //     Structs and enums with this representation have the same layout and ABI as the only
+  /// //     non-size 0 non-alignment 1 field, if present, or unit otherwise.
+  /// unsafe impl Scalar for F16be {
+  ///   const SPEC: Spec = Spec::any::<F16be>().with_endian(Endian::Big).not_a_number();
+  /// }
+  ///
+  /// // A rule reads a `u16`, but neither an `f32` nor an `F16be`.
+  /// let _ = Op::load::<u16>(0);
+  /// let _ = Op::load::<F16be>(0);
+  /// ```
+  #[must_use]
+  pub const fn not_a_number(self) -> Self {
+    Self { number: Number::Not, ..self }
+  }
+
+  /// Returns the same scalar, whose bytes are a signed integer in two's complement.
+  ///
+  /// This is the scalar of `i8` to `i128`, `isize`, `NonZero` of one of them, and the signed
+  /// integers of [`num`](crate::num). The expressions of `#[pun(..)]` compute on `u128`s, where a
+  /// negative number is not one, so a rule reads such a field only under a cast, `field as u128`
+  /// or `field as u16`, as Rust converts it: sign-extended to 128 bits, then truncated to the type
+  /// of the cast. A rule that names the field alone does not compile.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::{
+  ///   Pun, Scalar,
+  ///   layout::{Endian, Spec},
   /// };
   ///
   /// /// A signed number of two bytes, the most significant first.
@@ -426,16 +482,24 @@ impl Spec {
   /// //     Structs and enums with this representation have the same layout and ABI as the only
   /// //     non-size 0 non-alignment 1 field, if present, or unit otherwise.
   /// unsafe impl Scalar for I16be {
-  ///   const SPEC: Spec = Spec::any::<I16be>().with_endian(Endian::Big).not_a_number();
+  ///   const SPEC: Spec = Spec::any::<I16be>().with_endian(Endian::Big).signed();
   /// }
   ///
-  /// // A rule reads a `u16`, but neither an `i16` nor an `I16be`.
-  /// let _ = Op::load::<u16>(0);
-  /// let _ = Op::load::<I16be>(0);
+  /// /// A change of -10 to 10: `-3 as u16` is `0xfffd`, as in Rust.
+  /// #[derive(Pun)]
+  /// #[repr(C)]
+  /// #[pun(assert((delta as u16) <= 10 || (delta as u16) >= 0xfff6))]
+  /// struct Change {
+  ///   delta: I16be,
+  /// }
+  ///
+  /// assert!(puns::from_bytes::<Change>(&(-3i16).to_be_bytes()).is_ok());
+  /// assert!(puns::from_bytes::<Change>(&(-11i16).to_be_bytes()).is_err());
+  /// assert!(puns::from_bytes::<Change>(&10i16.to_be_bytes()).is_ok());
   /// ```
   #[must_use]
-  pub const fn not_a_number(self) -> Self {
-    Self { number: false, ..self }
+  pub const fn signed(self) -> Self {
+    Self { number: Number::Signed, ..self }
   }
 
   /// Returns the same scalar, whose values are those that Rust allows for its type
@@ -620,7 +684,7 @@ impl Spec {
   /// }
   ///
   /// // What a rule reads of it.
-  /// assert_eq!(Op::load::<Be16>(0), Op::Load { offset: 0, size: 2, big: true });
+  /// assert_eq!(Op::load::<Be16>(0), Op::Load { offset: 0, size: 2, big: true, signed: false });
   /// ```
   #[inline]
   #[must_use]
@@ -772,6 +836,17 @@ pub(crate) const unsafe fn load(ptr: *const u8, size: usize, endian: Endian) -> 
       }
     }
   }
+}
+
+/// Returns the signed integer of `size` bytes whose bits are the low bits of `value`, sign-extended
+/// to 128 bits in two's complement: what `as u128` makes of it in Rust.
+#[inline(always)]
+pub(crate) const fn sign_extend(value: u128, size: usize) -> u128 {
+  if size >= 16 {
+    return value;
+  }
+  let shift = 128 - 8 * size as u32;
+  ((value << shift).cast_signed() >> shift).cast_unsigned()
 }
 
 /// Returns the inclusive ranges of `values`, sorted, disjoint and not adjacent, and their count.
@@ -4117,14 +4192,30 @@ impl Layout {
 
   /// Returns the scalar of the unsigned integer that the layout is, if it is one.
   ///
-  /// This is a scalar of 1 to 16 bytes, always initialized, whose value is a number
-  /// ([`Spec::not_a_number`]), or a sized struct whose only field with a size is such a scalar, at
-  /// offset 0 and with the size of the struct. Rules read such a field.
+  /// This is what [`Layout::as_number`] returns, if it is unsigned. Rules read such a field as it
+  /// is.
   #[doc(hidden)]
   #[must_use]
   pub const fn as_integer(&self) -> Option<Spec> {
+    match self.as_number() {
+      Some(spec) if matches!(spec.number, Number::Unsigned) => Some(spec),
+      _ => None,
+    }
+  }
+
+  /// Returns the scalar of the integer that the layout is, signed or not, if it is one.
+  ///
+  /// This is a scalar of 1 to 16 bytes, always initialized, whose value is an integer
+  /// ([`Spec::signed`], [`Spec::not_a_number`]), or a sized struct whose only field with a size is
+  /// such a scalar, at offset 0 and with the size of the struct. Rules read such a field, a signed
+  /// one under a cast.
+  pub(crate) const fn as_number(&self) -> Option<Spec> {
     match self.kind {
-      Kind::Scalar(spec) if spec.is_integer() && spec.number && spec.size >= 1 => Some(spec),
+      Kind::Scalar(spec)
+        if spec.is_integer() && !matches!(spec.number, Number::Not) && spec.size >= 1 =>
+      {
+        Some(spec)
+      }
       Kind::Struct(fields, _) if !self.unsized_ => {
         let (mut inner, mut i): (Option<&Layout>, usize) = (None, 0);
         while i < fields.len() {
@@ -4138,7 +4229,7 @@ impl Layout {
           i += 1;
         }
         match inner {
-          Some(inner) => inner.as_integer(),
+          Some(inner) => inner.as_number(),
           None => None,
         }
       }
@@ -4864,7 +4955,7 @@ impl Dfa {
 pub enum Op {
   /// Pushes a constant.
   Lit(u128),
-  /// Pushes the unsigned integer of `size` bytes at `offset` in the struct, a field.
+  /// Pushes the integer of `size` bytes at `offset` in the struct, a field.
   Load {
     /// Where the integer is, in bytes from the start of the struct.
     offset: usize,
@@ -4872,18 +4963,23 @@ pub enum Op {
     size: u8,
     /// `true` if it is big-endian, `false` if little-endian.
     big: bool,
+    /// `true` if it is a signed integer in two's complement, which is pushed sign-extended to 128
+    /// bits, as `as u128` converts it in Rust, so that `-1` is `u128::MAX`.
+    signed: bool,
   },
   /// Pushes the extent of the value in bytes, `size_of_val(self)` in a rule. The extent is its size
   /// up to the end of its slice, without the padding that may follow the slice. A `size` or `len`
   /// rule, which defines it, does not read it.
   Size,
-  /// Replaces an offset with the unsigned integer of `size` bytes at that offset in the value.
-  /// Fails if these bytes are not all within the value.
+  /// Replaces an offset with the integer of `size` bytes at that offset in the value. Fails if
+  /// these bytes are not all within the value.
   At {
     /// The size in bytes of the integer.
     size: u8,
     /// `true` if it is big-endian, `false` if little-endian.
     big: bool,
+    /// `true` if it is a signed integer in two's complement, sign-extended as [`Op::Load`] does.
+    signed: bool,
   },
   /// Replaces an offset with the variable-length integer of the form `form` at that offset in the
   /// value or, with `length`, with its length in bytes. Fails if the integer does not end within
@@ -5064,8 +5160,8 @@ impl Op {
   /// Returns the operation that pushes the value of the field of type `T` at `offset`.
   ///
   /// `T` must be an unsigned integer, or a sized struct whose only field with a size is one and is
-  /// as large as the struct ([`Spec::not_a_number`] says what is not an integer). The operation
-  /// reads it in its byte order.
+  /// as large as the struct ([`Spec::signed`] and [`Spec::not_a_number`] say what is not one). The
+  /// operation reads it in its byte order.
   ///
   /// # Panics
   ///
@@ -5080,7 +5176,7 @@ impl Op {
   /// #[repr(transparent)]
   /// struct Port(u16be);
   ///
-  /// assert_eq!(Op::load::<u16be>(4), Op::Load { offset: 4, size: 2, big: true });
+  /// assert_eq!(Op::load::<u16be>(4), Op::Load { offset: 4, size: 2, big: true, signed: false });
   /// // A struct that holds one integer is that integer.
   /// assert_eq!(Op::load::<Port>(4), Op::load::<u16be>(4));
   /// ```
@@ -5088,12 +5184,49 @@ impl Op {
   pub const fn load<T: crate::Pun>(offset: usize) -> Self {
     let Some(spec) = T::LAYOUT.as_integer() else {
       panic!(
-        "a rule reads the unsigned integer fields of its struct, and this field is not one (a \
-         signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes \
-         with `le(offset, size)` or `be(offset, size)`"
+        "a rule reads the unsigned integer fields of its struct, and this field is not one: read a \
+         signed integer under a cast (`field as u128`), which sign-extends it, and the bytes of a \
+         floating-point number, a `bool`, a `char` or an enum with `le(offset, size)` or \
+         `be(offset, size)`"
       )
     };
-    Op::Load { offset, size: spec.size as u8, big: !spec.endian.is_little() }
+    Op::Load { offset, size: spec.size as u8, big: !spec.endian.is_little(), signed: false }
+  }
+
+  /// Returns the operation that pushes the value of the field of type `T` at `offset`, as `as`
+  /// converts it, for `#[derive(Pun)]`, which writes it under a cast.
+  ///
+  /// `T` is an integer, signed or not, or a sized struct whose only field with a size is one and is
+  /// as large as the struct. A signed integer is sign-extended ([`Spec::signed`]).
+  ///
+  /// # Panics
+  ///
+  /// Panics if `T` is neither an integer nor such a struct.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn load_as<T: crate::Pun>(offset: usize) -> Self {
+    let Some(spec) = T::LAYOUT.as_number() else {
+      panic!(
+        "a rule casts the integer fields of its struct, and this field is not one (a \
+         floating-point number, a `bool`, a `char` or an enum is not): read its bytes with \
+         `le(offset, size)` or `be(offset, size)`"
+      )
+    };
+    let signed = matches!(spec.number, Number::Signed);
+    Op::Load { offset, size: spec.size as u8, big: !spec.endian.is_little(), signed }
+  }
+
+  /// Returns [`Op::At`] of an integer of `size` bytes in the byte order `endian`, signed or not,
+  /// for `#[derive(Pun)]`.
+  ///
+  /// # Panics
+  ///
+  /// Panics if `size` is not 1 to 16.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn at(size: usize, endian: Endian, signed: bool) -> Self {
+    assert!(size >= 1 && size <= 16, "a rule reads an integer of 1 to 16 bytes");
+    Op::At { size: size as u8, big: !endian.is_little(), signed }
   }
 
   /// Returns whether two operations are the same, data included. Two [`Op::Matches`] are the same
@@ -5105,10 +5238,13 @@ impl Op {
   const fn equals(&self, other: &Op) -> bool {
     match (*self, *other) {
       (Op::Lit(a), Op::Lit(b)) => a == b,
-      (Op::Load { offset: a, size: b, big: c }, Op::Load { offset: x, size: y, big: z }) => {
+      (
+        Op::Load { offset: a, size: b, big: c, signed: d },
+        Op::Load { offset: w, size: x, big: y, signed: z },
+      ) => a == w && b == x && c == y && d == z,
+      (Op::At { size: a, big: b, signed: c }, Op::At { size: x, big: y, signed: z }) => {
         a == x && b == y && c == z
       }
-      (Op::At { size: a, big: b }, Op::At { size: x, big: y }) => a == x && b == y,
       (Op::Varint { form: a, length: b }, Op::Varint { form: x, length: y }) => {
         a as u8 == x as u8 && b == y
       }
@@ -6484,14 +6620,15 @@ impl Machine {
     let depth = self.depth;
     match op {
       Op::Lit(value) => self.push(value),
-      Op::Load { offset, size, big } => {
+      Op::Load { offset, size, big, signed } => {
         let endian = if big { Endian::Big } else { Endian::Little };
         // SAFETY: `op` is an operation of a rule that `Layout::structure` accepted, by contract on
         // the caller. `check_ops` asserted that a load reads 1 to 16 bytes within the sized
         // fields of the struct. `base` is valid for reads of these bytes, which are initialized,
         // by contract on the caller. So `add(offset)` stays within them, and they meet the
         // requirements of `load`.
-        self.push(unsafe { load(base.add(offset), size as usize, endian) });
+        let value = unsafe { load(base.add(offset), size as usize, endian) };
+        self.push(if signed { sign_extend(value, size as usize) } else { value });
       }
       Op::Size => self.push(size as u128),
       Op::Get(index) => self.push(fit(self.variables.get(index as usize), how.result)),
@@ -6516,7 +6653,7 @@ impl Machine {
         };
         return self.replace(value);
       }
-      Op::At { size: width, big } => {
+      Op::At { size: width, big, signed } => {
         let (offset, endian) =
           (self.get(depth - 1), if big { Endian::Big } else { Endian::Little });
         // In the value: one comparison of the offset, with what does not change in a walk.
@@ -6525,7 +6662,8 @@ impl Machine {
           // of `size` bytes, initialized since `op` reads bytes by offset, by contract on the
           // caller. `check_ops` asserted that `width` is 1 to 16. These are the requirements of
           // `add` and of `load`.
-          self.set(depth - 1, unsafe { load(base.add(offset as usize), width as usize, endian) });
+          let value = unsafe { load(base.add(offset as usize), width as usize, endian) };
+          self.set(depth - 1, if signed { sign_extend(value, width as usize) } else { value });
         } else {
           return false;
         }

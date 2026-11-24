@@ -452,8 +452,8 @@ fn op_name(op: &TokenStream) -> Option<String> {
 /// puts on it.
 fn effect(op: &TokenStream) -> (usize, usize) {
   match op_name(op).as_deref() {
-    Some("Lit" | "load" | "Size" | "Get") => (0, 1),
-    Some("At" | "Varint" | "Not" | "Walk" | "Shortcut" | "Then") => (1, 1),
+    Some("Lit" | "load" | "load_as" | "Size" | "Get") => (0, 1),
+    Some("at" | "Varint" | "Not" | "Walk" | "Shortcut" | "Then") => (1, 1),
     // After a branch, which it does not take off: see `layout::check_ops`.
     Some("Else") => (0, 0),
     Some("Select") => (3, 1),
@@ -694,7 +694,15 @@ fn compile(
         ops.push(quote_spanned!(expr.span()=> #op::Lit(#op::constant(&(#expr)))));
         return Ok(Ty::Int);
       }
-      let ty = compile(&cast.expr, fields, root, ops, scope)?;
+      let ty = match named_field(&cast.expr, fields, scope) {
+        // A field, signed or not: its value as `as` converts it, a signed one sign-extended.
+        Some((field, span)) => {
+          let (ty, offset) = (&field.home, &field.offset);
+          ops.push(located(quote!(#op::load_as::<#ty>(#offset)), span));
+          Ty::Int
+        }
+        None => compile(&cast.expr, fields, root, ops, scope)?,
+      };
       if let (Some(mask), Ty::Int) = (mask, ty) {
         ops.push(quote!(#op::Lit(#mask)));
         ops.push(quote!(#op::And));
@@ -837,11 +845,12 @@ fn compile(
       ops.push(checksum?);
       Ty::Int
     }
-    // `le(offset, size)`, `be(offset, size)`: an integer, anywhere in the value.
-    Expr::Call(call) if call.args.len() == 2 && (is_call(call, "le") || is_call(call, "be")) => {
+    // `le(offset, size)`, `be(offset, size)`, `signed(offset, size, endian)` and
+    // `unsigned(offset, size, endian)`: an integer, anywhere in the value.
+    Expr::Call(call) if read(call, root).is_some() => {
+      let Some((size, endian, signed)) = read(call, root) else { unreachable!() };
       int(&call.args[0], ops, scope)?;
-      let (size, big) = (&call.args[1], is_call(call, "be"));
-      ops.push(quote!(#op::At { size: #size, big: #big }));
+      ops.push(located(quote!(#op::at((#size) as usize, #endian, #signed)), size.span()));
       Ty::Int
     }
     // `matches(DFA, start, end)`: whether an automaton accepts the bytes.
@@ -917,15 +926,55 @@ fn compile(
   })
 }
 
+/// Returns the size, the byte order and whether it is signed of the integer that `call` reads, if
+/// it is `le(offset, N)`, `be(offset, N)`, `signed(offset, N, ENDIAN)` or
+/// `unsigned(offset, N, ENDIAN)`.
+fn read<'c>(call: &'c syn::ExprCall, root: &TokenStream) -> Option<(&'c Expr, TokenStream, bool)> {
+  let endian = quote!(#root::layout::Endian);
+  match call.args.len() {
+    2 if is_call(call, "le") => Some((&call.args[1], quote!(#endian::Little), false)),
+    2 if is_call(call, "be") => Some((&call.args[1], quote!(#endian::Big), false)),
+    3 if is_call(call, "signed") || is_call(call, "unsigned") => {
+      let order = &call.args[2];
+      Some((&call.args[1], quote!(#order), is_call(call, "signed")))
+    }
+    _ => None,
+  }
+}
+
+/// Returns the field that `expr` names, alone or in parentheses, and where it names it: `name`,
+/// unless a variable of `scope` has that name, or `self.name`.
+fn named_field<'f, 'a>(
+  expr: &Expr,
+  fields: &'f [FieldInfo<'a>],
+  scope: &Scope,
+) -> Option<(&'f FieldInfo<'a>, Span)> {
+  match expr {
+    Expr::Paren(inner) => named_field(&inner.expr, fields, scope),
+    Expr::Group(inner) => named_field(&inner.expr, fields, scope),
+    Expr::Path(path) => {
+      let ident = path.path.get_ident().filter(|ident| scope.get(ident).is_none())?;
+      let member = Member::Named(ident.clone());
+      fields.iter().find(|field| field.member == member).map(|field| (field, ident.span()))
+    }
+    Expr::Field(field) if matches!(&*field.base, Expr::Path(path) if path.path.is_ident("self")) => {
+      fields.iter().find(|found| found.member == field.member).map(|found| (found, field.span()))
+    }
+    _ => None,
+  }
+}
+
 /// The functions that a rule can call, as messages name them.
-const FUNCTIONS: &str = "`size_of_val(self)`, `le`, `be`, `leb128`, `leb128_len`, `quic`, \
-                         `quic_len`, `vlq`, `vlq_len`, `crc32`, `crc::<..>`, `sum16`, `sum`, \
-                         `fletcher16`, `adler32`, `matches` and `walk`";
+const FUNCTIONS: &str = "`size_of_val(self)`, `le`, `be`, `signed`, `unsigned`, `leb128`, \
+                         `leb128_len`, `quic`, `quic_len`, `vlq`, `vlq_len`, `crc32`, `crc::<..>`, \
+                         `sum16`, `sum`, `fletcher16`, `adler32`, `matches` and `walk`";
 
 /// The functions of rules, and how many arguments each takes (`crc32` and `crc` also take 4).
-const ARITIES: [(&str, usize); 16] = [
+const ARITIES: [(&str, usize); 18] = [
   ("le", 2),
   ("be", 2),
+  ("signed", 3),
+  ("unsigned", 3),
   ("leb128", 1),
   ("leb128_len", 1),
   ("quic", 1),

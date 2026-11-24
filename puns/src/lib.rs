@@ -1399,9 +1399,12 @@ pub use layout::{crc32, sum16};
 ///
 /// A rule is made of:
 ///
-/// - the fields of its struct that are unsigned integers (`u8`, `u16be`, `NonZero<u32>`...), or
+/// - the fields of its struct that are integers (`u8`, `u16be`, `NonZero<u32>`, `i32`...), or
 ///   sized structs whose only field with a size is one of these and is as large as the struct. A
-///   field is named by its name, or as `self.name` (`self.0` in a tuple struct). A signed or
+///   field is named by its name, or as `self.name` (`self.0` in a tuple struct). A signed integer
+///   is named only under a cast, as in `off as u128` or `delta as u16`, which means what it means
+///   in Rust: the value sign-extended to 128 bits, then truncated to the type of the cast, so that
+///   `-1 as u128` is `u128::MAX`. Alone, it is refused, since a negative value is not a `u128`. A
 ///   floating-point number, a `bool`, a `char` or an enum is refused, since its bits are not its
 ///   value. A rule does not name the fields of a field or the elements of an array, but reads them
 ///   with `le` and `be`.
@@ -1417,7 +1420,8 @@ pub use layout::{crc32, sum16};
 /// - the operators `+ - * / % & | ^ << >> == != < <= > >= && || !`. On an integer, `!` is a bitwise
 ///   not (`!3` is `0xffff..fffc`). On a `bool`, it is a logical not.
 /// - casts: `as u8`, `as u16`, `as u32`, `as u64` and `as usize` keep the low bits, `as u128` keeps
-///   them all, and `true as u8` is `1`. A cast to another type is refused.
+///   them all, and `true as u8` is `1`. A signed field is sign-extended first. A cast to another
+///   type is refused.
 /// - blocks that name values, `{ let name = EXPR; .. EXPR }`, with at most 8 names at once. `let
 ///   name: u128` and `let name: bool` state the type.
 /// - choices, `if EXPR { EXPR } else { EXPR }`.
@@ -1450,6 +1454,10 @@ pub use layout::{crc32, sum16};
 ///
 /// - `le(offset, N)` and `be(offset, N)`: the unsigned integer of `N` bytes at `offset`,
 ///   little-endian or big-endian. `N` is a constant from 1 to 16.
+/// - `signed(offset, N, ENDIAN)` and `unsigned(offset, N, ENDIAN)`: the integer of `N` bytes at
+///   `offset` in the byte order `ENDIAN`, a constant [`layout::Endian`], such as one that a type
+///   parameter tells. A signed integer is sign-extended to 128 bits, as a cast of a signed field
+///   is, so that `signed(0, 2, Endian::Little)` of the bytes `[0xfe, 0xff]` is `-2 as u128`.
 /// - `leb128(offset)`, `quic(offset)` and `vlq(offset)`: the variable-length integer at `offset`.
 ///   LEB128 has 7 bits per byte, least significant first (Protocol Buffers, WebAssembly, MQTT).
 ///   QUIC (RFC 9000) has 1, 2, 4 or 8 bytes, as its two high bits say. VLQ is big-endian base 128
@@ -1532,7 +1540,8 @@ pub use layout::{crc32, sum16};
 /// - `len` and `regions` are on the last field, the last field of a struct with `len` is an array
 ///   or unsized, and only the last region of `regions` omits its size.
 /// - Every rule is an expression as described in "Expressions", of the type that its option
-///   requires, and each field it names is an unsigned integer, as above.
+///   requires, and each field it names is an unsigned integer, or a signed one under a cast, as
+///   above. The `N` of each `le`, `be`, `signed` and `unsigned` is 1 to 16.
 /// - A rule has at most 256 operations, needs a stack of at most 16 values, and has at most 8 names
 ///   at once. Its walks are nested at most 4 deep.
 /// - The width of each `crc::<..>` is 1 to 64 bits, and its other parameters fit in that width.
@@ -1541,7 +1550,7 @@ pub use layout::{crc32, sum16};
 ///
 /// For the methods that the derive generates for a struct, where they are used:
 ///
-/// - The fields that a `get` getter names are unsigned integers, as a rule requires.
+/// - The fields that a `get` getter names are unsigned integers.
 /// - A struct with `regions` has no padding, and a region with a type meets the compile-time
 ///   conditions of [`from_bytes`] for that type.
 ///
@@ -1795,7 +1804,7 @@ pub use layout::{crc32, sum16};
 /// assert!(matches!(Message::from_head(&[1, 7, 9]), Ok((Message::Ping(_), &[9]))));
 /// ```
 ///
-/// A rule reads unsigned integers. The bits of an `i8` are not its value as one:
+/// A rule reads a signed integer only under a cast, since a negative `i8` is not a `u128`:
 ///
 /// ```compile_fail,E0080
 /// use puns::Pun;
@@ -1806,6 +1815,22 @@ pub use layout::{crc32, sum16};
 /// struct Level {
 ///   level: i8,
 /// }
+/// ```
+///
+/// Under a cast, it means what it means in Rust, so that a level of -1 is not less than 8:
+///
+/// ```
+/// use puns::Pun;
+///
+/// #[derive(Pun)]
+/// #[repr(C)]
+/// #[pun(assert((level as u128) < 8))]
+/// struct Level {
+///   level: i8,
+/// }
+///
+/// assert!(puns::from_bytes::<Level>(&[7]).is_ok());
+/// assert!(puns::from_bytes::<Level>(&[(-1i8).cast_unsigned()]).is_err());
 /// ```
 ///
 /// The fields of a union are all at offset 0 only with `repr(C)`:
@@ -2714,17 +2739,19 @@ macro_rules! impl_any {
 impl_any!(() u8 u16 u32 u64 u128 usize);
 
 macro_rules! impl_bits {
-  ($($ty:ty)+) => {$(
+  ($number:ident: $($ty:ty)+) => {$(
     // SAFETY: As in the implementations of `impl_any!`: `$ty` is an integer or a floating-point
-    // type, whose valid values are all initialized bytes. `not_a_number` changes no value.
+    // type, whose valid values are all initialized bytes. `signed` and `not_a_number` change no
+    // value, only how rules read it.
     unsafe impl Scalar for $ty {
-      const SPEC: Spec = Spec::any::<$ty>().not_a_number();
+      const SPEC: Spec = Spec::any::<$ty>().$number();
       const ID: layout::Id = layout::Id::new(stringify!($ty), &[]);
     }
   )+};
 }
 
-impl_bits!(i8 i16 i32 i64 i128 isize f32 f64);
+impl_bits!(signed: i8 i16 i32 i64 i128 isize);
+impl_bits!(not_a_number: f32 f64);
 
 // SAFETY: `PhantomData<T>` has a size of 0 [1], and so does `Spec::any::<Self>()`. A value of
 // size 0 has no byte to hold or to accept, and `PhantomData<T>` has no invariant. It holds no
@@ -2790,14 +2817,14 @@ macro_rules! impl_signed_non_zero {
   ($($ty:ident)+) => {$(
     // SAFETY: As for the unsigned `NonZero` types above. `SPEC` accepts the bytes of `$ty` read
     // as an unsigned integer from 1 to the greatest value of its size: every bit pattern but all
-    // zeros, which is the only bit pattern of 0 in two's complement. `not_a_number` changes no
-    // value: the bits are not the value of the integer, so rules do not read them.
+    // zeros, which is the only bit pattern of 0 in two's complement. `signed` changes no value:
+    // the bits are the integer in two's complement, which rules read under a cast.
     unsafe impl Scalar for core::num::NonZero<$ty> {
       const SPEC: Spec = Spec::ranges::<$ty>(
         Endian::NATIVE,
         &[(1, u128::MAX >> (128 - 8 * size_of::<$ty>()))],
       )
-      .not_a_number()
+      .signed()
       .validity();
       const NULL_OPTIMIZED: bool = true;
       const ID: layout::Id = layout::Id::new(concat!("NonZero<", stringify!($ty), ">"), &[]);

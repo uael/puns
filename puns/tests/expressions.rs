@@ -328,3 +328,93 @@ fn a_typed_region_of_a_parameter() {
   assert_eq!((packet.kind, packet.body()), (7, Ok(&[true, false][..])));
   assert!(puns::from_bytes::<Packet<[bool]>>(&[7, 2]).unwrap().body().is_err());
 }
+
+/// Signed fields, which a rule reads under a cast, as Rust converts them: sign-extended to 128
+/// bits, then truncated to the type of the cast.
+#[derive(Pun)]
+#[repr(C)]
+#[pun(assert((small as u128) < 8 && small as u8 != 0x80))]
+#[pun(assert(order as u16 == 0xfffe && order as u128 == u128::MAX - 1))]
+#[pun(assert(never as u128 == u128::MAX && (self.wrapped as u128) < 0x8000))]
+struct Signed {
+  small: i8,
+  order: puns::num::i16be,
+  never: core::num::NonZero<i32>,
+  wrapped: Delta,
+}
+
+/// A signed integer in a struct of its own, which a rule reads as the integer.
+#[derive(Pun)]
+#[repr(transparent)]
+struct Delta(i16);
+
+#[test]
+fn a_signed_field_is_sign_extended() {
+  // `small` at 0, `order` at 1 (a `num` type has an alignment of 1), `never` at 4, `wrapped` at 8.
+  let bytes = |small: i8, wrapped: i16| {
+    let mut bytes = [0u8; 12];
+    bytes[0] = small.cast_unsigned();
+    bytes[1..3].copy_from_slice(&(-2i16).to_be_bytes());
+    bytes[4..8].copy_from_slice(&(-1i32).to_ne_bytes());
+    bytes[8..10].copy_from_slice(&wrapped.to_ne_bytes());
+    puns::pun::<[u8; 12], [u32; 3]>(bytes)
+  };
+  let check = |words: [u32; 3]| puns::from_bytes::<Signed>(puns::as_bytes(&words)).map(|_| ());
+  assert!(check(bytes(7, 1)).is_ok());
+  // -1 is `u128::MAX` under a cast, which is not less than 8, and -128 is `0x80` as a `u8`.
+  assert!(check(bytes(-1, 1)).is_err());
+  assert!(check(bytes(-128, 1)).is_err());
+  assert!(check(bytes(7, -1)).is_err());
+}
+
+/// As in Rust, a sum that overflows fails, and a negative number is near `u128::MAX` under a
+/// cast.
+#[derive(Pun)]
+#[repr(C)]
+#[pun(assert((value as u128) + 2 > 0))]
+struct Overflow {
+  value: i8,
+}
+
+#[test]
+fn a_negative_number_overflows_as_in_rust() {
+  assert!(puns::from_bytes::<Overflow>(&[1]).is_ok());
+  assert!(puns::from_bytes::<Overflow>(&[(-2i8).cast_unsigned()]).is_err());
+}
+
+/// A byte order that a type parameter tells.
+trait Order {
+  const ENDIAN: puns::layout::Endian;
+}
+
+struct Little;
+struct Big;
+
+impl Order for Little {
+  const ENDIAN: puns::layout::Endian = puns::layout::Endian::Little;
+}
+
+impl Order for Big {
+  const ENDIAN: puns::layout::Endian = puns::layout::Endian::Big;
+}
+
+/// Integers read by offset in the byte order of `E`, signed and not.
+#[derive(Pun)]
+#[repr(C)]
+#[pun(assert(signed(0, 2, E::ENDIAN) == u128::MAX - 1 && unsigned(0, 2, E::ENDIAN) == 0xfffe))]
+#[pun(assert(signed(2, 1, E::ENDIAN) == 0x7f && signed(0, 16, E::ENDIAN) != 0))]
+struct Ordered<E: Order> {
+  bytes: [u8; 16],
+  order: core::marker::PhantomData<E>,
+}
+
+#[test]
+fn a_read_of_a_given_byte_order() {
+  let mut bytes = [1u8; 16];
+  (bytes[0], bytes[1], bytes[2]) = (0xfe, 0xff, 0x7f);
+  assert!(puns::from_bytes::<Ordered<Little>>(&bytes).is_ok());
+  assert!(puns::from_bytes::<Ordered<Big>>(&bytes).is_err());
+  (bytes[0], bytes[1]) = (0xff, 0xfe);
+  assert!(puns::from_bytes::<Ordered<Big>>(&bytes).is_ok());
+  assert!(puns::from_bytes::<Ordered<Little>>(&bytes).is_err());
+}

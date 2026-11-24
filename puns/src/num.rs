@@ -464,6 +464,32 @@ macro_rules! order {
   };
 }
 
+/// How the rules of `#[derive(Pun)]` read a number of [`numbers!`] that holds a `$raw`: the
+/// method of its `Spec`, and what its documentation says.
+macro_rules! reading {
+  (f32, $what:ident) => {
+    reading!(@float $what)
+  };
+  (f64, $what:ident) => {
+    reading!(@float $what)
+  };
+  ($raw:ident, $what:ident) => {
+    reading!(@signed $what)
+  };
+  (@float spec) => {
+    Spec::not_a_number
+  };
+  (@float doc) => {
+    "Its bits are not its value as an integer, so the rules of `#[derive(Pun)]` do not read it."
+  };
+  (@signed spec) => {
+    Spec::signed
+  };
+  (@signed doc) => {
+    "The rules of `#[derive(Pun)]` read it under a cast, `field as u128`, sign-extended."
+  };
+}
+
 /// Defines, for each `$name: $raw[$size] $endian = $value`, a number `$name` of `$size` bytes of
 /// the byte order `$endian`, read as a `$raw`. Its examples use the value `$value`.
 macro_rules! numbers {
@@ -480,8 +506,7 @@ macro_rules! numbers {
       "Two values are equal if their bytes are.", order!($raw), " It is formatted as its value."
     )]
     ///
-    /// Its bits are not its value as an unsigned integer, so the rules of `#[derive(Pun)]` do not
-    /// read it.
+    #[doc = reading!($raw, doc)]
     ///
     /// # Examples
     ///
@@ -603,7 +628,7 @@ macro_rules! numbers {
     //     A struct, tuple, and array requires all fields/elements to be valid at their respective
     //     type.
     unsafe impl Scalar for $name {
-      const SPEC: Spec = Spec::any::<Self>().with_endian(Endian::$endian).not_a_number();
+      const SPEC: Spec = reading!($raw, spec)(Spec::any::<Self>().with_endian(Endian::$endian));
       const ID: Id = Id::new(stringify!($name), &[]);
     }
 
