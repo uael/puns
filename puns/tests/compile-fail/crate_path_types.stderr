@@ -1,44 +1,52 @@
 error[E0573]: expected type, found module `restricted::layout::Spec`
-  --> tests/compile-fail/crate_path_types.rs:83:10
+  --> tests/compile-fail/crate_path_types.rs:88:10
    |
-83 | #[derive(puns::Pun, Clone, Copy)]
+88 | #[derive(puns::Pun, Clone, Copy)]
    |          ^^^^^^^^^ not a type
    |
    = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0573]: expected type, found module `identified::layout::Id`
-  --> tests/compile-fail/crate_path_types.rs:91:10
+  --> tests/compile-fail/crate_path_types.rs:96:10
    |
-91 | #[derive(puns::Pun, Clone, Copy)]
+96 | #[derive(puns::Pun, Clone, Copy)]
    |          ^^^^^^^^^ not a type
    |
    = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0573]: expected type, found module `identified::layout::Id`
+   --> tests/compile-fail/crate_path_types.rs:103:10
+    |
+103 | #[derive(puns::Pun, Clone, Copy)]
+    |          ^^^^^^^^^ not a type
+    |
+    = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0573]: expected type, found module `varint::layout::Varint`
-  --> tests/compile-fail/crate_path_types.rs:98:10
-   |
-98 | #[derive(puns::Pun, Clone, Copy)]
-   |          ^^^^^^^^^ not a type
-   |
+   --> tests/compile-fail/crate_path_types.rs:111:10
+    |
+111 | #[derive(puns::Pun, Clone, Copy)]
+    |          ^^^^^^^^^ not a type
+    |
 note: similarly named struct `Variant` defined here
-  --> src/layout.rs
-   |
-   | pub struct Variant {
-   | ^^^^^^^^^^^^^^^^^^
-   = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
+   --> src/layout.rs
+    |
+    | pub struct Variant {
+    | ^^^^^^^^^^^^^^^^^^
+    = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0573]: expected type, found module `checksum::layout::Checksum`
-   --> tests/compile-fail/crate_path_types.rs:106:10
+   --> tests/compile-fail/crate_path_types.rs:119:10
     |
-106 | #[derive(puns::Pun, Clone, Copy)]
+119 | #[derive(puns::Pun, Clone, Copy)]
     |          ^^^^^^^^^ not a type
     |
     = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0308]: mismatched types
-   --> tests/compile-fail/crate_path_types.rs:114:10
+   --> tests/compile-fail/crate_path_types.rs:127:10
     |
-114 | #[derive(puns::Pun, Clone, Copy)]
+127 | #[derive(puns::Pun, Clone, Copy)]
     |          ^^^^^^^^^
     |          |
     |          expected `crc::layout::Crc`, found `puns::layout::Crc`

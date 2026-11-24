@@ -87,8 +87,9 @@ not compile.
 ## The identity of a type and the compiler
 
 The identity of a type, which says whether two layouts are of the same type, is the one exception.
-A macro that the derive names through the path of `puns` writes it where the type is declared, so a
-crate that redirects that path can give a type the identity of another. Two layouts count as the
+A macro that the derive names through the path of `puns` writes it where the type is declared,
+with the identities of its parameters, so a crate that redirects that path can give a type the
+identity of another. Two layouts count as the
 same type only if they are also equal, so this cannot make a wrong layout. It can make a verdict
 depend on how `rustc` arranged the two types in this compilation, which without the `unstable`
 feature no other verdict does ([The same type][same]).

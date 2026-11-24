@@ -6,7 +6,7 @@
 //! This module is not part of the API. It is compiled only with the `verdict` feature, which only
 //! tests may enable, and which changes nothing else.
 
-use crate::{Error, Need, Plan, Pun, Root, pun_unchecked, validate::validate};
+use crate::{Error, MESSAGE_LEN, Need, Plan, Pun, Root, pun_unchecked, validate::validate};
 
 /// Whether each of these public functions compiles for a pun from `S` to `D`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,13 +30,13 @@ pub struct Verdict {
   pub try_pun_mut: bool,
   /// The message of the compile error of `try_pun_ref`, and its length. The length is 0 if
   /// `try_pun_ref` compiles.
-  why: ([u8; 512], usize),
+  why: ([u8; MESSAGE_LEN], usize),
 }
 
 impl Verdict {
   /// Returns the message of the compile error of `try_pun_ref`, or `""` if it compiles.
   ///
-  /// The message is cut to 512 bytes. Returns `"(not UTF-8)"` if the cut is not UTF-8.
+  /// The message is cut to `MESSAGE_LEN` bytes. Returns `"(not UTF-8)"` if the cut is not UTF-8.
   #[must_use]
   pub fn why(&self) -> &str {
     core::str::from_utf8(self.why.0.split_at(self.why.1).0).unwrap_or("(not UTF-8)")
@@ -62,7 +62,7 @@ const fn ok<S: ?Sized + Pun, D: ?Sized + Pun>(need: Need) -> bool {
 pub const fn verdict<S: ?Sized + Pun, D: ?Sized + Pun>() -> Verdict {
   let mutable = Plan::<S, D>::MUTABLE;
   let why = match Plan::<S, D>::check(Need::TRY_REF) {
-    None => ([0; 512], 0),
+    None => ([0; MESSAGE_LEN], 0),
     Some(message) => (message.bytes, message.len),
   };
   Verdict {

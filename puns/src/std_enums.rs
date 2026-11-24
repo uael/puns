@@ -137,13 +137,13 @@ const unsafe fn never_option<T: Pun>() -> Layout {
     unsafe { crate::discover::read(&none, at, 1) };
     at += 1;
   }
-  Layout::scalar::<Option<T>>(Spec::never::<Option<T>>())
+  Layout::scalar::<Option<T>>(Spec::never::<Option<T>>()).identified(<Option<T> as Pun>::ID)
 }
 
 /// Returns the layout of `Option<T>` that the experiments on its samples find.
 const fn discovered<T: Pun>() -> Layout {
   let layout = Layout::enumeration::<Option<T>>(const { &<Option<T> as Found>::ENUM })
-    .identified(Id::new("Option", &[T::LAYOUT.id]));
+    .identified(<Option<T> as Pun>::ID);
   // Where `core` documents it (a `NonZero`, a `repr(transparent)` struct around one), what is
   // found is what it documents: a niche at zero, which is `None`. Else Rust specifies nothing of
   // it (`docs/layouts.md`, "Layout independence").
@@ -292,6 +292,7 @@ unsafe impl<T: Pun> Pun for Option<T> {
   } else {
     discovered::<T>()
   };
+  const ID: Id = Id::new("Option", &[T::ID]);
 }
 
 // SAFETY: The layout is the one that `rustc` gave `Result<T, E>`, found by the experiments of
@@ -307,8 +308,7 @@ unsafe impl<T: Pun, E: Pun> Pun for Result<T, E> {
   type Rules = ();
   const PROBE: *const Self = core::ptr::null();
   const LAYOUT: Layout = {
-    let layout = Layout::enumeration::<Self>(const { &<Self as Found>::ENUM })
-      .identified(Id::new("Result", &[T::LAYOUT.id, E::LAYOUT.id]));
+    let layout = Layout::enumeration::<Self>(const { &<Self as Found>::ENUM }).identified(Self::ID);
     // `core` documents the layout where one of `T` and `E` is a type for which it documents
     // `Option`, and the other has size 0 and alignment 1: `Result<T, E>` has the size of that type,
     // and its variant has the bytes of its value. The other variant, if it has a value, is then the
@@ -319,6 +319,7 @@ unsafe impl<T: Pun, E: Pun> Pun for Result<T, E> {
       layout.unspecified()
     }
   };
+  const ID: Id = Id::new("Result", &[T::ID, E::ID]);
 }
 
 /// Returns whether `T` has size 0 and alignment 1 (a "1-ZST").

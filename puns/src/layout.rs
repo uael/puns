@@ -807,29 +807,49 @@ impl Stable {
 
 /// The identity of a type, which tells two types apart where their layouts are the same.
 ///
-/// Without the `unstable` feature, a layout that Rust leaves to the compiler proves only the same
-/// type, at the same place, and [The same type](crate::reference::layouts#the-same-type) says why,
-/// and which types have an identity. An identity is a name, together with the identities of the
-/// parameters that make up the type. `__site!` names a type that derives `Pun` by where it is
-/// declared, and this crate names the types of `core` that it supports. Two identities are equal
-/// only if both are known, with the same name, length and parameters.
+/// A type has one layout in a program, but two types, however similar, may be laid out differently
+/// where Rust leaves the layout to the compiler (see "Layout is subject to change" in the
+/// documentation of `core::mem::offset_of!`). `Wrapper<u8, u8>` and `Wrapper<u8, i8>`, two
+/// instances of a generic struct of the `Rust` representation, may have their fields in different
+/// orders, as `-Zrandomize-layout` shows. Without the `unstable` feature, a layout that Rust leaves
+/// to the compiler proves only the same type, at the same place, and [The same
+/// type](crate::reference::layouts#the-same-type) says why, and which types have an identity.
 ///
-/// [`Id::NONE`] is the identity of a type that has none (a generic type that derives `Pun`,
-/// `PhantomData`, or a `Scalar` implemented by hand). It is equal to no identity, not even itself,
-/// and neither is an identity with a parameter that has none. Where two types have the same
-/// identity, the analysis still requires their layouts to be the same, so an identity can only
-/// refuse.
+/// Stable Rust cannot compare types in `const`, so an identity is a name, together with the
+/// identities of the parameters that make up the type. `__site!` names a type that derives `Pun` by
+/// where it is declared, and this crate names the types of `core` that it supports. The identity of
+/// an instance of a generic type that derives `Pun` has the identity of each of its type parameters
+/// (their `Pun::ID`, which needs no layout), and the value of each of its const parameters
+/// ([`Id::value`]), in order. Two identities are equal only if both are known, with the same name,
+/// length and parameters, except that a layout of `ManuallyDrop<T>`, which is the layout of `T`, is
+/// of the same type as `T` (`Id::equals`). As a parameter, `ManuallyDrop<T>` is another type than
+/// `T`. No parameter but a lifetime is left out, so two types with the same identity are the same
+/// type, unless a crate redirects the path of `puns` ("What the derive trusts" in the documentation
+/// of `#[derive(Pun)]`).
+///
+/// [`Id::NONE`] is the identity of a type that has none: a generic type that derives `Pun` with a
+/// type parameter that is not bounded by `Pun` where the derive sees it, `PhantomData`, or a
+/// `Scalar` implemented by hand. It is equal to no identity, not even itself, and neither is an
+/// identity with a parameter that has none. Where two types have the same identity, the analysis
+/// still requires their layouts to be the same, so an identity can only refuse.
 #[doc(hidden)]
 #[derive(Copy, Clone, Debug)]
 pub struct Id {
+  /// The name of the type, empty if it has none.
   name: &'static str,
+  /// The identities of its parameters.
   args: &'static [Id],
+  /// The length of an array type, or the value that tells apart the types of one name that are
+  /// not told apart by their parameters, such as the value of a const parameter.
   len: usize,
 }
 
 impl Id {
   /// The identity of a type that has none, equal to no identity.
   pub const NONE: Self = Self { name: "", args: &[], len: 0 };
+
+  /// The name of `ManuallyDrop<T>`, whose one parameter is `T`.
+  pub(crate) const MANUALLY_DROP: &'static str = "ManuallyDrop";
 
   /// Returns the identity of the type `name`, whose parameters have the identities `args`.
   #[doc(hidden)]
@@ -844,6 +864,24 @@ impl Id {
   #[must_use]
   pub const fn sized(name: &'static str, args: &'static [Id], len: usize) -> Self {
     Self { name, args, len }
+  }
+
+  /// Returns the identity of the value of a const parameter, `value` as an `i128`, or [`Id::NONE`]
+  /// if it is too large for a `usize` once its sign is folded in (`-n` is `2n - 1` and `n` is
+  /// `2n`), which only refuses.
+  ///
+  /// A const parameter of a stable Rust type (an integer, a `bool` or a `char`) is a distinct
+  /// `i128` for each distinct value, and the declaration of its generic type gives the type of each
+  /// parameter, so two values of one parameter have two identities.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn value(value: i128) -> Self {
+    // The sign folded into the lowest bit: every `i128` is another `u128`.
+    let folded = ((value << 1) ^ (value >> 127)).cast_unsigned();
+    if folded > usize::MAX as u128 {
+      return Self::NONE;
+    }
+    Self { name: "const", args: &[], len: folded as usize }
   }
 
   /// Returns whether the identity is known. It is known if the type and every parameter, at any
@@ -862,32 +900,61 @@ impl Id {
     true
   }
 
+  /// Returns the identity of the type that `self` holds in `ManuallyDrop`, as many times as it is
+  /// wrapped, or `self` if it is not.
+  const fn unwrapped(&self) -> &Self {
+    let mut id = self;
+    while id.args.len() == 1 && same_name(id.name, Self::MANUALLY_DROP) {
+      id = &id.args[0];
+    }
+    id
+  }
+
+  /// Returns whether two layouts whose identities are `self` and `other` are layouts of the same
+  /// type: the identities are the same once the `ManuallyDrop`s that wrap the whole of either are
+  /// taken off.
+  ///
+  /// `ManuallyDrop<T>` has the layout of `T`, so the two prove each other. As a parameter, it is
+  /// not `T`: `-Zrandomize-layout` arranges `Wrapper<ManuallyDrop<u8>, u16, u32>` and
+  /// `Wrapper<u8, u16, u32>` differently.
+  pub(crate) const fn equals(&self, other: &Id) -> bool {
+    self.unwrapped().same(other.unwrapped())
+  }
+
   /// Returns whether `self` and `other` are the identity of the same type (both are known, with the
   /// same name, length and parameters).
-  pub(crate) const fn equals(&self, other: &Id) -> bool {
+  const fn same(&self, other: &Id) -> bool {
     if !self.known() || !other.known() || self.len != other.len {
       return false;
     }
-    let (a, b) = (self.name.as_bytes(), other.name.as_bytes());
-    if a.len() != b.len() || self.args.len() != other.args.len() {
+    if !same_name(self.name, other.name) || self.args.len() != other.args.len() {
       return false;
     }
     let mut i = 0;
-    while i < a.len() {
-      if a[i] != b[i] {
-        return false;
-      }
-      i += 1;
-    }
-    let mut i = 0;
     while i < self.args.len() {
-      if !self.args[i].equals(&other.args[i]) {
+      if !self.args[i].same(&other.args[i]) {
         return false;
       }
       i += 1;
     }
     true
   }
+}
+
+/// Returns whether the names `a` and `b` are the same.
+const fn same_name(a: &str, b: &str) -> bool {
+  let (a, b) = (a.as_bytes(), b.as_bytes());
+  if a.len() != b.len() {
+    return false;
+  }
+  let mut i = 0;
+  while i < a.len() {
+    if a[i] != b[i] {
+      return false;
+    }
+    i += 1;
+  }
+  true
 }
 
 /// What a layout is made of.
@@ -2778,6 +2845,41 @@ impl Layout {
   #[must_use]
   pub const fn identified(self, id: Id) -> Self {
     Self { id, ..self }
+  }
+
+  /// Returns whether a part of the layout that only the same type proves, at any depth, has no
+  /// identity, so that nothing proves it, not even the same type.
+  ///
+  /// These are the parts at which [`analysis`](crate::analysis) compares identities: the outermost
+  /// parts that are not `fixed`. This is read only to explain a refusal.
+  pub(crate) const fn unidentified(&self) -> bool {
+    if !self.stable.fixed {
+      return !self.id.known();
+    }
+    match self.kind {
+      Kind::Scalar(_) | Kind::Pattern(_) => false,
+      Kind::Array(part, _) | Kind::Slice(part) => part.unidentified(),
+      Kind::Struct(fields, _) => {
+        let mut i = 0;
+        while i < fields.len() {
+          if fields[i].layout.unidentified() {
+            return true;
+          }
+          i += 1;
+        }
+        false
+      }
+      Kind::Enum(layout) => {
+        let mut i = 0;
+        while i < layout.variants.len() {
+          if layout.variants[i].layout.unidentified() {
+            return true;
+          }
+          i += 1;
+        }
+        false
+      }
+    }
   }
 
   /// Returns the same layout, marked as one that Rust leaves to the compiler, except for a size of

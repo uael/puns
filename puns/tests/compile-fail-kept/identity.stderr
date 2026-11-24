@@ -1,0 +1,167 @@
+error[E0080]: evaluation panicked:
+              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+              This is at byte 0 of the target.
+
+    --> src/lib.rs
+     |
+     |   const BY_VALUE: () = Self::require(Self::check(Need::VALUE));
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<(std::mem::ManuallyDrop<Mixed>, u8), (Mixed, u8)>::BY_VALUE` failed inside this call
+     |
+note: inside `puns::Plan::<(ManuallyDrop<Mixed>, u8), (Mixed, u8)>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_VALUE };
+  |           ^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_VALUE };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn pun::<(ManuallyDrop<Mixed>, u8), (Mixed, u8)>`
+  --> tests/compile-fail-kept/identity.rs:40:11
+   |
+40 |   let _ = puns::pun::<(ManuallyDrop<Mixed>, u8), (Mixed, u8)>((ManuallyDrop::new(mixed), 2));
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked:
+              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+              This is at byte 0 of the target.
+
+    --> src/lib.rs
+     |
+     |   const BY_VALUE: () = Self::require(Self::check(Need::VALUE));
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<Three<std::mem::ManuallyDrop<u8>, u16, u32>, Three<u8, u16, u32>>::BY_VALUE` failed inside this call
+     |
+note: inside `puns::Plan::<Three<ManuallyDrop<u8>, u16, u32>, Three<u8, u16, u32>>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: the above error was encountered while instantiating `fn pun::<Three<ManuallyDrop<u8>, u16, u32>, Three<u8, u16, u32>>`
+  --> tests/compile-fail-kept/identity.rs:42:11
+   |
+42 |   let _ = puns::pun::<Three<ManuallyDrop<u8>, u16, u32>, Three<u8, u16, u32>>(three);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked:
+              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+              This is at byte 0 of the target.
+
+    --> src/lib.rs
+     |
+     |   const BY_VALUE: () = Self::require(Self::check(Need::VALUE));
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<Three<u8, u16, u32>, Three<i8, u16, u32>>::BY_VALUE` failed inside this call
+     |
+note: inside `puns::Plan::<Three<u8, u16, u32>, Three<i8, u16, u32>>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: the above error was encountered while instantiating `fn pun::<Three<u8, u16, u32>, Three<i8, u16, u32>>`
+  --> tests/compile-fail-kept/identity.rs:44:11
+   |
+44 |   let _ = puns::pun::<Three<u8, u16, u32>, Three<i8, u16, u32>>(Three { a: 1, b: 2, c: 3 });
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked:
+              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+              This is at byte 0 of the target.
+
+    --> src/lib.rs
+     |
+     |   const BY_VALUE: () = Self::require(Self::check(Need::VALUE));
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<Valued<-1>, Valued<1>>::BY_VALUE` failed inside this call
+     |
+note: inside `puns::Plan::<Valued<-1>, Valued<1>>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: the above error was encountered while instantiating `fn pun::<Valued<-1>, Valued<1>>`
+  --> tests/compile-fail-kept/identity.rs:45:11
+   |
+45 |   let _ = puns::pun::<Valued<-1>, Valued<1>>(Valued { a: 1, b: true });
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked:
+              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
+              This is at byte 0 of the target.
+              The source or the target has such a part that has no identity, so that not even the same type proves it: an instance of a generic type has an identity only if each of its type parameters has one, which `PhantomData` and a `Scalar` implemented by hand do not, and a generic type that derives `Pun` only if each of its type parameters is bounded by `Pun` where the derive sees it (`<T: Pun>`, `where T: Pun`, or `#[pun(bound(T: Pun))]`).
+
+    --> src/lib.rs
+     |
+     |   const BY_VALUE: () = Self::require(Self::check(Need::VALUE));
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<Marked<u8>, Marked<u8>>::BY_VALUE` failed inside this call
+     |
+note: inside `puns::Plan::<Marked<u8>, Marked<u8>>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: the above error was encountered while instantiating `fn pun::<Marked<u8>, Marked<u8>>`
+  --> tests/compile-fail-kept/identity.rs:47:11
+   |
+47 |   let _ = puns::pun::<Marked<u8>, Marked<u8>>(Marked { a: 1, b: true, c: PhantomData });
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

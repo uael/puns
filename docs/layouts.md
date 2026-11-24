@@ -49,7 +49,8 @@ assert!(pair == (1, 2) || pair == (2, 1));
 | `pun` of `[u8; 4]` as `(u8, u16)` | proven | it requires only initialized bytes, wherever its padding is |
 | `pun` of a `repr(C)` struct that holds a `(bool, u8)` as itself, or `head` of it as that `(bool, u8)` | proven | the same type at the same place |
 | `pun` of an enum of the `Rust` representation that is not generic as itself | proven | a type has one layout in a program |
-| `pun` of a generic enum of the `Rust` representation, such as `enum E<T> { A(T), B(u16) }`, as itself | refused | it has no [identity](#the-same-type) |
+| `pun` of a generic enum of the `Rust` representation, such as `enum E<T> { A(T), B(u16) }`, as itself | proven | the same type with the same parameters ([identity](#the-same-type)) |
+| `pun` of a generic enum of the `Rust` representation whose parameter is only in a `PhantomData`, such as `enum P<T> { A(u8, PhantomData<T>), B(u16) }`, as itself | refused | the derive cannot name the identity of `T` ([identity](#the-same-type)) |
 | `pun` of `[bool; 2]` as `(bool, u8)` | proven | either byte may be the `bool`, and both are one |
 | `pun` of `[NonZero<u16>; 2]` as `(NonZero<u16>, u16)` | proven | both places hold a `NonZero<u16>` |
 | `pun` of `(u8, u8)` as a `repr(C)` union of a struct of the `Rust` representation and a `[u8; 2]` | proven | the `[u8; 2]` takes any bytes |
@@ -155,11 +156,21 @@ the path of the type as well.
 Stable Rust cannot compare types in `const`, where `TypeId` cannot be compared and `type_name`
 cannot be called. So `puns` gives a type an *identity*, a name together with the identities
 of the types it is made of. The primitive types, the types of [`num`], arrays, slices, tuples,
-`Option`, `Result` and `MaybeUninit` have identities, and `ManuallyDrop<T>` has that of `T`. A
-type that derives `Pun` is named by its module, file, line and column, its name, and the number
-of its derive in its crate. A generic type that derives `Pun`, a `PhantomData` and a [`Scalar`]
-implemented by hand have none, so a part with an unspecified layout that holds one proves itself
-only with the feature, unless it is proven field by field. A type whose parts all have the same
+`Option`, `Result`, `MaybeUninit` and `ManuallyDrop` have identities. A part that is a
+`ManuallyDrop<T>` is of the same type as a part that is a `T`, since `core` gives them one layout,
+but a type made of a `ManuallyDrop<T>` is not made of a `T`: `-Zrandomize-layout` arranges
+`Wrapper<ManuallyDrop<u8>, u16, u32>` and `Wrapper<u8, u16, u32>` differently. A type that derives
+`Pun` is named by its module, file, line and column, its name, and the number of its derive in its
+crate. An instance of a generic type that derives `Pun` is named, in addition, by the identity of
+each of its type parameters and the value of each of its const parameters, in order, so a
+`Pair<i32>` proves a `Pair<i32>`, and not a `Pair<u32>`. Its lifetimes do not count. The derive
+can name the identity of a type parameter only if the parameter is bounded by `Pun` where it sees
+it: in its bounds (`<T: Pun>`), in the `where` clause, in `#[pun(bound(..))]`, or by the bound
+that it adds for a field of type `T`. A generic type with a type parameter that is not, such as
+one that is only in a `PhantomData<T>`, has no identity, nor have a `PhantomData` and a
+[`Scalar`] implemented by hand, nor a type with a parameter that has none. A part with an
+unspecified layout that holds one of them proves itself only with the feature, unless it is proven
+field by field, and the refusal says so. A type whose parts all have the same
 layout in every build, such as a generic `repr(C)` struct of a `u8` and a `PhantomData<T>`,
 needs no identity. A part that holds a scalar of [`Spec::maybe_uninit`] is the same type as
 nothing, itself included. An identity only adds a condition, since the layouts must be the same

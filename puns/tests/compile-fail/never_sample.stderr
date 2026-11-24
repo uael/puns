@@ -67,7 +67,7 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/lib.rs
   |
-  |     check(&Self::ANALYSIS, need)
+  |     check(&Self::ANALYSIS, need, &S::LAYOUT, &D::LAYOUT)
   |            ^^^^^^^^^^^^^^
 
 note: erroneous constant encountered

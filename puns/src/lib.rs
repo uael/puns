@@ -201,6 +201,14 @@ pub use layout::{crc32, sum16};
 ///
 /// [`r-type.union.layout`]: https://doc.rust-lang.org/1.99.0/reference/types/union.html#r-type.union.layout
 ///
+/// # Generic types
+///
+/// Where only the same type proves a part ([The same
+/// type](crate::reference::layouts#the-same-type)), an instance of a generic type is the same type
+/// as another one with the same parameters, if each type parameter is bounded by `Pun` in the
+/// bounds of the type, in its `where` clause, in `#[pun(bound(..))]`, or by the bound that the
+/// derive adds for a field of that type. Otherwise it is not even the same type as itself.
+///
 /// # Attributes
 ///
 /// The `#[pun(..)]` attribute takes the options below, each on the items that its entry names.
@@ -711,6 +719,14 @@ pub unsafe trait Pun {
   const PROBE: *const Self;
   #[doc(hidden)]
   const LAYOUT: Layout;
+  /// The identity of `Self` (see `layout::Id`), which `LAYOUT` carries where the analysis compares
+  /// identities.
+  ///
+  /// The identity of a generic type is made of those of its parameters, not of their layouts, so
+  /// that a type that holds an instance of a generic type of itself, behind a pointer, does not
+  /// need its own layout to make the layout of that instance.
+  #[doc(hidden)]
+  const ID: layout::Id = Self::LAYOUT.id;
   /// Whether `core` guarantees that `Option<Self>` is `Self`, with `None` as all-zero bytes. That
   /// is so when `Self` is a `NonZero` integer, or a `repr(transparent)` struct around one
   /// ("Representation" in the documentation of `core::option`). The layout of `Option<Self>` is
@@ -1089,6 +1105,7 @@ unsafe impl<T: Scalar> Pun for T {
     let layout = Layout::scalar::<T>(T::SPEC).identified(T::ID);
     if T::SPECIFIED { layout } else { layout.unspecified() }
   };
+  const ID: layout::Id = T::ID;
   const NULL_OPTIMIZED: bool = T::NULL_OPTIMIZED;
 }
 
@@ -1116,8 +1133,8 @@ unsafe impl<T: Pun, const N: usize> Pun for [T; N] {
   type Variants = ();
   type Rules = ();
   const PROBE: *const Self = core::ptr::null();
-  const LAYOUT: Layout =
-    Layout::array(&T::LAYOUT, N).identified(layout::Id::sized("[T; N]", &[T::LAYOUT.id], N));
+  const LAYOUT: Layout = Layout::array(&T::LAYOUT, N).identified(Self::ID);
+  const ID: layout::Id = layout::Id::sized("[T; N]", &[T::ID], N);
 }
 
 // SAFETY: `Layout::slice` is the layout of elements that have the layout of `T`, the size of `T`
@@ -1138,8 +1155,9 @@ unsafe impl<T: Pun> Pun for [T] {
   type Rules = ();
   const PROBE: *const Self = core::ptr::slice_from_raw_parts(core::ptr::null(), ptr::PROBE_LEN);
   // SAFETY: `Self::PROBE` is `<[T] as Pun>::PROBE`, as `Layout::slice` requires.
-  const LAYOUT: Layout = unsafe { Layout::slice::<T>(Self::PROBE, &T::LAYOUT) }
-    .identified(layout::Id::new("[T]", &[T::LAYOUT.id]));
+  const LAYOUT: Layout =
+    unsafe { Layout::slice::<T>(Self::PROBE, &T::LAYOUT) }.identified(Self::ID);
+  const ID: layout::Id = layout::Id::new("[T]", &[T::ID]);
 }
 
 // SAFETY: `Layout::pattern` with `Dfa::UTF8` is a tail of bytes at offset 0, with alignment 1,
@@ -1169,13 +1187,15 @@ unsafe impl Pun for str {
   // SAFETY: `str` is `str`, and `Self::PROBE` is `<[u8] as Pun>::PROBE` cast to `*const str` with
   // an `as` cast. Its tail has `PROBE_LEN` (3) bytes, whose size fits in an `isize`. These are the
   // requirements of `Layout::pattern`.
-  const LAYOUT: Layout = unsafe { Layout::pattern::<str>(Self::PROBE, Dfa::UTF8) }
-    .identified(layout::Id::new("str", &[]));
+  const LAYOUT: Layout =
+    unsafe { Layout::pattern::<str>(Self::PROBE, Dfa::UTF8) }.identified(Self::ID);
+  const ID: layout::Id = layout::Id::new("str", &[]);
 }
 
 // SAFETY: `ManuallyDrop<T>` has the layout and the bit validity of `T` [1], so the layout of `T`,
-// and its lists, are those of `ManuallyDrop<T>`. It holds a `T` and nothing else, so it holds no
-// `UnsafeCell`, since `T: Pun`.
+// and its lists, are those of `ManuallyDrop<T>`. `identified` changes neither its size, its
+// alignment, nor its values. It holds a `T` and nothing else, so it holds no `UnsafeCell`, since
+// `T: Pun`.
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/struct.ManuallyDrop.html:
 //
@@ -1198,8 +1218,9 @@ unsafe impl<T: ?Sized + Pun> Pun for ManuallyDrop<T> {
       // `ManuallyDrop<T>` is represented as a pointer to a slice.
       unsafe { ptr::verify::<Self>(Self::PROBE) };
     }
-    T::LAYOUT
+    T::LAYOUT.identified(Self::ID)
   };
+  const ID: layout::Id = layout::Id::new(layout::Id::MANUALLY_DROP, &[T::ID]);
   // `ManuallyDrop<T>` "is subject to the same layout optimizations as `T`".
   const NULL_OPTIMIZED: bool = T::NULL_OPTIMIZED;
 }
@@ -1231,11 +1252,10 @@ unsafe impl<T: Pun> Pun for core::mem::MaybeUninit<T> {
   type Rules = ();
   const PROBE: *const Self = core::ptr::null();
   #[cfg(not(feature = "unstable"))]
-  const LAYOUT: Layout = Layout::padding::<Self>()
-    .sized_like(&T::LAYOUT)
-    .identified(layout::Id::new("MaybeUninit", &[T::LAYOUT.id]));
+  const LAYOUT: Layout = Layout::padding::<Self>().sized_like(&T::LAYOUT).identified(Self::ID);
   #[cfg(feature = "unstable")]
   const LAYOUT: Layout = Layout::padding::<Self>();
+  const ID: layout::Id = layout::Id::new("MaybeUninit", &[T::ID]);
 }
 
 // SAFETY: `Layout::uninhabited::<Self>()` has the size and the alignment of `Infallible`, and is an
@@ -1254,7 +1274,8 @@ unsafe impl Pun for core::convert::Infallible {
   type Variants = ();
   type Rules = ();
   const PROBE: *const Self = core::ptr::null();
-  const LAYOUT: Layout = Layout::uninhabited::<Self>().identified(layout::Id::new("!", &[]));
+  const LAYOUT: Layout = Layout::uninhabited::<Self>().identified(Self::ID);
+  const ID: layout::Id = layout::Id::new("!", &[]);
 }
 
 /// The `I`th field of the tuple `T`.
@@ -1314,8 +1335,9 @@ macro_rules! tuple {
         )
         // The `Rust` representation: what every order of its fields has.
         .rust(usize::MAX)
-        .identified(layout::Id::new("(..)", &[$($all::LAYOUT.id),+]))
+        .identified(Self::ID)
       };
+      const ID: layout::Id = layout::Id::new("(..)", &[$($all::ID),+]);
     }
   };
 }
@@ -1537,6 +1559,14 @@ impl Need {
   const TRY_REF: Need = Need { fallible: true, ..Need::REF };
 }
 
+/// Why nothing proves a part that only the same type proves, for a refusal of [`UNSPECIFIED`] where
+/// the source or the target has such a part without an identity (`Layout::unidentified`).
+const UNIDENTIFIED: &str = "The source or the target has such a part that has no identity, so \
+  that not even the same type proves it: an instance of a generic type has an identity only if \
+  each of its type parameters has one, which `PhantomData` and a `Scalar` implemented by hand do \
+  not, and a generic type that derives `Pun` only if each of its type parameters is bounded by \
+  `Pun` where the derive sees it (`<T: Pun>`, `where T: Pun`, or `#[pun(bound(T: Pun))]`)";
+
 /// A pun that depends on a layout that Rust leaves to the compiler.
 const UNSPECIFIED: &str = "the pun depends on a part of the source or of the target with an \
   unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or \
@@ -1558,7 +1588,13 @@ const UNSPECIFIED_MUT: &str = "what may be written through the `&mut` must leave
   `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`";
 
 /// Why a pun of which `analysis` is the analysis does not meet the `need`, if it does not.
-const fn check(analysis: &Analysis, need: Need) -> Option<Message> {
+/// `source` and `target` are the layouts of the two types, which explain a refusal.
+const fn check(
+  analysis: &Analysis,
+  need: Need,
+  source: &Layout,
+  target: &Layout,
+) -> Option<Message> {
   let Analysis { fit, relation, aligned, shift } = *analysis;
   match fit.exact {
     _ if need.part && fit.shrink => {}
@@ -1585,7 +1621,12 @@ const fn check(analysis: &Analysis, need: Need) -> Option<Message> {
   }
   // Offsets of the target.
   if let Some(offset) = relation.unspecified {
-    return Some(Message::new(UNSPECIFIED).at(offset.saturating_sub(shift)));
+    let message = Message::new(UNSPECIFIED).at(offset.saturating_sub(shift));
+    // Looked for only here, so that no pun that compiles pays for it.
+    if source.unidentified() || target.unidentified() {
+      return Some(message.str(".\n").str(UNIDENTIFIED));
+    }
+    return Some(message);
   }
   if let Some(offset) = relation.uninit {
     return Some(
@@ -1638,7 +1679,7 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
 
   /// Why the pun does not meet the `need`, if it does not.
   const fn check(need: Need) -> Option<Message> {
-    check(&Self::ANALYSIS, need)
+    check(&Self::ANALYSIS, need, &S::LAYOUT, &D::LAYOUT)
   }
 
   /// Why a `&mut` to a `D` cannot be made from a `&mut` to an `S`, when [`Plan::MUTABLE`] says
@@ -1659,7 +1700,7 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
     if D::LAYOUT.is_unsized() {
       return Some(Message::new(TAIL_UNSIZED_TARGET));
     }
-    match check(&Self::TAIL_ANALYSIS, Need { reference: false, ..need }) {
+    match check(&Self::TAIL_ANALYSIS, Need { reference: false, ..need }, &S::LAYOUT, &D::LAYOUT) {
       None if need.reference && !Self::TAIL_ANALYSIS.aligned => Some(Message::new(
         "the target has a greater alignment than the source.\nUse `tail` to copy it, or \
          `from_tail` to take it from bytes, whose address is checked at run time",
@@ -1860,15 +1901,18 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Checks for Plan<S, D> {
   const MARKS: Marks = Self::ANALYSIS.relation.marks;
 }
 
+/// The most bytes of a compile-time error message. The rest of a longer one is cut.
+pub(crate) const MESSAGE_LEN: usize = 1024;
+
 /// A compile-time error message, without `format!`.
 struct Message {
-  bytes: [u8; 512],
+  bytes: [u8; MESSAGE_LEN],
   len: usize,
 }
 
 impl Message {
   const fn new(what: &str) -> Self {
-    Self { bytes: [0; 512], len: 0 }.str("\ncannot pun: ").str(what)
+    Self { bytes: [0; MESSAGE_LEN], len: 0 }.str("\ncannot pun: ").str(what)
   }
 
   const fn str(mut self, str: &str) -> Self {
@@ -1902,8 +1946,8 @@ impl Message {
   const fn panic(self) -> ! {
     let this = self.str(".\n");
     // SAFETY: The first `len` bytes of `this.bytes` are the bytes of `str`s, one after the
-    // other, cut where they reach 512 bytes, and the digits of `at`. `Message::str`, which
-    // `Message::new` calls too, asserts that each `str` is ASCII, so the cut is between two
+    // other, cut where they reach `MESSAGE_LEN` bytes, and the digits of `at`. `Message::str`,
+    // which `Message::new` calls too, asserts that each `str` is ASCII, so the cut is between two
     // characters, and the bytes are UTF-8, as `from_utf8_unchecked` requires.
     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
   }

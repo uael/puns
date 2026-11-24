@@ -1,7 +1,8 @@
 //! `#[pun(crate = ..)]` cannot lead to other values than those of the crate for what a layout is
 //! made of: the values that `valid(..)` restricts a field to (`Spec`), the identity of a generic
-//! type (`Id::NONE`), the form of a variable-length integer (`Varint`), a checksum (`Checksum`) and
-//! a CRC (`Crc`) that a rule computes.
+//! type (`Id::new`, and `Id::NONE` where a parameter is not bounded by `Pun`), the form of a
+//! variable-length integer (`Varint`), a checksum (`Checksum`) and a CRC (`Crc`) that a rule
+//! computes.
 
 mod restricted {
   pub use puns::*;
@@ -32,6 +33,10 @@ mod identified {
     pub mod Id {
       /// An identity, for a type that has none.
       pub const NONE: puns::layout::Id = puns::layout::Id::new("chosen", &[]);
+      /// One identity, whatever the parameters are.
+      pub const fn new(_: &'static str, _: &'static [puns::layout::Id]) -> puns::layout::Id {
+        NONE
+      }
     }
   }
 }
@@ -96,6 +101,14 @@ struct Identified<T> {
 }
 
 #[derive(puns::Pun, Clone, Copy)]
+#[pun(crate = identified)]
+#[repr(C)]
+struct Unidentified<T> {
+  a: u8,
+  b: core::marker::PhantomData<T>,
+}
+
+#[derive(puns::Pun, Clone, Copy)]
 #[pun(crate = varint)]
 #[pun(assert(leb128(0) == 0x40))]
 #[repr(C)]
@@ -123,6 +136,7 @@ struct Checked {
 fn main() {
   let _ = puns::try_pun::<u8, Restricted>(7);
   let _ = puns::try_pun::<u8, Identified<u8>>(7);
+  let _ = puns::try_pun::<u8, Unidentified<u8>>(7);
   let _ = puns::try_pun::<[u8; 2], Leb>([0x40, 0]);
   let _ = puns::try_pun::<[u8; 2], Summed>([1, 2]);
   let _ = puns::try_pun::<[u8; 8], Checked>([0; 8]);
