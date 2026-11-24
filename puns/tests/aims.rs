@@ -295,6 +295,41 @@ fn where_a_target_starts_is_a_rule() {
   assert_eq!(puns::from_head::<Second>(puns::as_bytes(&at(0))).err(), Some(Error::Validity));
 }
 
+/// A message that points at a word before or after it, and whose tail is regions: a header, then a
+/// body of pointers, each to a word of the body.
+#[derive(Pun)]
+#[repr(C)]
+struct Message {
+  #[pun(aim(u16 = off as u128))]
+  off: InPlace<i16>,
+  body_len: u16,
+  #[pun(regions(header = 2, body: [Back] = body_len))]
+  rest: [u8],
+}
+
+#[test]
+fn regions_and_eager_aims_compose() {
+  // The message at 0, its offset to the header at 4, the header, and a body of two pointers that
+  // point at each other.
+  let message = |back: i16| [4, 4, 0x1234, 2, back.cast_unsigned()];
+  let words = message(-2);
+  let message_at =
+    |words: &[u16; 5]| puns::from_bytes::<Message>(puns::as_bytes(words)).map(|_| ());
+  let read = puns::from_bytes::<Message>(puns::as_bytes(&words)).unwrap();
+  assert_eq!(read.header(), &0x1234u16.to_ne_bytes()[..]);
+  let body = read.body().unwrap();
+  assert_eq!((body.len(), body[0].off.get(), body[1].off.get()), (2, 2, -2));
+  // The eager aim is checked with the message, and the pointers of the body when it is read,
+  // within its bytes: one that points at the header is not.
+  let words = message(-4);
+  assert_eq!(message_at(&words), Ok(()));
+  let read = puns::from_bytes::<Message>(puns::as_bytes(&words)).unwrap();
+  assert_eq!(read.body().err(), Some(Error::Validity));
+  let mut words = message(-2);
+  words[0] = 100;
+  assert_eq!(message_at(&words), Err(Error::Validity));
+}
+
 /// An image under construction: values written at positions aligned for them, as a writer of
 /// pointers does, and the offsets between them.
 struct Image {

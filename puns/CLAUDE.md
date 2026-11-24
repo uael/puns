@@ -97,6 +97,10 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   safe code makes a value of the struct either. An `InPlace<T>` is a `T` in the layout. A
   lazy aim is a region, whose target is `[u8]`: it is checked by what reads it (`region`, then
   `from_bytes` for a region with a type).
+- Both kinds of aim are one rule (`Rule::Aim`), checked in one place (`validate::check_listed`)
+  and written by the derive in one place (`aim_rule` in `puns-derive`), which `aim(..)` and
+  `regions(..)` enter. A struct may have both, and the type of a region may hold eager aims
+  (`tests/aims.rs`).
 - A layout cannot hold itself, so an aim holds the size, the alignment and the identity of its
   target, and the target is reached through `Pun::Rules` (`Rules::Target`). The identity of a type
   is `Pun::ID`, made of the identities of its parameters and never of a layout, which its layout

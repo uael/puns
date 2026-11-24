@@ -656,6 +656,11 @@
 //!   that region reads its type from those bytes with [`from_bytes`], which checks it then. So the
 //!   type of a region is checked only when it is read, and plays no part in a proof.
 //!
+//! Both kinds are one rule of the struct, checked in the order of the rules, and the derive
+//! declares them through two options ([Aims](macro@Pun#aims)). They compose: a struct with regions
+//! may hold eager aims, and the type of a region may hold eager aims too, whose targets
+//! [`from_bytes`] then looks for within the region.
+//!
 //! A struct declares an eager aim with `#[pun(aim(Type = EXPR))]` on a field of type
 //! [`InPlace<T>`](InPlace), which holds where the target is ([`macro@Pun`]): the struct points at
 //! a `Type` that starts `EXPR` bytes from its own start, an `i128` in two's complement. No code
@@ -1397,32 +1402,40 @@ pub use layout::{crc32, sum16};
 ///   a value or a range of unsigned integer literals or constants. The value of the field is its
 ///   bits read as an unsigned integer in its byte order, so `0xff` is `-1i8`.
 ///
-/// On a field of a struct whose type is written [`InPlace<T>`](InPlace):
-///
-/// - `#[pun(aim(Type = EXPR))]`: the struct points at a `Type` that starts `EXPR` bytes from the
-///   start of the struct, an eager [aim](crate#aims). `EXPR` is a rule whose value is read as an
-///   `i128` in two's complement, so that a target may be before the struct: a signed field `off`
-///   that holds the distance is `off as u128`. A check of the struct checks the target there,
-///   within the bytes that it reads, aligned for `Type`, and every part of it. `Type` is sized, or
-///   stores its length as [`Thin`] does, with a `size` or `len` rule. The field is a `T` in the
-///   layout and in rules, which may name it. No code makes an `InPlace`, so no safe code makes a
-///   value of the struct, and code may read the target through a reference to it without a check.
-///   The derive requires `T` and `Type` to be `Pun`, as it requires the type of a field.
-///
 /// On the last field of a struct:
 ///
 /// - `#[pun(len = EXPR)]`: the tail of the field has `EXPR` elements. The tail is the field if it
 ///   is an array, a slice or a `str`, whose elements are bytes, and otherwise the slice or `str`
 ///   that ends the unsized struct of the field.
-/// - `#[pun(regions(first = EXPR, second = EXPR, last))]`: the bytes of the field are consecutive
-///   regions of `EXPR` bytes each. The last region may omit its size, and then takes whatever
-///   remains. A method with each name, as visible as the field, returns the bytes of its region as
-///   a `&[u8]`. Since safe code may change the fields of a value after it is checked, a region that
-///   does not fit in the field is truncated, and a region whose expression fails takes the rest of
-///   the field. With a type (`first: Type = EXPR`, `last: Type`), the method returns `Result<&Type,
-///   Error>` instead, the region as a `&Type` if its bytes are one. A type parameter that only a
-///   region names is unused, which Rust refuses (E0392). A `PhantomData<P>` field, which has no
-///   bytes, uses it.
+///
+/// ## Aims
+///
+/// An [aim](crate#aims) is a value at a place of the checked bytes that a struct points at. A
+/// struct declares its aims through two options, which are the two kinds of aim, and it may have
+/// any number of both: a struct with regions may point at other values, and the type of a region
+/// may hold pointers. Each is a rule of the struct ([`layout::Rule::Aim`]), checked as the crate
+/// documentation says.
+///
+/// - `#[pun(aim(Type = EXPR))]`, on a field whose type is written [`InPlace<T>`](InPlace): the
+///   struct points at a `Type` that starts `EXPR` bytes from the start of the struct, an eager,
+///   thin aim. `EXPR` is a rule whose value is read as an `i128` in two's complement, so that a
+///   target may be before the struct: a signed field `off` that holds the distance is
+///   `off as u128`. A check of the struct checks the target there, within the bytes that it reads,
+///   aligned for `Type`, and every part of it. `Type` is sized, or stores its length as [`Thin`]
+///   does, with a `size` or `len` rule. The field is a `T` in the layout and in rules, which may
+///   name it. No code makes an `InPlace`, so no safe code makes a value of the struct, and code may
+///   read the target through a reference to it without a check. The derive requires `T` and
+///   `Type` to be `Pun`, as it requires the type of a field.
+/// - `#[pun(regions(first = EXPR, second = EXPR, last))]`, on the last field: the bytes of the
+///   field are consecutive regions of `EXPR` bytes each, lazy, wide aims from the cursor. The last
+///   region may omit its size, and then takes whatever remains. A method with each name, as visible
+///   as the field, returns the bytes of its region as a `&[u8]`. Since safe code may change the
+///   fields of a value after it is checked, a region that does not fit in the field is truncated,
+///   and a region whose expression fails takes the rest of the field. With a type
+///   (`first: Type = EXPR`, `last: Type`), the method returns `Result<&Type, Error>` instead, the
+///   region as a `&Type` if its bytes are one, which [`from_bytes`] checks then, its own aims
+///   within the region. A type parameter that only a region names is unused, which Rust refuses
+///   (E0392). A `PhantomData<P>` field, which has no bytes, uses it.
 ///
 /// ## Expressions
 ///

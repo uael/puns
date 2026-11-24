@@ -1727,6 +1727,76 @@ fn in_place(ty: &Type) -> Result<&Type> {
   ))
 }
 
+/// The option through which a struct declares an aim, a value at a place of the checked bytes that
+/// it points at (`layout::Aim`). Both are one rule, which [`aim_rule`] writes, and a struct may have
+/// any number of each.
+enum Door<'a> {
+  /// `#[pun(aim(Type = EXPR))]` on a field written `InPlace<T>`: an eager, thin aim at a target
+  /// that starts where `EXPR` says, from the start of the struct, which a check of the struct
+  /// checks.
+  Pointer(&'a Expr),
+  /// A region of `#[pun(regions(..))]` on the last field: a lazy, wide aim at the bytes of the tail
+  /// from the cursor, of as many bytes as `EXPR` says, or the rest of the tail without one, which
+  /// what reads the region checks.
+  Region(Option<&'a Expr>),
+}
+
+/// Returns the rule of an aim at a `target` that a struct declares through `door`, and the steps
+/// of its expression ([`steps`]).
+///
+/// The type is written in the rule and in the list of the rules (`Pun::Rules`), in the one
+/// implementation, where it names one type, and `validate::listed` compares the two.
+///
+/// # Errors
+///
+/// Returns an error if the expression does not compile.
+fn aim_rule(
+  target: &TokenStream,
+  door: &Door,
+  fields: &[FieldInfo],
+  root: &TokenStream,
+) -> Result<(TokenStream, TokenStream)> {
+  let layout = quote!(#root::layout);
+  // The expression of the aim, in a block of its own: what a function takes is not extended to
+  // `'static`.
+  let expression = |expr| -> Result<_> {
+    let Expression { ops, steps } = expression(expr, Ty::Int, false, fields, root)?;
+    Ok((quote!(const { #ops }), steps))
+  };
+  let (start, metadata, check, steps) = match door {
+    Door::Pointer(start) => {
+      let (ops, steps) = expression(start)?;
+      (quote!(Stored(#ops)), quote!(Thin), quote!(Eager), steps)
+    }
+    Door::Region(Some(size)) => {
+      let (ops, steps) = expression(size)?;
+      (quote!(Next), quote!(Wide(#ops)), quote!(Lazy), steps)
+    }
+    Door::Region(None) => (quote!(Next), quote!(Rest), quote!(Lazy), quote!(())),
+  };
+  let rule = quote!(#layout::Rule::Aim(#layout::Aim::new::<#target>(
+    #layout::Start::#start,
+    #layout::Metadata::#metadata,
+    #layout::Check::#check,
+  )));
+  Ok((rule, steps))
+}
+
+/// Returns the constant that pins the types whose functions the generated code calls to make the
+/// aims of a struct, and the type of the field of an eager aim, as [`pin`] pins the others.
+fn pin_aims(root: &TokenStream) -> TokenStream {
+  let layout = quote!(#root::layout);
+  quote! {
+    const _: (
+      fn(#layout::Aim),
+      fn(#layout::Start),
+      fn(#layout::Metadata),
+      fn(#layout::Check),
+      fn(#root::InPlace<()>),
+    ) = #layout::Layout::PIN_AIMS;
+  }
+}
+
 /// Returns whether `ty` is unsized as written: a slice, `str` or a trait object, in parentheses or
 /// not.
 fn is_unsized(ty: &Type) -> bool {
@@ -1945,33 +2015,15 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     rules.push(quote!(#rule::Assert(#ops)));
   }
   let mut accessors = vec![];
-  let mut aims_pin = None;
-  let layout = quote!(#root::layout);
-  // The types of the aims, pinned as `pin` pins the others, with the type of the field of an
-  // eager aim.
-  let pin_aims = quote! {
-    const _: (
-      fn(#layout::Aim),
-      fn(#layout::Start),
-      fn(#layout::Metadata),
-      fn(#layout::Check),
-      fn(#root::InPlace<()>),
-    ) = #layout::Layout::PIN_AIMS;
-  };
+  let mut has_aims = false;
   for (i, field) in fields.iter().enumerate() {
     let last = i + 1 == count;
     if let Some(AimOption { target, start }) = &field.options.aim {
-      // An eager, thin aim at a `target` where `start` says. The type is written twice, here and
-      // in the list of the rules, in the one implementation, where it names one type, and
-      // `validate::listed` compares the two.
-      let Expression { ops, steps } = expression(start, Ty::Int, false, &fields, &root)?;
-      aims_pin = Some(pin_aims.clone());
+      let (aim, steps) =
+        aim_rule(&target.to_token_stream(), &Door::Pointer(start), &fields, &root)?;
       listed.push((rules.len(), steps, Some(target.to_token_stream())));
-      rules.push(quote!(#rule::Aim(#layout::Aim::new::<#target>(
-        #layout::Start::Stored(const { #ops }),
-        #layout::Metadata::Thin,
-        #layout::Check::Eager,
-      ))));
+      rules.push(aim);
+      has_aims = true;
     }
     if let Some(len) = &field.options.len {
       if !last {
@@ -1986,28 +2038,18 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         return Err(Error::new(field.member.span(), "`regions` is an option of the last field"));
       }
       let vis = field.vis;
-      aims_pin = Some(pin_aims.clone());
       for (index, region) in regions.iter().enumerate() {
         let name = &region.name;
-        // A lazy, wide aim at the cursor, at the bytes of the region: as many as its expression
-        // gives, its metadata, or the rest of the tail. The accessor of a typed region reads its
-        // type from these bytes.
+        if region.size.is_none() && index + 1 != regions.len() {
+          return Err(Error::new(name.span(), "only the last region can be unsized"));
+        }
+        // The target of a region is its bytes, also for a region with a type, which its accessor
+        // reads from these bytes.
         let target = quote!([::core::primitive::u8]);
-        let (metadata, steps) = match &region.size {
-          Some(size) => {
-            let Expression { ops, steps } = expression(size, Ty::Int, false, &fields, &root)?;
-            // In a block of its own: what a function takes is not extended to `'static`.
-            (quote!(#layout::Metadata::Wide(const { #ops })), steps)
-          }
-          None if index + 1 == regions.len() => (quote!(#layout::Metadata::Rest), quote!(())),
-          None => return Err(Error::new(name.span(), "only the last region can be unsized")),
-        };
-        listed.push((rules.len(), steps, Some(target.clone())));
-        rules.push(quote!(#rule::Aim(#layout::Aim::new::<#target>(
-          #layout::Start::Next,
-          #metadata,
-          #layout::Check::Lazy,
-        ))));
+        let (aim, steps) = aim_rule(&target, &Door::Region(region.size.as_ref()), &fields, &root)?;
+        listed.push((rules.len(), steps, Some(target)));
+        rules.push(aim);
+        has_aims = true;
         accessors.push(region.ty.as_ref().map_or_else(
           || {
             let doc = format!(
@@ -2051,6 +2093,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       }
     }
   }
+
+  let aims_pin = has_aims.then(|| pin_aims(&root));
 
   // Getters.
   for getter in &options.getters {
