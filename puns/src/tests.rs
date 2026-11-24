@@ -769,6 +769,19 @@ fn two_types_at_one_place_are_two() {
   }
 }
 
+/// A part that is a `ManuallyDrop<T>` is of the type of a part that is a `T`, since they have one
+/// layout, but a type made of one is not made of the other.
+#[test]
+fn manually_drop_is_its_part_not_a_parameter() {
+  use core::mem::ManuallyDrop;
+  type Wrapped = ManuallyDrop<ManuallyDrop<(u8, u16)>>;
+  assert!(Wrapped::LAYOUT.id.equals(&<(u8, u16)>::LAYOUT.id));
+  assert!(<(u8, u16)>::LAYOUT.id.equals(&Wrapped::LAYOUT.id));
+  assert!(!<(ManuallyDrop<u8>, u16)>::LAYOUT.id.equals(&<(u8, u16)>::LAYOUT.id));
+  assert!(!<Option<ManuallyDrop<u8>>>::LAYOUT.id.equals(&<Option<u8>>::LAYOUT.id));
+  assert!(<(ManuallyDrop<u8>, u16)>::LAYOUT.id.equals(&<(ManuallyDrop<u8>, u16)>::LAYOUT.id));
+}
+
 /// Returns the labels of the links of a Markdown text, in lowercase: `label` in `[label]: url`, in
 /// `[text][label]` and in `[label]` alone. A link with its URL inline, `[text](url)`, has none.
 fn link_labels(text: &str) -> Vec<String> {

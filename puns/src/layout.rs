@@ -860,7 +860,9 @@ impl Stable {
 /// Stable Rust cannot compare types in `const`, so an identity is a name, together with the
 /// identities of the parameters that make up the type. `__site!` names a type that derives `Pun` by
 /// where it is declared, and this crate names the types of `core` that it supports. Two identities
-/// are equal only if both are known, with the same name, length and parameters.
+/// are equal only if both are known, with the same name, length and parameters, except that a
+/// layout of `ManuallyDrop<T>`, which is the layout of `T`, is of the same type as `T`
+/// (`Id::equals`). As a parameter, `ManuallyDrop<T>` is another type than `T`.
 ///
 /// [`Id::NONE`] is the identity of a type that has none (a generic type that derives `Pun`,
 /// `PhantomData`, or a `Scalar` implemented by hand). It is equal to no identity, not even itself,
@@ -878,6 +880,9 @@ pub struct Id {
 impl Id {
   /// The identity of a type that has none, equal to no identity.
   pub const NONE: Self = Self { name: "", args: &[], len: 0 };
+
+  /// The name of `ManuallyDrop<T>`, whose one parameter is `T`.
+  pub(crate) const MANUALLY_DROP: &'static str = "ManuallyDrop";
 
   /// Returns the identity of the type `name`, whose parameters have the identities `args`.
   #[doc(hidden)]
@@ -910,32 +915,61 @@ impl Id {
     true
   }
 
+  /// Returns the identity of the type that `self` holds in `ManuallyDrop`, as many times as it is
+  /// wrapped, or `self` if it is not.
+  const fn unwrapped(&self) -> &Self {
+    let mut id = self;
+    while id.args.len() == 1 && same_name(id.name, Self::MANUALLY_DROP) {
+      id = &id.args[0];
+    }
+    id
+  }
+
+  /// Returns whether two layouts whose identities are `self` and `other` are layouts of the same
+  /// type: the identities are the same once the `ManuallyDrop`s that wrap the whole of either are
+  /// taken off.
+  ///
+  /// `ManuallyDrop<T>` has the layout of `T`, so the two prove each other. As a parameter, it is not
+  /// `T`: `-Zrandomize-layout` arranges `Wrapper<ManuallyDrop<u8>, u16, u32>` and
+  /// `Wrapper<u8, u16, u32>` differently.
+  pub(crate) const fn equals(&self, other: &Id) -> bool {
+    self.unwrapped().same(other.unwrapped())
+  }
+
   /// Returns whether `self` and `other` are the identity of the same type (both are known, with the
   /// same name, length and parameters).
-  pub(crate) const fn equals(&self, other: &Id) -> bool {
+  const fn same(&self, other: &Id) -> bool {
     if !self.known() || !other.known() || self.len != other.len {
       return false;
     }
-    let (a, b) = (self.name.as_bytes(), other.name.as_bytes());
-    if a.len() != b.len() || self.args.len() != other.args.len() {
+    if !same_name(self.name, other.name) || self.args.len() != other.args.len() {
       return false;
     }
     let mut i = 0;
-    while i < a.len() {
-      if a[i] != b[i] {
-        return false;
-      }
-      i += 1;
-    }
-    let mut i = 0;
     while i < self.args.len() {
-      if !self.args[i].equals(&other.args[i]) {
+      if !self.args[i].same(&other.args[i]) {
         return false;
       }
       i += 1;
     }
     true
   }
+}
+
+/// Returns whether the names `a` and `b` are the same.
+const fn same_name(a: &str, b: &str) -> bool {
+  let (a, b) = (a.as_bytes(), b.as_bytes());
+  if a.len() != b.len() {
+    return false;
+  }
+  let mut i = 0;
+  while i < a.len() {
+    if a[i] != b[i] {
+      return false;
+    }
+    i += 1;
+  }
+  true
 }
 
 /// What a layout is made of.

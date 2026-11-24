@@ -722,16 +722,19 @@
 //! `const`, since `TypeId` cannot be compared there and `type_name` is not a `const fn`.
 //!
 //! So `puns` identifies a type by a name, together with the identities of the types it is made of.
-//! The primitive types, the types of [`num`], arrays, slices, tuples, `Option`, `Result` and
-//! `MaybeUninit` have identities, and `ManuallyDrop<T>` is `T`. A type that derives `Pun` is named
-//! by where it is declared (the module, file, line and column), by its name, and by the number of
-//! its derive in its crate. A generic type that derives `Pun`, a `PhantomData`, and a [`Scalar`]
-//! implemented by hand have no identity. A part whose layout Rust leaves to the compiler and that
-//! holds one of them therefore proves itself only with the feature, unless it is proven field by
-//! field. A type whose every part has the same layout in every build, such as a generic `repr(C)`
-//! struct of a `u8` and a `PhantomData<T>`, needs no identity. An identity can only refuse a pun,
-//! because the layouts are compared as well, so two types that happened to share a name would still
-//! be told apart by their layouts.
+//! The primitive types, the types of [`num`], arrays, slices, tuples, `Option`, `Result`,
+//! `MaybeUninit` and `ManuallyDrop` have identities. A part that is a `ManuallyDrop<T>` is of the
+//! same type as a part that is a `T`, since `core` gives them one layout. A type made of a
+//! `ManuallyDrop<T>` is not made of a `T`, though: `-Zrandomize-layout` arranges
+//! `Wrapper<ManuallyDrop<u8>, u16, u32>` and `Wrapper<u8, u16, u32>` differently. A type that
+//! derives `Pun` is named by where it is declared (the module, file, line and column), by its name,
+//! and by the number of its derive in its crate. A generic type that derives `Pun`, a
+//! `PhantomData`, and a [`Scalar`] implemented by hand have no identity. A part whose layout Rust
+//! leaves to the compiler and that holds one of them therefore proves itself only with the
+//! feature, unless it is proven field by field. A type whose every part has the same layout in
+//! every build, such as a generic `repr(C)` struct of a `u8` and a `PhantomData<T>`, needs no
+//! identity. An identity can only refuse a pun, because the layouts are compared as well, so two
+//! types that happened to share a name would still be told apart by their layouts.
 //!
 //! ### What this relies on
 //!
@@ -2315,8 +2318,9 @@ unsafe impl Pun for str {
 }
 
 // SAFETY: `ManuallyDrop<T>` has the layout and the bit validity of `T` [1], so the layout of `T`,
-// and its lists, are those of `ManuallyDrop<T>`. It holds a `T` and nothing else, so it holds no
-// `UnsafeCell`, since `T: Pun`.
+// and its lists, are those of `ManuallyDrop<T>`. `identified` changes neither its size, its
+// alignment, nor its values. It holds a `T` and nothing else, so it holds no `UnsafeCell`, since
+// `T: Pun`.
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/core/mem/struct.ManuallyDrop.html:
 //
@@ -2338,7 +2342,7 @@ unsafe impl<T: ?Sized + Pun> Pun for ManuallyDrop<T> {
       // slice.
       unsafe { ptr::verify::<Self>(Self::PROBE) };
     }
-    T::LAYOUT
+    T::LAYOUT.identified(layout::Id::new(layout::Id::MANUALLY_DROP, &[T::LAYOUT.id]))
   };
   // `ManuallyDrop<T>` "is subject to the same layout optimizations as `T`".
   const NULL_OPTIMIZED: bool = T::NULL_OPTIMIZED;

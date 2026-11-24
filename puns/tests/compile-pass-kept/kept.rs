@@ -1,5 +1,5 @@
 //! What Rust keeps in every layout that it allows, which compiles without the `unstable` feature.
-use core::num::NonZero;
+use core::{mem::ManuallyDrop, num::NonZero};
 
 use puns::Pun;
 
@@ -53,6 +53,9 @@ fn main() {
   let _: Holds = puns::pun(holds);
   let _: Mixed = puns::head(holds);
   assert_eq!(puns::pun::<Ticket, Ticket>(Ticket::Free), Ticket::Free);
+  // A `ManuallyDrop` of a type, which `core` lays out as the type.
+  let _: Mixed = puns::pun(ManuallyDrop::new(holds.mixed));
+  let _: ManuallyDrop<ManuallyDrop<Mixed>> = puns::pun(holds.mixed);
   // Where `core` documents `Option` and `Result`.
   assert_eq!(puns::pun::<u32, Option<NonZero<u32>>>(7), NonZero::new(7));
   assert_eq!(puns::try_pun::<u8, Result<NonZero<u8>, ()>>(0), Ok(Err(())));
