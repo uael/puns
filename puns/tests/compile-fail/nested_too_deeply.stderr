@@ -47,7 +47,7 @@ note: inside `puns::analysis::Cursor::push`
 note: erroneous constant encountered
  --> src/lib.rs
   |
-  |     check(&Self::ANALYSIS, need, &S::LAYOUT, &D::LAYOUT)
+  |     unmet(&Self::ANALYSIS, need, &S::LAYOUT, &D::LAYOUT)
   |            ^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
@@ -95,17 +95,17 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |           && (const { !rules_marked::<C, P, T>() } || check_rules(ptr, input))
+  |           && (const { !rules_marked::<C, P, T>() } || check_rules::<C, T>(ptr, input))
   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |         (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
-  |                   ^^^^^^^^
+  |         let valid = (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || spec.matches(at);
+  |                               ^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |         (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         let valid = (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || spec.matches(at);
+  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

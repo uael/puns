@@ -4140,8 +4140,35 @@ impl Layout {
     }
   }
 
+  /// Returns whether a value of the layout holds an eager aim ([`Check::Eager`]): a struct of it,
+  /// at any depth, has one, in a variant of an enum or an element of an array or a slice too.
+  ///
+  /// No function makes a value that holds one, and a check of one follows it to its pointee. A
+  /// crate of pointers tells by it which of its types hold pointers.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::{InPlace, Pun};
+  ///
+  /// #[derive(Pun)]
+  /// #[repr(transparent)]
+  /// struct Ptr {
+  ///   #[pun(pointer(u32 = off as u128))]
+  ///   off: InPlace<i32>,
+  /// }
+  ///
+  /// // `LAYOUT` is hidden, and read here only to show the answer.
+  /// assert!(<[Option<Ptr>; 2]>::LAYOUT.holds_eager_aims());
+  /// assert!(!<(u32, u8)>::LAYOUT.holds_eager_aims());
+  /// ```
+  #[must_use]
+  pub const fn holds_eager_aims(&self) -> bool {
+    self.holds_eager(false)
+  }
+
   /// Returns whether a struct of the layout, at any depth, has an eager aim
-  /// ([`Check::Eager`]), and, if `unidentified`, one whose target has no identity, which nothing
+  /// ([`Check::Eager`]), and, if `unidentified`, one whose pointee has no identity, which nothing
   /// proves ([`Aim::equals`]). The variants of an enum count, and the elements of an array or a
   /// slice.
   pub(crate) const fn holds_eager(&self, unidentified: bool) -> bool {

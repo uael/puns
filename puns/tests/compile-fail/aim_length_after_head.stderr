@@ -2,7 +2,7 @@ error[E0080]: evaluation panicked: the pointee of an aim of its own size is size
  --> src/validate.rs
   |
   |     pointee_checked::<T, L>();
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::validate::check_aim::<ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>>::{constant#0}` failed inside this call
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::validate::check_aim::<puns::Plan<[u8], ToCounted>, ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>>::{constant#0}` failed inside this call
   |
 note: inside `puns::validate::pointee_checked::<ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>>`
  --> $RUST/core/src/panic.rs
@@ -17,17 +17,17 @@ note: inside `puns::validate::pointee_checked::<ToCounted, puns::RuleAt<0, puns:
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let (eager, align) = const {
-  |  ________________________^
+  |     let (eager, next) = const {
+  |  _______________________^
   | |     pointee_checked::<T, L>();
   | |     match T::LAYOUT.rule(L::RULE) {
-  | |       Some(Rule::Aim(Aim { check, align, .. })) => (matches!(check, Check::Eager), align),
+  | |       Some(Rule::Aim(Aim { check, start, .. })) => {
 ... |
   | |   };
   | |___^
 
-note: the above error was encountered while instantiating `fn puns::validate::check_aim::<ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>>`
+note: the above error was encountered while instantiating `fn puns::validate::check_aim::<puns::Plan<[u8], ToCounted>, ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>>`
  --> src/validate.rs
   |
-  |     match unsafe { check_aim::<T, L>(base, size, (head, tail), cursor, input) } {
-  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     match unsafe { check_aim::<C, T, L>(base, size, (head, tail), cursor, input) } {
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

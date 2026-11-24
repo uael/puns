@@ -125,7 +125,18 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - The check of eager aims recurses once for each level, up to `AIM_DEPTH`, which is set so that
   the deepest check of the types of `tests/support/aims.rs` fits in 1 MiB of stack in a build
   without optimizations (`tests/aims.rs` runs it on a thread of 1 MiB). A change of the validation
-  that makes its frames larger is measured again, and the bound lowered if it no longer fits.
+  that makes its frames larger is measured again, and the bound lowered if it no longer fits. What
+  a function on that path computes before it recurses is in a function of its own in such a build
+  (`check_next`, `find_stored`, `fits_stored`), so that the frames that wait hold little.
+- `check` goes deeper with the same code: `Input` has a worklist, in which `check_aim` puts a
+  `Pending` (the struct and `check_stored` for its aim) instead of recursing, and
+  `validate::drive` runs the entries depth first, reversing those that each step adds. A step that
+  fills the worklist is made again from a copy of `Input` once `Worklist::grow` made room. A
+  compact check claims each pointee where `check_stored` checks it (`Input::claim`), so in the
+  order of a copy. Where a check fails is recorded only by `validate::Locate`, a `Checks` whose
+  `LOCATE` is true, and `check` makes the check again with it after a failure, so the check that
+  succeeds compiles as before. Alignment is by offset from a base alignment there
+  (`Input::aligned`), since the bytes are checked before they are copied.
 
 ## Not done yet
 
