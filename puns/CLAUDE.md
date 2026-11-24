@@ -55,16 +55,21 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   of the layouts of the fields, and a `const` assertion compares it with what `rustc` chose. The
   scope of the assumption admits only enums whose layout that function gives the same way in every
   layout of their fields, and nothing outside it is assumed. Where `Spec::validity` is false, a
-  scalar gives no niche that `assume` knows.
+  scalar gives no niche that `assume` knows from its own values. It is set only for the closed list
+  of types whose `Spec` is what Rust allows (`bool`, `char`, `NonZero`, derived enums without
+  fields), since only `core` and `std` make niches. A scalar declared by hand gives the niche of
+  the type that its bytes are, if its `Spec` declares one (`Spec::stored_as`). `Layout::assumed`
+  returns the layout that the experiments found, never the predicted one, so a false declaration
+  only fails the build.
 - A requirement (`valid(..)`, a rule) never proves a guarantee of another type. Two layouts are
   equal only if they require and guarantee the same values.
 - An identity (`layout::Id`, `Pun::ID`) names a type by its declaration and by every parameter but
   its lifetimes, so two types with one identity are one type. It has two uses only: proving a part
-  that is not `fixed` by the same type at the same place, and naming a type without its layout. `ManuallyDrop<T>` is `T` only as the
-  whole of a part (`Id::equals`). An identity is made of the identities of the parameters, never of
-  their layouts, so that a type that holds itself through a generic type has a layout. The derive
-  gives a generic type one only where each type parameter is bounded by `Pun` (`identity` in
-  `puns-derive`).
+  that is not `fixed` by the same type at the same place, and naming a type without its layout.
+  `ManuallyDrop<T>` is `T` only as the whole of a part (`Id::equals`). An identity is made of the
+  identities of the parameters, never of their layouts, so that a type that holds itself through a
+  generic type has a layout. The derive gives a generic type one only where each type parameter is
+  bounded by `Pun` (`identity` in `puns-derive`).
 - No function makes a value that holds a scalar that a pun never makes (`Spec::never`), and no
   function gives a `&mut` to one. As a target, such a scalar is disjoint from every source
   (`atom_relation`), and a part of a target that holds one is proven by nothing, not even by
@@ -134,10 +139,9 @@ section lists changes that could lift some of them, and what each would cost.
   for the fields of the struct.
 - **More enums of the `Rust` representation assumed.** [`assume`](src/assume.rs) leaves out a
   variant whose fields have different alignments (the width of the tag follows the field that
-  `rustc` puts first), a niche that ties with another one (`rustc` chooses by where they are), a
-  niche in a part whose fields `rustc` may reorder, and a scalar declared by hand, whose `Spec`
-  does not say whether Rust restricts its values. Each would need the choice of `rustc` measured
-  and stated as part of the assumption, or a `Spec` that says what Rust allows.
+  `rustc` puts first), a niche that ties with another one (`rustc` chooses by where they are),
+  and a niche in a part whose fields `rustc` may reorder. Each would need the choice of `rustc`
+  measured and stated as part of the assumption.
 - **Patterns other than `str` as types.** The derive cannot make a type that guarantees a
   pattern, since safe code can write its fields. A rule `matches(DFA, start, end)` (`Op::Matches`)
   requires one instead. Two automata are equal only if their states and edges are: their `id`,

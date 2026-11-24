@@ -179,11 +179,14 @@ pub struct Spec {
   /// Whether the value of the scalar is the value of an unsigned integer, which rules can read. It
   /// is not for a signed or floating-point number, a `bool`, a `char` or an enum.
   pub(crate) number: bool,
-  /// Whether the values that `known` lists are those that Rust allows for the type, as for a
-  /// `bool`, a `char`, a `NonZero` and an enum without fields, rather than values that the code of
-  /// the type keeps, as for a type made by hand. `rustc` puts a niche outside the values that Rust
-  /// allows, so `puns` knows the niche of such a scalar ([`assume`](crate::assume)).
+  /// Whether the values that `known` lists are exactly those that Rust allows for the type. This is
+  /// so only for the types of `core` that `puns` knows and whose validity Rust restricts (`bool`,
+  /// `char`, `NonZero`) and for the enums without fields that derive `Pun`. `rustc` puts a niche
+  /// outside these values ([`assume`](crate::assume)).
   pub(crate) validity: bool,
+  /// The layout of the type that the bytes of the scalar are, if its `Scalar` declares one
+  /// ([`Spec::stored_as`]). Its niche is the niche of the scalar.
+  pub(crate) stored: Option<&'static Layout>,
 }
 
 /// Returns the greatest value of an unsigned integer of `size` bytes, `u128::MAX` from 16 bytes.
@@ -219,6 +222,7 @@ impl Spec {
       known: Valid::Any,
       number: true,
       validity: false,
+      stored: None,
     }
   }
 
@@ -267,6 +271,7 @@ impl Spec {
       known: Valid::Any,
       number: false,
       validity: false,
+      stored: None,
     }
   }
 
@@ -288,6 +293,7 @@ impl Spec {
       known: Valid::Any,
       number: true,
       validity: false,
+      stored: None,
     }
   }
 
@@ -309,7 +315,15 @@ impl Spec {
   #[must_use]
   pub const fn uninit<T>() -> Self {
     let (size, endian) = (size_of::<T>(), Endian::NATIVE);
-    Self { size, endian, valid: Valid::Uninit, known: Valid::Uninit, number: true, validity: false }
+    Self {
+      size,
+      endian,
+      valid: Valid::Uninit,
+      known: Valid::Uninit,
+      number: true,
+      validity: false,
+      stored: None,
+    }
   }
 
   /// Returns the scalar of the size of `T` whose value, read as an unsigned integer in the byte
@@ -336,8 +350,16 @@ impl Spec {
   #[must_use]
   pub const fn ranges<T>(endian: Endian, ranges: &'static [(u128, u128)]) -> Self {
     let size = size_of::<T>();
-    Self { size, endian, valid: Valid::Any, known: Valid::Any, number: true, validity: false }
-      .with_ranges(ranges)
+    Self {
+      size,
+      endian,
+      valid: Valid::Any,
+      known: Valid::Any,
+      number: true,
+      validity: false,
+      stored: None,
+    }
+    .with_ranges(ranges)
   }
 
   /// Returns the same scalar, whose values are those of `ranges`.
@@ -480,10 +502,76 @@ impl Spec {
   }
 
   /// Returns the same scalar, whose values are those that Rust allows for its type
-  /// ([`Spec::validity`]).
+  /// ([`Spec::validity`]), for the types that `puns` implements `Scalar` for and for the derive.
   #[must_use]
   pub(crate) const fn validity(self) -> Self {
     Self { validity: true, ..self }
+  }
+
+  /// Returns the same scalar, whose bytes are a value of the type `T`, of the same size and
+  /// alignment.
+  ///
+  /// This is what a scalar declared by hand says when it is a `repr(transparent)` struct around a
+  /// type of `core` that `rustc` gives a niche, as a stored integer that is never zero is a
+  /// `NonZero`. On stable Rust, only `core` and `std` make niches: `bool`, `char`, `NonZero`,
+  /// references and other pointers that are never null, the tags of enums, and a few types of
+  /// `std`. Another type has the niches of its fields, so the niche of the scalar is the niche of
+  /// `T`, in the bytes and the byte order of `T`, whatever the scalar accepts. Without the
+  /// `unstable` feature, `puns` assumes the layout of an enum of the `Rust` representation only
+  /// where it knows its niche ([What `puns` assumes](crate#what-puns-assumes)), so an `Option` of a
+  /// scalar declared by hand is a layout that Rust leaves to the compiler unless its `Spec` says
+  /// what its bytes are. A struct around a `u8` whose constructor keeps it from 1 to 5 is a `u8`,
+  /// which has no niche, and its `Option` has a tag.
+  ///
+  /// A false declaration is not unsound, and is not a requirement of the `# Safety` of
+  /// [`Scalar`](crate::Scalar). `puns` uses the layout of the enum that it finds by experiments on
+  /// values of it, and the layout that it predicts from `T` is only compared with that one, when
+  /// compiling. If they differ, the enum does not compile, with the message "an enum of the `Rust`
+  /// representation is not laid out as `puns` assumes". If they are the same, the declaration
+  /// agrees with `rustc` for this build.
+  ///
+  /// # Panics
+  ///
+  /// Panics if `T` does not have the size of the scalar. [`Layout::scalar`] panics if it does not
+  /// have the alignment of the type of the scalar. In the `SPEC` of a [`Scalar`](crate::Scalar),
+  /// both are errors at compile time.
+  ///
+  /// # Examples
+  ///
+  /// A `u32` stored little-endian, never zero, as an offset of another crate may be:
+  ///
+  /// ```
+  /// use core::num::NonZero;
+  ///
+  /// use puns::{
+  ///   Scalar,
+  ///   layout::{Endian, Spec},
+  /// };
+  ///
+  /// #[derive(Clone, Copy, Debug, PartialEq)]
+  /// #[repr(transparent)]
+  /// struct U32le(NonZero<u32>);
+  ///
+  /// // SAFETY: `U32le` is `repr(transparent)` over a `NonZero<u32>`, so it has its size, and its
+  /// // valid values are every bytes but zeros, which `SPEC` accepts, read in either byte order. It
+  /// // holds no `UnsafeCell`.
+  /// unsafe impl Scalar for U32le {
+  ///   const SPEC: Spec = Spec::ranges::<U32le>(Endian::Little, &[(1, u32::MAX as u128)])
+  ///     .stored_as::<NonZero<u32>>();
+  /// }
+  ///
+  /// // `None` is the zeros of the `NonZero`, so an `Option<U32le>` is 4 bytes, proven.
+  /// assert_eq!(puns::pun::<Option<U32le>, [u8; 4]>(None), [0; 4]);
+  /// assert_eq!(puns::try_pun::<[u8; 4], Option<U32le>>([0; 4]), Ok(None));
+  /// assert!(puns::try_pun::<[u8; 4], Option<U32le>>([1, 0, 0, 0]).unwrap().is_some());
+  /// ```
+  #[must_use]
+  pub const fn stored_as<T: crate::Pun>(self) -> Self {
+    assert!(
+      size_of::<T>() == self.size,
+      "the type that the bytes of a scalar are must have the size of the scalar"
+    );
+    Self { stored: Some(const { &T::LAYOUT }), ..self }
   }
 
   /// Returns whether `T` has a size of 0, for `#[derive(Pun)]`.
@@ -2188,6 +2276,12 @@ impl Layout {
   #[must_use]
   pub const fn scalar<T>(spec: Spec) -> Self {
     assert!(spec.size == size_of::<T>(), "`Spec` size mismatch");
+    if let Some(stored) = spec.stored {
+      assert!(
+        stored.align == align_of::<T>(),
+        "the type that the bytes of a scalar are must have the alignment of the scalar"
+      );
+    }
     Self::of_scalar(spec, align_of::<T>())
   }
 

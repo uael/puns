@@ -38,6 +38,14 @@
 //!   size with more values left outside the valid range of its niche than the tag of the tagged
 //!   one has. Otherwise the tag is.
 //!
+//! On stable Rust, only `core` and `std` make niches (`rustc_layout_scalar_valid_range_start` and
+//! its kin are reserved to them): `bool`, `char`, `NonZero`, references and other pointers that are
+//! never null, the tags of enums, and a few types of `std`. Any other type has the niches of its
+//! fields. So `puns` takes a niche from a closed list of types whose `Spec` is exactly what Rust
+//! allows (`Spec::validity`), and from the tags of enums, never from what a scalar declared by hand
+//! accepts. Such a scalar gives a niche only by declaring which type its bytes are
+//! (`Spec::stored_as`), and then the niche is that type's.
+//!
 //! The *valid range* of a scalar is the shortest range of values, wrapping past the greatest value
 //! to 0, that holds every value that Rust allows for it ([`arc`]). For a `char`, it is 0 to
 //! `0x10FFFF`, surrogates included, and for an enum with the tags 0 and 255, it is 255 to 0.
@@ -52,8 +60,9 @@
 //! - No present variant has a field without values that has a size, which `rustc` lays out with
 //!   no value of the tag.
 //! - The niche of the largest variant is known ([`Niche`]): its scalar is one whose values Rust
-//!   restricts and that `puns` knows (`bool`, `char`, `NonZero`, an enum without fields, the tag
-//!   of an enum of a specified layout or of an enum this assumption gives), at the same place in
+//!   restricts and that `puns` knows (`bool`, `char`, `NonZero`, an enum without fields that
+//!   derives `Pun`, a scalar whose `Spec` declares that its bytes are one of these, the tag of an
+//!   enum of a specified layout or of an enum this assumption gives), at the same place in
 //!   every layout that Rust allows, and it has more free values than any other such scalar of the
 //!   variant. Where two have as many, `rustc` chooses one by where it is, which is not assumed. So
 //!   a variant of several fields that hold such a scalar is not assumed either.
@@ -70,7 +79,7 @@
 
 use crate::{
   discover::Desc,
-  layout::{Endian, Field, Kind, Layout, Uniform, Valid, Variant, max_value, round_up},
+  layout::{Endian, Field, Kind, Layout, Spec, Uniform, Valid, Variant, max_value, round_up},
 };
 
 /// What is known of the niche of a layout: the scalar in it whose values Rust restricts with the
@@ -90,16 +99,22 @@ enum Niche {
 
 /// Returns the niche of `layout` ([`Niche`]).
 ///
-/// A scalar that accepts every initialized value has none, since every value that it accepts is
-/// one that Rust allows. Otherwise its values are known to be those of Rust only if its `Spec` says
-/// so (`Spec::validity`), which `bool`, `char`, `NonZero` and the enums without fields that derive
-/// `Pun` do, and a scalar made by hand does not, since its values may be kept by its code rather
-/// than by Rust. The tag of an enum is one, whose valid range is that of
+/// A scalar whose `Spec` declares the type that its bytes are
+/// ([`Spec::stored_as`](crate::layout::Spec::stored_as)) has the niche of that type, in its bytes
+/// and its byte order. Otherwise, a scalar that accepts every initialized value has none, since
+/// every value that it accepts is one that Rust allows, and a scalar that restricts its values has
+/// the niche of their valid range only if they are those of Rust (`Spec::validity`): a `bool`, a
+/// `char`, a `NonZero` or an enum without fields that derives `Pun`. A scalar declared by hand that
+/// restricts its values and declares no type has no niche known. A false declaration fails the
+/// check of [`holds`], since the layout that it predicts is not the one that the experiments find.
+/// The tag of an enum is one, whose valid range is that of
 /// the tags of its variants, and for a niche, of the values of its scalar too. An array has the
 /// niche of its first element. A part that is not `fixed` has none known, unless it has no such
 /// scalar at all, which does not depend on where its fields are.
 const fn niche(layout: &Layout) -> Niche {
   let found = match layout.kind {
+    // The bytes are a value of the declared type, whose niche is in its own bytes.
+    Kind::Scalar(Spec { stored: Some(stored), .. }) => niche(stored),
     Kind::Scalar(spec) => match (spec.valid, spec.known) {
       // Every initialized value is accepted, so Rust allows it: no niche. So it is for a field
       // restricted by `valid(..)` whose type accepts every value.
@@ -654,7 +669,8 @@ pub const fn holds<E, const V: usize>(desc: &Desc<V>, fields: &[&[Field]; V]) ->
   assert!(
     agrees,
     "an enum of the `Rust` representation is not laid out as `puns` assumes (see \"What `puns` \
-     assumes\" in the crate documentation): `rustc` has changed how it lays out enums; enable the \
+     assumes\" in the crate documentation): `rustc` lays out enums otherwise, or the `Spec` of a \
+     scalar in it declares a type that its bytes are not (`Spec::stored_as`); enable the \
      `unstable` feature, which uses the layout that `rustc` chose"
   );
   true

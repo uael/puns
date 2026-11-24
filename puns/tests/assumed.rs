@@ -7,7 +7,10 @@
 
 use core::{convert::Infallible, mem::MaybeUninit, num::NonZero};
 
-use puns::{Error, Pun};
+use puns::{
+  Error, Pun, Scalar,
+  layout::{Endian, Spec},
+};
 
 /// The layout that `puns` assumes of `Option<u16>`: a tag of 2 bytes, 0 for `None` and 1 for
 /// `Some`, then the value, which `None` leaves uninitialized.
@@ -69,6 +72,46 @@ enum Color {
 enum Pair {
   Both(u8, u8),
   Neither,
+}
+
+/// A `u32` stored little-endian, never zero, declared by hand, as the stored offsets of `nearest`
+/// are: its bytes are a `NonZero<u32>`, which its `Spec` declares, so `rustc` gives its `Option`
+/// the niche zero.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[repr(transparent)]
+struct U32le(NonZero<u32>);
+
+impl U32le {
+  fn new(value: u32) -> Option<Self> {
+    NonZero::new(value.to_le()).map(Self)
+  }
+
+  const fn get(self) -> u32 {
+    u32::from_le(self.0.get())
+  }
+}
+
+// SAFETY: `U32le` is `repr(transparent)` over a `NonZero<u32>`, so it has its size, and its values
+// are every 4 bytes but zeros, which are exactly the values that `SPEC` accepts, read
+// little-endian. It holds no `UnsafeCell`. Its bytes are a `NonZero<u32>`, as `stored_as` declares.
+unsafe impl Scalar for U32le {
+  const SPEC: Spec =
+    Spec::ranges::<U32le>(Endian::Little, &[(1, u32::MAX as u128)]).stored_as::<NonZero<u32>>();
+}
+
+/// Two `repr(C)` structs with the layout that `puns` assumes of an `Option<U32le>` at offset 0.
+#[derive(Pun, Clone, Copy)]
+#[repr(C)]
+struct HoldsOffset {
+  offset: Option<U32le>,
+  len: u32,
+}
+
+#[derive(Pun, Clone, Copy, Debug, PartialEq)]
+#[repr(C)]
+struct HoldsBytes {
+  offset: [u8; 4],
+  len: u32,
 }
 
 #[test]
@@ -155,4 +198,32 @@ fn derived_enums_are_assumed_too() {
   assert!(matches!(puns::from_bytes::<Pair>(&[0, 4, 4]), Ok(&Pair::Both(4, 4))));
   assert_eq!(puns::from_bytes::<Pair>(&[1, 4, 4]), Ok(&Pair::Neither));
   assert_eq!(puns::from_bytes::<Pair>(&[2, 4, 4]), Err(Error::Validity));
+}
+
+#[test]
+fn a_scalar_declared_by_hand_gives_its_niche() {
+  // Proven: an `Option<U32le>` is 4 bytes, `None` the zeros, and so is a holder of one.
+  assert_eq!(puns::pun::<Option<U32le>, [u8; 4]>(U32le::new(0x0102_0304)), [4, 3, 2, 1]);
+  assert_eq!(puns::pun::<Option<U32le>, [u8; 4]>(None), [0; 4]);
+  let held = HoldsOffset { offset: U32le::new(9), len: 3 };
+  let bytes = HoldsBytes { offset: [9, 0, 0, 0], len: 3 };
+  assert_eq!(puns::pun::<HoldsOffset, HoldsBytes>(held), bytes);
+  let empty = HoldsBytes { offset: [0; 4], len: 3 };
+  from_bytes(bytes, empty);
+}
+
+/// Reads `bytes` and `empty` as holders of an `Option<U32le>`: `Some(9)` and `None`.
+///
+/// Where the byte order of the target is little-endian, every 4 bytes are an `Option<U32le>`,
+/// proven: the niche is the zeros, and the other values are those of `Some`. Where it is
+/// big-endian, the analysis does not relate the values of the tag, in the byte order of the
+/// target, to those of the field, little-endian, so it checks them.
+fn from_bytes(bytes: HoldsBytes, empty: HoldsBytes) {
+  #[cfg(target_endian = "little")]
+  let (some, none): (HoldsOffset, HoldsOffset) = (puns::pun(bytes), puns::pun(empty));
+  #[cfg(target_endian = "big")]
+  let (some, none): (HoldsOffset, HoldsOffset) =
+    (puns::try_pun(bytes).unwrap(), puns::try_pun(empty).unwrap());
+  assert_eq!((some.offset.map(U32le::get), some.len), (Some(9), 3));
+  assert_eq!((none.offset, none.len), (None, 3));
 }

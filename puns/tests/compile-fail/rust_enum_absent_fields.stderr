@@ -1,4 +1,4 @@
-error[E0080]: reading memory at alloc263[0x0..0x10], but memory is uninitialized at [0x1..0x2], and this operation requires initialized memory
+error[E0080]: reading memory at alloc266[0x0..0x10], but memory is uninitialized at [0x1..0x2], and this operation requires initialized memory
  --> tests/compile-fail/rust_enum_absent_fields.rs:7:10
   |
 7 | #[derive(puns::Pun, Clone, Copy)]

@@ -835,11 +835,15 @@
 //! that Rust restricts. The niche must be in a scalar whose values for Rust `puns` knows (a `bool`,
 //! a `char`, a `NonZero`, an enum without fields, or the tag of an enum whose layout Rust
 //! specifies or `puns` assumes), at the same place in every layout that Rust allows, and no other
-//! scalar of its type may have as many free values. A scalar declared by hand
-//! ([`Scalar`]) does not tell whether Rust restricts its values, so it gives no niche that `puns`
-//! knows, and the enum that would hold it there is not assumed. A variant whose fields have no
-//! value but a size is not assumed either. Every other enum of the `Rust` representation keeps a
-//! layout that Rust leaves to the compiler.
+//! scalar of its type may have as many free values. On stable Rust, only `core` and `std` make
+//! niches (`bool`, `char`, `NonZero`, references and other pointers that are never null, the tags of
+//! enums, and a few types of `std`), and any other type has the niches of its fields. So the values
+//! that a scalar declared by hand ([`Scalar`]) accepts never give a niche: its `Spec` may declare
+//! the type that its bytes are ([`Spec::stored_as`](layout::Spec::stored_as)), such as the
+//! `NonZero` that a `repr(transparent)` struct holds, and the niche is then that type's, in its own
+//! bytes. Otherwise the enum that would hold it there is not assumed. A variant whose fields have no value but a size is not assumed
+//! either. Every other enum of the `Rust` representation keeps a layout that Rust leaves to the
+//! compiler.
 //!
 //! Where the assumption applies, the layout of the enum is computed from the layouts of its fields
 //! and the alignments of the integers of the target, and compared in a `const` with the one that
@@ -849,6 +853,12 @@
 //! `Pun::LAYOUT` of the enum fails to compile, with the message "an enum of the `Rust`
 //! representation is not laid out as `puns` assumes", and the note of `rustc` names the enum.
 //! Enable the feature then, which uses the layout that `rustc` chose.
+//!
+//! The assumption never gives a layout that `puns` then uses. The layout of the enum is always the
+//! one that the experiments found; the assumption only decides whether that layout counts as the
+//! same in every layout that Rust allows, after the check shows that it is the predicted one. So a
+//! wrong assumption, or a false [`Spec::stored_as`](layout::Spec::stored_as), fails to
+//! compile, and is not unsound.
 //!
 //! The rule was measured on Rust 1.100.0 and nightly-2026-11-17, without `-Zrandomize-layout` and
 //! with it under 16 seeds, and on `aarch64-apple-darwin`, `i686-unknown-linux-gnu` and
@@ -1844,6 +1854,10 @@ pub use core as __core;
 /// - Every value that `SPEC` accepts is a [valid] `Self`, and meets every invariant that the code
 ///   of `Self` relies on.
 /// - No byte of `Self` is inside an [`UnsafeCell`](core::cell::UnsafeCell).
+///
+/// [`Spec::stored_as`] declares the type that the bytes of `Self` are, of its size and alignment,
+/// so that `puns` knows the niche that `rustc` gives an `Option` of it, which is that type's. That
+/// declaration is not part of this contract: a false one fails to compile, and is never unsound.
 ///
 /// An implementation by hand leaves the hidden items at their defaults. If `T: Scalar`, unsafe code
 /// may assume that `T::SPEC` describes the values of `T` exactly. `puns` makes a `T` from any bytes
