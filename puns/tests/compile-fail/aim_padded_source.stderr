@@ -1,5 +1,5 @@
 error[E0080]: evaluation panicked:
-              cannot pun: the target holds an eager aim, whose check reads its target in the bytes of the source, and some of them may be padding.
+              cannot pun: the target holds an eager aim, whose check reads its pointee in the bytes of the source, and some of them may be padding.
               Check the bytes of the source instead, with `from_bytes` or `from_head`.
 
     --> src/lib.rs

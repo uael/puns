@@ -16,7 +16,7 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   ("What the derive trusts").
 - [`Scalar`](src/lib.rs) states the contract of a scalar declared by hand, and the crate
   documentation ("Aims") what `puns` guarantees a type that holds an eager aim, such as a
-  self-relative pointer, which derives `Pun` with `#[pun(aim(..))]`.
+  self-relative pointer, which derives `Pun` with `#[pun(pointer(..))]`.
 
 ## How it works
 
@@ -87,32 +87,39 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - The self-relative pointer of the tests (`Near`, in
   [`tests/support/aims.rs`](tests/support/aims.rs)) derives `Pun` with an eager aim, as another
   crate would declare it.
-- An eager aim (`layout::Check::Eager`) is checked with the struct that holds it, its target
-  within the bytes that the check reads (`validate::Input`), and code reads the target without a
-  check. So no function makes a value that holds one (`Plan::eager`), gives a `&mut` to or from
-  one (`Plan::eager_mut`), or checks one from a source whose bytes may be padding, and only the
-  same aim at the same place proves one (`Aim::equals`, with a known identity of the target). The
-  derive gives an eager aim only to a struct whose field is an `InPlace<T>`, which no code makes
-  and which is not `Pun`, and checks that the field has this type (`item` in `homes`), so that no
-  safe code makes a value of the struct either. An `InPlace<T>` is a `T` in the layout. A
-  lazy aim is a region, whose target is `[u8]`: it is checked by what reads it (`region`, then
-  `from_bytes` for a region with a type).
-- Both kinds of aim are one rule (`Rule::Aim`), checked in one place (`validate::check_listed`),
-  written by the derive in one place (`aim_rule` in `puns-derive`), which `aim(..)` and
-  `regions(..)` enter, and found by what reads a target in one place (`validate::aim_at`), which
-  `region` and `aim`/`aim_mut` call by the index of the rule. A struct may have both, and the type
-  of a region may hold eager aims (`tests/aims.rs`).
-- The read of the target of an eager aim (`aim`, `aim_mut`, the methods of `aim(name: ..)`) is
-  `unsafe` and stays so: the derive is safe, so the type of a value does not tell that `puns`
-  checked it. Its `# Safety` is the contract of a writer such as `nearest`. It takes a pointer,
-  not a reference, so that a caller under stacked borrows can give the provenance of the checked
-  bytes. The length of an unsized target is read from its sized fields only (`validate::thin`,
-  which `Thin::get` uses too).
+- An aim (`layout::Aim`) is where its pointee starts (`Start`: stored, or the cursor of the
+  tail), how large it is (`Extent`: its own size, a given size, or the rest), and when it is
+  checked (`Check`), and every combination is checked and read. An eager aim is checked with the
+  struct that holds it, its pointee within the bytes that the check reads (`validate::Input`), and
+  code reads the pointee without a check. So no function makes a value that holds one
+  (`Plan::eager`), gives a `&mut` to or from one (`Plan::eager_mut`), or checks one from a source
+  whose bytes may be padding, and only the same aim at the same place proves one (`Aim::equals`,
+  with a known identity of the pointee). The derive gives an eager aim only to a struct whose field
+  of the aim (the offset of a pointer, or the bytes of eager regions) is an `InPlace<T>`, which no
+  code makes and which is not `Pun`, and checks that the field has this type (`item` in `homes`),
+  so that no safe code makes a value of the struct either. An `InPlace<T>` is a `T` in the layout.
+  A lazy aim requires of the struct only that its pointee fits, so its type counts in a proof only
+  where the size is its own.
+- Both kinds of start are one rule (`Rule::Aim`), checked in one place (`validate::check_aim`),
+  which places the pointee by one step of the cursor (`validate::cursor_step`) or at a stored place
+  (`validate::stored`), written by the derive in one place (`aim_rule` in `puns-derive`), which
+  `pointer(..)` and `regions(..)` enter. What reads a pointee finds it as the check does: the same
+  steps of the cursor, which truncate where the check fails (`validate::region_at`), or the same
+  expression (`validate::pointer_at`). A struct may have both, and the pointee of a region may hold
+  eager aims, which its read looks for in the bytes of the struct (`tests/aims.rs`).
+- The read of the pointee of an eager aim (`aim`, `aim_mut`, the methods of
+  `pointer(name: ..)` and of eager regions) is `unsafe` and stays so: the derive is safe, so the
+  type of a value does not tell that `puns` checked it. Its `# Safety` is the contract of a writer
+  such as `nearest`. The read of a pointer takes a pointer, not a reference, so that a caller under
+  stacked borrows can give the provenance of the checked bytes. The length of a pointee of its own
+  size is read from its sized fields only, by the check and by the read (`validate::stores_length`,
+  `validate::thin`), so the read never meets a length that the check accepted and it cannot read.
 - A layout cannot hold itself, so an aim holds the size, the alignment and the identity of its
-  target, and the target is reached through `Pun::Rules` (`Rules::Target`). The identity of a type
-  is `Pun::ID`, made of the identities of its parameters and never of a layout, which its layout
-  holds too. `Pun::Metadata` is `()` exactly when the layout is sized (`Thin` asserts it), and
-  `Store`, a sealed trait, says what a `Thin` stores for it.
+  pointee, and the pointee is reached through `Pun::Rules` (`Rules::Pointee`), whose item a read
+  names, so that the type of a pointee is written in one place of the derive. The identity of a
+  type is `Pun::ID`, made of the identities of its parameters and never of a layout, which its
+  layout holds too. `Pun::Metadata` is `()` exactly when the layout is sized (`Thin` asserts it),
+  and `Store`, a sealed trait, says what a `Thin` stores for it.
 - The check of eager aims recurses once for each level, up to `AIM_DEPTH`, which is set so that
   the deepest check of the types of `tests/support/aims.rs` fits in 1 MiB of stack in a build
   without optimizations (`tests/aims.rs` runs it on a thread of 1 MiB). A change of the validation
@@ -170,10 +177,6 @@ section lists changes that could lift some of them, and what each would cost.
   pattern, since safe code can write its fields. A rule `matches(DFA, start, end)` (`Op::Matches`)
   requires one instead. Two automata are equal only if their states and edges are: their `id`,
   which a user can choose, only tells different ones apart early.
-- **Aims other than self-relative pointers and regions.** `Aim::new` accepts an eager aim only
-  with a stored offset and a thin target, and a lazy aim only at the cursor and wide. An eager aim
-  at the cursor would check typed regions with the struct. An eager wide aim, a pointer with a
-  length beside it, needs a second expression in the item of its rule.
 - **The depth of the check of aims.** It recurses once for each level of eager aims, up to
   `AIM_DEPTH`, with 12 to 15 KiB of stack for each level in a build without optimizations, and
   less than 100 bytes in an optimized one. A stack of pending targets, as `nearest` has, would

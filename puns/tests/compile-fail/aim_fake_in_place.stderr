@@ -16,6 +16,6 @@ note: `InPlace<i32>` is defined in the current crate
 note: `puns::InPlace<i32>` is defined in crate `puns`
   --> src/lib.rs
    |
-   | pub struct InPlace<T>(T);
-   | ^^^^^^^^^^^^^^^^^^^^^
+   | pub struct InPlace<T: ?Sized>(T);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

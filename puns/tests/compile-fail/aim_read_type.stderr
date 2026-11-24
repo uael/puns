@@ -1,15 +1,12 @@
 error[E0080]: evaluation panicked: the rule is not an eager aim at this type
  --> $RUST/core/src/panic.rs
   |
-  = note: evaluation of `puns::target::<Next, u32, 0>::{constant#0}` failed here
+  = note: evaluation of `puns::pointee::<Next, puns::RuleAt<0, puns::steps::One<0>, (), u32>>::{constant#0}` failed here
   |
  ::: src/lib.rs
   |
   | /     assert!(
-  | |       matches!(rule, Some(layout::Rule::Aim(aim)) if matches!(aim.check, layout::Check::Eager)
-  | |         && aim.size == size
-  | |         && aim.align == align
-  | |         && (!aim.id.known() || aim.id.equals(&D::ID))),
+  | |       matches!(aim.check, layout::Check::Eager) && is_pointee::<L::Pointee>(&aim),
   | |       "the rule is not an eager aim at this type"
   | |     );
   | |_____- in this macro invocation
@@ -17,16 +14,18 @@ error[E0080]: evaluation panicked: the rule is not an eager aim at this type
 note: erroneous constant encountered
  --> src/lib.rs
   |
-  |     let head = const {
-  |  ______________^
-  | |     let rule = S::LAYOUT.rule(RULE);
+  |     let (head, start, extent) = const {
+  |  _______________________________^
+  | |     let Some(layout::Rule::Aim(aim)) = S::LAYOUT.rule(L::RULE) else {
+  | |       panic!("the rule is not an eager aim at this type")
+  | |     };
 ... |
-  | |     S::LAYOUT.tail_shape().start
+  | |     (S::LAYOUT.tail_shape().start, aim.start, aim.extent)
   | |   };
   | |___^
 
-note: the above error was encountered while instantiating `fn puns::target::<Next, u32, 0>`
+note: the above error was encountered while instantiating `fn puns::pointee::<Next, puns::RuleAt<0, puns::steps::One<0>, (), u32>>`
  --> src/lib.rs
   |
-  |   unsafe { &*target::<S, D, RULE>(holder) }
+  |   unsafe { &*pointee::<S, L>(holder, end) }
   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^

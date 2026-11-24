@@ -603,79 +603,72 @@
 //!
 //! # Aims
 //!
-//! An *aim* is a value at a place of the checked bytes that a struct points at
-//! ([`Aim`](layout::Aim), a rule of the struct). The place is the address of the struct plus an
-//! offset that an expression over the struct gives ([`Start::Stored`](layout::Start::Stored)), as
-//! for the self-relative pointers of [`nearest`](https://docs.rs/nearest), or the *cursor*, where
-//! the target of the aim before it ends, from the start of the tail of the struct
-//! ([`Start::Next`](layout::Start::Next)), as for regions. As a pointer of Rust, an aim is thin or
-//! wide ([`Metadata`](layout::Metadata)): the target of a thin aim holds its own metadata, being
-//! sized or a [`Thin<T, M>`](Thin) that stores the length of `T` as an `M` before it, and a wide
-//! aim gives the length of the tail of its target by an expression. The target takes `size_of_val`
-//! of a value of that length. The type of the target is named in the hidden list of the rules of
-//! the struct, through which a check reaches the checks of the target, so that a type that points
-//! at itself is checked by a recursive call.
+//! An *aim* is a value at a place of the checked bytes that a struct points at, its *pointee*
+//! ([`Aim`](layout::Aim), a rule of the struct). An aim says three things, and every combination
+//! of them is an aim that `puns` checks and reads:
 //!
-//! The metadata of a pointer to a `Pun` type is a hidden item of [`Pun`], `Metadata`: `()` for a
-//! sized type, and `usize`, the length of its tail, for a slice, a `str` or a struct that ends with
-//! one, as in Rust. The sealed trait [`Store`] says what a `Thin<T, M>` stores for it: nothing for
-//! `()`, and an `M` for `usize`. So a `Thin` stores the length of any unsized `Pun` type, and its
-//! `len` rule reads it, a negative length failing.
+//! - Where the pointee starts ([`Start`](layout::Start)): at the address of the struct plus an
+//!   offset that an expression over the struct gives, an `i128` in two's complement, as for the
+//!   self-relative pointers of [`nearest`](https://docs.rs/nearest); or at the *cursor* of the tail
+//!   of the struct, where the pointee of the aim at the cursor before it ends, from the start of the
+//!   tail, as for regions. The cursor is rounded up to the alignment of the pointee by its offset
+//!   from the start of the struct, so that where a pointee is depends on the bytes, not on their
+//!   address.
+//! - How large it is ([`Extent`](layout::Extent)): the size of its type, sized or storing the
+//!   length of its tail in its sized fields; a size in bytes that an expression gives; or the rest
+//!   of the bytes, those of the tail at the cursor, and those that the check reads at a stored
+//!   place.
+//! - When it is checked ([`Check`](layout::Check)): with the struct (*eager*), or when it is read
+//!   (*lazy*).
 //!
-//! An aim is checked with the struct ([`Check::Eager`](layout::Check::Eager)), or when its target
-//! is read ([`Check::Lazy`](layout::Check::Lazy)).
+//! The type of the pointee is named in the hidden list of the rules of the struct, through which a
+//! check reaches the checks of the pointee, so that a type that points at itself is checked by a
+//! recursive call, and through which a read names the type that it returns.
 //!
-//! - A check of a struct with an eager aim follows the aim, in the bytes that the check reads:
+//! - A check of a struct with an eager aim finds the pointee, in the bytes that the check reads:
 //!   those of `from_bytes`, `from_head` and `from_tail`, or the source of a `try_` function. The
-//!   target must start within them, aligned for its type, and end within them, and every part of
-//!   it is checked, its own eager aims included, one level deeper. A target may be before the
+//!   pointee must be within them, aligned for its type, of a size that its type has, and every part
+//!   of it is checked, its own eager aims included, one level deeper. A pointee may be before the
 //!   struct, and may be shared by several aims. The check goes at most [`AIM_DEPTH`] levels deep,
-//!   and follows targets of at most twice as many bytes as it reads, so it ends on a cycle. Past
+//!   and checks pointees of at most twice as many bytes as it reads, so it ends on a cycle. Past
 //!   either limit, it returns [`Error::Limit`]. It allocates nothing, and recurses once for each
-//!   level, which takes about 15 KiB of stack in a build without optimizations, so that the
+//!   level, which takes less than 15 KiB of stack in a build without optimizations, so that the
 //!   deepest check of a list or a tree fits in 1 MiB.
-//! - So a reference to a struct with an eager aim is a reference to a valid target, which code
-//!   may read without a check. It reads it through a pointer whose provenance covers the target.
-//!   A pointer made from a reference to the struct covers only the struct under the stacked
-//!   borrows model of Miri, though tree borrows accepts a read of the target through it, as a
-//!   `Deref` of the pointer does: `tests/support/aims.rs` reads the target with the provenance of
-//!   the checked bytes, so that both models accept it. No function makes a value that
-//!   holds an eager aim (`pun`, `try_pun`, `zeroed` and the other functions that return a value
-//!   do not compile), nor gives a `&mut` to or from one (`pun_mut`, `try_pun_mut`,
-//!   `from_bytes_mut` and the `_mut` parts), nor checks one from a source whose bytes may be
-//!   padding (`try_pun_ref` from such a source). Only the same aim, at the same place of the
-//!   source, of a target of the same identity, proves one, since its target was checked where the
-//!   source was made. An instance of a generic type has an identity only if its parameters are
-//!   bounded by `Pun` ([The same type](#the-same-type)), so a `Pair<O: Pun>` that points at a
-//!   `Pair<O>` proves itself, and a `Pair<O>` with an unbounded `O` does not.
-//! - A lazy aim is a region of `#[pun(regions(..))]`, a wide aim at the bytes of the region from
-//!   the cursor ([`region`]). A check of the struct requires only that the region fits in the
-//!   tail. Where safe code wrote the fields so that it does not, the reader truncates the region to
-//!   the tail, and a size whose expression fails takes what remains. The target of a region is
-//!   `[u8]`, whose metadata is its number of bytes, even for a region with a type: the accessor of
-//!   that region reads its type from those bytes with [`from_bytes`], which checks it then. So the
-//!   type of a region is checked only when it is read, and plays no part in a proof.
+//! - So a reference to a struct with an eager aim is a reference to a valid pointee, which code
+//!   may read without a check. No function makes a value that holds an eager aim (`pun`,
+//!   `try_pun`, `zeroed` and the other functions that return a value do not compile), nor gives a
+//!   `&mut` to or from one (`pun_mut`, `try_pun_mut`, `from_bytes_mut` and the `_mut` parts), nor
+//!   checks one from a source whose bytes may be padding (`try_pun_ref` from such a source). Only
+//!   the same aim, at the same place of the source, of a pointee of the same identity, proves one,
+//!   since its pointee was checked where the source was made. An instance of a generic type has an
+//!   identity only if its parameters are bounded by `Pun` ([The same type](#the-same-type)), so a
+//!   `Pair<O: Pun>` that points at a `Pair<O>` proves itself, and a `Pair<O>` with an unbounded `O`
+//!   does not.
+//! - A check of a struct with a lazy aim requires only that its pointee fits, so that the type of
+//!   the pointee plays no part in the value of the struct, nor in a proof, unless its size is its
+//!   own. What reads the pointee checks it then. Where safe code wrote the fields of the struct so
+//!   that a region does not fit, the read truncates it to the tail, and a size whose expression
+//!   fails takes what remains.
 //!
-//! Both kinds are one rule of the struct, checked in the order of the rules, and the derive
-//! declares them through two options ([Aims](macro@Pun#aims)). They compose: a struct with regions
-//! may hold eager aims, and the type of a region may hold eager aims too, whose targets
-//! [`from_bytes`] then looks for within the region.
+//! The derive declares aims through two options ([Aims](macro@Pun#aims)), one for each place where
+//! a pointee starts: `pointer(..)` on a field that holds where it is, and `regions(..)` on the last
+//! field, whose tail the regions cut. They compose: a struct with regions may hold pointers, and
+//! the pointee of a region may hold pointers too, whose pointees its read looks for within the
+//! bytes of the struct, so that a pointer in a region may point at another region.
 //!
-//! A struct declares an eager aim with `#[pun(aim(Type = EXPR))]` on a field of type
-//! [`InPlace<T>`](InPlace), which holds where the target is ([`macro@Pun`]): the struct points at
-//! a `Type` that starts `EXPR` bytes from its own start, an `i128` in two's complement. No code
-//! makes an `InPlace`, so no safe code makes a value of the struct, which exists only where `puns`
-//! checked its target, or where unsafe code put it. A reference to the struct is then a reference
-//! to a valid target, as above. A struct with an eager aim is not `Clone`, `Copy` or `Default`,
-//! since an `InPlace` is none of these. `tests/support/aims.rs` declares a self-relative pointer
-//! this way, as `nearest` does.
+//! A struct with an eager aim holds its field (the offset of a pointer, or the bytes of eager
+//! regions) in an [`InPlace<T>`](InPlace), which no code makes, so no safe code makes a value of
+//! the struct, which exists only where `puns` checked its pointee, or where unsafe code put it. A
+//! struct with an eager aim is not `Clone`, `Copy` or `Default`, since an `InPlace` is none of
+//! these. `tests/support/aims.rs` declares a self-relative pointer this way, as `nearest` does.
 //!
-//! The target is read by the methods that the derive writes for an aim with a name, as for a
-//! region, which find it as the check does. They are `unsafe`: the caller ensures that `puns`
-//! checked the value, or that unsafe code that wrote it upholds the same, and gives a pointer to
-//! the value with the provenance of the bytes of the target. A pointer made from a reference to the
-//! value has it under the tree borrows model of Miri, but under stacked borrows, it is made from a
-//! pointer to the bytes that hold both.
+//! The pointee is read by the methods that the derive writes for an aim with a name, which find it
+//! as the check does. A lazy one is safe, and checks the pointee then. An eager one is `unsafe`:
+//! the caller ensures that `puns` checked the value, or that unsafe code that wrote it upholds the
+//! same. The read of an eager pointer takes a pointer to the value with the provenance of the bytes
+//! of the pointee. A pointer made from a reference to the value has it under the tree borrows model
+//! of Miri, but under stacked borrows, it is made from a pointer to the bytes that hold both, as
+//! `tests/support/aims.rs` does.
 //!
 //! ```
 //! use puns::{InPlace, Pun};
@@ -684,7 +677,7 @@
 //! #[derive(Pun)]
 //! #[repr(transparent)]
 //! struct Ptr {
-//!   #[pun(aim(target: u32 = off as u128))]
+//!   #[pun(pointer(target: u32 = off as u128))]
 //!   off: InPlace<i32>,
 //! }
 //!
@@ -692,8 +685,8 @@
 //! let words = [4u32, 7];
 //! let bytes = puns::as_bytes(&words);
 //! let ptr = puns::from_head::<Ptr>(bytes).unwrap().0;
-//! // SAFETY: `puns` checked `ptr` with its target, in `bytes`, from which the pointer is made, and
-//! // which are not written.
+//! // SAFETY: `puns` checked `ptr` with its pointee, in `bytes`, from which the pointer is made,
+//! // and which are not written.
 //! assert_eq!(unsafe { Ptr::target(bytes.as_ptr().cast()) }, &7);
 //! // A distance of 8 is past the bytes, and -4 before them.
 //! assert!(puns::from_head::<Ptr>(puns::as_bytes(&[8u32, 7])).is_err());
@@ -1094,8 +1087,6 @@
 //! - A packed struct whose unsized field has trailing padding of its own is refused.
 //! - The check of eager [aims](#aims) follows targets at most [`AIM_DEPTH`] levels deep, and
 //!   targets of at most twice the bytes that it reads, and returns [`Error::Limit`] past either.
-//!   An aim is an eager, thin pointer at a stored offset, or a lazy, wide region at the cursor
-//!   ([`Aim::new`](layout::Aim::new) refuses the other kinds).
 //! - The build time of a view enum whose variants overlap grows with the square of the number of
 //!   variants, or faster.
 //! - `PhantomData<T>` is a [`Scalar`] for any `T`, and deriving `Pun` exposes private fields. [What
@@ -1421,37 +1412,49 @@ pub use layout::{crc32, sum16};
 ///
 /// ## Aims
 ///
-/// An [aim](crate#aims) is a value at a place of the checked bytes that a struct points at. A
-/// struct declares its aims through two options, which are the two kinds of aim, and it may have
-/// any number of both: a struct with regions may point at other values, and the type of a region
-/// may hold pointers. Each is a rule of the struct ([`layout::Rule::Aim`]), checked as the crate
-/// documentation says.
+/// An [aim](crate#aims) is a value at a place of the checked bytes that a struct points at, its
+/// pointee. A struct declares its aims through two options, one for each place where a pointee
+/// starts, and it may have any number of both: a struct with regions may point at other values,
+/// and the pointee of a region may hold pointers. Each is a rule of the struct
+/// ([`layout::Rule::Aim`]), checked as the crate documentation says. Either is eager, checked with
+/// the struct, or lazy, checked when it is read.
 ///
-/// - `#[pun(aim(Type = EXPR))]`, on a field whose type is written [`InPlace<T>`](InPlace): the
-///   struct points at a `Type` that starts `EXPR` bytes from the start of the struct, an eager,
-///   thin aim. `EXPR` is a rule whose value is read as an `i128` in two's complement, so that a
-///   target may be before the struct: a signed field `off` that holds the distance is
-///   `off as u128`. A check of the struct checks the target there, within the bytes that it reads,
-///   aligned for `Type`, and every part of it. `Type` is sized, or stores its length as [`Thin`]
-///   does, with a `size` or `len` rule. The field is a `T` in the layout and in rules, which may
-///   name it. No code makes an `InPlace`, so no safe code makes a value of the struct, and code may
-///   read the target through a reference to it without a check. The derive requires `T` and
-///   `Type` to be `Pun`, as it requires the type of a field. With a name (`name: Type = EXPR`),
-///   methods `unsafe fn name(this: *const Self) -> &Type` and
-///   `unsafe fn name_mut(this: *mut Self) -> &mut Type`, as visible as the field, read the target,
-///   with the length that it stores if it is unsized. They cannot be safe, since the derive is: the
-///   type of a value does not tell that `puns` checked it. Their `# Safety` says what the caller
-///   ensures.
-/// - `#[pun(regions(first = EXPR, second = EXPR, last))]`, on the last field: the bytes of the
-///   field are consecutive regions of `EXPR` bytes each, lazy, wide aims from the cursor. The last
-///   region may omit its size, and then takes whatever remains. A method with each name, as visible
-///   as the field, returns the bytes of its region as a `&[u8]`. Since safe code may change the
-///   fields of a value after it is checked, a region that does not fit in the field is truncated,
-///   and a region whose expression fails takes the rest of the field. With a type
-///   (`first: Type = EXPR`, `last: Type`), the method returns `Result<&Type, Error>` instead, the
-///   region as a `&Type` if its bytes are one, which [`from_bytes`] checks then, its own aims
-///   within the region. A type parameter that only a region names is unused, which Rust refuses
-///   (E0392). A `PhantomData<P>` field, which has no bytes, uses it.
+/// - `#[pun(pointer(Type = EXPR))]`, on a field that holds where the pointee is: the struct points
+///   at a `Type` that starts `EXPR` bytes from the start of the struct. `EXPR` is a rule whose value
+///   is read as an `i128` in two's complement, so that a pointee may be before the struct: a signed
+///   field `off` that holds the distance is `off as u128`. The pointee is of the size of its type,
+///   and of the length that it stores in its sized fields if it is unsized, unless `size = EXPR`
+///   follows, a size in bytes, or `size = ..`, the rest of the bytes. The aim is eager, and its
+///   field is written [`InPlace<T>`](InPlace), a `T` in the layout and in rules, which may name it.
+///   No code makes an `InPlace`, so no safe code makes a value of the struct, and code may read the
+///   pointee through a reference to it without a check. `pointer(lazy Type = EXPR)` is a lazy
+///   aim, whose field is of any type. The derive requires the type of the field and `Type` to be
+///   `Pun`, as it requires the type of a field. With a name (`name: Type = EXPR`), a method reads
+///   the pointee, as visible as the field:
+///   - eager: `unsafe fn name(this: *const Self) -> &Type`, and, written `mut name: Type = EXPR`,
+///     `unsafe fn name_mut(this: *mut Self) -> &mut Type` too. With `size = ..`, they also take
+///     `end: *const u8`, where the bytes that hold the pointee end. They cannot be safe, since the
+///     derive is: the type of a value does not tell that `puns` checked it. Their `# Safety` says
+///     what the caller ensures.
+///   - lazy: `fn name(&self, bytes: &[u8]) -> Result<&Type, Error>`, which finds the value in the
+///     `bytes` that hold it, and checks the pointee there as [`from_bytes`] checks bytes.
+/// - `#[pun(regions(first: Type = EXPR, second: Type, last))]`, on the last field: the bytes of the
+///   field are consecutive regions, from the cursor, each rounded up to the alignment of its type by
+///   its offset in the struct. A region with `= EXPR` is that many bytes, one without is of the size
+///   of its type, and the last one without takes whatever remains. A region without a type is
+///   bytes, `[u8]`. Regions are lazy, and `eager name: Type = EXPR` is an eager one, whose field is
+///   then written `InPlace<[u8]>` (or an `InPlace` of an array of bytes). A method with each name, as
+///   visible as the field, reads the region:
+///   - without a type, `fn name(&self) -> &[u8]`, its bytes;
+///   - lazy, `fn name(&self) -> Result<&Type, Error>`, the region as a `&Type` if its bytes are one,
+///     which it checks as [`from_bytes`] checks bytes, with the pointees of its own aims within the
+///     bytes of the struct;
+///   - eager, `unsafe fn name(&self) -> &Type`, as for an eager pointer.
+///
+///   Since safe code may change the fields of a value after it is checked, a lazy region that does
+///   not fit in the field is truncated, and a region whose expression fails takes the rest of the
+///   field. A type parameter that only a region names is unused, which Rust refuses (E0392). A
+///   `PhantomData<P>` field, which has no bytes, uses it.
 ///
 /// ## Expressions
 ///
@@ -1604,13 +1607,15 @@ pub use layout::{crc32, sum16};
 /// - A struct whose last field is unsized is `repr(C)` or `repr(transparent)`.
 /// - A `packed` struct does not end with an unsized field whose alignment is greater than the
 ///   packing.
-/// - `len` and `regions` are on the last field, the last field of a struct with `len` is an array
-///   or unsized, and only the last region of `regions` omits its size.
+/// - `len` and `regions` are on the last field, and the last field of a struct with `len` is an
+///   array or unsized.
 /// - Every rule is an expression as described in "Expressions", of the type that its option
 ///   requires, and each field it names is an unsigned integer, or a signed one under a cast, as
 ///   above. The `N` of each `le`, `be`, `signed` and `unsigned` is 1 to 16.
-/// - The field of each `aim` is written `InPlace<T>`, and is of the type [`InPlace<T>`](InPlace).
-///   The target of the aim is sized, or has a `size` or `len` rule.
+/// - The field of each eager aim, that of an eager `pointer` or of `regions` of which one is eager,
+///   is written `InPlace<T>`, and is of the type [`InPlace<T>`](InPlace). The pointee of an aim of
+///   its own size is sized, or stores its length in its sized fields: a `size` or `len` rule that
+///   reads no byte by offset.
 /// - A rule has at most 256 operations, needs a stack of at most 16 values, and has at most 8 names
 ///   at once. Its walks are nested at most 4 deep.
 /// - The width of each `crc::<..>` is 1 to 64 bits, and its other parameters fit in that width.
@@ -1677,7 +1682,7 @@ pub use layout::{crc32, sum16};
 /// - The functions that the generated code calls to make a layout are associated functions of
 ///   [`layout::Layout`], [`layout::Spec`], [`layout::Rule`], [`layout::Op`], [`layout::Field`],
 ///   [`layout::Enum`], [`layout::Variant`], [`layout::Crc`], [`layout::Checksum`],
-///   [`layout::Varint`], [`layout::Aim`], [`layout::Start`], [`layout::Metadata`],
+///   [`layout::Varint`], [`layout::Aim`], [`layout::Start`], [`layout::Extent`],
 ///   [`layout::Check`] and the identity of a type, and methods of the values that they return.
 ///   Hidden constants of `Layout` fix these types, and [`InPlace`], with `fn(T)` types that no path
 ///   can replace, so a path that names a module or another type for one of them does not compile.
@@ -1712,7 +1717,7 @@ pub use layout::{crc32, sum16};
 ///   with `__Pun` there, which it refuses in the input.
 /// - The trait that says where a field is (`Path`) is sealed, and the leaf at which a list of
 ///   fields places a field is checked against the layout.
-/// - The field of each `aim` has the type [`InPlace<T>`](InPlace), where `T` is its type in the
+/// - The field of each eager aim has the type [`InPlace<T>`](InPlace), where `T` is its type in the
 ///   layout, which the function that ties the fields to the type as compiled requires, below, as it
 ///   requires the type of every field. So a struct to which the derive gives an eager aim has no
 ///   value that safe code makes.
@@ -2198,7 +2203,7 @@ impl<K: Pun + Copy> Tag<K> for [u8] {
 }
 
 /// A `T` that holds where the target of an eager [aim](crate#aims) is, the field of a struct with
-/// `#[pun(aim(Type = EXPR))]` ([`macro@Pun`]), which no code but `puns` makes, and `puns` makes
+/// `#[pun(pointer(Type = EXPR))]` ([`macro@Pun`]), which no code but `puns` makes, and `puns` makes
 /// none.
 ///
 /// It is `repr(transparent)` over `T`, which a struct reads with [`InPlace::get`], and whose
@@ -2218,7 +2223,7 @@ impl<K: Pun + Copy> Tag<K> for [u8] {
 /// #[derive(Pun)]
 /// #[repr(transparent)]
 /// struct Near16 {
-///   #[pun(aim(u16 = off as u128))]
+///   #[pun(pointer(u16 = off as u128))]
 ///   off: InPlace<i16>,
 /// }
 ///
@@ -2236,7 +2241,7 @@ impl<K: Pun + Copy> Tag<K> for [u8] {
 /// let _ = puns::InPlace(-2i16);
 /// ```
 #[repr(transparent)]
-pub struct InPlace<T>(T);
+pub struct InPlace<T: ?Sized>(T);
 
 impl<T: Copy> InPlace<T> {
   /// Returns the `T`.
@@ -2249,7 +2254,7 @@ impl<T: Copy> InPlace<T> {
   /// #[derive(Pun)]
   /// #[repr(transparent)]
   /// struct Next {
-  ///   #[pun(aim(u8 = off as u128))]
+  ///   #[pun(pointer(u8 = off as u128))]
   ///   off: InPlace<u8>,
   /// }
   ///
@@ -2314,39 +2319,52 @@ unsafe impl Variants for () {
   const TAG: Option<u128> = None;
 }
 
-/// A rule of a struct that has an expression, and the ones after it, as a list at the type level,
-/// in the order of the rules, by which the validation applies each operation of each expression
-/// in an instance of its own (see `validate::steps`).
+/// A rule of a struct that has an expression or is an aim, and the ones after it, as a list at the
+/// type level, in the order of the rules, by which the validation applies each operation of each
+/// expression in an instance of its own (see `validate::steps`), and reaches the checks of the
+/// pointee of each aim.
 ///
 /// Sealed. What a list says is checked against the layout of the struct, where it is used, so that
-/// every rule that has an expression is listed, once, in order, with every one of its operations.
+/// every rule that has an expression or is an aim is listed, once, in order, with every one of the
+/// operations of each of its expressions, and with its pointee.
 #[doc(hidden)]
 pub trait Rules: sealed::Sealed {
   /// Index of the rule in the layout of the struct, `usize::MAX` at the end of the list.
   const RULE: usize;
-  /// The operations of its expression, `()` if it has none.
+  /// The operations of its first expression (`layout::Rule::ops`): of a `size`, `len` or
+  /// `assert` rule, or where the pointee of an aim starts if it is stored. `()` if it has none.
   type Expr: Steps;
-  /// The type of the target of an aim, and `()` for another rule.
-  type Target: ?Sized + Pun;
+  /// The operations of its second expression (`layout::Rule::extent_ops`), the size of the
+  /// pointee of an aim if it is given. `()` if it has none.
+  type Extent: Steps;
+  /// The type of the pointee of an aim, and `()` for another rule.
+  type Pointee: ?Sized + Pun;
   type Next: Rules;
 }
 
 impl Rules for () {
   const RULE: usize = usize::MAX;
   type Expr = ();
-  type Target = ();
+  type Extent = ();
+  type Pointee = ();
   type Next = ();
 }
 
-/// The rule `R` of a struct, whose expression is `E`, and whose target is `T` if it is an aim,
-/// then the list `N`.
+/// The rule `R` of a struct, whose first expression is `E`, then the list `N`. An aim has the
+/// pointee `P`, and the second expression `X` if its size is given.
 #[doc(hidden)]
-pub struct RuleAt<const R: usize, E, N, T: ?Sized = ()>(PhantomData<(E, N)>, PhantomData<T>);
+pub struct RuleAt<const R: usize, E, N, P: ?Sized = (), X = ()>(
+  PhantomData<(E, N, X)>,
+  PhantomData<P>,
+);
 
-impl<const R: usize, E: Steps, N: Rules, T: ?Sized + Pun> Rules for RuleAt<R, E, N, T> {
+impl<const R: usize, E: Steps, N: Rules, P: ?Sized + Pun, X: Steps> Rules
+  for RuleAt<R, E, N, P, X>
+{
   const RULE: usize = R;
   type Expr = E;
-  type Target = T;
+  type Extent = X;
+  type Pointee = P;
   type Next = N;
 }
 
@@ -2407,7 +2425,10 @@ pub mod steps {
   impl<const I: usize> Sealed for One<I> {}
   impl<A: Steps, B: Steps> Sealed for Two<A, B> {}
   impl<const I: usize, C: Steps, N: Steps> Sealed for Walk<I, C, N> {}
-  impl<const R: usize, E: Steps, N: Rules, T: ?Sized + Pun> Sealed for super::RuleAt<R, E, N, T> {}
+  impl<const R: usize, E: Steps, N: Rules, P: ?Sized + Pun, X: Steps> Sealed
+    for super::RuleAt<R, E, N, P, X>
+  {
+  }
 
   impl Steps for () {
     const KIND: u8 = NONE;
@@ -2486,17 +2507,18 @@ pub mod steps {
       Entry { vars: [crate::narrow::Range::ANY; crate::layout::VARIABLES], walks: 0 };
   }
 
-  /// The expression of the rule `R::RULE` of `T`.
-  pub struct InRule<T: ?Sized, R>(PhantomData<R>, PhantomData<T>);
+  /// The `WHICH`th expression of the rule `R::RULE` of `T` (`layout::Rule::expression`): 0 for
+  /// its first, 1 for the size of the pointee of an aim.
+  pub struct InRule<T: ?Sized, R, const WHICH: usize = 0>(PhantomData<R>, PhantomData<T>);
 
   /// The condition (or with `NEXT`, what follows a step) of the walk `W` of the expression `X`.
   pub struct InWalk<X, W, const NEXT: bool>(PhantomData<(X, W)>);
 
-  impl<T: ?Sized + Pun, R: Rules> Sealed for InRule<T, R> {}
+  impl<T: ?Sized + Pun, R: Rules, const WHICH: usize> Sealed for InRule<T, R, WHICH> {}
   impl<X: Ops, W: Steps, const NEXT: bool> Sealed for InWalk<X, W, NEXT> {}
 
-  impl<T: ?Sized + Pun, R: Rules> Ops for InRule<T, R> {
-    const OPS: &'static [Op] = T::LAYOUT.rule_ops(R::RULE);
+  impl<T: ?Sized + Pun, R: Rules, const WHICH: usize> Ops for InRule<T, R, WHICH> {
+    const OPS: &'static [Op] = T::LAYOUT.rule_ops(R::RULE, WHICH);
     const ENTRY: Entry = Entry::RULE;
   }
 
@@ -3014,12 +3036,13 @@ pub enum Error {
   /// the target needs.
   Size,
   /// The bytes are not a valid target, because a scalar holds a value that the target does not
-  /// accept, a `str` is not UTF-8, a rule of the target does not hold or cannot be computed, or
-  /// the target of an eager aim is not a valid value within the bytes.
+  /// accept, a `str` is not UTF-8, a rule of the target does not hold or cannot be computed, the
+  /// pointee of an aim does not fit, or the pointee of an eager aim is not a valid value within the
+  /// bytes.
   Validity,
-  /// The check of the targets of eager aims ([`Check::Eager`](layout::Check::Eager)) stopped at its
-  /// limit before it found the bytes valid or not: a target within another, this many deep
-  /// ([`AIM_DEPTH`]), or targets of more than twice as many bytes as are checked in all.
+  /// The check of the pointees of eager aims ([`Check::Eager`](layout::Check::Eager)) stopped at its
+  /// limit before it found the bytes valid or not: a pointee within another, this many deep
+  /// ([`AIM_DEPTH`]), or pointees of more than twice as many bytes as are checked in all.
   Limit,
 }
 
@@ -3071,8 +3094,8 @@ const UNIDENTIFIED: &str = "The source or the target has such a part that has no
 
 /// Why nothing proves an eager aim at a type that has no identity, for a refusal of a pun that
 /// does not prove a rule of the target (`Layout::holds_eager`). It goes on with [`NO_IDENTITY`].
-const UNIDENTIFIED_AIM: &str = "The source or the target has an eager aim at a type that has no \
-  identity, so that not even the same aim proves it: ";
+const UNIDENTIFIED_AIM: &str = "The source or the target has an eager aim at a pointee whose type \
+  has no identity, so that not even the same aim proves it: ";
 
 /// Which types have no identity, after [`UNIDENTIFIED`] or [`UNIDENTIFIED_AIM`].
 const NO_IDENTITY: &str = "an instance of a generic type has an identity only if each of its type \
@@ -3096,17 +3119,17 @@ const UNSPECIFIED_MUT: &str = "what may be written through the `&mut` is a valid
   enable the `unstable` feature of `puns`";
 
 /// A value that holds an eager aim, which no function makes.
-const EAGER_BY_VALUE: &str = "the target holds an eager aim, the target of a pointer that is \
-  checked with it and read without a check: a value of it would not be at the place where its \
-  target was checked.\nTake a reference to it with `try_pun_ref`, `from_bytes` or `from_head`";
+const EAGER_BY_VALUE: &str = "the target holds an eager aim, whose pointee is checked with it and \
+  read without a check: a value of it would not be at the place where its pointee was \
+  checked.\nTake a reference to it with `try_pun_ref`, `from_bytes` or `from_head`";
 
 /// A `&mut` to or from a value that holds an eager aim, which no function makes.
-const EAGER_MUT: &str = "the source or the target holds an eager aim, the target of a pointer \
-  that is checked with it and read without a check: a write through a `&mut` could move it away \
-  from that target";
+const EAGER_MUT: &str = "the source or the target holds an eager aim, whose pointee is checked \
+  with it and read without a check: a write through a `&mut` could move it away from that \
+  pointee";
 
-/// A check of an eager aim whose target could be in bytes that are not initialized.
-const EAGER_UNINIT: &str = "the target holds an eager aim, whose check reads its target in the \
+/// A check of an eager aim whose pointee could be in bytes that are not initialized.
+const EAGER_UNINIT: &str = "the target holds an eager aim, whose check reads its pointee in the \
   bytes of the source, and some of them may be padding.\nCheck the bytes of the source instead, \
   with `from_bytes` or `from_head`";
 
@@ -3402,6 +3425,30 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
   /// the marks of a source type that the bytes are a valid value of, with the extent of `source`.
   #[inline(always)]
   const unsafe fn try_cast_by<C: Checks>(source: *const S) -> Result<*const D, Error> {
+    let layout = const { S::LAYOUT };
+    // The size of a value that exists: no overflow.
+    let extent = layout.head() + ptr::metadata(source) * layout.stride();
+    // The pointees of eager aims are looked for in the bytes of the source.
+    let mut input = Input::new(source.cast::<u8>(), extent);
+    // SAFETY: The requirements of `try_cast_in` are those of this call, and the bytes of `input`
+    // are those of `source`, which are valid for reads and initialized where a marked check reads
+    // them.
+    unsafe { Self::try_cast_in::<C>(source, &mut input) }
+  }
+
+  /// [`Plan::try_cast_by`], which looks for the pointees of eager aims in the bytes of `input`,
+  /// which hold the source.
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure the requirements of [`Plan::try_cast_by`], and that the bytes of
+  /// `input` are in one allocation, valid for reads and initialized, and hold those of `source`, or
+  /// are those of `source` and the bytes that a marked check reads in them are.
+  #[inline(always)]
+  const unsafe fn try_cast_in<C: Checks>(
+    source: *const S,
+    input: &mut Input,
+  ) -> Result<*const D, Error> {
     let (layout, target) = const { (S::LAYOUT, D::LAYOUT) };
     let addr = source.cast::<u8>();
     if const { !Self::ANALYSIS.aligned } && !ptr::is_aligned(addr, target.align()) {
@@ -3427,16 +3474,14 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
       }
     }
     let target = ptr::from_raw_parts::<D>(addr, len);
-    // The targets of eager aims are looked for in the bytes of the source.
-    let mut input = Input::new(addr, extent);
     // SAFETY: This satisfies the safety contract of `validate`, which does not require `target` to
     // be aligned. `target` is at the address of `source`, and its extent is the extent of `source`,
     // which is checked above. Its size is at most the size of `source`. This is checked above if
     // `D` is unsized and more aligned than `S`. Otherwise `D` is sized, and its size is its extent,
     // or it is unsized and its extent is rounded up to an alignment that divides that of `S`. So
     // `target` is valid for reads of a `D`, by contract on the caller. Every byte that a marked
-    // check reads is initialized, by contract on the caller.
-    if !unsafe { validate::<C, Root, D>(target, &mut input) } {
+    // check reads is initialized, by contract on the caller, and the bytes of `input` hold it.
+    if !unsafe { validate::<C, Root, D>(target, input) } {
       return Err(if input.limit { Error::Limit } else { Error::Validity });
     }
     Ok(target)
@@ -4928,36 +4973,36 @@ pub const fn from_tail_mut<D: ?Sized + Pun>(
   }
 }
 
-/// Returns the bytes of the region of the tail of `value` that the rule `RULE` of its struct
-/// cuts, a lazy aim of `#[pun(regions(..))]` (see `#[derive(Pun)]`).
+/// Returns the bytes of the region of the tail of `value` that the aim at the cursor `L`, an item
+/// of the rules of the struct of `S`, cuts: a region of `#[pun(regions(..))]` without a type (see
+/// `#[derive(Pun)]`).
 ///
 /// The type system does not enforce regions. If the fields of `value` give regions that do not fit
 /// in its tail, they are truncated. A region whose expression fails takes the rest of the tail.
 ///
 /// # Compile-time errors
 ///
-/// A call compiles only if the rule `RULE` of the struct of `S` is a lazy aim, every byte of every
-/// value of `S`, up to the end of its slice, is initialized and, without the `unstable` feature,
-/// this does not depend on a layout that Rust leaves to the compiler. This is checked after
-/// monomorphization, as [the crate documentation](crate#compile-time-errors) explains.
+/// A call compiles only if the rule `L` of the struct of `S` is an aim at the cursor at `[u8]`,
+/// every byte of every value of `S`, up to the end of its slice, is initialized and, without the
+/// `unstable` feature, this does not depend on a layout that Rust leaves to the compiler. This is
+/// checked after monomorphization, as [the crate documentation](crate#compile-time-errors)
+/// explains.
 #[doc(hidden)]
 #[inline(always)]
-pub const fn region<S: ?Sized + Pun, const RULE: usize>(value: &S) -> &[u8] {
+pub const fn region<S: ?Sized + Pun, L: Rules>(value: &S) -> &[u8] {
   // The bytes of the value can be read: it has no padding.
   const { Plan::<S, [u8]>::BY_REF };
   let head = const {
     assert!(
-      matches!(
-        S::LAYOUT.rule(RULE),
-        Some(layout::Rule::Aim(layout::Aim { check: layout::Check::Lazy, .. }))
-      ),
+      matches!(S::LAYOUT.rule(L::RULE), Some(layout::Rule::Aim(aim))
+        if matches!(aim.start, layout::Start::Next) && aim.id.equals(&<[u8] as Pun>::ID)),
       "no such region"
     );
     S::LAYOUT.tail_shape().start
   };
   let (_, tail, size) = validate::tail_of::<S>(value);
   let base = core::ptr::from_ref::<S>(value).cast::<u8>();
-  // SAFETY: This satisfies the safety contract of `validate::aim_at`:
+  // SAFETY: This satisfies the safety contract of `validate::region_at`:
   // - `value` is a reference, so it is valid for reads of its `size` bytes while the borrow lives,
   //   and they are not written during it. `size` is the extent of the value, up to the end of its
   //   slice (`tail_of`). `Plan::<S, [u8]>::BY_REF` compiled, so every byte of `S` up to the end of
@@ -4965,14 +5010,14 @@ pub const fn region<S: ?Sized + Pun, const RULE: usize>(value: &S) -> &[u8] {
   // - `head` is where the tail starts, and `tail` its size in bytes (`tail_shape`, `tail_of`).
   //   The tail is the last part of the struct, so `head + tail <= size`. The search starts at
   //   0, which is at most `tail`.
-  let place = unsafe { validate::aim_at::<S, S::Rules>(base, size, (head, tail), RULE, 0) };
-  let Some((start, n)) = place else { unreachable!() };
-  // SAFETY: The rule `RULE` is a lazy aim, so `start` and `n` are a region within the tail, which
-  // ends at most `size` bytes from `base` (`aim_at`). So `add(start)` stays within the bytes of
-  // `value`. This satisfies the safety contract of `slice::from_raw_parts` [1]: the `n` bytes from
-  // there are in one allocation, valid for reads while the borrow of `value` lives, so non-null
-  // [2], initialized, and not written during it, as above. A `u8` is aligned at any address, and
-  // `n` bytes fit in an `isize`, since they are in an allocation.
+  let (start, n) =
+    unsafe { validate::region_at::<S, S::Rules>(base, size, (head, tail), L::RULE, 0) };
+  // SAFETY: `start` and `n` are a region within the tail, which ends at most `size` bytes from
+  // `base` (`region_at`). So `add(start)` stays within the bytes of `value`. This satisfies the
+  // safety contract of `slice::from_raw_parts` [1]: the `n` bytes from there are in one
+  // allocation, valid for reads while the borrow of `value` lives, so non-null [2], initialized,
+  // and not written during it, as above. A `u8` is aligned at any address, and `n` bytes fit in an
+  // `isize`, since they are in an allocation.
   //
   // [1] Per https://doc.rust-lang.org/1.99.0/core/slice/fn.from_raw_parts.html:
   //
@@ -4990,12 +5035,73 @@ pub const fn region<S: ?Sized + Pun, const RULE: usize>(value: &S) -> &[u8] {
   // [2] Per https://doc.rust-lang.org/1.99.0/core/ptr/index.html#safety:
   //
   //     A null pointer is never valid for reads/writes.
-  unsafe { core::slice::from_raw_parts(base.add(start as usize), n) }
+  unsafe { core::slice::from_raw_parts(base.add(start), n) }
 }
 
-/// Returns a pointer to the target of the eager aim that the rule `RULE` of the struct of `S` is,
-/// for the value of `S` at `holder`: where its expression says, a `D`, with the length that the
-/// `D` stores if it is unsized ([`aim`]).
+/// Returns the pointee of the lazy aim at the cursor `L`, an item of the rules of the struct of
+/// `S`, in `value`, as a `&L::Pointee` if its bytes are one: a region of `#[pun(regions(..))]`
+/// with a type (see `#[derive(Pun)]`).
+///
+/// The bytes of the region are found as [`region`] finds them, and checked as [`from_bytes`]
+/// checks bytes, but the pointees of the eager aims of the region are looked for in the bytes of
+/// `value`, so that a pointer in a region may point at another region of the same struct.
+///
+/// # Errors
+///
+/// As for [`from_bytes`] on the bytes of the region.
+///
+/// # Compile-time errors
+///
+/// A call compiles only if the rule `L` of the struct of `S` is an aim at the cursor, under the
+/// compile-time conditions of [`region`] for `S` and of [`from_bytes`] for the pointee.
+#[doc(hidden)]
+#[inline(always)]
+pub const fn region_as<S: ?Sized + Pun, L: Rules>(value: &S) -> Result<&L::Pointee, Error> {
+  const {
+    let () = Plan::<S, [u8]>::BY_REF;
+    let () = Plan::<[u8], L::Pointee>::TRY_REF;
+  };
+  let head = const {
+    assert!(
+      matches!(S::LAYOUT.rule(L::RULE), Some(layout::Rule::Aim(aim))
+        if matches!(aim.start, layout::Start::Next) && is_pointee::<L::Pointee>(&aim)),
+      "no such region"
+    );
+    S::LAYOUT.tail_shape().start
+  };
+  let (_, tail, size) = validate::tail_of::<S>(value);
+  let base = core::ptr::from_ref::<S>(value).cast::<u8>();
+  // SAFETY: As in `region`.
+  let (start, n) =
+    unsafe { validate::region_at::<S, S::Rules>(base, size, (head, tail), L::RULE, 0) };
+  // SAFETY: As in `region`, the `n` bytes at `start` are within the bytes of `value`.
+  let bytes = core::ptr::slice_from_raw_parts(unsafe { base.add(start) }, n);
+  let mut input = Input::new(base, size);
+  // SAFETY: `bytes` is valid for reads of `n` initialized bytes, which are a valid `[u8]`. So is
+  // the `[u8]` of the `size` bytes of `value`, which hold them, which `input` spans. These are the
+  // requirements of `try_cast_in`, with the marks of the analysis of bytes as the pointee.
+  match unsafe {
+    Plan::<[u8], L::Pointee>::try_cast_in::<Plan<[u8], L::Pointee>>(bytes, &mut input)
+  } {
+    // SAFETY: `try_cast_in` returned `Ok`, so the pointee is a valid `L::Pointee` at `bytes`,
+    // aligned, within the bytes of `value`, which are borrowed for the lifetime of the result, as
+    // in `from_bytes`.
+    Ok(pointee) => Ok(unsafe { &*pointee }),
+    Err(error) => Err(error),
+  }
+}
+
+/// Returns whether `aim` is an aim at a `P`: a pointee of its size and alignment, and of its
+/// identity if the aim knows it.
+const fn is_pointee<P: ?Sized + Pun>(aim: &layout::Aim) -> bool {
+  // SAFETY: `P::PROBE` is a probe of `P` (`Pun`, section Safety), as `head_size` requires, and
+  // `align_of_val_raw` has the same requirements.
+  let (size, align) = unsafe { (ptr::head_size(P::PROBE), core::mem::align_of_val_raw(P::PROBE)) };
+  aim.size == size && aim.align == align && (!aim.id.known() || aim.id.equals(&P::ID))
+}
+
+/// Returns a pointer to the pointee of the eager aim `L`, an item of the rules of the struct of
+/// `S`, for the value of `S` at `holder`, with the length of its tail if it is unsized ([`aim`]).
 ///
 /// # Safety
 ///
@@ -5005,85 +5111,114 @@ pub const fn region<S: ?Sized + Pun, const RULE: usize>(value: &S) -> &[u8] {
 ///
 /// As for [`aim`].
 #[inline(always)]
-const unsafe fn target<S: ?Sized + Pun, D: ?Sized + Pun, const RULE: usize>(
+const unsafe fn pointee<S: ?Sized + Pun, L: Rules>(
   holder: *const S,
-) -> *const D {
-  let head = const {
-    let rule = S::LAYOUT.rule(RULE);
-    // SAFETY: `D::PROBE` is a probe of `D` (`Pun`, section Safety), as `head_size` requires, and
-    // `align_of_val_raw` has the same requirements.
-    let (size, align) =
-      unsafe { (ptr::head_size(D::PROBE), core::mem::align_of_val_raw(D::PROBE)) };
+  end: *const u8,
+) -> *const L::Pointee {
+  let (head, start, extent) = const {
+    let Some(layout::Rule::Aim(aim)) = S::LAYOUT.rule(L::RULE) else {
+      panic!("the rule is not an eager aim at this type")
+    };
     assert!(
-      matches!(rule, Some(layout::Rule::Aim(aim)) if matches!(aim.check, layout::Check::Eager)
-        && aim.size == size
-        && aim.align == align
-        && (!aim.id.known() || aim.id.equals(&D::ID))),
+      matches!(aim.check, layout::Check::Eager) && is_pointee::<L::Pointee>(&aim),
       "the rule is not an eager aim at this type"
     );
-    S::LAYOUT.tail_shape().start
+    validate::pointee_checked::<S, L>();
+    (S::LAYOUT.tail_shape().start, aim.start, aim.extent)
   };
   let (_, tail, size) = validate::tail_of::<S>(holder);
   let base = holder.cast::<u8>();
-  // SAFETY: This satisfies the safety contract of `validate::aim_at`: `holder` points to a value
-  // of `S`, valid for reads, by contract on the caller, so its `size` bytes, the extent of the value
-  // (`tail_of`), are valid for reads, and the bytes that its rules read are initialized. `head` and
-  // `tail` are its tail, which is its last part, so `head + tail <= size`. The search starts at 0,
-  // which is at most `tail`.
-  let Some((at, _)) =
-    (unsafe { validate::aim_at::<S, S::Rules>(base, size, (head, tail), RULE, 0) })
-  else {
-    // SAFETY: The expression of the aim succeeds over the bytes of the value, by contract on the
-    // caller.
+  let (addr, wanted) = match start {
+    layout::Start::Next => {
+      // SAFETY: `holder` points to a value of `S`, valid for reads, by contract on the caller, so
+      // its `size` bytes, the extent of the value (`tail_of`), are valid for reads, and the bytes
+      // that its rules read, and of its tail, are initialized. `head` and `tail` are its tail,
+      // which is its last part, so `head + tail <= size`. The search starts at 0. These are the
+      // requirements of `region_at`.
+      let (start, n) =
+        unsafe { validate::region_at::<S, S::Rules>(base, size, (head, tail), L::RULE, 0) };
+      // SAFETY: `start + n <= size`: the pointee is within the bytes of the value.
+      (unsafe { base.add(start) }, n)
+    }
+    layout::Start::Stored(_) => {
+      // SAFETY: As above, the requirements of `pointer_at` hold.
+      let Some(at) = (unsafe { validate::pointer_at::<S, L>(base, size) }) else {
+        // SAFETY: The expression of the aim succeeds over the bytes of the value, by contract on
+        // the caller.
+        unsafe { core::hint::unreachable_unchecked() }
+      };
+      let addr = base.wrapping_offset(at as isize);
+      (addr, ptr::address(end).wrapping_sub(ptr::address(addr)))
+    }
+  };
+  let len = match extent {
+    // SAFETY: A valid pointee, aligned, is at `addr`, and its rule gives the length of its tail,
+    // by contract on the caller. It stores its length, which `pointee_checked` asserts of the
+    // pointee of an aim of its own size. These are the requirements of `validate::thin`.
+    layout::Extent::Own => return unsafe { validate::thin::<L::Pointee>(addr) },
+    layout::Extent::Given(_) => {
+      // SAFETY: As above, the requirements of `eval` hold for the size of the pointee.
+      let given = unsafe { validate::given::<S, L>(base, size) };
+      match given {
+        Some(n) if n <= usize::MAX as u128 => validate::sized_as::<L::Pointee>(n as usize),
+        _ => None,
+      }
+    }
+    layout::Extent::Rest => validate::sized_as::<L::Pointee>(wanted),
+  };
+  let Some(len) = len else {
+    // SAFETY: The pointee has the size that the aim gives, one that its type has, by contract on
+    // the caller.
     unsafe { core::hint::unreachable_unchecked() }
   };
-  #[expect(clippy::cast_possible_wrap, reason = "two's complement, as the aim says")]
-  let addr = base.wrapping_offset(at as i128 as isize);
-  // SAFETY: A valid `D`, aligned, is at `addr`, the address that the expression gives, and its
-  // rule gives the length of its tail, by contract on the caller, as `validate::thin` requires.
-  unsafe { validate::thin::<D>(addr) }
+  ptr::from_raw_parts::<L::Pointee>(addr, len)
 }
 
-/// Returns the target of the eager aim that the rule `RULE` of the struct of `S` is, for the value
-/// of `S` at `holder`, as a `&D`.
+/// Returns the pointee of the eager aim `L`, an item of the rules of the struct of `S`, for the
+/// value of `S` at `holder`, as a `&L::Pointee`.
 ///
-/// This is the read of the target of `#[pun(aim(name: Type = EXPR))]`, which the method `name`
-/// that the derive writes calls ([`macro@Pun`]). The address is that of `holder`, plus the value
-/// of `EXPR`, an `i128` in two's complement, and the length of an unsized `D` is what its `size`
-/// or `len` rule reads from its sized fields, as when `puns` checked it.
+/// This is the read of the pointee of an eager aim, which the methods that the derive writes for
+/// a named aim call ([`macro@Pun`]). The pointee is where the check of the struct found it: at the
+/// address of `holder`, plus the value of the expression of the aim, an `i128` in two's
+/// complement, or at the cursor of the tail of the struct. Its size is that of its type, with the
+/// length that it stores in its sized fields if it is unsized, the size that the aim gives, or,
+/// for one at the cursor, the rest of the tail. A pointee at a stored place that takes the rest of
+/// the bytes ends at `end`, which is ignored otherwise.
 ///
 /// It cannot be safe: any crate can declare an eager aim through the derive, which is safe, so the
-/// type of a value does not tell that its target was checked. A reference to a value with an eager
-/// aim that a function of `puns` returned does, and so does one to a value within it.
+/// type of a value does not tell that its pointee was checked. A reference to a value with an
+/// eager aim that a function of `puns` returned does, and so does one to a value within it.
 ///
 /// # Safety
 ///
 /// The caller must ensure that:
 ///
-/// - `holder` points to a value of `S`, valid for reads, whose bytes that its rules read are
-///   initialized, and over which the expression of the aim succeeds.
-/// - At the address that the expression gives, there is a value of `D`, aligned, that is valid as
-///   Rust requires of the referent of a `&D`, and, if `D` is unsized, whose `size` or `len` rule,
-///   evaluated over its sized fields, gives the length of its tail.
-/// - `holder` has the provenance of the bytes of that `D`. One made from a reference to the value
-///   alone has it under the tree borrows model of Miri, but not under stacked borrows, where a
+/// - `holder` points to a value of `S`, valid for reads, whose bytes that its rules read, and the
+///   bytes of its tail, are initialized, and over which the expressions of the aim succeed.
+/// - Where the aim says, there is a value of `L::Pointee`, aligned, that is valid as Rust requires
+///   of the referent of a `&L::Pointee`, of the size that the aim gives, and, if it is of its own
+///   size and unsized, whose `size` or `len` rule, evaluated over its sized fields, gives the
+///   length of its tail. A pointee at a stored place that takes the rest of the bytes ends at
+///   `end`.
+/// - `holder` has the provenance of the bytes of that pointee. One made from a reference to the
+///   value alone has it under the tree borrows model of Miri, but not under stacked borrows, where a
 ///   reference gives access to the bytes of its referent only: there, `holder` is made from a
 ///   pointer to bytes that hold both, such as the bytes that `puns` checked.
-/// - The bytes of the value and of the `D` are not written for `'a`, except inside an
+/// - The bytes of the value and of the pointee are not written for `'a`, except inside an
 ///   `UnsafeCell`.
 ///
 /// A value that a function of `puns` checked with its eager aims meets the first two, such as one
 /// that a reference that `puns` returned points to, or a value within one. Unsafe code that writes
 /// a value with an eager aim, as `nearest` writes its regions, keeps them for each value that it
-/// reads this way. Rules of `D` that do not give its length, such as an `assert`, are not needed:
-/// the read relies on none.
+/// reads this way. Rules of the pointee that do not give its length, such as an `assert`, are not
+/// needed: the read relies on none.
 ///
 /// # Compile-time errors
 ///
-/// A call compiles only if the rule `RULE` of the struct of `S` is an eager aim at a target of the
-/// size and alignment of `D`, and of its identity if the aim knows it, and `D` is sized or stores
-/// the length of its tail in its sized fields: a `size` or `len` rule that reads no byte by
-/// offset, as the check of the aim requires.
+/// A call compiles only if the rule `L` of the struct of `S` is an eager aim at an `L::Pointee`,
+/// of its size and alignment, and of its identity if the aim knows it, and a pointee of its own
+/// size is sized or stores the length of its tail in its sized fields: a `size` or `len` rule
+/// that reads no byte by offset, as the check of the aim requires.
 ///
 /// # Examples
 ///
@@ -5093,40 +5228,41 @@ const unsafe fn target<S: ?Sized + Pun, D: ?Sized + Pun, const RULE: usize>(
 /// #[derive(Pun)]
 /// #[repr(transparent)]
 /// struct Next {
-///   #[pun(aim(next: u8 = off as u128))]
+///   #[pun(pointer(next: u8 = off as u128))]
 ///   off: InPlace<u8>,
 /// }
 ///
 /// let bytes = [1, 9];
 /// let next = puns::from_head::<Next>(&bytes).unwrap().0;
-/// // SAFETY: `puns` checked `next` with its target, and the pointer has the provenance of the
+/// // SAFETY: `puns` checked `next` with its pointee, and the pointer has the provenance of the
 /// // bytes that hold both, which are not written while it is used.
-/// let target = unsafe { Next::next(bytes.as_ptr().with_addr(core::ptr::from_ref(next).addr()).cast()) };
-/// assert_eq!(*target, 9);
+/// let pointee = unsafe { Next::next(bytes.as_ptr().with_addr(core::ptr::from_ref(next).addr()).cast()) };
+/// assert_eq!(*pointee, 9);
 /// ```
 #[doc(hidden)]
 #[inline(always)]
 #[must_use]
-pub const unsafe fn aim<'a, S: ?Sized + Pun, D: ?Sized + Pun, const RULE: usize>(
+pub const unsafe fn aim<'a, S: ?Sized + Pun, L: Rules>(
   holder: *const S,
-) -> &'a D {
-  // SAFETY: The requirements of `target` are those of this call. The `D` at the address that it
-  // returns, with its length, is valid and aligned, and is not written for `'a`, by contract on the
-  // caller, so it can be borrowed for `'a`.
-  unsafe { &*target::<S, D, RULE>(holder) }
+  end: *const u8,
+) -> &'a L::Pointee {
+  // SAFETY: The requirements of `pointee` are those of this call. The pointee at the address that
+  // it returns, with its length, is valid and aligned, and is not written for `'a`, by contract on
+  // the caller, so it can be borrowed for `'a`.
+  unsafe { &*pointee::<S, L>(holder, end) }
 }
 
-/// Returns the target of the eager aim that the rule `RULE` of the struct of `S` is, for the value
-/// of `S` at `holder`, as a `&mut D`: what [`aim`] returns, to write.
+/// Returns the pointee of the eager aim `L`, an item of the rules of the struct of `S`, for the
+/// value of `S` at `holder`, as a `&mut L::Pointee`: what [`aim`] returns, to write.
 ///
 /// # Safety
 ///
 /// The caller must ensure the requirements of [`aim`] but the last, and that for `'a`, the bytes of
-/// the `D` are accessed only through the result, and the bytes of the value are not written.
+/// the pointee are accessed only through the result, and the bytes of the value are not written.
 ///
 /// A reference that `puns` returned is shared, so the bytes of a value that `puns` checked are not
 /// for this function while it lives: it is for the bytes that unsafe code owns, as `nearest` owns
-/// a region. What is written through the result is what later reads of the target rely on.
+/// a region. What is written through the result is what later reads of the pointee rely on.
 ///
 /// # Compile-time errors
 ///
@@ -5134,12 +5270,99 @@ pub const unsafe fn aim<'a, S: ?Sized + Pun, D: ?Sized + Pun, const RULE: usize>
 #[doc(hidden)]
 #[inline(always)]
 #[must_use]
-pub const unsafe fn aim_mut<'a, S: ?Sized + Pun, D: ?Sized + Pun, const RULE: usize>(
+pub const unsafe fn aim_mut<'a, S: ?Sized + Pun, L: Rules>(
   holder: *mut S,
-) -> &'a mut D {
-  // SAFETY: The requirements of `target` are those of this call. The `D` at the address that it
-  // returns, with its length, is valid and aligned, and accessed only through the result for `'a`,
-  // by contract on the caller, so it can be borrowed mutably for `'a`. The pointer is made from
-  // `holder`, a `*mut S`, so it may write.
-  unsafe { &mut *target::<S, D, RULE>(holder.cast_const()).cast_mut() }
+  end: *const u8,
+) -> &'a mut L::Pointee {
+  // SAFETY: The requirements of `pointee` are those of this call. The pointee at the address that
+  // it returns, with its length, is valid and aligned, and accessed only through the result for
+  // `'a`, by contract on the caller, so it can be borrowed mutably for `'a`. The pointer is made
+  // from `holder`, a `*mut S`, so it may write.
+  unsafe { &mut *pointee::<S, L>(holder.cast_const(), end).cast_mut() }
+}
+
+/// Returns the pointee of the lazy aim at a stored place `L`, an item of the rules of the struct of
+/// `S`, for `value`, which is in `bytes`, as a `&L::Pointee` if the bytes where it is are one.
+///
+/// The pointee is where the check of the struct finds it: at the address of `value` plus the value
+/// of the expression of the aim, an `i128` in two's complement, within `bytes`. Its size is that
+/// of its type, with the length that it stores if it is unsized, the size that the aim gives, or
+/// the rest of `bytes`. It is checked as [`from_bytes`] checks bytes, and the pointees of its own
+/// eager aims are looked for in `bytes`. This is the read that the derive writes for a lazy aim at
+/// a stored place, which takes the bytes, since a reference to the value covers only its own.
+///
+/// # Errors
+///
+/// Returns [`Error::Validity`] if `value` is not within `bytes`, or if the pointee does not start
+/// within them, or its expression fails, [`Error::Size`] if its size does not fit in them, or is
+/// not one that its type has, and the errors of [`from_bytes`] on the bytes of the pointee.
+///
+/// # Compile-time errors
+///
+/// A call compiles only if the rule `L` of the struct of `S` is a lazy aim at a stored place at an
+/// `L::Pointee`, under the compile-time conditions of [`from_bytes`] for the pointee.
+#[doc(hidden)]
+#[inline]
+pub fn aim_in<'a, S: ?Sized + Pun, L: Rules>(
+  value: &S,
+  bytes: &'a [u8],
+) -> Result<&'a L::Pointee, Error> {
+  const { Plan::<[u8], L::Pointee>::TRY_REF };
+  let extent = const {
+    match S::LAYOUT.rule(L::RULE) {
+      Some(layout::Rule::Aim(aim))
+        if matches!((aim.start, aim.check), (layout::Start::Stored(_), layout::Check::Lazy))
+          && is_pointee::<L::Pointee>(&aim) =>
+      {
+        aim.extent
+      }
+      _ => panic!("the rule is not a lazy aim at a stored place at this type"),
+    }
+  };
+  let (_, _, size) = validate::tail_of::<S>(value);
+  let base = core::ptr::from_ref::<S>(value).cast::<u8>();
+  let from = match base.addr().checked_sub(bytes.as_ptr().addr()) {
+    Some(from) if from <= bytes.len() && size <= bytes.len() - from => from,
+    _ => return Err(Error::Validity),
+  };
+  // SAFETY: `value` is a reference, valid for reads of its `size` bytes, whose bytes that its rules
+  // read are initialized, since it is a valid `S`, as `pointer_at` requires.
+  let Some(at) = (unsafe { validate::pointer_at::<S, L>(base, size) }) else {
+    return Err(Error::Validity);
+  };
+  let to = match (from as i128).checked_add(at) {
+    Some(to) if to >= 0 && to <= bytes.len() as i128 => to.cast_unsigned() as usize,
+    _ => return Err(Error::Validity),
+  };
+  let room = bytes.len() - to;
+  let wanted = match extent {
+    layout::Extent::Own => validate::Size::Own,
+    layout::Extent::Given(_) => {
+      // SAFETY: As for `pointer_at`, the requirements of `given` hold.
+      match unsafe { validate::given::<S, L>(base, size) } {
+        Some(n) => validate::Size::Bytes(n),
+        None => return Err(Error::Validity),
+      }
+    }
+    layout::Extent::Rest => validate::Size::Rest,
+  };
+  // SAFETY: The `room` bytes from `to` are the end of `bytes`, valid for reads and initialized.
+  let Some((_, n)) =
+    (unsafe { validate::measure::<L::Pointee>(wanted, bytes.as_ptr().add(to), room) })
+  else {
+    return Err(Error::Size);
+  };
+  // SAFETY: `to + n <= bytes.len()`.
+  let pointee = core::ptr::slice_from_raw_parts(unsafe { bytes.as_ptr().add(to) }, n);
+  let mut input = Input::new(bytes.as_ptr(), bytes.len());
+  // SAFETY: `pointee` is valid for reads of `n` initialized bytes of `bytes`, which `input` spans.
+  // These are the requirements of `try_cast_in`, with the marks of the analysis of bytes as the
+  // pointee.
+  match unsafe {
+    Plan::<[u8], L::Pointee>::try_cast_in::<Plan<[u8], L::Pointee>>(pointee, &mut input)
+  } {
+    // SAFETY: As in `from_bytes`: a valid pointee, aligned, within `bytes`, borrowed for `'a`.
+    Ok(pointee) => Ok(unsafe { &*pointee }),
+    Err(error) => Err(error),
+  }
 }

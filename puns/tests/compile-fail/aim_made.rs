@@ -6,7 +6,7 @@ use puns::InPlace;
 #[derive(puns::Pun, Clone, Default)]
 #[repr(transparent)]
 struct Near {
-  #[pun(aim(u32 = off as u128))]
+  #[pun(pointer(u32 = off as u128))]
   off: InPlace<i32>,
 }
 

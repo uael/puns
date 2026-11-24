@@ -214,7 +214,7 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/lib.rs
   |
-  |     const OPS: &'static [Op] = T::LAYOUT.rule_ops(R::RULE);
+  |     const OPS: &'static [Op] = T::LAYOUT.rule_ops(R::RULE, WHICH);
   |                                ^^^^^^^^^
 
 note: erroneous constant encountered
@@ -309,19 +309,66 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |       matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { check: layout::Check::Eager, .. })));
-  |                ^^^^^^^^^
+  |     match T::LAYOUT.rule(L::RULE) {
+  |           ^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let (layout, rule) = const {
+  |     let (eager, align) = const {
   |  ________________________^
-  | |     let layout = D::LAYOUT;
-  | |     let eager =
-  | |       matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { check: layout::Check::Eager, .. })));
+  | |     pointee_checked::<T, L>();
+  | |     match T::LAYOUT.rule(L::RULE) {
+  | |       Some(Rule::Aim(Aim { check, align, .. })) => (matches!(check, Check::Eager), align),
 ... |
-  | |     (layout, rule)
+  | |   };
+  | |___^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     const { matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Next, .. }))) };
+  |                      ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     const { matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Next, .. }))) };
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     match T::LAYOUT.rule(L::RULE) {
+  |           ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let (extent, align) = const {
+  |  _________________________^
+  | |     match T::LAYOUT.rule(L::RULE) {
+  | |       Some(Rule::Aim(Aim { start: Start::Next, extent, align, .. })) => (extent, align),
+  | |       _ => (Extent::Rest, 1),
+  | |     }
+  | |   };
+  | |___^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     match T::LAYOUT.rule(L::RULE) {
+  |           ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let extent = const {
+  |  ________________^
+  | |     match T::LAYOUT.rule(L::RULE) {
+  | |       Some(Rule::Aim(Aim { start: Start::Stored(_), extent, .. })) => extent,
+  | |       _ => Extent::Rest,
+  | |     }
   | |   };
   | |___^
 

@@ -5,7 +5,7 @@
 mod aims;
 
 use aims::{Expr, Near, Pair, Tree};
-use puns::{Error, InPlace, Pun, Thin, layout::Endian};
+use puns::{Error, InPlace, Pun, Thin, layout::Endian, num::u8c};
 
 /// The target of `near`, in `image`, the bytes in which `puns` checked it.
 fn to<'a, T: ?Sized + Pun>(near: &'a Near<T>, image: &'a [u8]) -> &'a T {
@@ -269,7 +269,7 @@ fn the_length_of_a_thin_has_the_sign_of_its_type() {
 #[derive(Pun)]
 #[repr(transparent)]
 struct Back {
-  #[pun(aim(back: u16 = off as u128))]
+  #[pun(pointer(back: u16 = off as u128))]
   off: InPlace<i16>,
 }
 
@@ -300,7 +300,7 @@ fn a_target_before_the_pointer() {
 #[derive(Pun)]
 #[repr(transparent)]
 struct Second {
-  #[pun(aim(pair: [u32; 2] = signed(0, 4, Endian::Big) - 4))]
+  #[pun(pointer(pair: [u32; 2] = signed(0, 4, Endian::Big) - 4))]
   off: InPlace<[u8; 4]>,
 }
 
@@ -327,7 +327,7 @@ fn where_a_target_starts_is_a_rule() {
 #[derive(Pun)]
 #[repr(C)]
 struct Message {
-  #[pun(aim(word: u16 = off as u128))]
+  #[pun(pointer(word: u16 = off as u128))]
   off: InPlace<i16>,
   body_len: u16,
   #[pun(regions(header = 2, body: [Back] = body_len))]
@@ -364,9 +364,17 @@ fn regions_and_eager_aims_compose() {
   };
   assert_eq!((*word, *first, *second), (0x1234, (-2i16).cast_unsigned(), 2));
   // The eager aim is checked with the message, and the pointers of the body when it is read,
-  // within its bytes: one that points at the header is not.
+  // within the bytes of the message: one may point at the header, another region of the message,
+  // but not before the message.
   let words = message(-4);
   assert_eq!(message_at(&words), Ok(()));
+  let bytes = puns::as_bytes(&words);
+  let read = puns::from_bytes::<Message>(bytes).unwrap();
+  let body = read.body().unwrap();
+  // SAFETY: `puns` checked the region `body` with the targets of its pointers, in the bytes of the
+  // message, which `bytes` holds and which are not written.
+  assert_eq!(unsafe { *Back::back(within(&body[1], bytes)) }, 0x1234);
+  let words = message(-10);
   let read = puns::from_bytes::<Message>(puns::as_bytes(&words)).unwrap();
   assert_eq!(read.body().err(), Some(Error::Validity));
   let mut words = message(-2);
@@ -387,7 +395,7 @@ struct Text {
 #[derive(Pun)]
 #[repr(transparent)]
 struct ToText {
-  #[pun(aim(text: Text = off as u128))]
+  #[pun(pointer(mut text: Text = off as u128))]
   off: InPlace<i16>,
 }
 
@@ -506,4 +514,117 @@ fn rows(root: &Pair, image: &[u8]) -> Vec<(String, Vec<u32>)> {
     at = pair.next.as_ref().map(|next| to(next, image));
   }
   out
+}
+
+/// Rows at a stored place, of a given size, and the rest of the bytes from another, both checked
+/// when they are read, from the bytes that hold the table.
+#[derive(Pun)]
+#[repr(C)]
+struct Table {
+  #[pun(pointer(lazy rows: [u16] = at as u128, size = len as u128))]
+  at: u8,
+  len: u8,
+  #[pun(pointer(lazy rest: str = from as u128, size = ..))]
+  from: u8,
+  version: u8,
+}
+
+#[test]
+fn lazy_pointers_are_checked_when_read() {
+  // The table, then two rows, then a text that runs to the end.
+  let mut words = [0u16; 5];
+  let bytes =
+    puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u16; 5], [u8; 10]>(&mut words)).unwrap();
+  bytes[..4].copy_from_slice(&[4, 4, 8, 1]);
+  bytes[4..8].copy_from_slice(puns::as_bytes(&[7u16, 9]));
+  bytes[8..].copy_from_slice(b"ok");
+  let bytes: &[u8] = bytes;
+  let table = puns::from_head::<Table>(bytes).unwrap().0;
+  assert_eq!((table.rows(bytes), table.rest(bytes)), (Ok(&[7, 9][..]), Ok("ok")));
+  // The table, read from bytes that do not hold it, has no rows.
+  assert_eq!(table.rows(&bytes[1..]).err(), Some(Error::Validity));
+  // The check of the table requires only that its pointees fit: an odd size of rows is a size
+  // that no rows have, refused when they are read.
+  let mut odd = words;
+  puns::pun_mut::<[u16; 5], [u8; 10]>(&mut odd)[1] = 3;
+  let odd = puns::as_bytes(&odd);
+  let table = puns::from_head::<Table>(odd).unwrap().0;
+  assert_eq!(table.rows(odd).err(), Some(Error::Size));
+  // Rows past the bytes do not fit.
+  let mut long = words;
+  puns::pun_mut::<[u16; 5], [u8; 10]>(&mut long)[1] = 8;
+  assert_eq!(puns::from_head::<Table>(puns::as_bytes(&long)).err(), Some(Error::Validity));
+}
+
+/// Words at a stored place, of a given size, and the rest of the bytes from another place, both
+/// checked with the struct.
+#[derive(Pun)]
+#[repr(C)]
+struct Spans {
+  #[pun(pointer(mut words: [u16] = off as u128, size = len as u128))]
+  off: InPlace<i8>,
+  len: u8,
+  #[pun(pointer(rest: [u8] = from as u128, size = ..))]
+  from: InPlace<u8>,
+  _pad: u8,
+}
+
+#[test]
+fn eager_pointers_of_a_given_size_and_of_the_rest() {
+  let mut words = [0u16; 4];
+  let bytes = puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u16; 4], [u8; 8]>(&mut words)).unwrap();
+  bytes[..4].copy_from_slice(&[4, 4, 6, 0]);
+  bytes[4..].copy_from_slice(puns::as_bytes(&[5u16, 6]));
+  let bytes: &[u8] = bytes;
+  let spans = puns::from_head::<Spans>(bytes).unwrap().0;
+  let end = bytes.as_ptr_range().end;
+  // SAFETY: `puns` checked `spans` with its pointees, in `bytes`, which end at `end` and are not
+  // written.
+  let (all, rest) =
+    unsafe { (Spans::words(within(spans, bytes)), Spans::rest(within(spans, bytes), end)) };
+  assert_eq!((all, rest), (&[5, 6][..], &bytes[6..]));
+  // A size of 3 bytes is no size of a `[u16]`, and an eager pointee is checked with the struct.
+  let mut odd = words;
+  puns::pun_mut::<[u16; 4], [u8; 8]>(&mut odd)[1] = 3;
+  assert_eq!(puns::from_head::<Spans>(puns::as_bytes(&odd)).err(), Some(Error::Validity));
+}
+
+/// A header, then regions: a text of its own size, checked when read, then a version and words
+/// checked with the struct, which holds its bytes in place.
+#[derive(Pun)]
+#[repr(C)]
+struct Packet {
+  count: u8,
+  #[pun(regions(text: Text, eager version: u8c<2> = 1, eager words: [u16] = count as u128, rest))]
+  tail: InPlace<[u8]>,
+}
+
+#[test]
+fn regions_of_every_kind() {
+  // The count, then the text, 2-aligned as its length is: a byte of padding, its length, 2, and
+  // its bytes. Then the version, a byte of padding, and the words at an even offset of the packet,
+  // which leave nothing for the rest.
+  let mut words = [0u16; 6];
+  let bytes =
+    puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u16; 6], [u8; 12]>(&mut words)).unwrap();
+  bytes[0] = 4;
+  bytes[2..4].copy_from_slice(&2u16.to_ne_bytes());
+  bytes[4..7].copy_from_slice(b"ab\x02");
+  bytes[8..12].copy_from_slice(puns::as_bytes(&[7u16, 8]));
+  let bytes: &[u8] = bytes;
+  let packet = puns::from_bytes::<Packet>(bytes).unwrap();
+  assert_eq!(&packet.text().unwrap().data, "ab");
+  // SAFETY: `puns` checked `packet` with its eager regions, in `bytes`, which are not written.
+  let (version, all) = unsafe { (Packet::version(packet), Packet::words(packet)) };
+  assert_eq!((version.get(), all, packet.rest()), (2, &[7, 8][..], &[][..]));
+  // An eager region is checked with the struct: another version is not one.
+  let mut other = bytes.to_vec();
+  other[6] = 3;
+  let other = Image { bytes: other }.aligned();
+  assert_eq!(puns::from_bytes::<Packet>(other.bytes()).err(), Some(Error::Validity));
+  // Where the words start depends on their offset in the packet, not on its address: from an odd
+  // address, they are at the same offset, which is not aligned, and the packet is not valid.
+  let mut shifted = [0u8; 13];
+  shifted[1..].copy_from_slice(bytes);
+  assert_eq!(puns::from_bytes::<Packet>(&shifted[1..]).err(), Some(Error::Validity));
 }

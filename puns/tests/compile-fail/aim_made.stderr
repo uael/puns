@@ -26,8 +26,8 @@ error[E0423]: cannot initialize a tuple struct which contains private fields
 note: constructor is not visible here due to private fields
   --> src/lib.rs
    |
-   | pub struct InPlace<T>(T);
-   |                       ^ private field
+   | pub struct InPlace<T: ?Sized>(T);
+   |                               ^ private field
 
 error[E0277]: the trait bound `InPlace<i32>: Copy` is not satisfied
   --> tests/compile-fail/aim_made.rs:15:25

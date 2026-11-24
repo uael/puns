@@ -20,7 +20,7 @@ use puns::{InPlace, Pun, Thin};
 #[repr(transparent)]
 pub struct Near<T: ?Sized> {
   /// The distance to the target, from the address of the `Near`.
-  #[pun(aim(target: Thin<T, i32> = off as u128))]
+  #[pun(pointer(target: Thin<T, i32> = off as u128))]
   off: InPlace<NonZero<i32>>,
   _t: PhantomData<T>,
   _pin: PhantomPinned,

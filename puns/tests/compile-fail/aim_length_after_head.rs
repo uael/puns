@@ -16,7 +16,7 @@ struct Counted {
 #[derive(Pun)]
 #[repr(transparent)]
 struct ToCounted {
-  #[pun(aim(Counted = off as u128))]
+  #[pun(pointer(Counted = off as u128))]
   off: InPlace<i8>,
 }
 

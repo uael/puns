@@ -142,7 +142,7 @@ done yet: read it, and the module docs of what you change, before changing the l
 the crate docs and `README.md` consistent with the code.
 
 - **`puns/`**: the library (`#![no_std]`, no dependency but the derive). A self-relative pointer,
-  such as one of `nearest`, derives `Pun` with `#[pun(aim(..))]` on a field of type `InPlace<T>`,
+  such as one of `nearest`, derives `Pun` with `#[pun(pointer(..))]` on a field of type `InPlace<T>`,
   an eager aim (`layout::Aim`) whose target `puns` checks, so `nearest` depends on `puns`, not the
   reverse. The tests declare such a pointer through that API only (`tests/support/aims.rs`, shared
   by `#[path]` with the compile-fail cases).

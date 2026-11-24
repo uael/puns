@@ -1,4 +1,4 @@
-error: the field of an `aim` is written `InPlace<T>`: a `T` that holds where the target is, which only `puns` makes
+error: the field of an eager aim is written `InPlace<T>`: a `T` that holds where the pointee is, which only `puns` makes
  --> tests/compile-fail/aim_not_in_place.rs:8:8
   |
 8 |   off: i32,

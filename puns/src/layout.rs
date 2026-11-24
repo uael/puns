@@ -2018,8 +2018,8 @@ impl Layout {
     clippy::type_complexity,
     reason = "the derive writes this tuple of `fn` types out, with the paths it is told"
   )]
-  pub const PIN_AIMS: (fn(Aim), fn(Start), fn(Metadata), fn(Check), fn(crate::InPlace<()>)) =
-    (pin::<Aim>, pin::<Start>, pin::<Metadata>, pin::<Check>, pin::<crate::InPlace<()>>);
+  pub const PIN_AIMS: (fn(Aim), fn(Start), fn(Extent), fn(Check), fn(crate::InPlace<()>)) =
+    (pin::<Aim>, pin::<Start>, pin::<Extent>, pin::<Check>, pin::<crate::InPlace<()>>);
 
   /// Returns an uninitialized `T`, for `#[derive(Pun)]`, which measures the offsets of the fields
   /// of a struct by projecting a pointer into it.
@@ -3488,14 +3488,14 @@ impl Layout {
     }
   }
 
-  /// Returns the expression of the `rule`th rule of a struct, or no operation if there is no such
-  /// rule or it has no expression.
-  pub(crate) const fn rule_ops(&self, rule: usize) -> &'static [Op] {
+  /// Returns the `which`th expression of the `rule`th rule of a struct ([`Rule::expression`]), or
+  /// no operation if there is no such rule or expression.
+  pub(crate) const fn rule_ops(&self, rule: usize, which: usize) -> &'static [Op] {
     let rules = self.rules();
     if rule >= rules.len() {
       return &[];
     }
-    match rules[rule].ops() {
+    match rules[rule].expression(which) {
       Some(ops) => ops,
       None => &[],
     }
@@ -4025,8 +4025,8 @@ impl Layout {
   /// The padding of the struct, if any, is then read when the rule is checked.
   pub(crate) const fn rules_read_bytes(&self) -> bool {
     let (rules, mut i) = (self.rules(), 0);
-    while i < rules.len() {
-      if let Some(ops) = rules[i].ops()
+    while i < 2 * rules.len() {
+      if let Some(ops) = rules[i / 2].expression(i % 2)
         && ops_read_bytes(ops)
       {
         return true;
@@ -4092,8 +4092,8 @@ impl Layout {
           i += 1;
         }
         let mut i = 0;
-        while i < rules.len() {
-          if let Some(ops) = rules[i].ops()
+        while i < 2 * rules.len() {
+          if let Some(ops) = rules[i / 2].expression(i % 2)
             && !cheap_ops(ops)
           {
             return false;
@@ -5910,7 +5910,7 @@ pub(crate) const fn same_ops(a: &[Op], b: &[Op]) -> bool {
 /// rule of a value that it did not check.
 ///
 /// `#[derive(Pun)]` makes the rules of `#[pun(size = ..)]` and `#[pun(assert(..))]` on a struct,
-/// of `#[pun(len = ..)]` and `#[pun(regions(..))]` on its last field, and of `#[pun(aim(..))]` on a
+/// of `#[pun(len = ..)]` and `#[pun(regions(..))]` on its last field, and of `#[pun(pointer(..))]` on a
 /// field of type [`InPlace<T>`](crate::InPlace).
 ///
 /// # Examples
@@ -5946,64 +5946,62 @@ pub enum Rule {
   Aim(Aim),
 }
 
-/// A value at a place of the checked bytes, which a struct points at: the target of a
-/// self-relative pointer, or a region of the tail of the struct.
+/// A value at a place of the checked bytes, which a struct points at: its *pointee*, such as the
+/// value that a self-relative pointer points at, or a region of the tail of the struct.
 ///
-/// As a pointer of Rust, an aim is thin or wide ([`Metadata`]). The metadata of the target of a
-/// thin aim is at the target: its type is sized, or a [`Thin<T, M>`](crate::Thin) that stores the
-/// length of `T` before it. A wide aim holds the metadata of its target, the length of the tail of
-/// its type, as an expression over the struct. Either way, the target takes `size_of_val` of it.
-/// The type of the target is the `Target` of the item of the rule in the hidden list `Pun::Rules`,
-/// through which the validation reaches the checks of the target, so that a type that points at
+/// An aim says three things, and every combination of them is an aim that `puns` checks and reads:
+///
+/// - Where its pointee starts ([`Start`]): where an expression over the struct says, from the start
+///   of the struct, or at the cursor of the tail of the struct, after the pointee of the aim before.
+/// - How large it is ([`Extent`]): the size that its type has, sized or storing its length; the
+///   size in bytes that an expression over the struct gives; or the rest of the bytes.
+/// - When it is checked ([`Check`]): with the struct, or when it is read.
+///
+/// The type of the pointee is the `Pointee` of the item of the rule in the hidden list `Pun::Rules`,
+/// through which the validation reaches the checks of the pointee, so that a type that points at
 /// itself, as a list of pairs does, is checked by a recursive call of the same function. A layout
-/// cannot hold itself, so an aim records the size, the alignment and the identity of its target
+/// cannot hold itself, so an aim records the size, the alignment and the identity of its pointee
 /// (`Pun::ID`, made without a layout) instead of its layout.
 ///
-/// The expressions of an aim read the struct that holds it, as those of the other rules do. An aim
-/// has at most one: where its target starts ([`Start::Stored`]), or its metadata
-/// ([`Metadata::Wide`]).
+/// The expressions of an aim read the struct that holds it, as those of the other rules do: one for
+/// where the pointee starts if it is stored, and one for its size if it is given.
 ///
-/// `#[derive(Pun)]` makes the lazy, wide aims of `#[pun(regions(..))]`. The target of each is
-/// `[u8]`, and its metadata is its number of bytes, also for a region with a type, which its
-/// accessor reads from those bytes with `from_bytes`. A size is then a number of bytes, as it was
-/// before regions were aims, and a region of a sized type has the metadata that a region of
-/// `[u8]` has. It makes the eager, thin aim of `#[pun(aim(..))]` on a field of type
-/// [`InPlace<T>`](crate::InPlace), the target of a self-relative pointer such as those of
-/// `nearest`.
+/// `#[derive(Pun)]` makes an aim at a stored offset with `#[pun(pointer(..))]` on a field, and the aims
+/// at the cursor with `#[pun(regions(..))]` on the last field ([`macro@crate::Pun`]).
 ///
 /// # Examples
 ///
 /// ```
-/// use puns::layout::{Aim, Check, Metadata, Op, Start};
+/// use puns::layout::{Aim, Check, Extent, Op, Start};
 ///
-/// // The target of a self-relative pointer: a `u64` at the address of the struct plus the `u32`
+/// // The pointee of a self-relative pointer: a `u64` at the address of the struct plus the `u32`
 /// // at its offset 0, checked with the struct.
 /// const AT: [Op; 1] = [Op::load::<u32>(0)];
-/// const POINTER: Aim = Aim::new::<u64>(Start::Stored(&AT), Metadata::Thin, Check::Eager);
+/// const POINTER: Aim = Aim::new::<u64>(Start::Stored(&AT), Extent::Own, Check::Eager);
 ///
 /// // A region: as many bytes as the `u16` at offset 4 says, from the cursor, checked when read.
 /// const LEN: [Op; 1] = [Op::load::<u16>(4)];
-/// const REGION: Aim = Aim::new::<[u8]>(Start::Next, Metadata::Wide(&LEN), Check::Lazy);
+/// const REGION: Aim = Aim::new::<[u8]>(Start::Next, Extent::Given(&LEN), Check::Lazy);
 ///
 /// assert_eq!((POINTER.check(), REGION.check()), (Check::Eager, Check::Lazy));
 /// ```
 #[derive(Copy, Clone, Debug)]
 pub struct Aim {
-  /// Where the target starts.
+  /// Where the pointee starts.
   pub(crate) start: Start,
-  /// Where the metadata of the target is.
-  pub(crate) metadata: Metadata,
-  /// When the target is checked.
+  /// How large the pointee is.
+  pub(crate) extent: Extent,
+  /// When the pointee is checked.
   pub(crate) check: Check,
-  /// The size of the target, without the elements of its tail if it is unsized.
+  /// The size of the pointee, without the elements of its tail if it is unsized.
   pub(crate) size: usize,
-  /// The alignment of the target.
+  /// The alignment of the pointee.
   pub(crate) align: usize,
-  /// The identity of the type of the target.
+  /// The identity of the type of the pointee.
   pub(crate) id: Id,
 }
 
-/// Where the target of an [`Aim`] starts.
+/// Where the pointee of an [`Aim`] starts.
 ///
 /// # Examples
 ///
@@ -6013,138 +6011,119 @@ pub struct Aim {
 /// // At the address of the struct plus the `u32` at its offset 0.
 /// const AT: [Op; 1] = [Op::load::<u32>(0)];
 /// let pointer = Start::Stored(&AT);
-/// // Where the target before it ends: a region.
+/// // Where the pointee before it ends: a region.
 /// let region = Start::Next;
 /// assert!(matches!((pointer, region), (Start::Stored(_), Start::Next)));
 /// ```
 #[derive(Copy, Clone, Debug)]
 pub enum Start {
   /// At the address of the struct that holds the aim, plus the value of the expression, read as
-  /// an `i128` in two's complement, so that a target may be before the struct.
+  /// an `i128` in two's complement, so that a pointee may be before the struct.
   Stored(&'static [Op]),
-  /// At the cursor of the struct: where the target of the aim before it ends, rounded up to the
-  /// alignment of this target, or the start of the tail of the struct for the first aim.
+  /// At the cursor of the struct: where the pointee of the aim at the cursor before it ends, or the
+  /// start of the tail of the struct for the first one, rounded up to the alignment of the pointee
+  /// by its offset from the start of the struct.
   Next,
 }
 
-/// Where the metadata of the target of an [`Aim`] is, as for a pointer of Rust.
+/// How large the pointee of an [`Aim`] is.
 ///
 /// # Examples
 ///
 /// ```
-/// use puns::layout::{Metadata, Op};
+/// use puns::layout::{Extent, Op};
 ///
-/// // A target that is sized, or that stores its length.
-/// let thin = Metadata::Thin;
-/// // A target of as many elements as the `u16` at offset 4 of the struct says.
+/// // A pointee that is sized, or that stores its length.
+/// let own = Extent::Own;
+/// // A pointee of as many bytes as the `u16` at offset 4 of the struct says.
 /// const LEN: [Op; 1] = [Op::load::<u16>(4)];
-/// let wide = Metadata::Wide(&LEN);
-/// assert!(matches!((thin, wide), (Metadata::Thin, Metadata::Wide(_))));
+/// let given = Extent::Given(&LEN);
+/// // A pointee that takes the rest of the bytes.
+/// let rest = Extent::Rest;
+/// assert!(matches!((own, given, rest), (Extent::Own, Extent::Given(_), Extent::Rest)));
 /// ```
 #[derive(Copy, Clone, Debug)]
-pub enum Metadata {
-  /// At the target: its type is sized, or stores its length, as [`Thin<T, M>`](crate::Thin) does,
-  /// and a `size` or `len` rule of the type reads it.
-  Thin,
-  /// In the aim: the value of the expression is the metadata of the target, the length of the tail
-  /// of its type, which is unsized. The target takes `size_of_val` of a value of that length.
-  Wide(&'static [Op]),
-  /// In the aim: the target takes what remains of the tail of the struct after the cursor.
+pub enum Extent {
+  /// The size of its type: the size of a sized type, or, for an unsized one, the size of a value
+  /// whose tail has the length that it stores in its sized fields (a `size` or `len` rule that
+  /// reads no byte by offset).
+  Own,
+  /// The value of the expression, in bytes: a size that the type of the pointee has, the size of a
+  /// sized type, or of an unsized one with as many elements as make that size.
+  Given(&'static [Op]),
+  /// The rest of the bytes: of the tail of the struct for a pointee at the cursor, and of the bytes
+  /// that the check reads for one at a stored place. It is a size that the type of the pointee has,
+  /// as for [`Extent::Given`].
   Rest,
 }
 
-/// When the target of an [`Aim`] is checked.
+/// When the pointee of an [`Aim`] is checked.
 ///
 /// # Examples
 ///
 /// ```
-/// use puns::layout::{Aim, Check, Metadata, Start};
+/// use puns::layout::{Aim, Check, Extent, Start};
 ///
 /// // A region is checked when it is read.
-/// let region = Aim::new::<[u8]>(Start::Next, Metadata::Rest, Check::Lazy);
+/// let region = Aim::new::<[u8]>(Start::Next, Extent::Rest, Check::Lazy);
 /// assert_eq!(region.check(), Check::Lazy);
 /// ```
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Check {
-  /// With the struct that holds it: a check of the struct follows the aim, and checks the target
-  /// in the bytes that the check reads, recursively. A target whose place or size does not fit in
-  /// them makes the struct invalid. A reference to the struct is then a reference to a valid
-  /// target, which code may read without a check. So no function of `puns` makes a value that
-  /// holds an eager aim, nor gives a `&mut` to one, and only the same aim at the same place of a
-  /// source, of a target of the same identity, proves one.
+  /// With the struct that holds it: a check of the struct finds the pointee, and checks it in the
+  /// bytes that the check reads, recursively. A pointee whose place or size does not fit in them,
+  /// or that is not valid, makes the struct invalid. A reference to the struct is then a reference
+  /// to a valid pointee, which code may read without a check. So no function of `puns` makes a
+  /// value that holds an eager aim, nor gives a `&mut` to one, and only the same aim at the same
+  /// place of a source, of a pointee of the same identity, proves one.
   Eager,
-  /// When it is read: what reads the target checks it then, and a check of the struct requires
-  /// only that its place and its size fit in the tail. This is what a region of
-  /// `#[pun(regions(..))]` is. Where the struct does not keep to this, since safe code may write
-  /// its fields, the reader truncates the target to the tail, and a size whose expression fails
-  /// takes what remains.
+  /// When it is read: what reads the pointee checks it then, and a check of the struct requires
+  /// only that its place and its size fit. This is what a region of `#[pun(regions(..))]` is by
+  /// default. Where the struct does not keep to this, since safe code may write its fields, the
+  /// reader of a region truncates it to the tail, and a size whose expression fails takes what
+  /// remains.
   Lazy,
 }
 
 impl Aim {
-  /// Returns an aim at a `T`, the `Target` of the item of its rule in the list `Pun::Rules`.
+  /// Returns an aim at a `T`, the `Pointee` of the item of its rule in the list `Pun::Rules`.
   ///
   /// The size, the alignment and the identity of `T` are read from its probe and its identity,
   /// not from its layout, which may hold this aim.
   ///
-  /// # Panics
-  ///
-  /// Panics if the aim is eager and starts at the cursor or is wide, or if it is lazy and its start
-  /// is stored or it is thin. An eager aim is the target of a self-relative pointer, and a lazy aim
-  /// is a region: no function of `puns` checks or reads another kind.
-  ///
   /// # Examples
   ///
   /// ```
-  /// use puns::layout::{Aim, Check, Metadata, Op, Start};
+  /// use puns::layout::{Aim, Check, Extent, Op, Start};
   ///
-  /// // The target of a self-relative pointer, a `u64` at the address of the struct plus the `u32`
-  /// // at its offset 0.
+  /// // The pointee of a self-relative pointer, a `u64` at the address of the struct plus the
+  /// // `u32` at its offset 0.
   /// const AT: [Op; 1] = [Op::load::<u32>(0)];
-  /// let _ = Aim::new::<u64>(Start::Stored(&AT), Metadata::Thin, Check::Eager);
-  /// ```
-  ///
-  /// An eager aim at the cursor is neither:
-  ///
-  /// ```should_panic
-  /// use puns::layout::{Aim, Check, Metadata, Start};
-  ///
-  /// let _ = Aim::new::<u64>(Start::Next, Metadata::Thin, Check::Eager);
+  /// let _ = Aim::new::<u64>(Start::Stored(&AT), Extent::Own, Check::Eager);
+  /// // A list of 4 bytes after the `u32`, checked when read.
+  /// const FOUR: [Op; 1] = [Op::Lit(4)];
+  /// let _ = Aim::new::<[u8]>(Start::Stored(&AT), Extent::Given(&FOUR), Check::Lazy);
   /// ```
   #[must_use]
-  pub const fn new<T: ?Sized + crate::Pun>(start: Start, metadata: Metadata, check: Check) -> Self {
-    match check {
-      Check::Eager => assert!(
-        matches!(start, Start::Stored(_)) && matches!(metadata, Metadata::Thin),
-        "an eager aim starts where a stored offset says, and is thin"
-      ),
-      Check::Lazy => assert!(
-        matches!(start, Start::Next) && !matches!(metadata, Metadata::Thin),
-        "a lazy aim is a region: it starts at the cursor, and is wide"
-      ),
-    }
-    assert!(
-      !matches!(metadata, Metadata::Wide(_)) || size_of::<T::Metadata>() != 0,
-      "the target of a wide aim is unsized: its metadata is the length of its tail"
-    );
+  pub const fn new<T: ?Sized + crate::Pun>(start: Start, extent: Extent, check: Check) -> Self {
     // SAFETY: `T::PROBE` is a null pointer to a `T`, made with `as` casts only, whose tail has
     // `PROBE_LEN` elements if `T` is unsized (`Pun`, section Safety): the requirements of
     // `head_size`. `align_of_val_raw` has the requirements of `size_of_val_raw`, which `head_size`
     // quotes, and a value whose tail has `PROBE_LEN` elements fits in an `isize` as one with no
     // element does.
     let (size, align) = unsafe { (ptr::head_size(T::PROBE), mem::align_of_val_raw(T::PROBE)) };
-    Self { start, metadata, check, size, align, id: T::ID }
+    Self { start, extent, check, size, align, id: T::ID }
   }
 
-  /// Returns when the target is checked.
+  /// Returns when the pointee is checked.
   ///
   /// # Examples
   ///
   /// ```
-  /// use puns::layout::{Aim, Check, Metadata, Op, Start};
+  /// use puns::layout::{Aim, Check, Extent, Op, Start};
   ///
   /// const AT: [Op; 1] = [Op::load::<u32>(0)];
-  /// let pointer = Aim::new::<u64>(Start::Stored(&AT), Metadata::Thin, Check::Eager);
+  /// let pointer = Aim::new::<u64>(Start::Stored(&AT), Extent::Own, Check::Eager);
   /// assert_eq!(pointer.check(), Check::Eager);
   /// ```
   #[must_use]
@@ -6152,36 +6131,27 @@ impl Aim {
     self.check
   }
 
-  /// Returns the expression of the aim, if it has one: of where its target starts, or of its
-  /// metadata.
-  pub(crate) const fn ops(&self) -> Option<&'static [Op]> {
-    match (self.start, self.metadata) {
-      (Start::Stored(ops), _) | (_, Metadata::Wide(ops)) => Some(ops),
-      _ => None,
-    }
-  }
-
-  /// Returns whether two aims are the same function of the same bytes, at targets of the same
-  /// size, alignment and identity. The identity of the target of an eager aim must be known. The
-  /// target of a lazy aim is checked when it is read, so its identity does not count.
+  /// Returns whether two aims are the same function of the same bytes, and require the same of
+  /// the struct that holds them: pointees of the same alignment, which places the next one at the
+  /// cursor, and, where the type of the pointee counts, of the same size and identity, which must
+  /// be known. It counts for an eager aim, whose pointee is checked with the struct, and for an aim
+  /// of its own size, which the type gives. The pointee of another lazy aim is checked when it is
+  /// read, so its type does not count.
   pub(crate) const fn equals(&self, other: &Aim) -> bool {
     let same_start = match (self.start, other.start) {
       (Start::Stored(a), Start::Stored(b)) => same_ops(a, b),
       (Start::Next, Start::Next) => true,
       _ => false,
     };
-    let same_metadata = match (self.metadata, other.metadata) {
-      (Metadata::Thin, Metadata::Thin) | (Metadata::Rest, Metadata::Rest) => true,
-      (Metadata::Wide(a), Metadata::Wide(b)) => same_ops(a, b),
+    let same_extent = match (self.extent, other.extent) {
+      (Extent::Own, Extent::Own) | (Extent::Rest, Extent::Rest) => true,
+      (Extent::Given(a), Extent::Given(b)) => same_ops(a, b),
       _ => false,
     };
-    let same_target = self.size == other.size
-      && self.align == other.align
-      && match self.check {
-        Check::Lazy => true,
-        Check::Eager => self.id.equals(&other.id),
-      };
-    same_start && same_metadata && same_target && self.check as u8 == other.check as u8
+    let typed = matches!(self.check, Check::Eager) || matches!(self.extent, Extent::Own);
+    let same_pointee =
+      self.align == other.align && (!typed || self.size == other.size && self.id.equals(&other.id));
+    same_start && same_extent && same_pointee && self.check as u8 == other.check as u8
   }
 }
 
@@ -6209,12 +6179,31 @@ const fn ops_read_bytes(ops: &[Op]) -> bool {
 }
 
 impl Rule {
-  /// Returns the expression of the rule, or `None` for an aim without one.
+  /// Returns the first expression of the rule: the expression of a `size`, `len` or `assert`
+  /// rule, or where the pointee of an aim starts if it is stored. `None` for an aim at the cursor.
   pub(crate) const fn ops(&self) -> Option<&'static [Op]> {
     match *self {
-      Rule::Size(ops) | Rule::Len(ops) | Rule::Assert(ops) => Some(ops),
-      Rule::Aim(aim) => aim.ops(),
+      Rule::Size(ops)
+      | Rule::Len(ops)
+      | Rule::Assert(ops)
+      | Rule::Aim(Aim { start: Start::Stored(ops), .. }) => Some(ops),
+      Rule::Aim(_) => None,
     }
+  }
+
+  /// Returns the second expression of the rule: the size of the pointee of an aim, if it is
+  /// given. `None` for any other rule.
+  pub(crate) const fn extent_ops(&self) -> Option<&'static [Op]> {
+    match *self {
+      Rule::Aim(Aim { extent: Extent::Given(ops), .. }) => Some(ops),
+      _ => None,
+    }
+  }
+
+  /// Returns the `which`th expression of the rule, 0 or 1 ([`Rule::ops`], [`Rule::extent_ops`]),
+  /// for what reads every expression of a struct.
+  pub(crate) const fn expression(&self, which: usize) -> Option<&'static [Op]> {
+    if which == 0 { self.ops() } else { self.extent_ops() }
   }
 
   /// Returns the aim of the rule, if it is one.
@@ -6226,13 +6215,13 @@ impl Rule {
   }
 
   /// Returns whether the rule is listed in `Pun::Rules`: it has an expression, or it is an aim,
-  /// whose item names its target.
+  /// whose item names its pointee.
   pub(crate) const fn listed(&self) -> bool {
     matches!(self, Rule::Aim(_)) || self.ops().is_some()
   }
 
-  /// Returns whether two rules are of the same kind, with the same expression, and for aims the
-  /// same targets ([`Aim::equals`]).
+  /// Returns whether two rules are of the same kind, with the same expressions, and for aims the
+  /// same pointees ([`Aim::equals`]).
   pub(crate) const fn equals(&self, other: &Rule) -> bool {
     match (self, other) {
       (Rule::Size(a), Rule::Size(b))
@@ -6302,9 +6291,9 @@ pub(crate) const MAX_WALKS: usize = 4;
 /// Panics as [`check_ops`] does.
 const fn check_rules(rules: &[Rule], head: usize) {
   let mut i = 0;
-  while i < rules.len() {
-    if let Some(ops) = rules[i].ops() {
-      let sizes = matches!(rules[i], Rule::Size(_) | Rule::Len(_));
+  while i < 2 * rules.len() {
+    if let Some(ops) = rules[i / 2].expression(i % 2) {
+      let sizes = matches!(rules[i / 2], Rule::Size(_) | Rule::Len(_));
       check_ops(ops, head, sizes, 0, 0);
     }
     i += 1;

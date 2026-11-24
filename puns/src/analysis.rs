@@ -2870,8 +2870,8 @@ const fn rules_uninit(
     return Some(first);
   }
   let (rules, mut i) = (target.rules(), 0);
-  while i < rules.len() {
-    if let Some(ops) = rules[i].ops()
+  while i < 2 * rules.len() {
+    if let Some(ops) = rules[i / 2].expression(i % 2)
       && let Some(pos) = loads_uninit(ops, source, base_a, base, stop, known)
     {
       return Some(pos);
@@ -2919,8 +2919,8 @@ const fn rules_read(layout: &Layout) -> bool {
     return true;
   }
   let (rules, mut i) = (layout.rules(), 0);
-  while i < rules.len() {
-    if let Some(ops) = rules[i].ops()
+  while i < 2 * rules.len() {
+    if let Some(ops) = rules[i / 2].expression(i % 2)
       && ops_load(ops)
     {
       return true;

@@ -1,28 +1,33 @@
-error[E0080]: evaluation panicked: the target of an eager aim is sized, or stores its length in its sized fields: a `size` or `len` rule that reads no byte by offset
+error[E0080]: evaluation panicked: the pointee of an aim of its own size is sized, or stores its length in its sized fields: a `size` or `len` rule that reads no byte by offset
+ --> src/validate.rs
+  |
+  |     pointee_checked::<T, L>();
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::validate::check_aim::<ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>>::{constant#0}` failed inside this call
+  |
+note: inside `puns::validate::pointee_checked::<ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>>`
  --> $RUST/core/src/panic.rs
   |
-  = note: evaluation of `puns::validate::follow::<ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>, Counted>::{constant#0}` failed here
+  = note: the failure occurred here
   |
  ::: src/validate.rs
   |
-  |     assert!(!eager || stores_length::<D>(), "{}", STORES_LENGTH);
-  |     ------------------------------------------------------------ in this macro invocation
+  |   assert!(!matches!(aim.extent, Extent::Own) || stores_length::<L::Pointee>(), "{}", STORES_LENGTH);
+  |   ------------------------------------------------------------------------------------------------- in this macro invocation
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let (layout, rule) = const {
+  |     let (eager, align) = const {
   |  ________________________^
-  | |     let layout = D::LAYOUT;
-  | |     let eager =
-  | |       matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { check: layout::Check::Eager, .. })));
+  | |     pointee_checked::<T, L>();
+  | |     match T::LAYOUT.rule(L::RULE) {
+  | |       Some(Rule::Aim(Aim { check, align, .. })) => (matches!(check, Check::Eager), align),
 ... |
-  | |     (layout, rule)
   | |   };
   | |___^
 
-note: the above error was encountered while instantiating `fn puns::validate::follow::<ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>, Counted>`
+note: the above error was encountered while instantiating `fn puns::validate::check_aim::<ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>>`
  --> src/validate.rs
   |
-  |       if !unsafe { follow::<T, L, L::Target>(base, at, input) } {
-  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     match unsafe { check_aim::<T, L>(base, size, (head, tail), cursor, input) } {
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -2,7 +2,7 @@ error[E0080]: evaluation panicked:
               cannot pun: some values of the source are not valid for the target, or do not prove one of its rules.
               Use a `try_*` function to check them at run time.
               This is at byte 4 of the target.
-              The source or the target has an eager aim at a type that has no identity, so that not even the same aim proves it: an instance of a generic type has an identity only if each of its type parameters has one, which `PhantomData` and a `Scalar` implemented by hand do not, and a generic type that derives `Pun` only if each of its type parameters is bounded by `Pun` where the derive sees it (`<T: Pun>`, `where T: Pun`, or `#[pun(bound(T: Pun))]`).
+              The source or the target has an eager aim at a pointee whose type has no identity, so that not even the same aim proves it: an instance of a generic type has an identity only if each of its type parameters has one, which `PhantomData` and a `Scalar` implemented by hand do not, and a generic type that derives `Pun` only if each of its type parameters is bounded by `Pun` where the derive sees it (`<T: Pun>`, `where T: Pun`, or `#[pun(bound(T: Pun))]`).
 
     --> src/lib.rs
      |
