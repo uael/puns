@@ -2251,21 +2251,30 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
   if data.variants.iter().any(|variant| !matches!(variant.fields, Fields::Unit)) {
     return derive_tagged(input, data, &root, options.bounds.as_ref());
   }
-  let mut variants = vec![];
+  let (mut variants, mut discriminants) = (vec![], vec![]);
   for variant in &data.variants {
     let variant = &variant.ident;
     // SAFETY (of the generated code): `bits_of` requires every byte of the value to be
     // initialized, which is not established: `align` may add padding after the discriminant, and
     // with the `Rust` representation, Rust does not say how the discriminant is stored. The call
-    // is evaluated in the constant `SPEC`, where `rustc` reports an error instead of reading an
-    // uninitialized byte. No documentation promises this behavior, which the crate documentation
+    // is evaluated in the constants `SPEC` and `SPECIFIED`, where `rustc` reports an error instead
+    // of reading an uninitialized byte. No documentation promises this behavior, which the crate documentation
     // discloses (section Soundness).
     variants.push(quote!(unsafe { #root::layout::Spec::bits_of(Self::#variant) }));
+    discriminants.push(quote!(Self::#variant as ::core::primitive::i128));
   }
   let count = variants.len();
   let repr = parse_repr(&input.attrs)?;
-  // With the `Rust` representation, Rust does not specify how a variant is stored, nor its size.
-  let specified = repr.c || repr.transparent || repr.int.is_some();
+  // With the `Rust` representation, Rust does not specify how a variant is stored, nor its size:
+  // `puns` assumes it, and checks it against the bytes of each variant.
+  let specified = if repr.c || repr.transparent || repr.int.is_some() {
+    quote!(true)
+  } else {
+    quote!(#root::layout::Layout::fieldless::<Self>(
+      &[#(#discriminants),*],
+      &[#(#variants),*],
+    ))
+  };
   // No variant but those of `SPEC`.
   let (homes, _) = variant_homes(input, data);
   Ok(quote! {
@@ -2953,7 +2962,7 @@ fn derive_discovered(
       const { &<Self as __PunDiscover>::DESC }.variant_ranges(#i),
       <Self as __PunDiscover>::DESC.holds_tag(#i),
       const {
-        &#layout::variant::<Self>({
+        &#layout::rust_variant::<Self>({
           let fields: &'static [#root::layout::Field] =
             if <Self as __PunDiscover>::DESC.inhabited(#i) {
               const { &#layout::sort_fields([#(#fields),*]) }
@@ -3079,10 +3088,14 @@ fn derive_discovered(
         type Variants = #first #ty_generics;
         type Rules = ();
         const PROBE: *const Self = ::core::ptr::null();
-        // Rust specifies nothing of it: opaque without the `unstable` feature.
+        // Rust specifies nothing of it: the layout that `puns` assumes where it applies, checked
+        // against what the experiments found, and otherwise opaque without the `unstable` feature.
         const LAYOUT: #root::layout::Layout =
           #layout::enumeration::<Self>(const { &<Self as __PunDiscover>::ENUM })
-            .unspecified()
+            .assumed::<Self, #count>(
+              &<Self as __PunDiscover>::DESC,
+              &<Self as __PunDiscover>::FIELDS,
+            )
             .identified(Self::ID);
         const ID: #root::layout::Id = #id;
       }

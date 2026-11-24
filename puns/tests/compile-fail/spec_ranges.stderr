@@ -23,8 +23,9 @@ error[E0080]: evaluation panicked: a scalar must have at least one valid value
 note: inside `Spec::ranges::<u8>`
  --> src/layout.rs
   |
-  |     Self { size, endian, valid: Valid::Any, known: Valid::Any, number: true }.with_ranges(ranges)
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | /     Self { size, endian, valid: Valid::Any, known: Valid::Any, number: true, validity: false }
+  | |       .with_ranges(ranges)
+  | |__________________________^
 note: inside `Spec::with_ranges`
  --> $RUST/core/src/panic.rs
   |
@@ -44,8 +45,9 @@ error[E0080]: evaluation panicked: scalar range is empty or out of bounds
 note: inside `Spec::ranges::<u8>`
  --> src/layout.rs
   |
-  |     Self { size, endian, valid: Valid::Any, known: Valid::Any, number: true }.with_ranges(ranges)
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | /     Self { size, endian, valid: Valid::Any, known: Valid::Any, number: true, validity: false }
+  | |       .with_ranges(ranges)
+  | |__________________________^
 note: inside `Spec::with_ranges`
  --> $RUST/core/src/panic.rs
   |
@@ -65,8 +67,9 @@ error[E0080]: evaluation panicked: scalar ranges must be sorted and non-adjacent
 note: inside `Spec::ranges::<u8>`
  --> src/layout.rs
   |
-  |     Self { size, endian, valid: Valid::Any, known: Valid::Any, number: true }.with_ranges(ranges)
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | /     Self { size, endian, valid: Valid::Any, known: Valid::Any, number: true, validity: false }
+  | |       .with_ranges(ranges)
+  | |__________________________^
 note: inside `Spec::with_ranges`
  --> $RUST/core/src/panic.rs
   |

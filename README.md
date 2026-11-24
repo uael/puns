@@ -190,7 +190,9 @@ only on nightly.
   and read or write its fields, private ones included, so don't derive it on a type with a private
   invariant ([details][deriving]).
 - Without a `repr`, the compiler is free to change the layout of a type, and `puns` refuses
-  anything that depends on it unless you turn on the [`unstable` feature][unstable]. Even
+  anything that depends on it unless you turn on the [`unstable` feature][unstable]. For most
+  enums, `Option` and `Result` included, `puns` assumes the layout that `rustc` gives them, and
+  fails to compile if `rustc` ever lays one out otherwise. Even
   `repr(C)` only fixes the order of the fields: the byte order of a `u32` and the alignment of a
   `u64` still vary between targets, so for data that leaves the program, use the integers of
   [`puns::num`][num], like `u32be`.

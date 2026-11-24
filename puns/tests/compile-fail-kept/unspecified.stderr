@@ -1,5 +1,5 @@
 error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct or a tuple of the `Rust` representation, or an enum of it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
               This is at byte 0 of the target.
 
@@ -36,13 +36,13 @@ note: erroneous constant encountered
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: the above error was encountered while instantiating `fn puns::from_bytes::<Mixed>`
-  --> tests/compile-fail-kept/unspecified.rs:30:11
+  --> tests/compile-fail-kept/unspecified.rs:21:11
    |
-30 |   let _ = puns::from_bytes::<Mixed>(&[1, 1]);
+21 |   let _ = puns::from_bytes::<Mixed>(&[1, 1]);
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct or a tuple of the `Rust` representation, or an enum of it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
               This is at byte 0 of the target.
 
@@ -79,13 +79,13 @@ note: erroneous constant encountered
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: the above error was encountered while instantiating `fn try_pun::<[u8; 2], (bool, u8)>`
-  --> tests/compile-fail-kept/unspecified.rs:31:11
+  --> tests/compile-fail-kept/unspecified.rs:22:11
    |
-31 |   let _ = puns::try_pun::<[u8; 2], (bool, u8)>([1, 1]);
+22 |   let _ = puns::try_pun::<[u8; 2], (bool, u8)>([1, 1]);
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct or a tuple of the `Rust` representation, or an enum of it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
               This is at byte 0 of the target.
 
@@ -110,9 +110,9 @@ note: inside `puns::Message::panic`
   |     ---------------------------------------------------------------------------------------- in this macro invocation
 
 note: the above error was encountered while instantiating `fn puns::from_bytes::<Ordered>`
-  --> tests/compile-fail-kept/unspecified.rs:33:11
+  --> tests/compile-fail-kept/unspecified.rs:24:11
    |
-33 |   let _ = puns::from_bytes::<Ordered>(&[1, 2]);
+24 |   let _ = puns::from_bytes::<Ordered>(&[1, 2]);
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
@@ -152,13 +152,13 @@ note: erroneous constant encountered
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: the above error was encountered while instantiating `fn head::<(u8, u16), [u8; 2]>`
-  --> tests/compile-fail-kept/unspecified.rs:35:11
+  --> tests/compile-fail-kept/unspecified.rs:26:11
    |
-35 |   let _ = puns::head::<(u8, u16), [u8; 2]>((1, 2));
+26 |   let _ = puns::head::<(u8, u16), [u8; 2]>((1, 2));
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct or a tuple of the `Rust` representation, or an enum of it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
               This is at byte 0 of the target.
 
@@ -195,84 +195,10 @@ note: erroneous constant encountered
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: the above error was encountered while instantiating `fn puns::as_bytes::<(u8, u16, u8)>`
-  --> tests/compile-fail-kept/unspecified.rs:37:11
+  --> tests/compile-fail-kept/unspecified.rs:28:11
    |
-37 |   let _ = puns::as_bytes(&(1u8, 2u16, 3u8));
+28 |   let _ = puns::as_bytes(&(1u8, 2u16, 3u8));
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
-              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
-              This is at byte 0 of the target.
-
-    --> src/lib.rs
-     |
-     |   const BY_VALUE: () = Self::require(Self::check(Need::VALUE));
-     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<Ticket, u32>::BY_VALUE` failed inside this call
-     |
-note: inside `puns::Plan::<Ticket, u32>::require`
- --> src/lib.rs
-  |
-  |       message.panic();
-  |       ^^^^^^^^^^^^^^^
-note: inside `puns::Message::panic`
- --> $RUST/core/src/panic.rs
-  |
-  = note: the failure occurred here
-  |
- ::: src/lib.rs
-  |
-  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
-  |     ---------------------------------------------------------------------------------------- in this macro invocation
-
-note: erroneous constant encountered
- --> src/lib.rs
-  |
-  |   const { Plan::<S, D>::BY_VALUE };
-  |           ^^^^^^^^^^^^^^^^^^^^^^
-
-note: erroneous constant encountered
- --> src/lib.rs
-  |
-  |   const { Plan::<S, D>::BY_VALUE };
-  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-note: the above error was encountered while instantiating `fn pun::<Ticket, u32>`
-  --> tests/compile-fail-kept/unspecified.rs:39:11
-   |
-39 |   let _ = puns::pun::<Ticket, u32>(Ticket::Free);
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
-              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
-              This is at byte 0 of the target.
-
-    --> src/lib.rs
-     |
-     |   const TRY: () = Self::require(Self::check(Need::TRY));
-     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<u8, std::option::Option<bool>>::TRY` failed inside this call
-     |
-note: inside `puns::Plan::<u8, Option<bool>>::require`
- --> src/lib.rs
-  |
-  |       message.panic();
-  |       ^^^^^^^^^^^^^^^
-note: inside `puns::Message::panic`
- --> $RUST/core/src/panic.rs
-  |
-  = note: the failure occurred here
-  |
- ::: src/lib.rs
-  |
-  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
-  |     ---------------------------------------------------------------------------------------- in this macro invocation
-
-note: the above error was encountered while instantiating `fn try_pun::<u8, Option<bool>>`
-  --> tests/compile-fail-kept/unspecified.rs:40:11
-   |
-40 |   let _ = puns::try_pun::<u8, Option<bool>>(2);
-   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
               cannot pun: what may be written through the `&mut` is a valid source in the layout that `rustc` chose, not in every layout that Rust allows: the source has a part whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation).
@@ -306,9 +232,9 @@ note: erroneous constant encountered
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: the above error was encountered while instantiating `fn pun_mut::<(bool, u8), [u8; 2]>`
-  --> tests/compile-fail-kept/unspecified.rs:42:11
+  --> tests/compile-fail-kept/unspecified.rs:30:11
    |
-42 |   let _ = puns::pun_mut::<(bool, u8), [u8; 2]>(&mut (true, 1));
+30 |   let _ = puns::pun_mut::<(bool, u8), [u8; 2]>(&mut (true, 1));
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0080]: evaluation panicked:
@@ -341,7 +267,7 @@ note: erroneous constant encountered
   | |___^
 
 note: the above error was encountered while instantiating `fn validate_but_never::<Mixed>`
-  --> tests/compile-fail-kept/unspecified.rs:44:11
+  --> tests/compile-fail-kept/unspecified.rs:32:11
    |
-44 |   let _ = puns::validate_but_never::<Mixed>(&[1, 1]);
+32 |   let _ = puns::validate_but_never::<Mixed>(&[1, 1]);
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

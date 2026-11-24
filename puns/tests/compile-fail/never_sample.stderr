@@ -37,8 +37,8 @@ note: inside `puns::discover::write`
 note: erroneous constant encountered
  --> src/std_enums.rs
   |
-  |       &<Self as Found>::SAMPLES,
-  |        ^^^^^^^^^^^^^^^^^^^^^^^^
+  |     crate::discover::discover::<Self, 2>(&<Self as Found>::SAMPLES, &<Self as Found>::FIELDS)
+  |                                           ^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/std_enums.rs

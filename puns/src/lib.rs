@@ -14,7 +14,8 @@
 //!
 //! `puns` works with plain data: structs and enums of any representation, `repr(C)` unions, tuples,
 //! arrays, slices, structs that end with a slice, `str`, `MaybeUninit`, and types without values.
-//! For an enum of the `Rust` representation, `puns` finds the layout that `rustc` chose.
+//! For an enum of the `Rust` representation, `puns` finds the layout that `rustc` chose, and checks
+//! it against the layout that it assumes ([What `puns` assumes](#what-puns-assumes)).
 //! `#[derive(Pun)]` also describes what the bytes of a value say about it: its size, the length of
 //! its trailing slice, and conditions such as a checksum.
 //!
@@ -217,9 +218,12 @@
 //! accepts do not depend on a layout that Rust leaves to the compiler: the order of the fields of a
 //! struct or tuple of the `Rust` representation, the tag of an enum of that representation, or
 //! niches. One exception is whether an `Option` of a scalar that a pun never makes compiles
-//! ([Scalars that a pun never makes](#scalars-that-a-pun-never-makes)). With the feature, `puns`
-//! also uses the layout that `rustc` chose. [The `unstable` feature](#the-unstable-feature) states
-//! the rule and [what it relies on](#what-this-relies-on).
+//! ([Scalars that a pun never makes](#scalars-that-a-pun-never-makes)). The other is the layout of
+//! most enums of the `Rust` representation, `Option` and `Result` included, which `puns` assumes
+//! and checks when compiling: a compiler that lays one out otherwise makes it fail to compile,
+//! rather than change what a pun does ([What `puns` assumes](#what-puns-assumes)). With the
+//! feature, `puns` also uses the layout that `rustc` chose. [The `unstable`
+//! feature](#the-unstable-feature) states the rule and [what it relies on](#what-this-relies-on).
 //!
 //! The tests run under [Miri], on the targets that [Portability](#portability) names. The analysis
 //! itself is checked against oracles that do not use it, both with and without the `unstable`
@@ -466,7 +470,7 @@
 //! ```
 //!
 //! ```text
-//! cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+//! cannot pun: the pun depends on a part of the source or of the target whose layout Rust leaves to the compiler (a struct or a tuple of the `Rust` representation, or an enum of it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
 //! Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
 //! This is at byte 0 of the target.
 //! ```
@@ -649,6 +653,18 @@
 //! the choice was. The `unstable` feature decides whether a pun must also behave the same under any
 //! other choice. [`layout::UNSTABLE`] is `true` if the feature is enabled.
 //!
+//! The layouts that `puns` relies on without the feature are therefore of two kinds:
+//!
+//! - **Specified.** Rust documents them ([What Rust documents](#what-rust-documents)).
+//! - **Assumed and checked when compiling.** `rustc` lays out an enum of the `Rust`
+//!   representation by one algorithm, from the layouts of the fields of its variants, which Rust
+//!   does not document. `puns` assumes that algorithm where its result is the same in every layout
+//!   that Rust allows for the fields, computes the layout that it gives, and fails to compile if it
+//!   is not the layout that `rustc` chose ([What `puns` assumes](#what-puns-assumes)).
+//!
+//! Every other layout that Rust leaves to the compiler is proven only by the same type, or field by
+//! field ([Puns without the feature](#puns-without-the-feature)).
+//!
 //! ### The rule
 //!
 //! Without the `unstable` feature, a pun compiles only if `-Zrandomize-layout` cannot change what
@@ -706,7 +722,9 @@
 //! | `(u8, u8)` as a `repr(C)` struct of a `bool` and a `u8` | refused | the check reads one field or the other, and `(0, 2)` passes in one order only |
 //! | `(u8, u8)` as `NonZero<u16>` | refused | the check reads both bytes, and each may hold either field |
 //! | a pun from `(u8, u16, u8)` or to it, other than to itself | refused | it is 4 or 6 bytes |
-//! | bytes as an enum of the `Rust` representation, or as `Option<bool>` | refused | nothing documents where its tag is, nor its values |
+//! | bytes as `Option<bool>`, or as an enum of the `Rust` representation of which `puns` assumes the layout | checked | the layout is assumed, and checked when compiling ([What `puns` assumes](#what-puns-assumes)) |
+//! | `Option<u16>` as a `repr(C)` struct of a `u16` tag and a `MaybeUninit<u16>` | proven | the tag 0 or 1, then the value, as assumed |
+//! | bytes as `Option<(bool, u16)>`, or as an enum with a variant `A(bool, bool)` | refused | where the niche is depends on the order of the fields |
 //! | `validate_but_never::<(bool, u8)>` | refused | the byte that it checks is either byte |
 //!
 //! A struct or tuple of the `Rust` representation whose size is the same in every layout, and that
@@ -731,6 +749,12 @@
 //! `const`, since `TypeId` cannot be compared there and `type_name` is not a `const fn`.
 //!
 //! So `puns` identifies a type by a name, together with the identities of the types it is made of.
+//! An identity has two uses, and no other. It tells whether two parts whose layout Rust leaves to
+//! the compiler, and that are proven neither field by field nor by the layout that `puns` assumes,
+//! are of the same type. And it names a type without its layout, so that the identity of a generic
+//! type is made of the identities of its parameters, and a type that holds itself through a generic
+//! type has one. A layout that Rust specifies, or that `puns` assumes, is compared by its parts,
+//! never by an identity.
 //! The primitive types, the types of [`num`], arrays, slices, tuples, `Option`, `Result`,
 //! `MaybeUninit` and `ManuallyDrop` have identities. A part that is a `ManuallyDrop<T>` is of the
 //! same type as a part that is a `T`, since `core` gives them one layout. A type made of a
@@ -769,6 +793,69 @@
 //! The alignment of a type is read, not assumed. Rust gives the alignment of each primitive per
 //! platform, and makes a struct at least as aligned as its fields. `-Zrandomize-layout` does not
 //! change alignment.
+//!
+//! ### What `puns` assumes
+//!
+//! Rust documents neither where the tag of an enum of the `Rust` representation is, nor its values,
+//! nor how an enum without fields is stored ([`r-layout.repr.rust.unspecified`][rust unspecified]).
+//! `rustc` lays them out by one algorithm, which has given the same layouts since Rust 1.65, from
+//! the layouts of the fields of the variants. Without the `unstable` feature, `puns` assumes this
+//! algorithm, as follows, where `-Zrandomize-layout` cannot change its result. `Option`, `Result`
+//! and the enums that derive `Pun` follow it alike.
+//!
+//! - **An enum without fields** is its discriminant, in the least integer of 1, 2, 4, 8 or 16 bytes
+//!   that holds every discriminant, signed if one is negative, in the byte order of the target. It
+//!   has no byte if it has one variant or none.
+//! - A variant is **absent** if its fields have no values and each has size 0 and alignment 1. It
+//!   takes no byte and no value of the tag. If one variant is not absent, the enum is its fields.
+//! - **A tag** is at offset 0, an unsigned integer as wide as the least alignment of the first
+//!   field of each variant, among the fields that do not have both size 0 and alignment 1, if an
+//!   integer of that width has that alignment on the target, and at least wide enough for the index
+//!   of every variant. Each variant is its index there, and its fields start at the first offset
+//!   after the tag that their alignment allows. So `Option<u16>` is a `u16` tag, 0 for `None` and
+//!   1 for `Some`, then the value, and `Result<u32, u8>` a `u8` tag with `Ok` at 4 and `Err` at 1.
+//! - **A niche** is a scalar in the fields of the largest variant (the last one, if several are as
+//!   large), whose values Rust restricts. The other variants from the first to the last take
+//!   consecutive values outside its *valid range*, the shortest range of values, wrapping past the
+//!   greatest one to 0, that holds every value that Rust allows. One variant takes the value next to
+//!   the range that is nearest to zero as a signed integer, the one before it on a tie, except
+//!   after the range 0 to 1 of a `bool`, where it takes 2. Several variants take the values after
+//!   the range, unless the range does not wrap and they fit before it, nearer to zero, or the
+//!   values after it would wrap into it. So `None` is 2 in `Option<bool>`, 255 in
+//!   `Option<Option<bool>>`, and `0xFFFF_FFFF` in `Option<char>`. Each other variant starts at 0 if
+//!   it ends before the niche, and otherwise after it, where its alignment allows, and all must fit
+//!   in the size of the largest variant. The niche of a type is the scalar with the most free
+//!   values; the niche of an array is that of its first element.
+//! - **Which one**: the niche if it makes the enum smaller than the tag, or as large with more free
+//!   values left, and the tag otherwise.
+//!
+//! The assumption applies to an enum whose every variant has at most one field, or fields that
+//! all have the same alignment and give the same bytes in every order (all bytes of any value
+//! without rules, or all of the same layout, fixed at any depth), and none of which has values
+//! that Rust restricts. The niche must be in a scalar whose values for Rust `puns` knows (a `bool`,
+//! a `char`, a `NonZero`, an enum without fields, or the tag of an enum whose layout Rust
+//! specifies or `puns` assumes), at the same place in every layout that Rust allows, and no other
+//! scalar of its type may have as many free values. A scalar declared by hand
+//! ([`Scalar`]) does not tell whether Rust restricts its values, so it gives no niche that `puns`
+//! knows, and the enum that would hold it there is not assumed. A variant whose fields have no
+//! value but a size is not assumed either. Every other enum of the `Rust` representation keeps a
+//! layout that Rust leaves to the compiler.
+//!
+//! Where the assumption applies, the layout of the enum is computed from the layouts of its fields
+//! and the alignments of the integers of the target, and compared in a `const` with the one that
+//! the experiments found (`Layout::assumed`, and for an enum without fields, the `SPECIFIED` of
+//! the `Scalar` that the derive implements): the size, the alignment, the place and the width of
+//! the tag, the value of each variant, and where the fields of each variant start. If they differ,
+//! `Pun::LAYOUT` of the enum fails to compile, with the message "an enum of the `Rust`
+//! representation is not laid out as `puns` assumes", and the note of `rustc` names the enum.
+//! Enable the feature then, which uses the layout that `rustc` chose.
+//!
+//! The rule was measured on Rust 1.100.0 and nightly-2026-11-17, without `-Zrandomize-layout` and
+//! with it under 16 seeds, and on `aarch64-apple-darwin`, `i686-unknown-linux-gnu` and
+//! `s390x-unknown-linux-gnu`. The layouts that vary are those of variants of several fields: the
+//! order of their fields, and the width of the tag where their alignments differ, which is why
+//! the rule requires one alignment. The targets differ only by the alignments of their integers,
+//! which the rule reads.
 //!
 //! ### What Rust documents
 //!
@@ -819,11 +906,11 @@
 //!
 //! Niches are not guaranteed beyond the rows for `Option` and `Result` above. `Option<bool>` is one
 //! byte with `None` at 2, but only because that is how `rustc` does it today, and the documentation
-//! of `MaybeUninit` and `UnsafeCell` says that such optimizations vary. So `Option<bool>` needs the
-//! `unstable` feature. Niches that Rust documents only as "ABI-compatible" are not used either, so
-//! an enum of the `Rust` representation with a variant that holds a `NonZero` and a variant without
-//! fields, such as `enum Ticket { Free, Paid(NonZero<u32>) }`, needs the feature, even though
-//! `rustc` lays it out like the corresponding `Option`.
+//! of `MaybeUninit` and `UnsafeCell` says that such optimizations vary. So `puns` assumes it, and
+//! checks it when compiling ([What `puns` assumes](#what-puns-assumes)). Niches that Rust
+//! documents only as "ABI-compatible" are assumed in the same way, not taken from that
+//! documentation: `enum Ticket { Free, Paid(NonZero<u32>) }` is laid out like the corresponding
+//! `Option`, and the check compares it with the layout that the assumption gives.
 //!
 //! ### How it is tested
 //!
@@ -841,6 +928,10 @@
 //! - Compile-fail tests check each refusal without the feature, along with its message, and
 //!   compile-pass tests check what compiles. Other compile-fail tests run with the feature, and the
 //!   rest are the same both ways.
+//! - The layout that `puns` assumes is checked in every build that evaluates the layout of an enum
+//!   that it applies to, the tests included. Without the feature, a test reads `Option`, `Result`
+//!   and derived enums of the `Rust` representation through it, and unit tests compare the values
+//!   of niches with the ones that `rustc` gave in the measurements.
 //! - With the feature, the tests that need it run as well: enums of the `Rust` representation,
 //!   `Option` and `Result`, and the tests of the layout that `rustc` chose. CI also builds the
 //!   example `codegen`, which needs it. The benchmark needs it too, and is run by hand.
@@ -1104,6 +1195,7 @@
 #![deny(missing_docs)]
 
 mod analysis;
+mod assume;
 mod discover;
 #[cfg(feature = "verdict")]
 #[doc(hidden)]
@@ -1152,8 +1244,9 @@ pub use layout::{crc32, sum16};
 ///
 /// **Enums without fields.** An enum without fields may have any representation, but no padding.
 /// Its valid values are its discriminants, as the compiler stores them. Rust does not specify how
-/// they are stored with the `Rust` representation, so without the `unstable` feature, such an enum
-/// is known only as itself.
+/// they are stored with the `Rust` representation, so without the `unstable` feature, `puns`
+/// assumes that it is the discriminant, in the least integer that holds them all, and checks it
+/// when compiling ([What `puns` assumes](crate#what-puns-assumes)).
 ///
 /// **Enums with fields.** An enum with fields may be `repr(C)`, `repr(u8)` or another integer,
 /// both, or of the `Rust` representation. With `repr(C)` or an integer, its layout is the one that
@@ -1161,8 +1254,10 @@ pub use layout::{crc32, sum16};
 /// in const evaluation on a value of each variant. An experiment that fails refuses the enum, so a
 /// wrong layout is never found. What is known about a value of such an enum is its tag, so making
 /// one from another type checks the tag, then what the fields of its variant require. With the
-/// `Rust` representation and without the `unstable` feature, the enum proves only the same type,
-/// and only the same type proves it.
+/// `Rust` representation and without the `unstable` feature, the layout is the one that `puns`
+/// assumes, where it applies, and the experiments check it ([What `puns`
+/// assumes](crate#what-puns-assumes)). Otherwise the enum proves only the same type, and only the
+/// same type proves it.
 ///
 /// [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
 ///
@@ -1811,8 +1906,11 @@ pub unsafe trait Scalar {
   /// The identity of the type (see `layout::Id`); none by default.
   #[doc(hidden)]
   const ID: layout::Id = layout::Id::NONE;
-  /// Whether Rust specifies how values of the type are stored. It does not for an enum of the
-  /// `Rust` representation, which `#[derive(Pun)]` makes a `Scalar` (see [`layout::UNSTABLE`]).
+  /// Whether `puns` knows how values of the type are stored in every layout that Rust allows: Rust
+  /// specifies it, or `puns` assumes it and checks it when compiling, as for an enum without fields
+  /// of the `Rust` representation, which `#[derive(Pun)]` makes a `Scalar` ([What `puns`
+  /// assumes](crate#what-puns-assumes)). Otherwise, as with the `unstable` feature, the layout is
+  /// one that Rust leaves to the compiler (see [`layout::UNSTABLE`]).
   #[doc(hidden)]
   const SPECIFIED: bool = true;
 }
@@ -2593,7 +2691,7 @@ unsafe impl<T: ?Sized> Scalar for PhantomData<T> {
 //
 //     A `bool` value must be `false` (`0`) or `true` (`1`).
 unsafe impl Scalar for bool {
-  const SPEC: Spec = Spec::ranges::<bool>(Endian::NATIVE, &[(0, 1)]).not_a_number();
+  const SPEC: Spec = Spec::ranges::<bool>(Endian::NATIVE, &[(0, 1)]).not_a_number().validity();
   const ID: layout::Id = layout::Id::new("bool", &[]);
 }
 
@@ -2606,8 +2704,9 @@ unsafe impl Scalar for bool {
 //     A `char` value must not be a surrogate (i.e., must not be in the range `0xD800..=0xDFFF`)
 //     and must be equal to or less than `char::MAX`.
 unsafe impl Scalar for char {
-  const SPEC: Spec =
-    Spec::ranges::<char>(Endian::NATIVE, &[(0, 0xD7FF), (0xE000, 0x10_FFFF)]).not_a_number();
+  const SPEC: Spec = Spec::ranges::<char>(Endian::NATIVE, &[(0, 0xD7FF), (0xE000, 0x10_FFFF)])
+    .not_a_number()
+    .validity();
   const ID: layout::Id = layout::Id::new("char", &[]);
 }
 
@@ -2624,7 +2723,7 @@ macro_rules! impl_non_zero {
     //     `NonZero<T>` is guaranteed to have the same layout and bit validity as `T` with the
     //     exception that the all-zero bit pattern is invalid.
     unsafe impl Scalar for core::num::NonZero<$ty> {
-      const SPEC: Spec = Spec::ranges::<$ty>(Endian::NATIVE, &[(1, $ty::MAX as u128)]);
+      const SPEC: Spec = Spec::ranges::<$ty>(Endian::NATIVE, &[(1, $ty::MAX as u128)]).validity();
       const NULL_OPTIMIZED: bool = true;
       const ID: layout::Id = layout::Id::new(concat!("NonZero<", stringify!($ty), ">"), &[]);
     }
@@ -2644,7 +2743,8 @@ macro_rules! impl_signed_non_zero {
         Endian::NATIVE,
         &[(1, u128::MAX >> (128 - 8 * size_of::<$ty>()))],
       )
-      .not_a_number();
+      .not_a_number()
+      .validity();
       const NULL_OPTIMIZED: bool = true;
       const ID: layout::Id = layout::Id::new(concat!("NonZero<", stringify!($ty), ">"), &[]);
     }
@@ -2737,9 +2837,9 @@ const UNIDENTIFIED: &str = "The source or the target has such a part that has no
 
 /// A pun that depends on a layout that Rust leaves to the compiler.
 const UNSPECIFIED: &str = "the pun depends on a part of the source or of the target whose layout \
-  Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` \
-  representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, \
-  could arrange it otherwise. Only the same type at the same place \
+  Rust leaves to the compiler (a struct or a tuple of the `Rust` representation, or an enum of \
+  it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or \
+  `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place \
   proves it.\nAdd `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature \
   of `puns`";
 

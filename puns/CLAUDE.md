@@ -32,7 +32,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - **Views.** [`view`](src/view.rs) decides each variant of a view enum once, from its base.
 - **Enums of the `Rust` representation.** [`discover`](src/discover.rs) finds their layouts by
   experiments, and names the facts of the compiler that they rely on.
-  [`std_enums`](src/std_enums.rs) applies it to `Option` and `Result`.
+  [`std_enums`](src/std_enums.rs) applies it to `Option` and `Result`. [`assume`](src/assume.rs)
+  computes the layout that `rustc` gives such an enum from the layouts of its fields, where that is
+  the same in every layout that Rust allows, and compares it with what the experiments found.
 - **Pointers to unsized types.** [`ptr`](src/ptr.rs) splits and builds wide pointers in `const`,
   verified for each type.
 - **Measurements.** [`examples/codegen.rs`](examples/codegen.rs) records the machine code of most of
@@ -48,11 +50,17 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - Without the `unstable` feature, nothing depends on a layout that Rust leaves to the compiler.
   `analysis` does not look into such a node, and no check replaces a proof in it. A check that
   reads it all the same gives the same answer in every layout, and reads only initialized bytes.
-  `layout::Stable` records what is the same in every layout that Rust allows.
+  `layout::Stable` records what is the same in every layout that Rust allows. The layout of an
+  enum of the `Rust` representation that `assume` gives counts as such, because it is a function
+  of the layouts of the fields, and a `const` assertion compares it with what `rustc` chose. The
+  scope of the assumption admits only enums whose layout that function gives the same way in every
+  layout of their fields, and nothing outside it is assumed. Where `Spec::validity` is false, a
+  scalar gives no niche that `assume` knows.
 - A requirement (`valid(..)`, a rule) never proves a guarantee of another type. Two layouts are
   equal only if they require and guarantee the same values.
 - An identity (`layout::Id`, `Pun::ID`) names a type by its declaration and by every parameter but
-  its lifetimes, so two types with one identity are one type. `ManuallyDrop<T>` is `T` only as the
+  its lifetimes, so two types with one identity are one type. It has two uses only: proving a part
+  that is not `fixed` by the same type at the same place, and naming a type without its layout. `ManuallyDrop<T>` is `T` only as the
   whole of a part (`Id::equals`). An identity is made of the identities of the parameters, never of
   their layouts, so that a type that holds itself through a generic type has a layout. The derive
   gives a generic type one only where each type parameter is bounded by `Pun` (`identity` in
@@ -124,6 +132,12 @@ section lists changes that could lift some of them, and what each would cost.
 - **Fields of fields in rules.** Loading `header.length` or `magic[0]` would be sound if the
   offset were checked against the layout of the field, as a scalar of that size there, as it is
   for the fields of the struct.
+- **More enums of the `Rust` representation assumed.** [`assume`](src/assume.rs) leaves out a
+  variant whose fields have different alignments (the width of the tag follows the field that
+  `rustc` puts first), a niche that ties with another one (`rustc` chooses by where they are), a
+  niche in a part whose fields `rustc` may reorder, and a scalar declared by hand, whose `Spec`
+  does not say whether Rust restricts its values. Each would need the choice of `rustc` measured
+  and stated as part of the assumption, or a `Spec` that says what Rust allows.
 - **Patterns other than `str` as types.** The derive cannot make a type that guarantees a
   pattern, since safe code can write its fields. A rule `matches(DFA, start, end)` (`Op::Matches`)
   requires one instead. Two automata are equal only if their states and edges are: their `id`,

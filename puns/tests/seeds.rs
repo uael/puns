@@ -113,7 +113,8 @@ struct Holds {
   word: u16,
 }
 
-/// An enum with fields, of the `Rust` representation. Rust leaves its tag to the compiler.
+/// An enum with fields, of the `Rust` representation. Rust leaves its tag to the compiler, and
+/// `puns` assumes the one that `rustc` gives it (a byte, 0 or 1).
 #[derive(Pun, Clone, Copy)]
 enum Tagged {
   A(u8),
@@ -121,7 +122,7 @@ enum Tagged {
 }
 
 /// An enum without fields, of the `Rust` representation. Rust leaves the bit patterns of its
-/// variants to the compiler.
+/// variants to the compiler, and `puns` assumes the ones that `rustc` gives them (0 and 1).
 #[derive(Pun, Clone, Copy)]
 enum Plain {
   X,

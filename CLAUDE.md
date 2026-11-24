@@ -114,9 +114,12 @@ so new times come with a new record.
 **The `unstable` feature.** Without it, nothing that `puns` does depends on a layout that Rust
 leaves to the compiler (the order of the fields of a struct or a tuple of the `Rust` representation,
 the tag of an enum of that representation, niches), so `-Zrandomize-layout` must change no verdict
-and no check, though the message of a refusal may differ. With it, `puns` takes the layout that
-`rustc` chose. "The `unstable` feature" in the crate docs (`puns/src/lib.rs`) states the design, and
-lists what Rust documents and where. The default is without it, and so is most of what the tests and
+and no check, though the message of a refusal may differ. The one exception is the layout of an
+enum of the `Rust` representation that `puns` assumes (`puns/src/assume.rs`): it is computed from
+the layouts of the fields, which `-Zrandomize-layout` does not change, and compared with the layout
+that `rustc` chose, and the build fails if they differ. With the feature, `puns` takes the layout
+that `rustc` chose. "The `unstable` feature" in the crate docs (`puns/src/lib.rs`) states the
+design, lists what Rust documents and where, and what `puns` assumes. The default is without it, and so is most of what the tests and
 CI run: every test of `puns` that builds without the feature runs without it (`tests/seeds.rs` needs
 `verdict`), the cases of `compile-fail-kept` included. Only what is about the feature runs with it:
 the targets of `required-features = ["unstable"]`, the files with tests under
