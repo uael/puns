@@ -591,20 +591,29 @@ const unsafe fn check_aim<C: Checks, T: ?Sized + Pun, L: Rules>(
   cursor: usize,
   input: &mut Input,
 ) -> Option<usize> {
-  let (eager, next) = const {
+  let (eager, next, reserve) = const {
     pointee_checked::<T, L>();
+    // A pointee that holds no eager aim takes one level, and no more: the last one is kept for it.
+    let leaf = !<<L::Pointee as Pointee>::Value as Pun>::LAYOUT.holds_eager_aims()
+      && !<<L::Pointee as Pointee>::Prefix as Pun>::LAYOUT.holds_eager_aims();
+    let reserve = if leaf { 0 } else { 1 };
     match T::LAYOUT.rule(L::RULE) {
       Some(Rule::Aim(Aim { check, start, .. })) => {
-        (matches!(check, Check::Eager), matches!(start, Start::Next))
+        (matches!(check, Check::Eager), matches!(start, Start::Next), reserve)
       }
-      _ => (false, false),
+      _ => (false, false, reserve),
     }
   };
   if next {
     // SAFETY: The requirements of `check_next` are those of this call.
     return unsafe { check_next::<C, T, L>(base, size, (head, tail), cursor, input) };
   }
-  let valid = if eager && input.defers() {
+  // A pointee is checked in place while the depth allows ([`IN_PLACE`]), unless the step deferred a
+  // pointee before it, which a depth-first walk checks first. Not when the check finds where bytes
+  // fail (`C::LOCATE`): then the parts of a value are checked before its pointees, as a check that
+  // defers them all does.
+  let in_place = !C::LOCATE && input.depth > reserve && input.pending == input.mark;
+  let valid = if eager && input.defers() && !in_place {
     // SAFETY: The struct is within the bytes of `input`, at or after their start, by contract on
     // the caller, as `offset_from_unsigned` requires.
     let at = unsafe { base.offset_from_unsigned(input.start) };
@@ -1208,6 +1217,10 @@ pub struct Input {
   room: usize,
   /// The number of entries of the worklist that are in use.
   pending: usize,
+  /// The number of entries of the worklist that were in use when the step of the check began
+  /// ([`drive`]): while the step adds none, a pointee is checked in place in the order of a
+  /// depth-first walk, which a compact check requires.
+  mark: usize,
   /// Whether the worklist was full when a pointee was to wait in it.
   full: bool,
   /// Where the check failed, in bytes from `start`, if it recorded it.
@@ -1229,6 +1242,7 @@ impl Input {
       work: core::ptr::null_mut(),
       room: 0,
       pending: 0,
+      mark: 0,
       full: false,
       failed: None,
     }
@@ -1306,13 +1320,10 @@ impl Input {
 
   /// Returns why the check stopped, and where, as far as it recorded it.
   const fn failure(&self) -> crate::Failure {
-    let error = if self.limit { crate::Error::Limit } else { crate::Error::Validity };
-    crate::Failure {
-      error,
-      at: match self.failed {
-        Some(at) => at,
-        None => 0,
-      },
+    match self.failed {
+      _ if self.limit => crate::Failure { error: crate::Error::Limit, at: 0 },
+      Some(at) => crate::Failure { error: crate::Error::Validity, at },
+      None => crate::Failure { error: crate::Error::Validity, at: 0 },
     }
   }
 
@@ -1333,12 +1344,17 @@ const fn types_align<P: ?Sized + Pointee>() -> usize {
   if value > prefix { value } else { prefix }
 }
 
+/// A step of a check with a worklist ([`drive`]): the check of the root, or of the struct whose eager
+/// aim leads to a pointee, at an address, of a size, with the input of the check.
+pub type Stage = unsafe fn(*const u8, usize, &mut Input) -> bool;
+
 /// A pointee that is still to be checked, in a [`Worklist`](crate::Worklist) of
 /// [`check`](crate::check): the struct whose eager aim leads to it, and the check of that aim.
 ///
 /// It is three words, 24 bytes on a 64-bit target. Each entry waits for a struct of its own, which
 /// holds an aim at a stored place, so a compact check of `n` bytes never needs more entries than
-/// such structs fit in them: `n / 4` for pointers of 4 bytes.
+/// such structs fit in them: `n / 4` for pointers of 4 bytes. Most need far fewer, since a check
+/// follows a few pointees in place before any waits.
 #[derive(Clone, Copy)]
 pub struct Pending {
   /// Where the struct is, in bytes from the start of the bytes.
@@ -1346,7 +1362,7 @@ pub struct Pending {
   /// The size of the struct.
   size: usize,
   /// The check of its aim ([`check_stored`]).
-  check: unsafe fn(*const u8, usize, &mut Input) -> bool,
+  check: Stage,
 }
 
 impl Default for Pending {
@@ -1411,48 +1427,70 @@ const unsafe fn check_pointee<C: Checks, P: ?Sized + Pointee>(
   valid
 }
 
-/// Checks that `n` bytes at `addr` start with a `D`, sized, with the pointees of its eager aims,
-/// which wait in `work` ([`check`](crate::check)), and records where the check fails in `input`.
+/// How deep a check with a worklist ([`drive`]) checks pointees in place, one within another, before
+/// it defers the next ones: four pointees that hold eager aims, then one that holds none. Deep
+/// enough that most pointees of a balanced tree never wait, and a bound on the stack that does not
+/// grow with the data, in a build without optimizations too, whose frames are the largest.
+const IN_PLACE: usize = 5;
+
+/// The first step of a check of bytes ([`drive`]): the `D` at their start, with the checks of `C`.
 ///
-/// The `D` is checked first, then each pointee, the last that waits first, after the pointees that
-/// its check adds to the worklist are reversed: the order is that of a depth-first walk, which a
-/// compact check requires. A worklist that is full is grown and the step is made again from where
+/// # Safety
+///
+/// The caller must ensure that `addr` and `input` meet the requirements of [`validate`] for a `D`.
+pub const unsafe fn root<C: Checks, D: Pun>(addr: *const u8, _: usize, input: &mut Input) -> bool {
+  // SAFETY: The requirements of `validate` are those of this call.
+  unsafe { validate::<C, Root, D>(addr.cast(), input) }
+}
+
+/// Checks that `n` bytes at `addr` start with the value of `size` bytes that `root` checks, with
+/// the pointees of its eager aims, which wait in `work` ([`check`](crate::check)), and records
+/// where the check fails in `input`.
+///
+/// The value is checked first, then each pointee, the last that waits first, after the pointees
+/// that its check adds to the worklist are reversed: the order is that of a depth-first walk, which
+/// a compact check requires. A worklist that is full is grown and the step is made again from where
 /// it started, or the check stops at its limit.
+///
+/// It is not generic: each step is a function pointer (`root`, then those of [`Pending`]), and
+/// the worklist is a trait object, so one copy of it serves every type and every worklist.
 ///
 /// # Safety
 ///
 /// The caller must ensure that `addr` is valid for reads of `n` initialized bytes, `n` at least
-/// the size of `D`.
-pub unsafe fn drive<C: Checks, D: Pun, W: crate::Worklist + ?Sized>(
+/// `size`, and that `root` is [`root`] for a `D` of `size` bytes.
+pub unsafe fn drive(
   addr: *const u8,
   n: usize,
   align: usize,
   compact: bool,
-  work: &mut W,
+  (size, root): (usize, Stage),
+  work: &mut dyn crate::Worklist,
 ) -> Result<(), crate::Failure> {
   let mut input = Input::new(addr, n);
-  input.align = align;
-  input.next = if compact { Some(size_of::<D>()) } else { None };
-  // The first step checks the `D`, and the next ones a pointee each.
-  let mut step: Option<Pending> = None;
+  (input.align, input.depth) = (align, IN_PLACE);
+  input.next = if compact { Some(size) } else { None };
+  let items = work.items();
+  (input.work, input.room) = (items.as_mut_ptr(), items.len());
+  // The first step checks the root, and the next ones a pointee each.
+  let mut step = Pending { at: 0, size, check: root };
   loop {
-    let items = work.items();
-    (input.work, input.room) = (items.as_mut_ptr(), items.len());
-    let (saved, mark) = (input, input.pending);
-    // SAFETY: The `D` at `addr` is within the `n` bytes, valid for reads and initialized, by
-    // contract on the caller, as `validate` requires. A pending entry is the struct of an aim that
-    // a check of these bytes found, and the requirements of its check are those of `check_stored`
-    // for it, which that check met.
-    let valid = unsafe {
-      match step {
-        None => validate::<C, Root, D>(addr.cast(), &mut input),
-        Some(Pending { at, size, check }) => check(addr.add(at), size, &mut input),
-      }
-    };
+    // What a step changes, but for what it restores itself (the depth), and for what stops the
+    // check (`failed`, `limit`): enough to make it again.
+    let (budget, next, mark) = (input.budget, input.next, input.pending);
+    input.mark = mark;
+    // SAFETY: The root at `addr` is within the `n` bytes, valid for reads and initialized, by
+    // contract on the caller, as `root` requires. A pending entry is the struct of an aim that a
+    // check of these bytes found, within them, and the requirements of its check are those of
+    // `check_stored` for it, which that check met.
+    let valid = unsafe { (step.check)(addr.add(step.at), step.size, &mut input) };
     if input.full {
       // Made again from where it started, with more room, or the check stops.
       if work.grow() {
-        input = saved;
+        (input.budget, input.next, input.pending) = (budget, next, mark);
+        (input.full, input.limit, input.failed) = (false, false, None);
+        let items = work.items();
+        (input.work, input.room) = (items.as_mut_ptr(), items.len());
         continue;
       }
       return Err(input.failure());
@@ -1460,14 +1498,19 @@ pub unsafe fn drive<C: Checks, D: Pun, W: crate::Worklist + ?Sized>(
     if !valid {
       return Err(input.failure());
     }
+    // SAFETY: `work` holds `room` entries at `input.work` (`items`, which nothing used since), of
+    // which the step wrote those from `mark` to `pending` (`Input::defer`).
+    let added =
+      unsafe { core::slice::from_raw_parts_mut(input.work.add(mark), input.pending - mark) };
     // The entries that the step added, first to last in the order of the aims, are checked first
     // to last.
-    work.items()[mark..input.pending].reverse();
+    added.reverse();
     if input.pending == 0 {
       break;
     }
     input.pending -= 1;
-    step = Some(work.items()[input.pending]);
+    // SAFETY: `pending < room`: an entry that the check of a step wrote.
+    step = unsafe { input.work.add(input.pending).read() };
   }
   // A compact check ends where the bytes end.
   match input.next {

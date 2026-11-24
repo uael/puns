@@ -636,8 +636,9 @@
 //!   either limit, it returns [`Error::Limit`]. It allocates nothing, and recurses once for each
 //!   level, which takes about 10 KiB of stack in a build without optimizations, so that the
 //!   deepest check of a list or a tree fits in 1 MiB.
-//! - [`check`] checks bytes for a value at any depth, without recursion: the pointees that are
-//!   still to be checked wait in a [`Worklist`] that the caller gives, depth first. It makes no
+//! - [`check`] checks bytes for a value at any depth, with a stack that does not grow with it: it
+//!   follows a few pointees in place, and the next ones wait in a [`Worklist`] that the caller
+//!   gives, depth first. It makes no
 //!   reference, so the bytes may be at any address, and are checked as they will be once copied
 //!   to an address of a given alignment. It can also require the bytes to be the compact image
 //!   of the value, each pointee right after the one before it in that order, as a writer that
@@ -4860,17 +4861,31 @@ impl<const N: usize> Worklist for [Pending; N] {
   }
 }
 
+/// A worklist of [`check`] as a trait object, which it may not be itself (a slice), so that one
+/// driver of the check serves every worklist.
+struct Dyn<'w, W: ?Sized>(&'w mut W);
+
+impl<W: Worklist + ?Sized> Worklist for Dyn<'_, W> {
+  fn items(&mut self) -> &mut [Pending] {
+    self.0.items()
+  }
+
+  fn grow(&mut self) -> bool {
+    self.0.grow()
+  }
+}
+
 /// Checks that `bytes` start with a `D`, with the pointees of its eager aims, without making a
-/// reference to them, and without recursion: the bytes may be at any address, and the pointees
-/// nested at any depth.
+/// reference to them: the bytes may be at any address, and the pointees nested at any depth.
 ///
 /// The bytes are checked as they will be at an address aligned to `align`, as when they are
 /// copied there after the check: the `D` and the types of each eager pointee must be aligned to at
 /// most `align`, and each pointee is aligned by its offset in the bytes, to the alignment of its
-/// aim, which may be higher (that of a [`Thin`] counts the size of its length). The pointees that
-/// are still to be checked wait in `work` ([`Worklist`]), so the check goes deeper than
-/// [`AIM_DEPTH`], which bounds the recursion of [`from_head`]. The `D` is checked first, then its
-/// pointees, depth first, each struct before its pointees and each aim of a struct before the next.
+/// aim, which may be higher (that of a [`Thin`] counts the size of its length). The check follows a
+/// few pointees in place, one within another, and the next ones wait in `work` ([`Worklist`]), so
+/// it goes deeper than [`AIM_DEPTH`], which bounds the recursion of [`from_head`], with a stack that
+/// does not grow with the data. The `D` is checked first, then its pointees, depth first, each
+/// struct before its pointees and each aim of a struct before the next.
 ///
 /// With `compact`, the bytes must also be the compact image of the `D`: each pointee starts at the
 /// first offset after the one before it in that order where it is aligned (after the `D` for the
@@ -4938,14 +4953,16 @@ pub fn check<D: Pun, W: Worklist + ?Sized>(
   if align_of::<D>() > align {
     return Err(Failure { error: Error::Alignment, at: 0 });
   }
-  let (addr, n) = (bytes.as_ptr(), bytes.len());
-  // SAFETY: `bytes` is valid for reads of its `n` initialized bytes, at least the size of `D`, as
-  // `walk` requires.
-  match unsafe { validate::drive::<Plan<[u8], D>, D, W>(addr, n, align, compact, work) } {
+  let (addr, n, work) = (bytes.as_ptr(), bytes.len(), &mut Dyn(work));
+  let all = (size_of::<D>(), validate::root::<Plan<[u8], D>, D> as _);
+  // SAFETY: `bytes` is valid for reads of its `n` initialized bytes, at least the size of `D`, and
+  // the root is that of `D`, as `drive` requires.
+  match unsafe { validate::drive(addr, n, align, compact, all, work) } {
     Err(Failure { error: Error::Validity, .. }) => {
       // Made again, recording where the check fails.
+      let locate = (size_of::<D>(), validate::root::<validate::Locate, D> as _);
       // SAFETY: As above.
-      match unsafe { validate::drive::<validate::Locate, D, W>(addr, n, align, compact, work) } {
+      match unsafe { validate::drive(addr, n, align, compact, locate, work) } {
         Err(failure) => Err(failure),
         Ok(()) => Err(Failure { error: Error::Validity, at: 0 }),
       }

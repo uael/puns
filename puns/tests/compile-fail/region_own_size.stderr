@@ -17,11 +17,11 @@ note: inside `puns::validate::pointee_checked::<UnsizedRegionFirst, puns::RuleAt
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let (eager, next) = const {
-  |  _______________________^
+  |     let (eager, next, reserve) = const {
+  |  ________________________________^
   | |     pointee_checked::<T, L>();
-  | |     match T::LAYOUT.rule(L::RULE) {
-  | |       Some(Rule::Aim(Aim { check, start, .. })) => {
+  | |     // A pointee that holds no eager aim takes one level, and no more: the last one is kept for it.
+  | |     let leaf = !<<L::Pointee as Pointee>::Value as Pun>::LAYOUT.holds_eager_aims()
 ... |
   | |   };
   | |___^

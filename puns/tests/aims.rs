@@ -734,11 +734,11 @@ fn a_worklist_goes_deeper_than_the_recursion() {
   assert_eq!(puns::from_head::<Pair>(bytes).err(), Some(Error::Limit));
   assert_eq!(image_of(bytes, 8, true), Ok(()));
   assert_eq!(image_of(bytes, 8, false), Ok(()));
-  // A worklist that cannot grow, too small for the two pointees that wait at each pair.
-  let mut work = [Pending::default(); 1];
+  // A worklist that cannot grow. A pair checks its name and its values in place, which hold no
+  // aim, and its next pair waits: one entry is enough, none too few.
   let full = Failure { error: Error::Limit, at: 0 };
-  assert_eq!(puns::check::<Pair, _>(bytes, 8, true, &mut work), Err(full));
-  let mut work = [Pending::default(); 3];
+  assert_eq!(puns::check::<Pair, _>(bytes, 8, true, &mut []), Err(full));
+  let mut work = [Pending::default(); 1];
   assert_eq!(puns::check::<Pair, _>(bytes, 8, true, &mut work), Ok(()));
 }
 

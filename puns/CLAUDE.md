@@ -128,14 +128,17 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   that makes its frames larger is measured again, and the bound lowered if it no longer fits. What
   a function on that path computes before it recurses is in a function of its own in such a build
   (`check_next`, `find_stored`, `fits_stored`), so that the frames that wait hold little.
-- `check` goes deeper with the same code: `Input` has a worklist, in which `check_aim` puts a
-  `Pending` (the struct and `check_stored` for its aim) instead of recursing, and
-  `validate::drive` runs the entries depth first, reversing those that each step adds. A step that
-  fills the worklist is made again from a copy of `Input` once `Worklist::grow` made room. A
-  compact check claims each pointee where `check_stored` checks it (`Input::claim`), so in the
-  order of a copy. Where a check fails is recorded only by `validate::Locate`, a `Checks` whose
-  `LOCATE` is true, and `check` makes the check again with it after a failure, so the check that
-  succeeds compiles as before. Alignment is by offset from a base alignment there
+- `check` goes deeper with the same code: `Input` has a worklist. `check_aim` checks a pointee in
+  place while the depth allows (`IN_PLACE`: four pointees that hold eager aims, then one that
+  holds none) and its step deferred nothing yet (`Input::mark`), and otherwise puts a `Pending`
+  (the struct and `check_stored` for its aim) in the worklist. `validate::drive`, one function for
+  every type (its root is a function pointer, the worklist a trait object), runs the entries depth
+  first, reversing those that each step adds. A step that fills the worklist is made again, from
+  what it changed in `Input`, once `Worklist::grow` made room. A compact check claims each pointee
+  where `check_stored` checks it (`Input::claim`), so in the order of a copy. Where a check fails
+  is recorded only by `validate::Locate`, a `Checks` whose `LOCATE` is true, which defers every
+  pointee, so that the parts of a value are checked before its pointees; `check` makes the check
+  again with it after a failure, so the check that succeeds compiles as before. Alignment is by offset from a base alignment there
   (`Input::aligned`), since the bytes are checked before they are copied.
 
 ## Not done yet
