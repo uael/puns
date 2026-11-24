@@ -1396,11 +1396,11 @@ pub use layout::{crc32, sum16};
 ///
 /// - `#[pun(bound(T: Trait, ..))]`: the bounds of the implementation of `Pun`, in addition to the
 ///   bounds of the type. They replace the bounds that the derive finds for the fields and the
-///   targets of the aims, which require each of these types that depends on a type parameter to be
+///   pointees of the aims, which require each of these types that depends on a type parameter to be
 ///   `Pun`, unless it names the type being derived. The derive still requires the type of each
 ///   typed region to be `Pun`, and a struct that is neither `repr(C)` nor `repr(transparent)` to
 ///   be `Sized`. Generic types that hold each other behind pointers need this, since the bounds
-///   found for each would form a cycle, and so does an aim whose target needs a bound of its own.
+///   found for each would form a cycle, and so does an aim whose pointee needs a bound of its own.
 ///   Write `#[pun(bound())]` when the bounds of the type are enough.
 ///
 /// On any type:
@@ -2081,7 +2081,7 @@ pub unsafe trait Scalar {
 /// is a valid `Self`. The lists of the implementation are those of the layout: its fields if it is a
 /// struct, its variants if it is an enum or a union, and its element if it is an array or a slice.
 /// `puns` reads no list of a layout of another kind, which may then be anything. The list of the
-/// rules names the type of the target of each aim. `Metadata` is `()` exactly when the layout is
+/// rules names the type of the pointee of each aim. `Metadata` is `()` exactly when the layout is
 /// sized, and `usize` otherwise. No byte of `Self` is inside an
 /// [`UnsafeCell`](core::cell::UnsafeCell).
 ///
@@ -2208,7 +2208,7 @@ impl<K: Pun + Copy> Tag<K> for [u8] {
   type Tag = K;
 }
 
-/// A `T` that holds where the target of an eager [aim](crate#aims) is, the field of a struct with
+/// A `T` that holds where the pointee of an eager [aim](crate#aims) is, the field of a struct with
 /// `#[pun(pointer(Type = EXPR))]` ([`macro@Pun`]), which no code but `puns` makes, and `puns` makes
 /// none.
 ///
@@ -2216,8 +2216,8 @@ impl<K: Pun + Copy> Tag<K> for [u8] {
 /// layout and values are those of the field in the layout of the struct. Its field is private, it
 /// is not a [`Pun`] type, so no pun makes one, and it is neither `Clone`, `Copy` nor `Default`. So
 /// no safe code makes a value of a struct that holds one: such a value exists only in bytes where
-/// `puns` checked the targets of its aims, or where unsafe code put it, and code may read these
-/// targets through a reference to it without a check.
+/// `puns` checked the pointees of its aims, or where unsafe code put it, and code may read these
+/// pointees through a reference to it without a check.
 ///
 /// # Examples
 ///

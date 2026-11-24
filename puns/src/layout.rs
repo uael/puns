@@ -3468,7 +3468,7 @@ impl Layout {
   /// the `unstable` feature is enabled.
   ///
   /// What a check of every part of a value of the layout does, as the check of an enum as a whole
-  /// or of the target of an eager aim makes, is then the same in every layout that Rust allows.
+  /// or of the pointee of an eager aim makes, is then the same in every layout that Rust allows.
   pub(crate) const fn checks_kept(&self) -> bool {
     if UNSTABLE {
       return true;

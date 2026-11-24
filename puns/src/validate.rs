@@ -41,8 +41,8 @@
 //! loop of each walk, never a `match` on operations at run time.
 //!
 //! The derive writes the rules of a struct that have an expression or are aims as a list at the
-//! type level (`Pun::Rules`, `RuleAt<RULE, STEPS, NEXT, TARGET>`, where `TARGET` is the type of
-//! the target of an aim). It writes the operations of each rule as a balanced tree
+//! type level (`Pun::Rules`, `RuleAt<RULE, STEPS, NEXT, POINTEE>`, where `POINTEE` is the type of
+//! the pointee of an aim). It writes the operations of each rule as a balanced tree
 //! (`steps::One<I>`, `steps::Two<A, B>`), and a walk as `steps::Walk<I, COND, NEXT>`, whose two
 //! expressions are trees of their own at any depth. The recursions down a tree are as deep as the
 //! logarithm of the number of operations. Because the list is a type, a struct without rules costs
