@@ -635,7 +635,11 @@
 //!   level, which takes about 15 KiB of stack in a build without optimizations, so that the
 //!   deepest check of a list or a tree fits in 1 MiB.
 //! - So a reference to a struct with an eager aim is a reference to a valid target, which code
-//!   may read without a check, as the `Deref` of a pointer does. No function makes a value that
+//!   may read without a check. It reads it through a pointer whose provenance covers the target.
+//!   A pointer made from a reference to the struct covers only the struct under the stacked
+//!   borrows model of Miri, though tree borrows accepts a read of the target through it, as a
+//!   `Deref` of the pointer does: `tests/support/aims.rs` reads the target with the provenance of
+//!   the checked bytes, so that both models accept it. No function makes a value that
 //!   holds an eager aim (`pun`, `try_pun`, `zeroed` and the other functions that return a value
 //!   do not compile), nor gives a `&mut` to or from one (`pun_mut`, `try_pun_mut`,
 //!   `from_bytes_mut` and the `_mut` parts), nor checks one from a source whose bytes may be

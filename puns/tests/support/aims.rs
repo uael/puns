@@ -4,7 +4,6 @@
 use core::{
   marker::{PhantomData, PhantomPinned},
   num::NonZero,
-  ops::Deref,
   ptr,
 };
 
@@ -51,7 +50,7 @@ unsafe impl<T: ?Sized + Pun> Fields for NearOff<T> {
 // at 0. `PhantomData` and `PhantomPinned` have no bytes and no invariant. The rule is an eager aim
 // at a `Thin<T, i32>`, at the address of the `Near` plus its offset, which `Rules` names. A `Near`
 // has no constructor and is neither `Clone` nor `Copy`, so one exists only where `puns` checked its
-// target, which `Deref` reads. `identified` changes neither its size, its alignment nor its
+// target, which `get` reads. `identified` changes neither its size, its alignment nor its
 // values. `core` documents `Option<Near<T>>` as the `Near`, `None` as zero.
 unsafe impl<T: ?Sized + Pun> Pun for Near<T> {
   type Elem = ();
@@ -77,14 +76,22 @@ unsafe impl<T: ?Sized + Pun> Pun for Near<T> {
   const NULL_OPTIMIZED: bool = true;
 }
 
-impl<T: ?Sized + Pun> Deref for Near<T> {
-  type Target = T;
-
-  fn deref(&self) -> &T {
-    let at = ptr::from_ref(self).cast::<u8>().wrapping_offset(self.off.get() as isize);
+impl<T: ?Sized + Pun> Near<T> {
+  /// Returns the target, read with the provenance of `image`.
+  ///
+  /// A reference to a `Near` borrows only its 4 bytes, and the stacked borrows model of Miri
+  /// refuses a read of the target through a pointer made from it, though tree borrows accepts
+  /// one. So the target is read with the provenance of the bytes that hold both.
+  ///
+  /// # Safety
+  ///
+  /// `image` holds the bytes in which `puns` checked this `Near`, and its target with it.
+  pub unsafe fn get<'a>(&'a self, image: &'a [u8]) -> &'a T {
+    let at = ptr::from_ref(self).addr().wrapping_add_signed(self.off.get() as isize);
     // SAFETY: A `Near` exists only where `puns` checked that its target is a valid `Thin<T, i32>`,
-    // aligned, in the bytes that the reference to it borrows.
-    unsafe { Thin::<T, i32>::get(at) }
+    // aligned, in the bytes that it checked, which `image` holds (the caller's contract), so a
+    // pointer to it with the provenance of `image` may read it.
+    unsafe { Thin::<T, i32>::get(image.as_ptr().with_addr(at)) }
   }
 }
 

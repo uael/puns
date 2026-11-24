@@ -7,6 +7,12 @@ mod aims;
 use aims::{Expr, Near, Pair, Tree};
 use puns::{Error, Pun, Thin};
 
+/// The target of `near`, in `image`, the bytes in which `puns` checked it.
+fn to<'a, T: ?Sized + Pun>(near: &'a Near<T>, image: &'a [u8]) -> &'a T {
+  // SAFETY: Every caller passes the bytes that `puns` checked and that hold `near`.
+  unsafe { near.get(image) }
+}
+
 fn row(name: &str, values: &[u32]) -> (String, Vec<u32>) {
   (name.to_string(), values.to_vec())
 }
@@ -16,7 +22,7 @@ fn a_chain_of_pairs() {
   let (image, _) = Image::pairs(&[("a", &[1, 2, 3]), ("bcd", &[4]), ("", &[])]);
   let image = image.aligned();
   let (root, rest) = puns::from_head::<Pair>(image.bytes()).unwrap();
-  assert_eq!(rows(root), [row("a", &[1, 2, 3]), row("bcd", &[4]), row("", &[])]);
+  assert_eq!(rows(root, image.bytes()), [row("a", &[1, 2, 3]), row("bcd", &[4]), row("", &[])]);
   // The targets are after the root, in what `from_head` returns as the rest.
   assert_eq!(rest.len(), image.1 - size_of::<Pair>());
   // The same through `from_bytes` fails on the size: the image is larger than a `Pair`.
@@ -90,7 +96,8 @@ fn a_chain_is_followed_to_its_depth() {
         image.aim(at[i] + 8, at[i + 1]);
       }
     }
-    puns::from_head::<Pair>(image.aligned().bytes()).map(|(root, _)| rows(root).len())
+    let image = image.aligned();
+    puns::from_head::<Pair>(image.bytes()).map(|(root, _)| rows(root, image.bytes()).len())
   };
   // The pair `k` is `k` levels deep, and its name and its values one more: `AIM_DEPTH` levels
   // reach the names of `AIM_DEPTH` pairs. The check recurses once for each level, and the deepest
@@ -104,6 +111,14 @@ fn a_chain_is_followed_to_its_depth() {
     .unwrap();
   assert_eq!(ok, Ok(if cfg!(miri) { 4 } else { depth }));
   assert_eq!(limit, if cfg!(miri) { Ok(4) } else { Err(Error::Limit) });
+}
+
+/// The value of an expression, in `image`.
+fn sum(e: &Expr, image: &[u8]) -> i64 {
+  match e {
+    Expr::Lit(v) => *v,
+    Expr::Add(a, b) => sum(to(a, image), image) + sum(to(b, image), image),
+  }
 }
 
 #[test]
@@ -123,9 +138,10 @@ fn trees_and_enums() {
     image.aim(at + 4, list);
   }
   let image = image.aligned();
-  let tree = puns::from_head::<Tree>(image.bytes()).unwrap().0;
-  let ids = |tree: &Tree| tree.kids.iter().map(|kid| kid.id).collect::<Vec<_>>();
-  assert_eq!((tree.id, ids(tree), ids(&tree.kids[1])), (1, vec![2, 3], vec![4]));
+  let bytes = image.bytes();
+  let tree = puns::from_head::<Tree>(bytes).unwrap().0;
+  let ids = |tree: &Tree| to(&tree.kids, bytes).iter().map(|kid| kid.id).collect::<Vec<_>>();
+  assert_eq!((tree.id, ids(tree), ids(&to(&tree.kids, bytes)[1])), (1, vec![2, 3], vec![4]));
   // An expression: `1 + 2`. `repr(u8)` lays each variant out as a `repr(C)` struct of the tag and
   // the fields: the `i64` of `Lit` after the tag, at its alignment, and the pointers of `Add` at 4
   // and 8.
@@ -138,17 +154,8 @@ fn trees_and_enums() {
   for (i, value) in [(1, 1i64), (2, 2)] {
     image.put(at[i] + align_of::<i64>(), &value.to_ne_bytes());
   }
-  let sum = |e: &Expr| -> i64 {
-    fn sum(e: &Expr) -> i64 {
-      match e {
-        Expr::Lit(v) => *v,
-        Expr::Add(a, b) => sum(a) + sum(b),
-      }
-    }
-    sum(e)
-  };
   let good = image.aligned();
-  assert_eq!(puns::from_head::<Expr>(good.bytes()).map(|(e, _)| sum(e)), Ok(3));
+  assert_eq!(puns::from_head::<Expr>(good.bytes()).map(|(e, _)| sum(e, good.bytes())), Ok(3));
   // A wrong tag deep in the tree.
   image.bytes[at[2]] = 7;
   assert_eq!(puns::from_head::<Expr>(image.aligned().bytes()).err(), Some(Error::Validity));
@@ -162,7 +169,8 @@ fn a_typed_source_is_checked_within_its_bytes() {
   // Each word points at the other.
   let words = [4u32, (-4i32).cast_unsigned()];
   let near = puns::try_pun_ref::<_, [Near<u32>; 2]>(&words).unwrap();
-  assert_eq!((*near[0], *near[1]), ((-4i32).cast_unsigned(), 4));
+  let bytes = puns::as_bytes(&words);
+  assert_eq!((*to(&near[0], bytes), *to(&near[1], bytes)), ((-4i32).cast_unsigned(), 4));
   // Past the bytes of the source, though within the array that holds it.
   let words = [4u32, 9];
   let first = puns::head_ref::<[u32; 2], [u32; 1]>(&words);
@@ -177,7 +185,7 @@ fn the_same_aim_at_the_same_place_proves_it() {
   // The same type, and a part: proven, nothing is checked.
   let same: &Pair = puns::pun_ref(root);
   let name: &Near<str> = puns::head_ref(root);
-  assert_eq!((&*same.name, &**name), ("a", "a"));
+  assert_eq!((to(&same.name, image.bytes()), to(name, image.bytes())), ("a", "a"));
   // Plain bytes of a `Pair`, which a shared reference may read.
   assert_eq!(puns::as_bytes(root).len(), size_of::<Pair>());
 }
@@ -204,7 +212,8 @@ fn a_generic_type_bounded_by_pun_proves_itself() {
   // `List<u32>` has an identity, made of that of `u32`, and so has the target of its aim: the same
   // aim at the same place proves it, and nothing is checked.
   let same: &List<u32> = puns::pun_ref(list);
-  assert_eq!((same.value, same.next.as_deref().map(|next| next.value)), (1, Some(2)));
+  let next = same.next.as_ref().map(|next| to(next, image.bytes()).value);
+  assert_eq!((same.value, next), (1, Some(2)));
 }
 
 /// A struct that ends with a slice, behind its stored length.
@@ -330,12 +339,12 @@ impl Aligned {
 }
 
 /// The rows of a chain of pairs.
-fn rows(root: &Pair) -> Vec<(String, Vec<u32>)> {
+fn rows(root: &Pair, image: &[u8]) -> Vec<(String, Vec<u32>)> {
   let mut out = vec![];
   let mut at = Some(root);
   while let Some(pair) = at {
-    out.push((pair.name.to_string(), pair.values.to_vec()));
-    at = pair.next.as_deref();
+    out.push((to(&pair.name, image).to_string(), to(&pair.values, image).to_vec()));
+    at = pair.next.as_ref().map(|next| to(next, image));
   }
   out
 }
