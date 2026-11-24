@@ -15,7 +15,8 @@
 //! the metadata of a pointer to a `Pun` type is `Pun::Metadata`, which is `()` for a sized type.
 //! A `const fn` could make a generic `T::Metadata` from a `usize` only by another reinterpretation
 //! of its bytes, since no trait method is a `const fn` in stable Rust, and each caller, as
-//! [`Thin::get`](crate::Thin::get), has the length as an integer.
+//! the read of the pointee of an aim ([`own_length`](crate::validate::own_length)), has the length
+//! as an integer.
 //!
 //! # Miri
 //!

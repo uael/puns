@@ -118,8 +118,10 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   pointee, and the pointee is reached through `Pun::Rules` (`Rules::Pointee`), whose item a read
   names, so that the type of a pointee is written in one place of the derive. The identity of a
   type is `Pun::ID`, made of the identities of its parameters and never of a layout, which its
-  layout holds too. `Pun::Metadata` is `()` exactly when the layout is sized (`Thin` asserts it),
-  and `Store`, a sealed trait, says what a `Thin` stores for it.
+  layout holds too. The pointee is a `Pointee`, a sealed trait: a `Pun` type, or a `Thin<T, M>`,
+  the format of `nearest` for a list or a text, a `T` right after an `M` that ends with its
+  length, at which the pointer points. `Pun::Metadata` is a sealed `Metadata`, `()` exactly when
+  the layout is sized (`Layout::measured` asserts it of every struct).
 - The check of eager aims recurses once for each level, up to `AIM_DEPTH`, which is set so that
   the deepest check of the types of `tests/support/aims.rs` fits in 1 MiB of stack in a build
   without optimizations (`tests/aims.rs` runs it on a thread of 1 MiB). A change of the validation

@@ -24,9 +24,9 @@
 //!
 //! What reads a pointee finds it as the check does: [`region_at`] takes the same steps of the
 //! cursor ([`cursor_step`]), which truncate rather than fail, [`pointer_at`] evaluates where a
-//! pointee at a stored place starts, and [`thin`] makes a pointer to a pointee of its own size,
-//! with the length that it stores. Both the check and the read evaluate that length over the sized
-//! fields of the pointee only ([`stores_length`]).
+//! pointee at a stored place starts, and [`own_length`] reads the length that a pointee of its own
+//! size stores: a `Thin` before its value, or a value in its sized fields, over which the check and
+//! the read evaluate it alike ([`own`], [`stores_length`]).
 //!
 //! # No interpreter
 //!
@@ -78,7 +78,7 @@
 //! failed.
 
 use crate::{
-  Fields, Path, Pun, Root, Rules, Steps, Variants,
+  Fields, Path, Pointee, Pun, Root, Rules, Steps, Variants,
   analysis::Marks,
   layout::{
     self, Aim, Check, Dfa, Enum, Extent, Kind, Machine, Op, Rule, Shape, Start, load, op_at,
@@ -583,9 +583,11 @@ const unsafe fn place<T: ?Sized + Pun, L: Rules>(
 /// depends on no layout that Rust leaves to the compiler, without the `unstable` feature.
 pub const fn pointee_checked<T: ?Sized + Pun, L: Rules>() {
   let Some(Rule::Aim(aim)) = T::LAYOUT.rule(L::RULE) else { return };
-  assert!(!matches!(aim.extent, Extent::Own) || stores_length::<L::Pointee>(), "{}", STORES_LENGTH);
+  assert!(!matches!(aim.extent, Extent::Own) || own::<L::Pointee>(), "{}", STORES_LENGTH);
   assert!(
-    matches!(aim.check, Check::Lazy) || <L::Pointee as Pun>::LAYOUT.checks_kept(),
+    matches!(aim.check, Check::Lazy)
+      || <<L::Pointee as Pointee>::Value as Pun>::LAYOUT.checks_kept()
+        && <<L::Pointee as Pointee>::Prefix as Pun>::LAYOUT.checks_kept(),
     "the pointee of an eager aim has a part whose layout Rust leaves to the compiler (a struct, \
      a tuple or an enum of the `Rust` representation), and something to check in it.\nAdd \
      `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`"
@@ -595,7 +597,7 @@ pub const fn pointee_checked<T: ?Sized + Pun, L: Rules>() {
 /// Returns whether a `D` stores the length of its tail in its sized fields, as the pointee of an
 /// aim of its own size does: it is sized, or its `size` or `len` rule reads only its sized fields
 /// ([`LengthRule::in_head`](layout::LengthRule::in_head)). The check of an aim ([`measure`]) and
-/// the read of its pointee ([`thin`]) both evaluate the rule over the sized fields, so that a
+/// the read of its pointee ([`own_length`]) both evaluate the rule over the sized fields, so that a
 /// pointee that the check accepts is one that the read reads.
 const fn stores_length<D: ?Sized + Pun>() -> bool {
   let layout = D::LAYOUT;
@@ -690,7 +692,7 @@ pub const unsafe fn cursor_step<T: ?Sized + Pun, L: Rules, const STRICT: bool>(
     Some((len, size)) => Some(Step { start, size, len }),
     None if STRICT => None,
     // What remains, which may not be a size of the type, for what reads it to refuse.
-    None => Some(Step { start, size: rest, len: sized_as::<L::Pointee>(rest) }),
+    None => Some(Step { start, size: rest, len: sized_as::<<L::Pointee as Pointee>::Value>(rest) }),
   }
 }
 
@@ -718,26 +720,38 @@ pub enum Size {
 ///
 /// The caller must ensure that `addr` is valid for reads of `room` initialized bytes.
 #[inline(always)]
-pub const unsafe fn measure<P: ?Sized + Pun>(
+pub const unsafe fn measure<P: ?Sized + Pointee>(
   size: Size,
   addr: *const u8,
   room: usize,
 ) -> Option<(Option<usize>, usize)> {
-  let (layout, measured) = const { (P::LAYOUT, stores_length::<P>()) };
+  let (layout, measured, thin) =
+    const { (<P::Value as Pun>::LAYOUT, stores_length::<P::Value>(), P::LENGTH.is_some()) };
   let n = match size {
     Size::Own if !layout.is_unsized() => layout.size(),
-    Size::Own if !measured || room < layout.head() => return None,
+    Size::Own if !thin && (!measured || room < layout.head()) => return None,
     Size::Own => {
-      // SAFETY: `addr` is valid for reads of `room` initialized bytes, by contract on the caller,
-      // which cover the `head` bytes of the sized fields of `P`, and of the struct in it that has
-      // the rule, which `stores_length` found. These are the requirements of `length`.
-      let value = unsafe { length::<P>(addr, layout.head()) };
+      let value = if thin {
+        // SAFETY: The length that a `Thin` stores is right before `addr`, in initialized bytes, by
+        // contract on the caller, as `stored_length` requires.
+        unsafe { stored_length::<P>(addr) }
+      } else {
+        // SAFETY: `addr` is valid for reads of `room` initialized bytes, by contract on the
+        // caller, which cover the `head` bytes of the sized fields of the value, and of the struct
+        // in it that has the rule, which `stores_length` found. These are the requirements of
+        // `length`.
+        unsafe { length::<P::Value>(addr, layout.head()) }
+      };
       let len = match value {
-        Some(value) if value <= usize::MAX as u128 => elements::<P>(value as usize),
+        Some(value) if value <= usize::MAX as u128 && thin => Some(value as usize),
+        Some(value) if value <= usize::MAX as u128 => elements::<P::Value>(value as usize),
         _ => None,
       };
       return match len {
-        Some(len) if layout.stride() == 0 || len <= (room - layout.head()) / layout.stride() => {
+        Some(len)
+          if room >= layout.head()
+            && (layout.stride() == 0 || len <= (room - layout.head()) / layout.stride()) =>
+        {
           match layout.size_of_val(len) {
             Some(size) if size <= room => Some((Some(len), size)),
             _ => None,
@@ -753,7 +767,77 @@ pub const unsafe fn measure<P: ?Sized + Pun>(
   if n > room {
     return None;
   }
-  Some((sized_as::<P>(n), n))
+  Some((sized_as::<P::Value>(n), n))
+}
+
+/// Returns the length that the `Thin` pointee `P` whose value is at `addr` stores right before it,
+/// the integer at the end of its prefix, of the size, the byte order and the sign of its type, if
+/// it is not negative.
+///
+/// # Safety
+///
+/// The caller must ensure that the bytes of the prefix of `P`, before `addr`, are valid for reads
+/// and initialized.
+#[inline(always)]
+const unsafe fn stored_length<P: ?Sized + Pointee>(addr: *const u8) -> Option<u128> {
+  let Some(spec) = (const { P::LENGTH }) else { return None };
+  // SAFETY: The length is the last `spec.size` bytes of the prefix, right before `addr`, which are
+  // valid for reads and initialized, by contract on the caller, as `load` requires.
+  let value = unsafe { layout::load(addr.sub(spec.size), spec.size, spec.endian) };
+  if matches!(spec.number, layout::Number::Signed) && value >> (8 * spec.size - 1) != 0 {
+    return None;
+  }
+  Some(value)
+}
+
+/// Returns the length of the tail of the pointee `P` of its own size whose value is at `addr`: what
+/// [`measure`] finds, from the length that a `Thin` stores before it, or from the `size` or `len`
+/// rule of the value, evaluated over its sized fields.
+///
+/// # Safety
+///
+/// The caller must ensure that `P` stores its length ([`own`]), that a valid value of `P`, aligned,
+/// is at `addr`, after the prefix of `P`, and that the length that it stores is the length of its
+/// tail. A pointee of its own size that [`check_pointee`] checked is one.
+#[inline(always)]
+pub const unsafe fn own_length<P: ?Sized + Pointee>(addr: *const u8) -> usize {
+  let (unsized_, stride, head, thin) = const {
+    let layout = <P::Value as Pun>::LAYOUT;
+    (layout.is_unsized(), layout.stride(), layout.head(), P::LENGTH.is_some())
+  };
+  if !unsized_ || stride == 0 {
+    return 0;
+  }
+  let len = if thin {
+    // SAFETY: The prefix of `P` is before `addr`, valid and initialized, by contract on the
+    // caller, as `stored_length` requires.
+    match unsafe { stored_length::<P>(addr) } {
+      Some(value) if value <= usize::MAX as u128 => Some(value as usize),
+      _ => None,
+    }
+  } else {
+    // SAFETY: The `head` bytes at `addr` are the sized fields of the valid value there, valid for
+    // reads and initialized, by contract on the caller. They cover the sized fields of the struct
+    // in it that has the rule, which `own` found. These are the requirements of `length`.
+    match unsafe { length::<P::Value>(addr, head) } {
+      Some(value) if value <= usize::MAX as u128 => elements::<P::Value>(value as usize),
+      _ => None,
+    }
+  };
+  let Some(len) = len else {
+    // SAFETY: The pointee at `addr` stores the length of its tail, by contract on the caller: the
+    // length itself for a `Thin` or a `len` rule, or the size of a value with that many elements
+    // for a `size` rule, which `elements` turns into that length, as `measure` does.
+    unsafe { core::hint::unreachable_unchecked() }
+  };
+  len
+}
+
+/// Returns whether a pointee `P` stores the length of its value, as the pointee of an aim of its
+/// own size does: a `Thin`, before the value, or a value that stores it in its sized fields
+/// ([`stores_length`]).
+pub const fn own<P: ?Sized + Pointee>() -> bool {
+  P::LENGTH.is_some() || stores_length::<P::Value>()
 }
 
 /// Returns the length of the tail of a `P` of `size` bytes, if `size` is the size of a `P`: the
@@ -813,8 +897,10 @@ const unsafe fn stored<T: ?Sized + Pun, L: Rules>(
   let from = unsafe { base.offset_from_unsigned(input.start) };
   #[expect(clippy::cast_possible_wrap, reason = "two's complement, as the aim says")]
   let at = at as i128;
-  let to = match (from as i128).checked_add(at) {
-    Some(to) if to >= 0 && to <= input.len as i128 => to.cast_unsigned() as usize,
+  // Where the value starts, after the length of a `Thin`, and what is stored before it.
+  let before = const { size_of::<<L::Pointee as Pointee>::Prefix>() };
+  let to = match (from as i128).checked_add(at + const { L::Pointee::VALUE_AT } as i128) {
+    Some(to) if to >= before as i128 && to <= input.len as i128 => to.cast_unsigned() as usize,
     _ => return None,
   };
   // SAFETY: `to <= input.len`, so `add` stays within the bytes of `input`, in one allocation.
@@ -894,28 +980,34 @@ impl Input {
   }
 }
 
-/// Returns whether the pointee `P` at `addr`, the length of whose tail is `len`, is valid, every
-/// part of it checked, its own eager aims one level deeper.
+/// Returns whether the pointee `P` whose value is at `addr`, the length of whose tail is `len`, is
+/// valid, every part of it checked, its prefix and its value, its own eager aims one level deeper.
 ///
 /// # Safety
 ///
-/// The caller must ensure that the `P` at `addr` with that length is within the bytes of `input`
-/// or of a value within them, which are in one allocation, valid for reads and initialized.
-const unsafe fn check_pointee<P: ?Sized + Pun>(
+/// The caller must ensure that the `P` at `addr` with that length, and its prefix before it, are
+/// within the bytes of `input` or of a value within them, which are in one allocation, valid for
+/// reads and initialized.
+const unsafe fn check_pointee<P: ?Sized + Pointee>(
   addr: *const u8,
   len: usize,
   input: &mut Input,
 ) -> bool {
-  let pointee = ptr::from_raw_parts::<P>(addr, len);
+  let before = const { size_of::<P::Prefix>() };
+  let value = ptr::from_raw_parts::<P::Value>(addr, len);
   // The value exists in the bytes: its size does not overflow.
-  let Some(size) = const { P::LAYOUT }.size_of_val(len) else { return false };
-  if !input.enter(size) {
+  let Some(size) = const { <P::Value as Pun>::LAYOUT }.size_of_val(len) else { return false };
+  if !input.enter(size + before) {
     return false;
   }
-  // SAFETY: The `P` at `addr` is within the bytes of `input`, which are valid for reads and
-  // initialized, by contract on the caller, so every byte that a check reads is. These are the
-  // requirements of `validate`, and the pointees of the aims of the `P` are within `input` too.
-  let valid = unsafe { validate::<All, Root, P>(pointee, input) };
+  // SAFETY: The prefix of `P`, `before` bytes before `addr`, and its value at `addr`, are within
+  // the bytes of `input`, which are valid for reads and initialized, by contract on the caller, so
+  // every byte that a check reads is. These are the requirements of `validate`, and the pointees
+  // of their aims are within `input` too.
+  let valid = unsafe {
+    (before == 0 || validate::<All, Root, P::Prefix>(addr.sub(before).cast(), input))
+      && validate::<All, Root, P::Value>(value, input)
+  };
   input.leave();
   valid
 }
@@ -940,48 +1032,6 @@ const fn elements<D: ?Sized + Pun>(value: usize) -> Option<usize> {
     }
     () => None,
   }
-}
-
-/// Returns a pointer to the `D` at `addr`, the pointee of an aim of its own size, with the length
-/// of its tail if it is unsized: the length that its `size` or `len` rule gives, as [`measure`]
-/// finds it.
-///
-/// The rule is evaluated over the sized fields of `D` only, where a value that stores its length
-/// stores it, as [`measure`] evaluates it.
-///
-/// # Safety
-///
-/// The caller must ensure that `D` stores its length ([`stores_length`]), that a value of `D`,
-/// aligned, valid as Rust requires of the referent of a `&D`, is at `addr`, and, if `D` is
-/// unsized, that its `size` or `len` rule, evaluated over its sized fields, gives the length of
-/// its tail. A `D` of its own size that [`check_pointee`] checked is one: the check of an aim of
-/// its own size requires that its pointee stores its length, at compile time
-/// ([`pointee_checked`]), and so does its read.
-#[inline(always)]
-pub const unsafe fn thin<D: ?Sized + Pun>(addr: *const u8) -> *const D {
-  let (unsized_, stride, head) = const {
-    let layout = D::LAYOUT;
-    (layout.is_unsized(), layout.stride(), layout.head())
-  };
-  if !unsized_ || stride == 0 {
-    return ptr::from_raw_parts::<D>(addr, 0);
-  }
-  // SAFETY: The `head` bytes at `addr` are the sized fields of the valid `D` there, valid for
-  // reads and initialized, by contract on the caller. They cover the sized fields of the struct in
-  // `D` that has the rule. These are the requirements of `length`. An unsized `D` has the rule, as
-  // the assertion above shows.
-  let value = unsafe { length::<D>(addr, head) };
-  let Some(len) = (match value {
-    Some(value) if value <= usize::MAX as u128 => elements::<D>(value as usize),
-    _ => None,
-  }) else {
-    // SAFETY: The rule of the `D` at `addr`, evaluated over its sized fields, gives the length of
-    // its tail, by contract on the caller: the length itself for a `len` rule, or the size of a
-    // `D` with that many elements for a `size` rule, which `elements` turns into that length, as
-    // it does in `measure`.
-    unsafe { core::hint::unreachable_unchecked() }
-  };
-  ptr::from_raw_parts::<D>(addr, len)
 }
 
 /// Returns whether `L` lists the rules of `T` that have an expression or are aims, from the
@@ -1011,13 +1061,11 @@ const fn listed<T: ?Sized + Pun, L: Rules>(from: usize) -> bool {
     None => <L::Extent as Steps>::KIND == crate::steps::NONE,
   };
   let pointee = match rules[i].aim() {
-    // SAFETY: `L::Pointee::PROBE` is a probe of its type (`Pun`, section Safety), as `head_size`
-    // requires, and `align_of_val_raw` has the same requirements.
-    Some(aim) => unsafe {
-      ptr::head_size(<L::Pointee as Pun>::PROBE) == aim.size
-        && core::mem::align_of_val_raw(<L::Pointee as Pun>::PROBE) == aim.align
-        && (!aim.id.known() || aim.id.equals(&<L::Pointee as Pun>::ID))
-    },
+    Some(aim) => {
+      aim.size == L::Pointee::POINTEE_SIZE
+        && aim.align == L::Pointee::POINTEE_ALIGN
+        && (!aim.id.known() || aim.id.equals(&L::Pointee::POINTEE_ID))
+    }
     None => true,
   };
   first && second && pointee && listed::<T, L::Next>(i + 1)

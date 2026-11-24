@@ -3056,6 +3056,23 @@ impl Layout {
   // -----------------------------------------------------------------------------------------------
   // What every layout that Rust allows has (see "The `unstable` feature" in the crate docs)
 
+  /// Returns the same layout, the layout of `T`, after asserting that the metadata of a pointer to
+  /// `T` ([`Pun::Metadata`](crate::Pun)) is `()` exactly when the layout is sized, as the derive
+  /// declares it: that of the last field of a struct.
+  ///
+  /// # Panics
+  ///
+  /// Panics if the metadata of `T` says otherwise.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn measured<T: ?Sized + crate::Pun>(self) -> Self {
+    assert!(
+      self.unsized_ == (size_of::<T::Metadata>() != 0),
+      "the metadata of a type is `()` exactly when the type is sized"
+    );
+    self
+  }
+
   /// Returns the same layout, of the type whose identity is `id`.
   #[doc(hidden)]
   #[must_use]
@@ -4206,6 +4223,21 @@ impl Layout {
     }
   }
 
+  /// Returns the scalar that ends a sized layout, if it is one that [`as_bits`](Self::as_bits)
+  /// accepts, with no padding after it: the layout itself, or the last field of a struct, at any
+  /// depth. This is the length that a [`Thin`](crate::Thin) stores at the end of its `M`, right
+  /// before its value.
+  pub(crate) const fn last_integer(&self) -> Option<Spec> {
+    match self.kind {
+      Kind::Scalar(_) => self.as_bits(),
+      Kind::Struct(fields, _) if !self.unsized_ && !fields.is_empty() => {
+        let last = &fields[fields.len() - 1];
+        if last.offset + last.layout.size == self.size { last.layout.last_integer() } else { None }
+      }
+      _ => None,
+    }
+  }
+
   /// Returns the scalar of the integer that the layout is, signed or not, if it is one.
   ///
   /// This is a scalar of 1 to 16 bytes, always initialized, whose value is an integer
@@ -4264,7 +4296,7 @@ impl Layout {
   }
 
   /// Returns the scalar that the layout is, if it is an integer of 1 to 8 bytes, signed or not,
-  /// whose values are all initialized bytes. A [`Thin`](crate::Thin) stores its length as one.
+  /// whose values are all initialized bytes.
   pub(crate) const fn as_bits(&self) -> Option<Spec> {
     match self.kind {
       Kind::Scalar(spec)
@@ -4981,8 +5013,6 @@ pub enum Op {
     size: u8,
     /// `true` if it is big-endian, `false` if little-endian.
     big: bool,
-    /// `true` if it is a signed integer in two's complement, sign-extended as [`Op::Load`] does.
-    signed: bool,
   },
   /// Replaces an offset with the variable-length integer of the form `form` at that offset in the
   /// value or, with `length`, with its length in bytes. Fails if the integer does not end within
@@ -5219,17 +5249,17 @@ impl Op {
     Op::Load { offset, size: spec.size as u8, big: !spec.endian.is_little(), signed }
   }
 
-  /// Returns [`Op::At`] of an integer of `size` bytes in the byte order `endian`, signed or not,
-  /// for `#[derive(Pun)]`.
+  /// Returns [`Op::At`] of an unsigned integer of `size` bytes in the byte order `endian`, for
+  /// `#[derive(Pun)]`.
   ///
   /// # Panics
   ///
   /// Panics if `size` is not 1 to 16.
   #[doc(hidden)]
   #[must_use]
-  pub const fn at(size: usize, endian: Endian, signed: bool) -> Self {
+  pub const fn at(size: usize, endian: Endian) -> Self {
     assert!(size >= 1 && size <= 16, "a rule reads an integer of 1 to 16 bytes");
-    Op::At { size: size as u8, big: !endian.is_little(), signed }
+    Op::At { size: size as u8, big: !endian.is_little() }
   }
 
   /// Returns whether two operations are the same, data included. Two [`Op::Matches`] are the same
@@ -5245,9 +5275,7 @@ impl Op {
         Op::Load { offset: a, size: b, big: c, signed: d },
         Op::Load { offset: w, size: x, big: y, signed: z },
       ) => a == w && b == x && c == y && d == z,
-      (Op::At { size: a, big: b, signed: c }, Op::At { size: x, big: y, signed: z }) => {
-        a == x && b == y && c == z
-      }
+      (Op::At { size: a, big: b }, Op::At { size: x, big: y }) => a == x && b == y,
       (Op::Varint { form: a, length: b }, Op::Varint { form: x, length: y }) => {
         a as u8 == x as u8 && b == y
       }
@@ -6091,6 +6119,11 @@ impl Aim {
   /// The size, the alignment and the identity of `T` are read from its probe and its identity,
   /// not from its layout, which may hold this aim.
   ///
+  /// # Panics
+  ///
+  /// Panics if `T` is a [`Thin`](crate::Thin) and the aim is at the cursor, or not of its own size:
+  /// a `Thin` is the pointee of a pointer, which points at the length that it stores.
+  ///
   /// # Examples
   ///
   /// ```
@@ -6105,14 +6138,12 @@ impl Aim {
   /// let _ = Aim::new::<[u8]>(Start::Stored(&AT), Extent::Given(&FOUR), Check::Lazy);
   /// ```
   #[must_use]
-  pub const fn new<T: ?Sized + crate::Pun>(start: Start, extent: Extent, check: Check) -> Self {
-    // SAFETY: `T::PROBE` is a null pointer to a `T`, made with `as` casts only, whose tail has
-    // `PROBE_LEN` elements if `T` is unsized (`Pun`, section Safety): the requirements of
-    // `head_size`. `align_of_val_raw` has the requirements of `size_of_val_raw`, which `head_size`
-    // quotes, and a value whose tail has `PROBE_LEN` elements fits in an `isize` as one with no
-    // element does.
-    let (size, align) = unsafe { (ptr::head_size(T::PROBE), mem::align_of_val_raw(T::PROBE)) };
-    Self { start, extent, check, size, align, id: T::ID }
+  pub const fn new<T: ?Sized + crate::Pointee>(start: Start, extent: Extent, check: Check) -> Self {
+    assert!(
+      T::LENGTH.is_none() || matches!((start, extent), (Start::Stored(_), Extent::Own)),
+      "a `Thin` is the pointee of a `pointer` of its own size, which points at its length"
+    );
+    Self { start, extent, check, size: T::POINTEE_SIZE, align: T::POINTEE_ALIGN, id: T::POINTEE_ID }
   }
 
   /// Returns when the pointee is checked.
@@ -6657,7 +6688,7 @@ impl Machine {
         };
         return self.replace(value);
       }
-      Op::At { size: width, big, signed } => {
+      Op::At { size: width, big } => {
         let (offset, endian) =
           (self.get(depth - 1), if big { Endian::Big } else { Endian::Little });
         // In the value: one comparison of the offset, with what does not change in a walk.
@@ -6666,8 +6697,7 @@ impl Machine {
           // of `size` bytes, initialized since `op` reads bytes by offset, by contract on the
           // caller. `check_ops` asserted that `width` is 1 to 16. These are the requirements of
           // `add` and of `load`.
-          let value = unsafe { load(base.add(offset as usize), width as usize, endian) };
-          self.set(depth - 1, if signed { sign_extend(value, width as usize) } else { value });
+          self.set(depth - 1, unsafe { load(base.add(offset as usize), width as usize, endian) });
         } else {
           return false;
         }

@@ -621,9 +621,11 @@
 //! - When it is checked ([`Check`](layout::Check)): with the struct (*eager*), or when it is read
 //!   (*lazy*).
 //!
-//! The type of the pointee is named in the hidden list of the rules of the struct, through which a
-//! check reaches the checks of the pointee, so that a type that points at itself is checked by a
-//! recursive call, and through which a read names the type that it returns.
+//! The pointee is a [`Pointee`]: the value of a `Pun` type, or a [`Thin<T, M>`](Thin), a list or a
+//! text in the format of `nearest`, a `T` right after an `M` that ends with the length of its tail,
+//! at which the pointer points. Its type is named in the hidden list of the rules of the struct,
+//! through which a check reaches the checks of the pointee, so that a type that points at itself
+//! is checked by a recursive call, and through which a read names the type that it returns.
 //!
 //! - A check of a struct with an eager aim finds the pointee, in the bytes that the check reads:
 //!   those of `from_bytes`, `from_head` and `from_tail`, or the source of a `try_` function. The
@@ -1524,10 +1526,6 @@ pub use layout::{crc32, sum16};
 ///
 /// - `le(offset, N)` and `be(offset, N)`: the unsigned integer of `N` bytes at `offset`,
 ///   little-endian or big-endian. `N` is a constant from 1 to 16.
-/// - `signed(offset, N, ENDIAN)` and `unsigned(offset, N, ENDIAN)`: the integer of `N` bytes at
-///   `offset` in the byte order `ENDIAN`, a constant [`layout::Endian`], such as one that a type
-///   parameter tells. A signed integer is sign-extended to 128 bits, as a cast of a signed field
-///   is, so that `signed(0, 2, Endian::Little)` of the bytes `[0xfe, 0xff]` is `-2 as u128`.
 /// - `leb128(offset)`, `quic(offset)` and `vlq(offset)`: the variable-length integer at `offset`.
 ///   LEB128 has 7 bits per byte, least significant first (Protocol Buffers, WebAssembly, MQTT).
 ///   QUIC (RFC 9000) has 1, 2, 4 or 8 bytes, as its two high bits say. VLQ is big-endian base 128
@@ -1611,7 +1609,7 @@ pub use layout::{crc32, sum16};
 ///   array or unsized.
 /// - Every rule is an expression as described in "Expressions", of the type that its option
 ///   requires, and each field it names is an unsigned integer, or a signed one under a cast, as
-///   above. The `N` of each `le`, `be`, `signed` and `unsigned` is 1 to 16.
+///   above. The `N` of each `le` and `be` is 1 to 16.
 /// - The field of each eager aim, that of an eager `pointer` or of `regions` of which one is eager,
 ///   is written `InPlace<T>`, and is of the type [`InPlace<T>`](InPlace). The pointee of an aim of
 ///   its own size is sized, or stores its length in its sized fields: a `size` or `len` rule that
@@ -1925,8 +1923,7 @@ pub use layout::{crc32, sum16};
 /// ```
 pub use puns_derive::Pun;
 #[doc(hidden)]
-pub use thin::{LenOps, Length, NoLength};
-pub use thin::{Store, Thin};
+pub use thin::{Metadata, Pointee, Thin};
 pub use validate::AIM_DEPTH;
 use validate::{Checks, Input, validate};
 
@@ -2125,7 +2122,7 @@ pub unsafe trait Pun {
   /// The metadata of a pointer to `Self`: `()` if `Self` is sized, and `usize`, the length of its
   /// tail, otherwise.
   #[doc(hidden)]
-  type Metadata: Store;
+  type Metadata: Metadata;
   /// A null pointer to `Self`, whose slice length is [`ptr::PROBE_LEN`] if `Self` is unsized.
   /// It must be made with `as` casts only, since the pointer tricks are checked against it.
   #[doc(hidden)]
@@ -2337,8 +2334,8 @@ pub trait Rules: sealed::Sealed {
   /// The operations of its second expression (`layout::Rule::extent_ops`), the size of the
   /// pointee of an aim if it is given. `()` if it has none.
   type Extent: Steps;
-  /// The type of the pointee of an aim, and `()` for another rule.
-  type Pointee: ?Sized + Pun;
+  /// The pointee of an aim, and `()` for another rule.
+  type Pointee: ?Sized + Pointee;
   type Next: Rules;
 }
 
@@ -2358,7 +2355,7 @@ pub struct RuleAt<const R: usize, E, N, P: ?Sized = (), X = ()>(
   PhantomData<P>,
 );
 
-impl<const R: usize, E: Steps, N: Rules, P: ?Sized + Pun, X: Steps> Rules
+impl<const R: usize, E: Steps, N: Rules, P: ?Sized + Pointee, X: Steps> Rules
   for RuleAt<R, E, N, P, X>
 {
   const RULE: usize = R;
@@ -2425,7 +2422,7 @@ pub mod steps {
   impl<const I: usize> Sealed for One<I> {}
   impl<A: Steps, B: Steps> Sealed for Two<A, B> {}
   impl<const I: usize, C: Steps, N: Steps> Sealed for Walk<I, C, N> {}
-  impl<const R: usize, E: Steps, N: Rules, P: ?Sized + Pun, X: Steps> Sealed
+  impl<const R: usize, E: Steps, N: Rules, P: ?Sized + super::Pointee, X: Steps> Sealed
     for super::RuleAt<R, E, N, P, X>
   {
   }
@@ -4533,6 +4530,22 @@ pub const fn from_bytes_mut<D: ?Sized + Pun>(bytes: &mut [u8]) -> Result<&mut D,
 // Parsing
 
 impl<D: ?Sized + Pun> Plan<[u8], D> {
+  /// Returns the `D` that the bytes at `bytes` are, all of them, checked as [`from_bytes`] checks
+  /// bytes, with the pointees of its eager aims in the bytes of `input`.
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure that `bytes` is valid for reads of its initialized bytes, and that the
+  /// bytes of `input` are in one allocation, valid for reads and initialized, and hold them.
+  #[inline(always)]
+  const unsafe fn try_cast_whole(bytes: *const [u8], input: &mut Input) -> Result<*const D, Error> {
+    // SAFETY: The bytes are a valid `[u8]`, valid for reads and initialized, by contract on the
+    // caller, and so are those of `input`, which hold them. These are the requirements of
+    // `try_cast_in`, with the marks of the analysis of bytes as a `D`: every part of `D` that some
+    // bytes are not valid for.
+    unsafe { Self::try_cast_in::<Self>(bytes, input) }
+  }
+
   /// Returns the `D` at the start of the `n` bytes at `addr`, and its size, after every check
   /// that could not be made at compile time (`from_head`, `from_head_mut`).
   ///
@@ -5056,10 +5069,12 @@ pub const fn region<S: ?Sized + Pun, L: Rules>(value: &S) -> &[u8] {
 /// compile-time conditions of [`region`] for `S` and of [`from_bytes`] for the pointee.
 #[doc(hidden)]
 #[inline(always)]
-pub const fn region_as<S: ?Sized + Pun, L: Rules>(value: &S) -> Result<&L::Pointee, Error> {
+pub const fn region_as<S: ?Sized + Pun, L: Rules>(
+  value: &S,
+) -> Result<&<L::Pointee as Pointee>::Value, Error> {
   const {
     let () = Plan::<S, [u8]>::BY_REF;
-    let () = Plan::<[u8], L::Pointee>::TRY_REF;
+    let () = Plan::<[u8], <L::Pointee as Pointee>::Value>::TRY_REF;
   };
   let head = const {
     assert!(
@@ -5080,12 +5095,10 @@ pub const fn region_as<S: ?Sized + Pun, L: Rules>(value: &S) -> Result<&L::Point
   // SAFETY: `bytes` is valid for reads of `n` initialized bytes, which are a valid `[u8]`. So is
   // the `[u8]` of the `size` bytes of `value`, which hold them, which `input` spans. These are the
   // requirements of `try_cast_in`, with the marks of the analysis of bytes as the pointee.
-  match unsafe {
-    Plan::<[u8], L::Pointee>::try_cast_in::<Plan<[u8], L::Pointee>>(bytes, &mut input)
-  } {
-    // SAFETY: `try_cast_in` returned `Ok`, so the pointee is a valid `L::Pointee` at `bytes`,
-    // aligned, within the bytes of `value`, which are borrowed for the lifetime of the result, as
-    // in `from_bytes`.
+  match unsafe { Plan::<[u8], <L::Pointee as Pointee>::Value>::try_cast_whole(bytes, &mut input) } {
+    // SAFETY: `try_cast_whole` returned `Ok`, so the pointee is a valid value at `bytes`, aligned,
+    // within the bytes of `value`, which are borrowed for the lifetime of the result, as in
+    // `from_bytes`.
     Ok(pointee) => Ok(unsafe { &*pointee }),
     Err(error) => Err(error),
   }
@@ -5093,11 +5106,10 @@ pub const fn region_as<S: ?Sized + Pun, L: Rules>(value: &S) -> Result<&L::Point
 
 /// Returns whether `aim` is an aim at a `P`: a pointee of its size and alignment, and of its
 /// identity if the aim knows it.
-const fn is_pointee<P: ?Sized + Pun>(aim: &layout::Aim) -> bool {
-  // SAFETY: `P::PROBE` is a probe of `P` (`Pun`, section Safety), as `head_size` requires, and
-  // `align_of_val_raw` has the same requirements.
-  let (size, align) = unsafe { (ptr::head_size(P::PROBE), core::mem::align_of_val_raw(P::PROBE)) };
-  aim.size == size && aim.align == align && (!aim.id.known() || aim.id.equals(&P::ID))
+const fn is_pointee<P: ?Sized + Pointee>(aim: &layout::Aim) -> bool {
+  aim.size == P::POINTEE_SIZE
+    && aim.align == P::POINTEE_ALIGN
+    && (!aim.id.known() || aim.id.equals(&P::POINTEE_ID))
 }
 
 /// Returns a pointer to the pointee of the eager aim `L`, an item of the rules of the struct of
@@ -5114,7 +5126,7 @@ const fn is_pointee<P: ?Sized + Pun>(aim: &layout::Aim) -> bool {
 const unsafe fn pointee<S: ?Sized + Pun, L: Rules>(
   holder: *const S,
   end: *const u8,
-) -> *const L::Pointee {
+) -> *const <L::Pointee as Pointee>::Value {
   let (head, start, extent) = const {
     let Some(layout::Rule::Aim(aim)) = S::LAYOUT.rule(L::RULE) else {
       panic!("the rule is not an eager aim at this type")
@@ -5128,7 +5140,7 @@ const unsafe fn pointee<S: ?Sized + Pun, L: Rules>(
   };
   let (_, tail, size) = validate::tail_of::<S>(holder);
   let base = holder.cast::<u8>();
-  let (addr, wanted) = match start {
+  let (value, wanted) = match start {
     layout::Start::Next => {
       // SAFETY: `holder` points to a value of `S`, valid for reads, by contract on the caller, so
       // its `size` bytes, the extent of the value (`tail_of`), are valid for reads, and the bytes
@@ -5147,31 +5159,35 @@ const unsafe fn pointee<S: ?Sized + Pun, L: Rules>(
         // the caller.
         unsafe { core::hint::unreachable_unchecked() }
       };
-      let addr = base.wrapping_offset(at as isize);
-      (addr, ptr::address(end).wrapping_sub(ptr::address(addr)))
+      // The value starts after what the aim points at, the length of a `Thin`.
+      let value = base.wrapping_offset(at as isize).wrapping_add(<L::Pointee as Pointee>::VALUE_AT);
+      (value, ptr::address(end).wrapping_sub(ptr::address(value)))
     }
   };
   let len = match extent {
-    // SAFETY: A valid pointee, aligned, is at `addr`, and its rule gives the length of its tail,
-    // by contract on the caller. It stores its length, which `pointee_checked` asserts of the
-    // pointee of an aim of its own size. These are the requirements of `validate::thin`.
-    layout::Extent::Own => return unsafe { validate::thin::<L::Pointee>(addr) },
+    // SAFETY: A valid pointee, aligned, is at `value`, which stores its length, before it or in
+    // its sized fields, by contract on the caller, and its type stores it, which
+    // `pointee_checked` asserts of the pointee of an aim of its own size. These are the
+    // requirements of `validate::own_length`.
+    layout::Extent::Own => Some(unsafe { validate::own_length::<L::Pointee>(value) }),
     layout::Extent::Given(_) => {
       // SAFETY: As above, the requirements of `eval` hold for the size of the pointee.
       let given = unsafe { validate::given::<S, L>(base, size) };
       match given {
-        Some(n) if n <= usize::MAX as u128 => validate::sized_as::<L::Pointee>(n as usize),
+        Some(n) if n <= usize::MAX as u128 => {
+          validate::sized_as::<<L::Pointee as Pointee>::Value>(n as usize)
+        }
         _ => None,
       }
     }
-    layout::Extent::Rest => validate::sized_as::<L::Pointee>(wanted),
+    layout::Extent::Rest => validate::sized_as::<<L::Pointee as Pointee>::Value>(wanted),
   };
   let Some(len) = len else {
     // SAFETY: The pointee has the size that the aim gives, one that its type has, by contract on
     // the caller.
     unsafe { core::hint::unreachable_unchecked() }
   };
-  ptr::from_raw_parts::<L::Pointee>(addr, len)
+  ptr::from_raw_parts::<<L::Pointee as Pointee>::Value>(value, len)
 }
 
 /// Returns the pointee of the eager aim `L`, an item of the rules of the struct of `S`, for the
@@ -5245,7 +5261,7 @@ const unsafe fn pointee<S: ?Sized + Pun, L: Rules>(
 pub const unsafe fn aim<'a, S: ?Sized + Pun, L: Rules>(
   holder: *const S,
   end: *const u8,
-) -> &'a L::Pointee {
+) -> &'a <L::Pointee as Pointee>::Value {
   // SAFETY: The requirements of `pointee` are those of this call. The pointee at the address that
   // it returns, with its length, is valid and aligned, and is not written for `'a`, by contract on
   // the caller, so it can be borrowed for `'a`.
@@ -5273,7 +5289,7 @@ pub const unsafe fn aim<'a, S: ?Sized + Pun, L: Rules>(
 pub const unsafe fn aim_mut<'a, S: ?Sized + Pun, L: Rules>(
   holder: *mut S,
   end: *const u8,
-) -> &'a mut L::Pointee {
+) -> &'a mut <L::Pointee as Pointee>::Value {
   // SAFETY: The requirements of `pointee` are those of this call. The pointee at the address that
   // it returns, with its length, is valid and aligned, and accessed only through the result for
   // `'a`, by contract on the caller, so it can be borrowed mutably for `'a`. The pointer is made
@@ -5306,8 +5322,11 @@ pub const unsafe fn aim_mut<'a, S: ?Sized + Pun, L: Rules>(
 pub fn aim_in<'a, S: ?Sized + Pun, L: Rules>(
   value: &S,
   bytes: &'a [u8],
-) -> Result<&'a L::Pointee, Error> {
-  const { Plan::<[u8], L::Pointee>::TRY_REF };
+) -> Result<&'a <L::Pointee as Pointee>::Value, Error> {
+  const {
+    let () = Plan::<[u8], <L::Pointee as Pointee>::Value>::TRY_REF;
+    let () = Plan::<[u8], <L::Pointee as Pointee>::Prefix>::TRY_REF;
+  };
   let extent = const {
     match S::LAYOUT.rule(L::RULE) {
       Some(layout::Rule::Aim(aim))
@@ -5319,6 +5338,7 @@ pub fn aim_in<'a, S: ?Sized + Pun, L: Rules>(
       _ => panic!("the rule is not a lazy aim at a stored place at this type"),
     }
   };
+  let before = size_of::<<L::Pointee as Pointee>::Prefix>();
   let (_, _, size) = validate::tail_of::<S>(value);
   let base = core::ptr::from_ref::<S>(value).cast::<u8>();
   let from = match base.addr().checked_sub(bytes.as_ptr().addr()) {
@@ -5330,10 +5350,22 @@ pub fn aim_in<'a, S: ?Sized + Pun, L: Rules>(
   let Some(at) = (unsafe { validate::pointer_at::<S, L>(base, size) }) else {
     return Err(Error::Validity);
   };
-  let to = match (from as i128).checked_add(at) {
-    Some(to) if to >= 0 && to <= bytes.len() as i128 => to.cast_unsigned() as usize,
+  // Where the value starts, after the length of a `Thin`, and what is stored before it.
+  let to = match (from as i128).checked_add(at + <L::Pointee as Pointee>::VALUE_AT as i128) {
+    Some(to) if to >= before as i128 && to <= bytes.len() as i128 => to.cast_unsigned() as usize,
     _ => return Err(Error::Validity),
   };
+  let mut input = Input::new(bytes.as_ptr(), bytes.len());
+  if before > 0 {
+    // SAFETY: `before <= to <= bytes.len()`.
+    let prefix =
+      core::ptr::slice_from_raw_parts(unsafe { bytes.as_ptr().add(to - before) }, before);
+    // SAFETY: `prefix` is valid for reads of `before` initialized bytes of `bytes`, which `input`
+    // spans, as `try_cast_whole` requires.
+    let checked =
+      unsafe { Plan::<[u8], <L::Pointee as Pointee>::Prefix>::try_cast_whole(prefix, &mut input) };
+    checked?;
+  }
   let room = bytes.len() - to;
   let wanted = match extent {
     layout::Extent::Own => validate::Size::Own,
@@ -5346,7 +5378,8 @@ pub fn aim_in<'a, S: ?Sized + Pun, L: Rules>(
     }
     layout::Extent::Rest => validate::Size::Rest,
   };
-  // SAFETY: The `room` bytes from `to` are the end of `bytes`, valid for reads and initialized.
+  // SAFETY: The `room` bytes from `to` are the end of `bytes`, valid for reads and initialized, and
+  // the prefix of the pointee is before them, in `bytes`, as `measure` requires.
   let Some((_, n)) =
     (unsafe { validate::measure::<L::Pointee>(wanted, bytes.as_ptr().add(to), room) })
   else {
@@ -5354,13 +5387,10 @@ pub fn aim_in<'a, S: ?Sized + Pun, L: Rules>(
   };
   // SAFETY: `to + n <= bytes.len()`.
   let pointee = core::ptr::slice_from_raw_parts(unsafe { bytes.as_ptr().add(to) }, n);
-  let mut input = Input::new(bytes.as_ptr(), bytes.len());
-  // SAFETY: `pointee` is valid for reads of `n` initialized bytes of `bytes`, which `input` spans.
-  // These are the requirements of `try_cast_in`, with the marks of the analysis of bytes as the
-  // pointee.
-  match unsafe {
-    Plan::<[u8], L::Pointee>::try_cast_in::<Plan<[u8], L::Pointee>>(pointee, &mut input)
-  } {
+  // SAFETY: `pointee` is valid for reads of `n` initialized bytes of `bytes`, which `input` spans,
+  // as `try_cast_whole` requires.
+  match unsafe { Plan::<[u8], <L::Pointee as Pointee>::Value>::try_cast_whole(pointee, &mut input) }
+  {
     // SAFETY: As in `from_bytes`: a valid pointee, aligned, within `bytes`, borrowed for `'a`.
     Ok(pointee) => Ok(unsafe { &*pointee }),
     Err(error) => Err(error),

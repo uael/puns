@@ -260,7 +260,7 @@ fn expression(random: &mut Random, scope: Scope, ops: &mut Vec<Op>) {
         ops.push(Op::Lit(u128::from(random.below(BYTES as u64 + 4))));
       }
       let size = [1u8, 2, 4, 8, 16][random.below(5) as usize];
-      ops.push(Op::At { size, big: random.below(2) == 0, signed: random.below(4) == 0 });
+      ops.push(Op::At { size, big: random.below(2) == 0 });
     }
     2 => {
       expression(random, inner, ops);
@@ -353,14 +353,8 @@ fn walk(random: &mut Random, scope: Scope, ops: &mut Vec<Op>) {
     // `walk(START, |at| be(at, 1) != 0, |at| at + 1 + be(at, 1) % 4)`, or another step.
     0 => {
       ops.push(Op::Lit(u128::from(random.below(HEAD as u64))));
-      cond.extend([Op::Get(var), Op::At { size: 1, big: true, signed: false }, Op::Lit(0), Op::Ne]);
-      next.extend([
-        Op::Get(var),
-        Op::Lit(1),
-        Op::Add,
-        Op::Get(var),
-        Op::At { size: 1, big: true, signed: false },
-      ]);
+      cond.extend([Op::Get(var), Op::At { size: 1, big: true }, Op::Lit(0), Op::Ne]);
+      next.extend([Op::Get(var), Op::Lit(1), Op::Add, Op::Get(var), Op::At { size: 1, big: true }]);
       next.extend([Op::Lit(u128::from(random.below(5) + 1)), Op::Rem, Op::Add]);
     }
     // The walk of IPv6: the kind in the high half, the offset in the low one.
@@ -375,17 +369,11 @@ fn walk(random: &mut Random, scope: Scope, ops: &mut Vec<Op>) {
       cond.extend([Op::Get(var), Op::Lit(64), Op::Shr, Op::Lit(kind), Op::Lt]);
       let start = [Op::Get(var), Op::Lit(MASK), Op::And];
       next.extend(start);
-      next.extend([Op::At { size: 1, big: true, signed: false }, Op::Lit(64), Op::Shl]);
+      next.extend([Op::At { size: 1, big: true }, Op::Lit(64), Op::Shl]);
       next.extend(start);
       next.extend([Op::Add, Op::Lit(u128::from(random.below(9))), Op::Add]);
       next.extend(start);
-      next.extend([
-        Op::Lit(1),
-        Op::Add,
-        Op::At { size: 1, big: true, signed: false },
-        Op::Lit(8),
-        Op::Mul,
-      ]);
+      next.extend([Op::Lit(1), Op::Add, Op::At { size: 1, big: true }, Op::Lit(8), Op::Mul]);
       next.push(Op::Add);
     }
     _ => {
@@ -538,9 +526,9 @@ fn expressions_are_the_ones_on_u128() {
 fn the_walk_of_ipv6_is_two_halves() {
   const MASK: u128 = u64::MAX as u128;
   let mut next = vec![Op::Get(0), Op::Lit(MASK), Op::And, Op::Set(1)];
-  next.extend([Op::Get(1), Op::At { size: 1, big: true, signed: false }, Op::Lit(64), Op::Shl]);
+  next.extend([Op::Get(1), Op::At { size: 1, big: true }, Op::Lit(64), Op::Shl]);
   next.extend([Op::Get(1), Op::Add, Op::Lit(8), Op::Add, Op::Get(1), Op::Lit(1), Op::Add]);
-  next.extend([Op::At { size: 1, big: true, signed: false }, Op::Lit(8), Op::Mul, Op::Add]);
+  next.extend([Op::At { size: 1, big: true }, Op::Lit(8), Op::Mul, Op::Add]);
   let next = keep(next);
   let cond = keep(vec![Op::Get(0), Op::Lit(64), Op::Shr, Op::Lit(60), Op::Lt]);
   let ops = [
@@ -571,7 +559,7 @@ fn the_walk_of_ipv6_is_two_halves() {
 /// `else` branch after the first one read it.
 #[test]
 fn parts_tell_what_they_compute() {
-  let at = Op::At { size: 1, big: true, signed: false };
+  let at = Op::At { size: 1, big: true };
   // `v` is the 16 bytes at 8: mostly more than any offset.
   let v = [Op::Load { offset: 8, size: 16, big: false, signed: false }, Op::Set(0)];
   let programs: [&[Op]; 3] = [

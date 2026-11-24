@@ -464,7 +464,7 @@ macro_rules! order {
   };
 }
 
-/// How the rules of `#[derive(Pun)]` read a number of [`numbers!`] that holds a `$raw`: the
+/// How the rules of `#[derive(Pun)]` read a number of `numbers!` that holds a `$raw`: the
 /// method of its `Spec`, and what its documentation says.
 macro_rules! reading {
   (f32, $what:ident) => {

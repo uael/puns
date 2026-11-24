@@ -642,9 +642,9 @@ const fn analyze(ops: &[Op], vars: Vars, stop: usize, walks: usize) -> Plan {
         continue;
       }
       Op::Not => (1, Range::new(0, 1)),
-      Op::At { size, signed, .. } => {
+      Op::At { size, .. } => {
         refine(&mut vars, tags[depth - 1], SIZE_MAX - size as u128);
-        (1, if signed { Range::ANY } else { Range::bytes(size) })
+        (1, Range::bytes(size))
       }
       Op::Varint { form, length } => {
         refine(&mut vars, tags[depth - 1], SIZE_MAX);

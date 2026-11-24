@@ -11,8 +11,8 @@ note: inside `puns::validate::pointee_checked::<UnsizedRegionFirst, puns::RuleAt
   |
  ::: src/validate.rs
   |
-  |   assert!(!matches!(aim.extent, Extent::Own) || stores_length::<L::Pointee>(), "{}", STORES_LENGTH);
-  |   ------------------------------------------------------------------------------------------------- in this macro invocation
+  |   assert!(!matches!(aim.extent, Extent::Own) || own::<L::Pointee>(), "{}", STORES_LENGTH);
+  |   --------------------------------------------------------------------------------------- in this macro invocation
 
 note: erroneous constant encountered
  --> src/validate.rs

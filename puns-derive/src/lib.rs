@@ -926,12 +926,13 @@ fn compile(
       ops.push(checksum?);
       Ty::Int
     }
-    // `le(offset, size)`, `be(offset, size)`, `signed(offset, size, endian)` and
-    // `unsigned(offset, size, endian)`: an integer, anywhere in the value.
-    Expr::Call(call) if read(call, root).is_some() => {
-      let Some((size, endian, signed)) = read(call, root) else { unreachable!() };
+    // `le(offset, size)` and `be(offset, size)`: an unsigned integer, anywhere in the value.
+    Expr::Call(call) if call.args.len() == 2 && (is_call(call, "le") || is_call(call, "be")) => {
+      let (size, endian) = (&call.args[1], if is_call(call, "be") { "Big" } else { "Little" });
+      let endian = format_ident!("{endian}");
       int(&call.args[0], ops, scope)?;
-      ops.push(located(quote!(#op::at((#size) as usize, #endian, #signed)), size.span()));
+      let endian = quote!(#root::layout::Endian::#endian);
+      ops.push(located(quote!(#op::at((#size) as usize, #endian)), size.span()));
       Ty::Int
     }
     // `matches(DFA, start, end)`: whether an automaton accepts the bytes.
@@ -1007,22 +1008,6 @@ fn compile(
   })
 }
 
-/// Returns the size, the byte order and whether it is signed of the integer that `call` reads, if
-/// it is `le(offset, N)`, `be(offset, N)`, `signed(offset, N, ENDIAN)` or
-/// `unsigned(offset, N, ENDIAN)`.
-fn read<'c>(call: &'c syn::ExprCall, root: &TokenStream) -> Option<(&'c Expr, TokenStream, bool)> {
-  let endian = quote!(#root::layout::Endian);
-  match call.args.len() {
-    2 if is_call(call, "le") => Some((&call.args[1], quote!(#endian::Little), false)),
-    2 if is_call(call, "be") => Some((&call.args[1], quote!(#endian::Big), false)),
-    3 if is_call(call, "signed") || is_call(call, "unsigned") => {
-      let order = &call.args[2];
-      Some((&call.args[1], quote!(#order), is_call(call, "signed")))
-    }
-    _ => None,
-  }
-}
-
 /// Returns the field that `expr` names, alone or in parentheses, and where it names it: `name`,
 /// unless a variable of `scope` has that name, or `self.name`.
 fn named_field<'f, 'a>(
@@ -1046,16 +1031,14 @@ fn named_field<'f, 'a>(
 }
 
 /// The functions that a rule can call, as messages name them.
-const FUNCTIONS: &str = "`size_of_val(self)`, `le`, `be`, `signed`, `unsigned`, `leb128`, \
-                         `leb128_len`, `quic`, `quic_len`, `vlq`, `vlq_len`, `crc32`, `crc::<..>`, \
-                         `sum16`, `sum`, `fletcher16`, `adler32`, `matches` and `walk`";
+const FUNCTIONS: &str = "`size_of_val(self)`, `le`, `be`, `leb128`, `leb128_len`, `quic`, \
+                         `quic_len`, `vlq`, `vlq_len`, `crc32`, `crc::<..>`, `sum16`, `sum`, \
+                         `fletcher16`, `adler32`, `matches` and `walk`";
 
 /// The functions of rules, and how many arguments each takes (`crc32` and `crc` also take 4).
-const ARITIES: [(&str, usize); 18] = [
+const ARITIES: [(&str, usize); 16] = [
   ("le", 2),
   ("be", 2),
-  ("signed", 3),
-  ("unsigned", 3),
   ("leb128", 1),
   ("leb128_len", 1),
   ("quic", 1),
@@ -1896,6 +1879,8 @@ struct Read<'a> {
 ///   bytes of a region without a type.
 fn read_aim(read: &Read, vis: &Visibility, root: &TokenStream) -> TokenStream {
   let Read { name, target, item, door, eager, mutable, bytes } = read;
+  // The value of the pointee, which a read returns: the pointee itself, or the `T` of a `Thin`.
+  let target = quote!(<#target as #root::Pointee>::Value);
   let name_mut = format_ident!("{name}_mut");
   let pointer = matches!(door, Door::Pointer(..));
   let rest = matches!(door, Door::Pointer(_, AimSize::Rest));
@@ -2523,7 +2508,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
           )
         }
         #rust
-        .identified(Self::ID);
+        .identified(Self::ID)
+        .measured::<Self>();
         const ID: #root::layout::Id = #id;
         #null_optimized
       }

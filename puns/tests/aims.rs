@@ -1,14 +1,19 @@
 //! Eager aims: a self-relative pointer declared through the public API (`support/aims.rs`), whose
 //! targets `puns` checks with the value, and `Thin`.
 
+use core::marker::PhantomData;
+
 #[path = "support/aims.rs"]
 mod aims;
 
-use aims::{Expr, Near, Pair, Tree};
-use puns::{Error, InPlace, Pun, Thin, layout::Endian, num::u8c};
+use aims::{Aimed, Expr, Near, Pair, Tree};
+use puns::{
+  Error, InPlace, Pointee, Pun, Thin,
+  num::{i32be, u8c},
+};
 
 /// The target of `near`, in `image`, the bytes in which `puns` checked it.
-fn to<'a, T: ?Sized + Pun>(near: &'a Near<T>, image: &'a [u8]) -> &'a T {
+fn to<'a, T: ?Sized + Aimed>(near: &'a Near<T>, image: &'a [u8]) -> &'a T {
   // SAFETY: Every caller passes the bytes that `puns` checked and that hold `near`.
   unsafe { near.get(image) }
 }
@@ -60,9 +65,14 @@ fn each_corruption_is_refused() {
   let name = at[0] + usize::try_from(image.get_i32(at[0])).unwrap();
   assert_eq!(set(name, 1000), Err(Error::Validity));
   assert_eq!(set(name, -1), Err(Error::Validity));
-  // The values of the next pair: past the end.
+  // The values of the next pair: past the end, with a capacity past the end too, and a capacity
+  // that is not the length, which the rule of `ListLen` refuses.
   let values = at[1] + 4 + usize::try_from(image.get_i32(at[1] + 4)).unwrap();
-  assert_eq!(set(values, 1000), Err(Error::Validity));
+  let mut long = two().0;
+  long.put_i32(values - 4, 1000);
+  long.put_i32(values, 1000);
+  assert_eq!(check(&long), Err(Error::Validity));
+  assert_eq!(set(values - 4, 2), Err(Error::Validity));
   // Invalid UTF-8 in the name of the next pair.
   let mut bad = two().0;
   let name = at[1] + usize::try_from(image.get_i32(at[1])).unwrap();
@@ -126,11 +136,7 @@ fn trees_and_enums() {
   // A tree: 1 with the children 2 and 3, and 3 with the child 4.
   let mut image = Image::new();
   let root = image.reserve(8, 4);
-  let kids = image.reserve(4 + 2 * 8, 4);
-  image.put_i32(kids, 2);
-  let grandkids = image.reserve(4 + 8, 4);
-  image.put_i32(grandkids, 1);
-  let empty = image.reserve(4, 4);
+  let (kids, grandkids, empty) = (image.list(2), image.list(1), image.list(0));
   for (at, id, list) in
     [(root, 1, kids), (kids + 4, 2, empty), (kids + 12, 3, grandkids), (grandkids + 4, 4, empty)]
   {
@@ -224,45 +230,68 @@ struct Record {
   data: [u16],
 }
 
+/// A pointer to a `P`, after its offset, a byte, checked when it is read.
+#[derive(Pun)]
+#[pun(bound(P: puns::Pointee))]
+#[repr(C)]
+struct To<P: ?Sized> {
+  #[pun(pointer(lazy pointee: P = at as u128))]
+  at: u8,
+  _p: PhantomData<P>,
+}
+
+/// The pointee `P` of the `To<P>` at the start of `bytes`, read in `bytes`.
+fn read<P: ?Sized + Pointee>(bytes: &[u8]) -> Result<&P::Value, Error> {
+  puns::from_head::<To<P>>(bytes)?.0.pointee(bytes)
+}
+
 #[test]
-fn thin_over_a_struct_with_a_tail() {
-  // A length of 2, then a `Record` of 2 elements: the kind, then the data.
-  let mut words = [0u32; 3];
+fn a_thin_of_a_struct_with_a_tail() {
+  // An offset of 4, to an `i32` length of 2, then a `Record` of 2 elements: the kind, then the
+  // data.
+  let mut words = [0u32; 4];
   let bytes =
-    puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u32; 3], [u8; 12]>(&mut words)).unwrap();
-  bytes[..4].copy_from_slice(&2i32.to_ne_bytes());
-  bytes[4..6].copy_from_slice(&7u16.to_ne_bytes());
-  bytes[6..10].copy_from_slice(&[1, 0, 2, 0]);
+    puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u32; 4], [u8; 16]>(&mut words)).unwrap();
+  bytes[0] = 4;
+  bytes[4..8].copy_from_slice(&2i32.to_ne_bytes());
+  bytes[8..10].copy_from_slice(&7u16.to_ne_bytes());
+  bytes[10..14].copy_from_slice(&[1, 0, 2, 0]);
   let bytes: &[u8] = bytes;
-  let thin = puns::from_head::<Thin<Record, i32>>(bytes).unwrap().0;
-  assert_eq!((thin.value().kind, thin.value().data.len()), (7, 2));
-  // SAFETY: `thin` is a valid `Thin<Record, i32>`, aligned, in `bytes`, which are not written.
-  let record = unsafe { Thin::<Record, i32>::get(core::ptr::from_ref(thin).cast()) };
-  assert_eq!(record.data.len(), 2);
-  // A length that does not fit.
-  let mut long = words;
-  puns::pun_mut::<[u32; 3], [u8; 12]>(&mut long)[..4].copy_from_slice(&3i32.to_ne_bytes());
-  let long = &puns::as_bytes(&long)[..10];
-  assert_eq!(puns::from_head::<Thin<Record, i32>>(long).err(), Some(Error::Size));
-  // `Thin` of a sized type is the type.
-  assert_eq!(size_of::<Thin<u64, i16>>(), 8);
-  // The data of `Thin<[u32], i16>` is after 2 bytes of padding.
-  assert_eq!(<Thin<[u32], i16> as Pun>::LAYOUT.size(), 4);
+  let record = read::<Thin<Record, i32>>(bytes).unwrap();
+  assert_eq!((record.kind, record.data.len()), (7, 2));
+  // A length that does not fit: the check of a pointer requires that its pointee fits.
+  assert_eq!(read::<Thin<Record, i32>>(&bytes[..12]).err(), Some(Error::Validity));
 }
 
 #[test]
 fn the_length_of_a_thin_has_the_sign_of_its_type() {
-  // An unsigned length takes every value of its type.
-  let mut bytes = [0u8; 201];
-  bytes[0] = 200;
-  let thin = puns::from_bytes::<Thin<[u8], u8>>(&bytes).unwrap();
-  assert_eq!(thin.value().len(), 200);
-  let mut words = vec![0u16; 20_001];
-  words[0] = 40_000;
-  let thin = puns::from_bytes::<Thin<[u8], u16>>(puns::as_bytes(&words[..])).unwrap();
-  assert_eq!(thin.value().len(), 40_000);
-  // The same byte as a signed length is negative, a size that no bytes have.
-  assert_eq!(puns::from_head::<Thin<[u8], i8>>(&bytes).err(), Some(Error::Size));
+  // An offset of 1, to an unsigned length of 200, then 200 bytes.
+  let mut bytes = [0u8; 202];
+  bytes[..2].copy_from_slice(&[1, 200]);
+  assert_eq!(read::<Thin<[u8], u8>>(&bytes).map(<[u8]>::len), Ok(200));
+  // The same byte as a signed length is negative, a size that no bytes have, so the pointee does
+  // not fit.
+  assert_eq!(read::<Thin<[u8], i8>>(&bytes).err(), Some(Error::Validity));
+  // An offset of 2, to a `u16` length of 40,000.
+  let mut words = vec![0u16; 20_002];
+  words[..2].copy_from_slice(&[2, 40_000]);
+  assert_eq!(read::<Thin<[u8], u16>>(puns::as_bytes(&words[..])).map(<[u8]>::len), Ok(40_000));
+}
+
+#[test]
+fn the_value_of_a_thin_follows_its_length() {
+  // The words of a `Thin<[u32], i16>` are aligned to 4, and its 2-byte length is right before
+  // them, so an offset of 2 leads to one word at 4.
+  let mut words = [0u32; 2];
+  let bytes = puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u32; 2], [u8; 8]>(&mut words)).unwrap();
+  bytes[0] = 2;
+  bytes[2..4].copy_from_slice(&1i16.to_ne_bytes());
+  bytes[4..8].copy_from_slice(&9u32.to_ne_bytes());
+  assert_eq!(read::<Thin<[u32], i16>>(bytes), Ok(&[9][..]));
+  // An offset of 0 leads to a length whose words would be at 2, which is not aligned for them. The
+  // pointee of a lazy pointer fits there, and its read refuses it, as `from_bytes` would.
+  bytes[0] = 0;
+  assert_eq!(read::<Thin<[u32], i16>>(bytes).err(), Some(Error::Alignment));
 }
 
 /// A pointer to a `u16` before it or after it, stored as the distance from its own address.
@@ -300,8 +329,8 @@ fn a_target_before_the_pointer() {
 #[derive(Pun)]
 #[repr(transparent)]
 struct Second {
-  #[pun(pointer(pair: [u32; 2] = signed(0, 4, Endian::Big) - 4))]
-  off: InPlace<[u8; 4]>,
+  #[pun(pointer(pair: [u32; 2] = off as u128 - 4))]
+  off: InPlace<i32be>,
 }
 
 #[test]
@@ -311,7 +340,7 @@ fn where_a_target_starts_is_a_rule() {
   let words = at(8);
   let bytes = puns::as_bytes(&words);
   let second = puns::from_head::<Second>(bytes).unwrap().0;
-  assert_eq!(second.off.get(), 8i32.to_be_bytes());
+  assert_eq!(second.off.get().get(), 8);
   // SAFETY: `puns` checked `second` with its target, in `bytes`, which are not written.
   assert_eq!(unsafe { Second::pair(within(second, bytes)) }, &[1, 2]);
   // At 4: the pair at 0, which holds the pointer, as a target may.
@@ -461,14 +490,27 @@ impl Image {
     at
   }
 
-  /// Writes a `Thin<[u32], i32>` and returns where it is.
+  /// Writes a list of `n` elements of 8 bytes with nothing in them, and returns where its length
+  /// is, where a `Near` points.
+  fn list(&mut self, n: usize) -> usize {
+    let n32 = i32::try_from(n).unwrap();
+    let at = self.reserve(8 + 8 * n, 4);
+    self.put_i32(at, n32);
+    self.put_i32(at + 4, n32);
+    at + 4
+  }
+
+  /// Writes a `Thin<[u32], ListLen>`, the capacity, the length, then the words, and returns where
+  /// its length is, where a `Near` points.
   fn words(&mut self, words: &[u32]) -> usize {
-    let at = self.reserve(4 + 4 * words.len(), 4);
-    self.put_i32(at, i32::try_from(words.len()).unwrap());
+    let n = i32::try_from(words.len()).unwrap();
+    let at = self.reserve(8 + 4 * words.len(), 4);
+    self.put_i32(at, n);
+    self.put_i32(at + 4, n);
     for (i, word) in words.iter().enumerate() {
-      self.put(at + 4 + 4 * i, &word.to_ne_bytes());
+      self.put(at + 8 + 4 * i, &word.to_ne_bytes());
     }
-    at
+    at + 4
   }
 
   /// Writes a chain of pairs, the first at 0, and returns where each is.
