@@ -272,9 +272,9 @@ fn the_length_of_a_thin_has_the_sign_of_its_type() {
   // The same byte as a signed length is negative, a size that no bytes have, so the pointee does
   // not fit.
   assert_eq!(read::<Thin<[u8], i8>>(&bytes).err(), Some(Error::Validity));
-  // An offset of 2, to a `u16` length of 40,000.
+  // An offset of 2 in the first byte, to a `u16` length of 40,000, in the byte order of the target.
   let mut words = vec![0u16; 20_002];
-  words[..2].copy_from_slice(&[2, 40_000]);
+  words[..2].copy_from_slice(&[u16::from_ne_bytes([2, 0]), 40_000]);
   assert_eq!(read::<Thin<[u8], u16>>(puns::as_bytes(&words[..])).map(<[u8]>::len), Ok(40_000));
 }
 
@@ -699,9 +699,8 @@ fn regions_of_every_kind() {
   assert_eq!(puns::from_bytes::<Packet>(other.bytes()).err(), Some(Error::Validity));
   // Where the words start depends on their offset in the packet, not on its address: from an odd
   // address, they are at the same offset, which is not aligned, and the packet is not valid.
-  let mut shifted = [0u8; 13];
-  shifted[1..].copy_from_slice(bytes);
-  assert_eq!(puns::from_bytes::<Packet>(&shifted[1..]).err(), Some(Error::Validity));
+  let shifted = Image { bytes: [&[0][..], bytes].concat() }.aligned();
+  assert_eq!(puns::from_bytes::<Packet>(&shifted.bytes()[1..]).err(), Some(Error::Validity));
 }
 
 /// Entries on the heap, as many as a check needs.
