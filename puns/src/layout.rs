@@ -4170,20 +4170,23 @@ impl Layout {
   }
 
   /// Returns whether a struct of the layout, at any depth, has an eager aim
-  /// ([`Check::Eager`]). The variants of an enum count, and the elements of an array or a slice.
-  pub(crate) const fn holds_eager(&self) -> bool {
+  /// ([`Check::Eager`]), and, if `unidentified`, one whose target has no identity, which nothing
+  /// proves ([`Aim::equals`]). The variants of an enum count, and the elements of an array or a
+  /// slice.
+  pub(crate) const fn holds_eager(&self, unidentified: bool) -> bool {
     // An aim is a rule, which is a leaf.
     if self.leaves == 0 {
       return false;
     }
     match self.kind {
       Kind::Scalar(_) | Kind::Pattern(_) => false,
-      Kind::Array(elem, _) | Kind::Slice(elem) => elem.holds_eager(),
+      Kind::Array(elem, _) | Kind::Slice(elem) => elem.holds_eager(unidentified),
       Kind::Struct(fields, rules) => {
         let mut i = 0;
         while i < rules.len() {
           if let Some(aim) = rules[i].aim()
             && matches!(aim.check, Check::Eager)
+            && (!unidentified || !aim.id.known())
           {
             return true;
           }
@@ -4191,7 +4194,7 @@ impl Layout {
         }
         let mut i = 0;
         while i < fields.len() {
-          if fields[i].layout.holds_eager() {
+          if fields[i].layout.holds_eager(unidentified) {
             return true;
           }
           i += 1;
@@ -4201,7 +4204,7 @@ impl Layout {
       Kind::Enum(layout) => {
         let mut i = 0;
         while i < layout.variants.len() {
-          if layout.variants[i].layout.holds_eager() {
+          if layout.variants[i].layout.holds_eager(unidentified) {
             return true;
           }
           i += 1;

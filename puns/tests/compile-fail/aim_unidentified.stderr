@@ -1,0 +1,43 @@
+error[E0080]: evaluation panicked:
+              cannot pun: some values of the source are not valid for the target, or do not prove one of its rules.
+              Use a `try_*` function to check them at run time.
+              This is at byte 4 of the target.
+              The source or the target has an eager aim at a type that has no identity, so that not even the same aim proves it: an instance of a generic type has an identity only if each of its type parameters has one, which `PhantomData` and a `Scalar` implemented by hand do not, and a generic type that derives `Pun` only if each of its type parameters is bounded by `Pun` where the derive sees it (`<T: Pun>`, `where T: Pun`, or `#[pun(bound(T: Pun))]`).
+
+    --> src/lib.rs
+     |
+     |   const BY_REF: () = Self::require(Self::check(Need::REF));
+     |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<List<u8>, List<u8>>::BY_REF` failed inside this call
+     |
+note: inside `puns::Plan::<List<u8>, List<u8>>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_REF };
+  |           ^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_REF };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn pun_ref::<List<u8>, List<u8>>`
+  --> tests/compile-fail/aim_unidentified.rs:17:3
+   |
+17 |   puns::pun_ref(list)
+   |   ^^^^^^^^^^^^^^^^^^^

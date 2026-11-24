@@ -2935,12 +2935,21 @@ impl Need {
 }
 
 /// Why nothing proves a part that only the same type proves, for a refusal of [`UNSPECIFIED`] where
-/// the source or the target has such a part without an identity (`Layout::unidentified`).
+/// the source or the target has such a part without an identity (`Layout::unidentified`). It goes
+/// on with [`NO_IDENTITY`].
 const UNIDENTIFIED: &str = "The source or the target has such a part that has no identity, so \
-  that not even the same type proves it: an instance of a generic type has an identity only if \
-  each of its type parameters has one, which `PhantomData` and a `Scalar` implemented by hand do \
-  not, and a generic type that derives `Pun` only if each of its type parameters is bounded by \
-  `Pun` where the derive sees it (`<T: Pun>`, `where T: Pun`, or `#[pun(bound(T: Pun))]`)";
+  that not even the same type proves it: ";
+
+/// Why nothing proves an eager aim at a type that has no identity, for a refusal of a pun that
+/// does not prove a rule of the target (`Layout::holds_eager`). It goes on with [`NO_IDENTITY`].
+const UNIDENTIFIED_AIM: &str = "The source or the target has an eager aim at a type that has no \
+  identity, so that not even the same aim proves it: ";
+
+/// Which types have no identity, after [`UNIDENTIFIED`] or [`UNIDENTIFIED_AIM`].
+const NO_IDENTITY: &str = "an instance of a generic type has an identity only if each of its type \
+  parameters has one, which `PhantomData` and a `Scalar` implemented by hand do not, and a generic \
+  type that derives `Pun` only if each of its type parameters is bounded by `Pun` where the derive \
+  sees it (`<T: Pun>`, `where T: Pun`, or `#[pun(bound(T: Pun))]`)";
 
 /// A pun that depends on a layout that Rust leaves to the compiler.
 const UNSPECIFIED: &str = "the pun depends on a part of the source or of the target whose layout \
@@ -3014,7 +3023,7 @@ const fn check(
     let message = Message::new(UNSPECIFIED).at(offset.saturating_sub(shift));
     // Looked for only here, so that no pun that compiles pays for it.
     if source.unidentified() || target.unidentified() {
-      return Some(message.str(".\n").str(UNIDENTIFIED));
+      return Some(message.str(".\n").str(UNIDENTIFIED).str(NO_IDENTITY));
     }
     return Some(message);
   }
@@ -3031,13 +3040,16 @@ const fn check(
     );
   }
   if let (Some(offset), false) = (relation.partial, need.fallible) {
-    return Some(
-      Message::new(
-        "some values of the source are not valid for the target, or do not prove one of its \
-         rules.\nUse a `try_*` function to check them at run time",
-      )
-      .at(offset.saturating_sub(shift)),
-    );
+    let message = Message::new(
+      "some values of the source are not valid for the target, or do not prove one of its \
+       rules.\nUse a `try_*` function to check them at run time",
+    )
+    .at(offset.saturating_sub(shift));
+    // Looked for only here, so that no pun that compiles pays for it.
+    if source.holds_eager(true) || target.holds_eager(true) {
+      return Some(message.str(".\n").str(UNIDENTIFIED_AIM).str(NO_IDENTITY));
+    }
+    return Some(message);
   }
   if need.reference && !aligned && !need.fallible {
     return Some(Message::new(
@@ -3074,7 +3086,7 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
   /// Why the eager aims of the target do not let the pun meet the `need`, if they do not: no value
   /// holds one, and a check follows one only in initialized bytes.
   const fn eager(need: Need) -> Option<Message> {
-    if !D::LAYOUT.holds_eager() {
+    if !D::LAYOUT.holds_eager(false) {
       return None;
     }
     if !need.reference {
@@ -3088,7 +3100,7 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
 
   /// Why no `&mut` is made from a `&mut` to an `S` to a `D`, for their eager aims, if it is not.
   const fn eager_mut() -> Option<Message> {
-    if S::LAYOUT.holds_eager() || D::LAYOUT.holds_eager() {
+    if S::LAYOUT.holds_eager(false) || D::LAYOUT.holds_eager(false) {
       Some(Message::new(EAGER_MUT))
     } else {
       None
@@ -4182,7 +4194,7 @@ pub const fn zeroed<T: Pun + Copy>() -> T {
     assert!(T::LAYOUT.zeroable(), "zero is not a valid value of this type");
   };
   const {
-    assert!(!T::LAYOUT.holds_eager(), "a value of this type would hold an eager aim");
+    assert!(!T::LAYOUT.holds_eager(false), "a value of this type would hold an eager aim");
   };
   // SAFETY: `zeroed` requires that bytes that are all zero are a valid `T` [1]. The assertion above
   // found that the layout of `T` accepts them (`Layout::zeroable`), and every value that the
