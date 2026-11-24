@@ -1,0 +1,72 @@
+error[E0080]: evaluation panicked:
+              cannot pun: some values of the source are not valid for the target, or do not prove one of its rules.
+              Use a `try_*` function to check them at run time.
+              This is at byte 0 of the target.
+
+    --> src/lib.rs
+     |
+     |   const BY_VALUE: () = Self::require(Self::check(Need::VALUE));
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8; 4], Packed>::BY_VALUE` failed inside this call
+     |
+note: inside `puns::Plan::<[u8; 4], Packed>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_VALUE };
+  |           ^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::BY_VALUE };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn pun::<[u8; 4], Packed>`
+  --> tests/compile-fail/packed_union.rs:20:19
+   |
+20 |   let _: Packed = puns::pun([2u8, 0, 0, 0]);
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked:
+              cannot pun: a byte that the target requires to be initialized is padding in the source.
+              This is at byte 0 of the target.
+
+    --> src/lib.rs
+     |
+     |   const BY_VALUE: () = Self::require(Self::check(Need::VALUE));
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<Odd, [u8; 6]>::BY_VALUE` failed inside this call
+     |
+note: inside `puns::Plan::<Odd, [u8; 6]>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: the above error was encountered while instantiating `fn pun::<Odd, [u8; 6]>`
+  --> tests/compile-fail/packed_union.rs:21:20
+   |
+21 |   let _: [u8; 6] = puns::pun(Odd { word: 1 });
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^

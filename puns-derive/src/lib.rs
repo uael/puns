@@ -3090,18 +3090,20 @@ fn derive_discovered(
   })
 }
 
-/// Derives `Pun` for a `repr(C)` union.
+/// Derives `Pun` for a `repr(C)` union, packed or not.
 ///
 /// Each field is a variant of one field, at offset 0. A value is valid if it is a valid value of
-/// one of them (`Layout::union`).
+/// one of them (`Layout::union`). `packed(N)` lowers the alignment of the union, which may lower
+/// its size, and moves no field. `Layout::union` takes the size and the alignment from the
+/// compiler.
 ///
 /// # Errors
 ///
-/// Returns an error if the union is not `repr(C)`, if it is packed, or if an option does not
-/// parse or does not belong there.
+/// Returns an error if the union is not `repr(C)`, or if an option does not parse or does not
+/// belong there.
 fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStream> {
   let repr = parse_repr(&input.attrs)?;
-  if !repr.c || repr.packed.is_some() {
+  if !repr.c {
     return Err(Error::new(
       input.ident.span(),
       "`Pun` is derived for unions of `repr(C)`, whose fields are all at offset 0",
@@ -3212,11 +3214,14 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
       #(#items)*
 
       // SAFETY: The union is `repr(C)`, so each field is at offset 0 [1], which is where the layout
-      // puts it, with the layout of its type or a restriction of it. The derive trusts that the
-      // `repr` that it read is that of the union as compiled ("What the derive trusts"). The type
-      // of each field is its home in `__PunTypes`, which `item` requires to be the type of the
-      // field of that name in the union as compiled. A field that the derive did not read only
-      // adds values, which the layout does not accept as a target, and guarantees none.
+      // puts it, with the layout of its type or a restriction of it. `packed(N)` changes no offset:
+      // it lowers the alignment of each field for the purpose of placing it [3], and a field at 0
+      // is aligned for any alignment. `Layout::union` asserts each offset, measured on the union
+      // as compiled. The derive trusts that the `repr` that it read is that of the union as
+      // compiled ("What the derive trusts"). The type of each field is its home in `__PunTypes`,
+      // which `item` requires to be the type of the field of that name in the union as compiled.
+      // A field that the derive did not read only adds values, which the layout does not accept as
+      // a target, and guarantees none.
       // `Layout::union` takes the size and the alignment from the compiler. As a target, the
       // layout accepts bytes that are a valid value of one field. Such bytes are a value that safe code makes by writing that field,
       // which is valid [2]. As a source, the layout guarantees nothing, not even that a byte is
@@ -3230,6 +3235,11 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
       // [2] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.union:
       //
       //     Obviously, all values that can be created entirely in safe code are valid.
+      //
+      // [3] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.alignment.packed-fields:
+      //
+      //     The alignments of each field, for the purpose of positioning fields, is the smaller of
+      //     the specified alignment and the alignment of the field's type.
       unsafe impl #impl_generics #root::Pun for #this #where_clause {
         type Elem = ();
         type Fields = ();

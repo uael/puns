@@ -280,6 +280,15 @@
 //!   same union proves a union. A union may then hold a value even if none of its fields has one,
 //!   so a value that holds it may exist, though no value of it can be made.
 //!
+//! A `repr(C)` union may be `packed` or `packed(N)`. Packing lowers its alignment to at most `N`,
+//! which may lower its size, and moves no field: every field stays at offset 0
+//! ([`r-layout.repr.c.union.size-align`][c union],
+//! [`r-layout.repr.alignment.packed-fields`][alignment packed fields]). `puns` takes the size and
+//! the alignment from the compiler. A field may then be at an address that is not aligned for its
+//! type. `puns` checks such a field by reading its bytes, which needs no alignment, and makes no
+//! reference to a field. Safe code reads it by copy, since a reference to a field that may be
+//! unaligned does not compile.
+//!
 //! A field is only checked if no byte it reads may be padding in the source. If some field might
 //! read padding and no field is proven, the pun is refused. Checking only the other fields would be
 //! sound, but `puns` does not do it yet (see [Limitations](#limitations)).
@@ -780,7 +789,7 @@
 //! | A value is valid if its fields, or its elements, are. Padding may be uninitialized | R [`r-undefined.validity.struct`][validity struct], [`r-undefined.validity.undef`][validity undef] |
 //! | An enum has a valid discriminant, and the fields of its variant are valid | R [`r-undefined.validity.enum`][validity enum] |
 //! | A `repr(C)` struct has its fields in order, each at the next offset that its alignment allows | R [`r-layout.repr.c.struct`][c struct] |
-//! | A `repr(C)` union has every field at 0 | R [`r-layout.repr.c.union.size-align`][c union] |
+//! | A `repr(C)` union has every field at 0, and `packed(N)` lowers its alignment without moving a field | R [`r-layout.repr.c.union.size-align`][c union], [`r-layout.repr.alignment.packed-fields`][alignment packed fields] |
 //! | The validity of a union is not decided, so a target is one of its fields, and a source proves nothing | R [`r-undefined.validity.union`][union validity] |
 //! | An enum without fields, `repr(C)` or of a primitive representation, is that integer, which holds the discriminant | R [`r-layout.repr.c.enum`][c enum], [`r-layout.repr.primitive.enum`][primitive enum], [`r-items.enum.discriminant.access-memory`][discriminant memory] |
 //! | An enum with fields, `repr(C)`, of a primitive representation, or both ([RFC 2195]) | R [`r-layout.repr.c.adt`][c adt], [`r-layout.repr.primitive.adt`][primitive adt], [`r-layout.repr.primitive-c`][primitive c] |
@@ -930,9 +939,9 @@
 //!   how much more. A walk takes at most `8 * size + 128` steps, where `size` is the size of the
 //!   value, or, for a `size` or `len` rule, the number of bytes from the start of the value to the
 //!   end of the input.
-//! - Unions must be `repr(C)`, since the fields of other unions are not known to be at 0. A union
-//!   must not hold a scalar that a pun never makes, and as a source nothing is known about it (see
-//!   [Unions](#unions)).
+//! - Unions must be `repr(C)`, packed or not, since the fields of other unions are not known to be
+//!   at 0. A union must not hold a scalar that a pun never makes, and as a source nothing is known
+//!   about it (see [Unions](#unions)).
 //! - An enum of the `Rust` representation is refused if the sample of one of its variants needs a
 //!   value of a scalar that a pun never makes, since `puns` cannot make one. A sample holds the
 //!   least value of each field, and of an enum its first variant that has values. The direct tag of
@@ -1069,6 +1078,7 @@
 //! [primitive c]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.primitive-c
 //! [transparent]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.transparent.layout-abi
 //! [alignment]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.alignment
+//! [alignment packed fields]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.alignment.packed-fields
 //! [rust layout]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.rust.layout
 //! [rust struct]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.rust.struct
 //! [struct zst]: https://doc.rust-lang.org/reference/type-layout.html#r-layout.repr.rust.struct-zst
@@ -1180,8 +1190,8 @@ pub use layout::{crc32, sum16};
 /// square of that number, or faster in a release build, when the values of each variant are also
 /// values of the next.
 ///
-/// **Unions.** A union must be `repr(C)` and not packed. [Unions](crate#unions) says what a union
-/// accepts as a target and what it proves as a source.
+/// **Unions.** A union must be `repr(C)`, and may be `packed` or `packed(N)`. [Unions](crate#unions)
+/// says what a union accepts as a target and what it proves as a source.
 ///
 /// **Generic types.** Where only the same type proves a part, an instance of a generic type is
 /// the same type as another one with the same parameters, if each type parameter is bounded by
@@ -1426,7 +1436,7 @@ pub use layout::{crc32, sum16};
 ///
 /// For a union:
 ///
-/// - The union is `repr(C)`, and not packed.
+/// - The union is `repr(C)`.
 /// - No field holds a scalar that a pun never makes.
 ///
 /// The derive reports an unknown, misplaced or repeated option, and an expression that is not a
