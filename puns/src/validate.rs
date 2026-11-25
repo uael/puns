@@ -2005,7 +2005,7 @@ pub const unsafe fn value_of<T: ?Sized + Pun, L: Rules>(
 /// of its type, or a path through many types. [`check`](crate::check) has no such limit: it keeps
 /// the pointees that are still to be checked in a [`Worklist`](crate::Worklist).
 ///
-/// A check takes at most 37 KiB of stack in a build without optimizations, and at most 2.4 KiB
+/// A check takes at most 37 KiB of stack in a build without optimizations, and at most 2.5 KiB
 /// with them, whatever the depth of the data (Rust 1.100 on aarch64: the stack of a thread filled
 /// with a pattern, then the deepest byte that a check changed, on data of the shapes of
 /// `tests/aims.rs`, a list, a pair, trees, an object of a JSON document, a cycle of three types,
