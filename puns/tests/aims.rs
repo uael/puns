@@ -133,13 +133,17 @@ fn walks_a_tree(image: &Image) -> bool {
 fn the_windows_accept_exactly_the_trees() {
   // Each pointer of a balanced expression aimed at each other node: past the levels that the check
   // takes in place, the operands wait for the loop of `Expr`, and are checked in their windows.
-  // A redirection is a tree where the node it leaves had the new pointee below it.
+  // A redirection is a tree where the node it leaves had the new pointee below it. Under Miri,
+  // which is there for the unsafe paths, the pointers of the deepest `Add` aimed at every 21st
+  // node, past the levels in place.
   let levels = if cfg!(miri) { 5 } else { 6 };
   let (image, nodes) = nodes_of(levels);
   let (mut trees, mut refused) = (0, 0);
-  for &from in nodes.iter().filter(|&&at| image.bytes[at] == 1) {
+  let adds: Vec<usize> = nodes.iter().copied().filter(|&at| image.bytes[at] == 1).collect();
+  let adds = if cfg!(miri) { &adds[adds.len() - 1..] } else { &adds[..] };
+  for &from in adds {
     for field in [from + 4, from + 8] {
-      for &to in nodes.iter().step_by(if cfg!(miri) { 7 } else { 1 }) {
+      for &to in nodes.iter().step_by(if cfg!(miri) { 21 } else { 1 }) {
         let mut redirected = Image { bytes: image.bytes.clone() };
         redirected.aim(field, to);
         let tree = walks_a_tree(&redirected);
@@ -148,7 +152,7 @@ fn the_windows_accept_exactly_the_trees() {
       }
     }
   }
-  assert!(trees > nodes.len() && refused > trees, "{trees} trees, {refused} refused");
+  assert!(cfg!(miri) || trees > nodes.len() && refused > trees, "{trees} trees, {refused} refused");
 }
 
 #[test]
