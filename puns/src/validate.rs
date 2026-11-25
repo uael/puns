@@ -173,8 +173,9 @@ impl<P: ?Sized + Pointee> Checks for Looped<P> {
   type Whole = Self;
 }
 
-/// The [`Checks`] of the value of a pointee `P` that holds an eager aim, checked in place: every
-/// part, and a pointee of its type within it is one nested in another ([`check_value`]).
+/// The [`Checks`] of the value of a pointee `P` that is a link of a chain ([`links`]), checked in
+/// place: every part, and a pointee of its type within it is a link nested in another
+/// ([`check_value`]).
 pub struct InPlace<P: ?Sized>(PhantomData<P>);
 
 impl<P: ?Sized + Pointee> Checks for InPlace<P> {
@@ -1103,10 +1104,10 @@ const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
 ///
 /// A pointee is checked in place, nested in the check of the value that holds its aim: it takes
 /// its parts from the budget of [`AIM_PARTS`] while it runs, and its size from the budget of bytes
-/// ([`Input::enter`]). One of a type that holds an eager aim and has an identity is checked with
-/// [`InPlace`], so that a pointee of its type within it is known to be nested in it. In a check
-/// without a worklist, such a pointee waits for a loop of its type instead ([`waits`]), so that the
-/// frames stop growing with the data:
+/// ([`Input::enter`]). A link of a chain ([`links`]) whose type has an identity is checked with
+/// [`InPlace`], so that a link of its type within it is known to be nested in it. In a check without
+/// a worklist, a pointee of a type that holds an eager aim and has an identity waits for a loop of
+/// its type instead ([`waits`]), so that the frames stop growing with the data:
 ///
 /// - in a value of a loop ([`Looped`]), always;
 /// - where its parts are not left, where a check without loops stops ([`Error::Limit`]);
@@ -1184,7 +1185,7 @@ const unsafe fn check_whole<C: Checks, P: ?Sized + Pointee>(
   unsafe {
     if const { !C::WORK && !holds_aims::<P>() } {
       validate::<All, Root, P::Value>(value, input)
-    } else if const { loops::<C, P>() && !C::LOOP.some() } {
+    } else if const { loops::<C, P>() && !C::LOOP.some() && links::<P>() } {
       validate::<InPlace<P>, Root, P::Value>(value, input)
     } else {
       validate_whole::<C, P::Value>(value, input)
@@ -1202,11 +1203,18 @@ const fn loops<C: Checks, P: ?Sized + Pointee>() -> bool {
 /// Returns whether the pointee `P`, checked in place with `C`, is nested in a value of its type that
 /// leads to one pointee at most: a link of a chain, which a loop checks with no entry.
 const fn chained<C: Checks, P: ?Sized + Pointee>() -> bool {
-  C::MARK.is(&Looped::<P>::LOOP)
-    && <P::Value as Pun>::LAYOUT
-      .most_eager_aims()
-      .saturating_add(<P::Prefix as Pun>::LAYOUT.most_eager_aims())
-      <= 1
+  C::MARK.is(&Looped::<P>::LOOP) && links::<P>()
+}
+
+/// Returns whether a value of the pointee `P`, with what it stores before it, leads to one pointee
+/// at most: the pointees of its type are links of a chain. Only such a pointee is checked in place
+/// with [`InPlace`], which tells that a link is nested in another; any other is checked as in a
+/// check without loops, with one instance.
+const fn links<P: ?Sized + Pointee>() -> bool {
+  <P::Value as Pun>::LAYOUT
+    .most_eager_aims()
+    .saturating_add(<P::Prefix as Pun>::LAYOUT.most_eager_aims())
+    <= 1
 }
 
 /// Returns whether the pointee `P` holds an eager aim, in its value or in what it stores before it,
@@ -1219,10 +1227,8 @@ const fn holds_aims<P: ?Sized + Pointee>() -> bool {
 /// is valid, found by the check of a value with `C`: it takes its size from the budget of bytes
 /// now, and waits for the loop of its type, or starts one.
 ///
-/// Where no loop runs, which `C` says, it starts the first loop ([`start`]), out of line: from the
-/// check of a value of its type, which a recursive call checks already, with the input; from
-/// elsewhere, with a copy of it, so that a check that starts no loop passes its input to no call,
-/// and keeps it in registers. In a value of a loop, it waits for the innermost loop if that loop is
+/// Where no loop runs, which `C` says, it starts the first loop ([`start`]), out of line, which
+/// takes its size. In a value of a loop, it waits for the innermost loop if that loop is
 /// of its type, which `C` says ([`Loops::wait`]), or else for the innermost loop of its type lower
 /// on the path ([`Loops::wait_below`]), which checks it once the loops above it return. Where no
 /// loop of its type runs, a loop of its own checks it now ([`run`]). Where no entry is left, it is
@@ -1238,26 +1244,15 @@ const unsafe fn waits<C: Checks, P: ?Sized + Pointee>(
   size: usize,
   input: &mut Input,
 ) -> bool {
-  if !input.spends(size) {
-    return false;
-  }
   // A loop runs only where a value of a loop is checked, with `Looped`, which the checks within it
-  // keep, so whether one runs is a constant.
+  // keep, so whether one runs is a constant. The first loop takes the size of its first pointee, so
+  // that the check in place, which seldom starts a loop, reads nothing more for it.
   if const { !C::LOOP.some() } {
     // SAFETY: No loop runs, and the requirements of `start` for `pointee` are those of this call.
-    return unsafe {
-      if const { C::MARK.is(&Looped::<P>::LOOP) } {
-        // Nested in a value of its type, which is checked by a recursive call already.
-        start::<P>(pointee, input)
-      } else {
-        // Elsewhere, on a copy of the input, so that a check that starts no loop passes its input
-        // to no call, and keeps it in registers.
-        let mut moved = *input;
-        let valid = start::<P>(pointee, &mut moved);
-        *input = moved;
-        valid
-      }
-    };
+    return unsafe { start::<P>(pointee, size, input) };
+  }
+  if !input.spends(size) {
+    return false;
   }
   // The types of `P` and of the loop are constants, so that the check of a value of a loop compares
   // nothing to put a pointee of its type in it.
@@ -1450,20 +1445,31 @@ struct Running {
   outer: *mut Running,
 }
 
-/// Returns whether `pointee`, of the type `P`, is valid ([`run`]), with the loops of the check and
-/// their entries in this frame, which the loops that run within this one share: the first loop of
-/// a check.
+/// Returns whether `pointee`, of the type `P` and of `size` bytes with what it stores before it,
+/// is valid ([`run`]), with the loops of the check and their entries in this frame, which the loops
+/// that run within this one share: the first loop of a check. It takes the size of `pointee` from
+/// the budget of bytes, as [`waits`] does in a loop.
 ///
-/// It is never inlined, so that the 1 KiB of entries is on the stack only while loops run, not in
-/// the frame of each function that may start one. The loops take parts from a budget of
-/// [`AIM_PARTS`] of their own, since they start where the check in place took its parts.
+/// It is never inlined, and cold, so that the 1 KiB of entries is on the stack only while loops
+/// run, and that a check in place, which may start a loop, is laid out as one that may not: its
+/// frame is set up only where it nests a pointee, and it reads only the budget that it uses. The
+/// loops take parts from a budget of [`AIM_PARTS`] of their own, since they start where the check
+/// in place took its parts.
 ///
 /// # Safety
 ///
 /// The caller must ensure that no loop runs, and the requirements of [`check_value`] for
 /// `pointee`.
+#[cold]
 #[inline(never)]
-const unsafe fn start<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) -> bool {
+const unsafe fn start<P: ?Sized + Pointee>(
+  pointee: Waiting,
+  size: usize,
+  input: &mut Input,
+) -> bool {
+  if !input.spends(size) {
+    return false;
+  }
   let mut entries = [MaybeUninit::<Waiting>::uninit(); WAITING];
   let mut loops = Loops {
     running: core::ptr::null_mut(),
@@ -2031,7 +2037,13 @@ const IN_PLACE: usize = 24;
 /// whether each pointee must start where the one before it ends ([`Input::claim`]), and where the
 /// pointees that are still to be checked wait ([`Input::defer`]). It records where the check
 /// fails ([`Input::fail`]).
+///
+/// It is `repr(C)`, so that `budget` and `parts` are not next to each other: a check writes them
+/// apart ([`Input::enter`] both, [`Input::leave`] `parts` alone), and a load of both at once, which
+/// the compiler makes of two fields next to each other, waits for both stores. That took 10% more
+/// cycles on a check that nests pointees in place, with fewer instructions.
 #[derive(Clone, Copy)]
+#[repr(C)]
 pub struct Input {
   /// The first byte.
   start: *const u8,
@@ -2039,13 +2051,13 @@ pub struct Input {
   len: usize,
   /// What the pointees that are still to be checked may take, in bytes.
   budget: usize,
+  /// The alignment that the first byte will have, if the bytes are checked at another address,
+  /// and 0 if they are checked where they are.
+  align: usize,
   /// How many more parts of the layouts of values the check may nest ([`AIM_PARTS`]).
   parts: usize,
   /// Whether the check stopped at a budget or at a full worklist, rather than at an invalid value.
   pub(crate) limit: bool,
-  /// The alignment that the first byte will have, if the bytes are checked at another address,
-  /// and 0 if they are checked where they are.
-  align: usize,
   /// Where the next pointee must start, before alignment, in bytes from `start`, if each pointee
   /// must start where the one before it ends.
   next: Option<usize>,

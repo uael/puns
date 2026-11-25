@@ -149,9 +149,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   hand a pointee whose type holds an eager aim and has an identity over to a loop of its type
   (`validate::run`, `validate::check_value`): where its parts are not left (`AIM_PARTS`), and where
   it is a link of a chain nested in a value of its type past `IN_PLACE` parts, so that a `const`
-  check of a chain stays within 128 frames. Such a pointee is checked in place with
-  `validate::InPlace`, which tells that a pointee of its type is nested in it. So data that the
-  check in place takes is checked as before, at its speed. In the value of a loop, every such
+  check of a chain stays within 128 frames. A link of a chain is checked in place with
+  `validate::InPlace`, which tells that a link of its type is nested in it; any other pointee with
+  `All`, as before. So data that the check in place takes is checked as before, at its speed. In the value of a loop, every such
   pointee waits for a loop: the first in a register, the others in 64 entries in the frame of the
   first loop, one above another, and one whose type has a loop lower on the path is put below the
   entries of that loop (`Loops::wait_below`). So the frames are one for each type on the path,
@@ -160,8 +160,11 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   layouts bound (`AIM_PARTS` again in the loops, `Layout::parts`), and `Error::Limit` is where that
   nests too deep. Leaves are checked with `All` (`validate::check_whole`), so that they have one
   instance. Whether a loop runs is a constant of the checks (`Checks::LOOP`), so that a check in
-  place holds no code of the loops, and the first loop is never inlined (`validate::start`), so
-  that a check that takes no loop holds neither its entries nor a copy of its `Input`:
+  place holds no code of the loops, and the first loop is cold and never inlined
+  (`validate::start`), and takes the budget of its pointee itself, so that a check that takes no
+  loop holds no entry and reads nothing more: before that, the read of the budget for a handover
+  that seldom happens took 8% more cycles on an `Expr` of 4 levels. `Input` is `repr(C)` with
+  `budget` and `parts` apart, since one load of both waits for the two stores that wrote them.
   `benches/checks.rs` times it, with wide and deep data. A loop takes two pointees for one type
   where a proof of an aim does (`PointeeType`, `Aim::equals`): an identity, a size and an alignment.
   So the stack does not depend on the bytes, and stays within what an embedded target has:
