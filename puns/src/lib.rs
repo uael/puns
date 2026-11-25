@@ -5600,7 +5600,8 @@ pub const unsafe fn aim_mut<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
 /// aim gives, or what remains of the tail of the struct. What it stores before its value is checked
 /// first, then the value, as [`from_bytes`] checks bytes, and the pointees of their own eager aims
 /// are looked for in `bytes`. This is the read that the derive writes for a lazy aim at a stored
-/// place, which takes the bytes, since a reference to the value covers only its own.
+/// place. It takes the bytes because nothing else bounds where the pointee is: the check of the
+/// struct did not look for it, and safe code may have written the field of the aim since.
 ///
 /// # Errors
 ///
@@ -5611,10 +5612,12 @@ pub const unsafe fn aim_mut<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
 /// # Compile-time errors
 ///
 /// A call compiles only if the rule that `K` names is a lazy aim at a stored place, under the
-/// compile-time conditions of [`from_bytes`] for the pointee.
+/// compile-time conditions of [`from_bytes`] for the pointee. Const evaluation cannot read the
+/// addresses of `value` and of `bytes` to tell whether one is within the other, so a call that is
+/// evaluated at compile time does not compile.
 #[doc(hidden)]
 #[inline]
-pub fn aim_in<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
+pub const fn aim_in<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
   value: &S,
   bytes: &'a [u8],
 ) -> Result<&'a ValueOf<S, K>, Error> {
@@ -5630,7 +5633,9 @@ pub fn aim_in<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
   };
   let (_, _, size) = validate::tail_of::<S>(value);
   let base = core::ptr::from_ref::<S>(value).cast::<u8>();
-  let from = match base.addr().checked_sub(bytes.as_ptr().addr()) {
+  // Whether the value is within `bytes`: by their addresses, since they may be in different
+  // allocations, which `offset_from` does not allow.
+  let from = match ptr::address(base).checked_sub(ptr::address(bytes.as_ptr())) {
     Some(from) if from <= bytes.len() && size <= bytes.len() - from => from,
     _ => return Err(Error::Validity),
   };

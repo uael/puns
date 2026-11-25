@@ -2249,12 +2249,14 @@ fn read_aim(
          `bytes`.\n\n# Errors\n\nIf the value is not in `bytes`, if the pointee is not within \
          them, and the errors of `puns::from_bytes` on its bytes.\n\n# Compile-time errors\n\n\
          A call compiles only under the compile-time conditions of `puns::from_bytes` for the \
-         pointee."
+         pointee. Const evaluation cannot read the addresses of the value and of `bytes` to tell \
+         whether one is within the other, so a call that is evaluated at compile time does not \
+         compile."
       );
       quote! {
         #[doc = #doc]
         #[inline]
-        #vis fn #name<'a>(
+        #vis const fn #name<'a>(
           &self,
           bytes: &'a [::core::primitive::u8],
         ) -> ::core::result::Result<&'a #value, #root::Error> {
