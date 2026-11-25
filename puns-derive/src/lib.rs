@@ -331,7 +331,7 @@ impl Parse for TagOption {
 struct AimOption {
   prefix: Prefix,
   name: Option<Ident>,
-  target: Type,
+  pointee: Type,
   start: Option<Expr>,
   size: AimSize,
 }
@@ -393,7 +393,7 @@ impl Parse for AimOption {
     } else {
       None
     };
-    let target = input.parse()?;
+    let pointee = input.parse()?;
     let start = if input.peek(Token![=]) {
       input.parse::<Token![=]>()?;
       Some(input.parse()?)
@@ -421,7 +421,7 @@ impl Parse for AimOption {
     } else {
       AimSize::Pointee
     };
-    Ok(Self { prefix, name, target, start, size })
+    Ok(Self { prefix, name, pointee, start, size })
   }
 }
 
@@ -1869,10 +1869,10 @@ fn in_place_field(options: &Options) -> bool {
     || options.regions.iter().flatten().any(Region::eager)
 }
 
-/// Returns the rule of an aim at a `target` that a struct declares, at the place that `start` gives
-/// (`Stored(start)`), or at the cursor (`Next`) without one, as large as `size` says, checked with
-/// the struct if `eager`, and the steps of its two expressions, where its pointee is and how large
-/// it is ([`steps`]). `#[pun(pointer(..))]` gives a start, and `#[pun(regions(..))]` none: both are
+/// Returns the rule of an aim at a `pointee` that a struct declares, at the place that `start`
+/// gives (`Stored(start)`), or at the cursor (`Next`) without one, as large as `size` says, checked
+/// with the struct if `eager`, and the steps of its two expressions, where its pointee is and how
+/// large it is ([`steps`]). `#[pun(pointer(..))]` gives a start, and `#[pun(regions(..))]` none: both are
 /// one rule, written here.
 ///
 /// The type is written in the rule and in the list of the rules (`Pun::Rules`), in the one
@@ -1882,7 +1882,7 @@ fn in_place_field(options: &Options) -> bool {
 ///
 /// Returns an error if an expression does not compile.
 fn aim_rule(
-  target: &TokenStream,
+  pointee: &TokenStream,
   (start, size): (Option<&Expr>, &AimSize),
   eager: bool,
   fields: &[FieldInfo],
@@ -1915,7 +1915,7 @@ fn aim_rule(
     }
   };
   let check = if eager { quote!(Eager) } else { quote!(Lazy) };
-  let rule = quote!(#layout::Rule::Aim(#layout::Aim::new::<#target>(
+  let rule = quote!(#layout::Rule::Aim(#layout::Aim::new::<#pointee>(
     #layout::Start::#start,
     #layout::Extent::#extent,
     #layout::Check::#check,
@@ -1938,17 +1938,17 @@ enum Read {
   Bytes,
 }
 
-/// Returns the methods that read the pointee of an aim, a `target` whose rule `item` names in the
+/// Returns the methods that read the pointee of an aim, a `pointee` whose rule `item` names in the
 /// list of the rules of `Self` (`puns::Item`), named `name` and as visible as `vis`, as `read`
 /// says.
 fn read_aim(
-  (name, target, item): (&Ident, &TokenStream, &TokenStream),
+  (name, pointee, item): (&Ident, &TokenStream, &TokenStream),
   read: Read,
   vis: &Visibility,
   root: &TokenStream,
 ) -> TokenStream {
   // The value of the pointee, which a read returns: the pointee itself, or the `T` of a `Thin`.
-  let target = quote!(<#target as #root::Pointee>::Value);
+  let value = quote!(<#pointee as #root::Pointee>::Value);
   let check = "\n\n# Compile-time errors\n\nA call compiles only if every byte of the struct, up \
                to the end of its tail, is initialized and, without the `unstable` feature of \
                `puns`, this does not depend on a layout that Rust leaves to the compiler.";
@@ -1980,7 +1980,7 @@ fn read_aim(
       quote! {
         #[doc = #doc]
         #[inline]
-        #vis const fn #name(&self) -> ::core::result::Result<&#target, #root::Error> {
+        #vis const fn #name(&self) -> ::core::result::Result<&#value, #root::Error> {
           #root::region_as::<Self, #item>(self)
         }
       }
@@ -2000,7 +2000,7 @@ fn read_aim(
         #vis fn #name<'a>(
           &self,
           bytes: &'a [::core::primitive::u8],
-        ) -> ::core::result::Result<&'a #target, #root::Error> {
+        ) -> ::core::result::Result<&'a #value, #root::Error> {
           #root::aim_in::<Self, #item>(self, bytes)
         }
       }
@@ -2021,7 +2021,7 @@ fn read_aim(
       quote! {
         #[doc = #doc]
         #[inline]
-        #vis const fn #name(&self) -> &#target {
+        #vis const fn #name(&self) -> &#value {
           #root::aim_of::<Self, #item>(self)
         }
       }
@@ -2137,7 +2137,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         (&options.pointer, options.len.is_some() || options.regions.is_some())
       {
         return Err(Error::new_spanned(
-          &pointer.target,
+          &pointer.pointee,
           "the field of a `pointer` is sized: it takes neither `len` nor `regions`",
         ));
       }
@@ -2200,7 +2200,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   // which are `Pointee`s, as every aim requires (`Aim::new`): a `Thin` is one, and every `Pun`
   // type. `#[pun(bound(..))]` gives all of them instead.
   let pointees = fields.iter().flat_map(|field| {
-    let pointer = field.options.pointer.iter().map(|aim| &aim.target);
+    let pointer = field.options.pointer.iter().map(|aim| &aim.pointee);
     pointer.chain(field.options.regions.iter().flatten().filter_map(|region| region.ty.as_ref()))
   });
   let types = (fields.iter().map(|field| field.ty), pointees);
@@ -2316,14 +2316,14 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   for (i, field) in fields.iter().enumerate() {
     let last = i + 1 == count;
     if let Some(pointer) = &field.options.pointer {
-      let target = pointer.target.to_token_stream();
+      let pointee = pointer.pointee.to_token_stream();
       let eager = pointer.eager();
       let start = pointer.start(&field.member);
       let (aim, start, extent) =
-        aim_rule(&target, (Some(&start), &pointer.size), eager, &fields, &root)?;
+        aim_rule(&pointee, (Some(&start), &pointer.size), eager, &fields, &root)?;
       let index = rules.len();
       let read_item = item(listed.len());
-      listed.push((index, start, Some(target.clone()), extent));
+      listed.push((index, start, Some(pointee.clone()), extent));
       rules.push(aim);
       has_aims = true;
       if let Some(name) = &pointer.name {
@@ -2331,7 +2331,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         if eager {
           named_aims.push((name, read_item.clone(), field.vis));
         }
-        accessors.push(read_aim((name, &target, &read_item), read, field.vis, &root));
+        accessors.push(read_aim((name, &pointee, &read_item), read, field.vis, &root));
       }
     }
     if let Some(len) = &field.options.len {
@@ -2348,7 +2348,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       }
       for (index, region) in regions.iter().enumerate() {
         // A region without a type is its bytes.
-        let target = region
+        let pointee = region
           .ty
           .as_ref()
           .map_or_else(|| quote!([::core::primitive::u8]), ToTokens::to_token_stream);
@@ -2360,9 +2360,9 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
           None => AimSize::Pointee,
         };
         let eager = region.eager();
-        let (aim, start, extent) = aim_rule(&target, (None, &size), eager, &fields, &root)?;
+        let (aim, start, extent) = aim_rule(&pointee, (None, &size), eager, &fields, &root)?;
         let read_item = item(listed.len());
-        listed.push((rules.len(), start, Some(target.clone()), extent));
+        listed.push((rules.len(), start, Some(pointee.clone()), extent));
         rules.push(aim);
         has_aims = true;
         if eager {
@@ -2373,7 +2373,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
           (false, Some(_)) => Read::Region,
           (false, None) => Read::Bytes,
         };
-        accessors.push(read_aim((&region.name, &target, &read_item), read, field.vis, &root));
+        accessors.push(read_aim((&region.name, &pointee, &read_item), read, field.vis, &root));
       }
     }
   }
@@ -2464,10 +2464,10 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
 
   // The list of the rules that have an expression or are aims, at the type level, with their
   // operations and the pointees of the aims.
-  let rule_list = listed.iter().rev().fold(quote!(()), |next, (index, steps, target, extent)| {
-    target.as_ref().map_or_else(
+  let rule_list = listed.iter().rev().fold(quote!(()), |next, (index, steps, pointee, extent)| {
+    pointee.as_ref().map_or_else(
       || quote!(#root::RuleAt<#index, #steps, #next>),
-      |target| quote!(#root::RuleAt<#index, #steps, #next, #target, #extent>),
+      |pointee| quote!(#root::RuleAt<#index, #steps, #next, #pointee, #extent>),
     )
   });
 
@@ -2561,10 +2561,10 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   code makes an `InPlace`, so no safe code makes a value of the struct, which exists only
       //   where `puns` checked its pointee, or where unsafe code put it.
       // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules that
-      //   have an expression or are aims (the regions, whose target is `[u8]`, and the eager aims),
-      //   which `validate::check_rules` asserts against the layout. `Metadata` is that of the last
-      //   field, which holds the tail of the struct, or `()` without fields, as in Rust. The
-      //   other lists are `()`. `NULL_OPTIMIZED` changes only what the analysis takes to be the
+      //   have an expression or are aims (the regions, whose pointee is `[u8]`, and the eager
+      //   aims), which `validate::check_rules` asserts against the layout. `Metadata` is that of
+      //   the last field, which holds the tail of the struct, or `()` without fields, as in Rust.
+      //   The other lists are `()`. `NULL_OPTIMIZED` changes only what the analysis takes to be the
       //   same in every layout that Rust allows.
       // - Each field is `Pun`, so no byte is inside an `UnsafeCell`.
       // The functions called are those of the types that `Layout::PIN` fixes, which no path can

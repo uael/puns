@@ -14,15 +14,15 @@ use puns::{InPlace, Pun, Thin};
 /// the target that is never zero. A slice or a `str` is behind its length, an `i32`.
 ///
 /// Its offset is an `InPlace`, so it has no constructor, and is neither `Clone` nor `Copy`: one
-/// exists only where `puns` checked its pointee, which `target` reads. `core` documents
+/// exists only where `puns` checked its pointee, which `pointee` reads. `core` documents
 /// `Option<Near<T>>` as the `Near`, `None` as zero.
 #[derive(Pun)]
 #[pun(bound(T: Pun))]
 #[repr(transparent)]
 pub struct Near<T: ?Sized> {
-  /// The distance to the pointee, from the address of the `Near`, which reads it (`target`), as
+  /// The distance to the pointee, from the address of the `Near`, which reads it (`pointee`), as
   /// visible as the field.
-  #[pun(pointer(target: Thin<T, i32>))]
+  #[pun(pointer(pointee: Thin<T, i32>))]
   pub off: InPlace<NonZero<i32>>,
   _t: PhantomData<T>,
   _pin: PhantomPinned,
@@ -45,7 +45,7 @@ impl<T: ?Sized + Pun> Near<T> {
     // SAFETY: A `Near` exists only where `puns` checked it with its pointee, and `image` holds
     // both (the caller's contract), so `this` has the provenance of the bytes of both, which are
     // not written while `image` is borrowed.
-    unsafe { puns::aim(this, Self::AIMS.target) }
+    unsafe { puns::aim(this, Self::AIMS.pointee) }
   }
 }
 

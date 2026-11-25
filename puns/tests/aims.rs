@@ -32,7 +32,7 @@ fn a_chain_of_pairs() {
   let image = image.aligned();
   let (root, rest) = puns::from_head::<Pair>(image.bytes()).unwrap();
   assert_eq!(rows(root, image.bytes()), [row("a", &[1, 2, 3]), row("bcd", &[4]), row("", &[])]);
-  // The targets are after the root, in what `from_head` returns as the rest.
+  // The pointees are after the root, in what `from_head` returns as the rest.
   assert_eq!(rest.len(), image.1 - size_of::<Pair>());
   // The same through `from_bytes` fails on the size: the image is larger than a `Pair`.
   assert_eq!(puns::from_bytes::<Pair>(image.bytes()).err(), Some(Error::Size));
@@ -59,7 +59,7 @@ fn each_corruption_is_refused() {
   // A zero offset is no `Near`, and a zero `Option<Near>` is `None`.
   assert_eq!(set(at[0], 0), Err(Error::Validity));
   assert_eq!(set(at[0] + 8, 0), Ok(()));
-  // Past the end, before the start, and the start of the target past the end by one.
+  // Past the end, before the start, and the start of the pointee past the end by one.
   assert_eq!(set(at[0], 10_000), Err(Error::Validity));
   assert_eq!(set(at[1] + 4, -i32::try_from(at[1] + 8).unwrap()), Err(Error::Validity));
   assert_eq!(set(at[0], i32::try_from(image.bytes.len()).unwrap() + 1), Err(Error::Validity));
@@ -383,7 +383,7 @@ fn a_generic_type_bounded_by_pun_proves_itself() {
   image.aim(at[0] + 4, at[1]);
   let image = image.aligned();
   let list = puns::from_head::<List<u32>>(image.bytes()).unwrap().0;
-  // `List<u32>` has an identity, made of that of `u32`, and so has the target of its aim: the same
+  // `List<u32>` has an identity, made of that of `u32`, and so has the pointee of its aim: the same
   // aim at the same place proves it, and nothing is checked.
   let same: &List<u32> = puns::pun_ref(list);
   let next = same.next.as_ref().map(|next| to(next, image.bytes()).value);
@@ -486,16 +486,16 @@ macro_rules! pointee {
 }
 
 #[test]
-fn a_target_before_the_pointer() {
-  // The target, 7, then a pointer 2 bytes after it, which points back at it.
+fn a_pointee_before_the_pointer() {
+  // The pointee, 7, then a pointer 2 bytes after it, which points back at it.
   let words = [7, (-2i16).cast_unsigned(), 0];
   let bytes = puns::as_bytes(&words);
   let (_, back) = puns::from_tail::<Back>(&bytes[..4]).unwrap();
   assert_eq!(back.off.get(), -2);
   assert_eq!(pointee!(Back::AIMS.back, back, bytes), &7);
-  // The target is not in the bytes that are checked.
+  // The pointee is not in the bytes that are checked.
   assert_eq!(puns::from_bytes::<Back>(&bytes[2..4]).err(), Some(Error::Validity));
-  // One byte before the target is not aligned for a `u16`.
+  // One byte before the pointee is not aligned for a `u16`.
   let words = [7, (-3i16).cast_unsigned(), 0];
   assert_eq!(puns::from_tail::<Back>(&puns::as_bytes(&words)[..4]).err(), Some(Error::Validity));
 }
@@ -510,7 +510,7 @@ struct Second {
 }
 
 #[test]
-fn where_a_target_starts_is_a_rule() {
+fn where_a_pointee_starts_is_a_rule() {
   let at = |off: i32| [u32::from_ne_bytes(off.to_be_bytes()), 1, 2];
   // At 8, the second word of the pair at 4.
   let words = at(8);
@@ -518,7 +518,7 @@ fn where_a_target_starts_is_a_rule() {
   let second = puns::from_head::<Second>(bytes).unwrap().0;
   assert_eq!(second.off.get().get(), 8);
   assert_eq!(pointee!(Second::AIMS.pair, second, bytes), &[1, 2]);
-  // At 4: the pair at 0, which holds the pointer, as a target may.
+  // At 4: the pair at 0, which holds the pointer, as a pointee may.
   assert!(puns::from_head::<Second>(puns::as_bytes(&at(4))).is_ok());
   // At 12: the pair at 8 ends past the bytes.
   assert_eq!(puns::from_head::<Second>(puns::as_bytes(&at(12))).err(), Some(Error::Validity));
@@ -592,7 +592,7 @@ struct ToText {
 }
 
 #[test]
-fn an_unsized_target_is_read_with_its_length() {
+fn an_unsized_pointee_is_read_with_its_length() {
   // A pointer at 0 to the text at 2, of 3 bytes.
   let mut words = [2, 3, u16::from_ne_bytes(*b"ab"), u16::from_ne_bytes([b'c', 0])];
   let bytes = puns::as_bytes(&words);
@@ -924,25 +924,26 @@ fn a_region_is_read_as_the_pointee_of_its_struct() {
   assert_eq!(regions.rest(), puns::as_bytes(&[9u64]));
 }
 
-/// A list behind a header: its capacity then its length, which a rule requires to be equal.
+/// What a list stores before its elements, its prefix: its capacity then its length, which a rule
+/// requires to be equal.
 #[derive(Pun)]
 #[pun(assert(cap as u128 == len as u128))]
 #[repr(C)]
-struct Header {
+struct ListPrefix {
   cap: i32,
   len: i32,
 }
 
-/// A pointer to a list behind a header, at its length.
+/// A pointer to a list behind its prefix, at its length.
 #[derive(Pun)]
 #[repr(transparent)]
 struct ToList {
-  #[pun(pointer(list: Thin<[u32], Header> = off as u128))]
+  #[pun(pointer(list: Thin<[u32], ListPrefix> = off as u128))]
   off: InPlace<i32>,
 }
 
 #[test]
-fn a_thin_ends_its_header_with_the_length() {
+fn a_thin_ends_its_prefix_with_the_length() {
   // The pointer at 0, to the length at 8, after the capacity at 4: the words at 12.
   let image = |cap: i32, len: i32| [4 + 4, cap.cast_unsigned(), len.cast_unsigned(), 7, 9];
   let check = |words: &[u32; 5]| {

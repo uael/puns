@@ -23,7 +23,7 @@ mod fake {
 #[pun(crate = fake)]
 #[repr(transparent)]
 struct Evil {
-  #[pun(pointer(target: u64 = off as u128))]
+  #[pun(pointer(pointee: u64 = off as u128))]
   off: puns::InPlace<i64>,
 }
 
@@ -31,5 +31,5 @@ fn main() {
   // A valid pointer: its pointee is the `u64` 8 bytes after it.
   let words = [8u64, 7];
   let (evil, _) = puns::from_head::<Evil>(puns::as_bytes(&words)).unwrap();
-  let _ = evil.target();
+  let _ = evil.pointee();
 }

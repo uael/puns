@@ -1,4 +1,4 @@
-//! An eager aim is proven only by the same aim at a target of a known identity. A generic type
+//! An eager aim is proven only by the same aim at a pointee of a known identity. A generic type
 //! whose parameter is not bounded by `Pun` where the derive sees it has none, so a list of it does
 //! not prove itself, and the refusal says why. With `T: Pun`, it would (`tests/aims.rs`).
 #[allow(dead_code)]

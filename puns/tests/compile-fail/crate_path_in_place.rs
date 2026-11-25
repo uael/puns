@@ -37,12 +37,12 @@ mod fake {
 #[pun(crate = fake)]
 #[repr(transparent)]
 struct Evil {
-  #[pun(pointer(target: u64 = off as u128))]
+  #[pun(pointer(pointee: u64 = off as u128))]
   off: fake::InPlace<i16>,
 }
 
 fn main() {
   // Safe code would make a pointer 4096 bytes away, which nothing checked, and read it.
   let evil = Evil { off: fake::Mine(4096) };
-  let _ = evil.target();
+  let _ = evil.pointee();
 }

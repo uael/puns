@@ -2020,9 +2020,9 @@ impl Layout {
     (pin::<Aim>, pin::<Start>, pin::<Extent>, pin::<Check>);
 
   /// Ties the field of an eager aim to the [`InPlace<T>`] of this crate, where `T` is the type of
-  /// the field in the layout, for `#[derive(Pun)]`: the function that the derive never calls (`item`
-  /// of `homes`) gives it a `&mut` to a pointer to the field, which compiles only if the field is an
-  /// `InPlace<T>`, since a `&mut` to a raw pointer admits no coercion.
+  /// the field in the layout, for `#[derive(Pun)]`: the function that the derive never calls
+  /// (`item` of `homes`) gives it a `&mut` to a pointer to the field, which compiles only if the
+  /// field is an `InPlace<T>`, since a `&mut` to a raw pointer admits no coercion.
   ///
   /// The derive names this function through `Layout`, which the type of [`Pun::LAYOUT`] fixes in an
   /// implementation of the `Pun` of this crate, and not through a path of the crate that

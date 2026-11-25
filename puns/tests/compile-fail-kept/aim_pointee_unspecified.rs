@@ -1,4 +1,4 @@
-//! Without the `unstable` feature, the target of an eager aim is not checked where its layout is
+//! Without the `unstable` feature, the pointee of an eager aim is not checked where its layout is
 //! one that Rust leaves to the compiler and something in it is checked: its places could differ.
 #[allow(dead_code)]
 #[path = "../support/aims.rs"]

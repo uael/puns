@@ -44,15 +44,15 @@ fn pairs() -> [u32; 10] {
 fn a_chain_is_read_through_references() {
   let words = pairs();
   let pair = puns::from_head::<Pair>(puns::as_bytes(&words)).unwrap().0;
-  let next = pair.next.as_ref().unwrap().target();
+  let next = pair.next.as_ref().unwrap().pointee();
   assert_eq!(
-    (pair.name.target(), pair.values.target(), next.name.target()),
+    (pair.name.pointee(), pair.values.pointee(), next.name.pointee()),
     ("ab", &[9][..], "ab")
   );
   assert!(next.next.is_none());
   // The same as from a pointer with the provenance of the bytes.
   // SAFETY: The words hold the pair and its name.
-  assert_eq!(unsafe { pair.name.get(puns::as_bytes(&words)) }, pair.name.target());
+  assert_eq!(unsafe { pair.name.get(puns::as_bytes(&words)) }, pair.name.pointee());
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn a_tree_is_read_through_references() {
   let empty = |at: i32| (28 - at).cast_unsigned();
   let words = [1, 4, 2, 2, empty(16), 3, empty(24), 0];
   let tree = puns::from_head::<Tree>(puns::as_bytes(&words)).unwrap().0;
-  let ids = tree.kids.target().iter().map(|kid| (kid.id, kid.kids.target().len()));
+  let ids = tree.kids.pointee().iter().map(|kid| (kid.id, kid.kids.pointee().len()));
   assert_eq!(ids.collect::<Vec<_>>(), [(2, 0), (3, 0)]);
 }
 
@@ -71,7 +71,7 @@ fn an_expression_is_read_through_references() {
   fn sum(e: &Expr) -> i64 {
     match e {
       Expr::Lit(value) => *value,
-      Expr::Add(a, b) => sum(a.target()) + sum(b.target()),
+      Expr::Add(a, b) => sum(a.pointee()) + sum(b.pointee()),
     }
   }
   // `1 + 2`: the tag of `Add` and its pointers at 4 and 8, then two `Lit`s. An `Expr` is 12 bytes

@@ -696,14 +696,14 @@
 //! #[derive(Pun)]
 //! #[repr(transparent)]
 //! struct Ptr {
-//!   #[pun(pointer(target: u32))]
+//!   #[pun(pointer(pointee: u32))]
 //!   off: InPlace<i32>,
 //! }
 //!
 //! // A distance of 4, to the word after the pointer.
 //! let words = [4u32, 7];
 //! let ptr = puns::from_head::<Ptr>(puns::as_bytes(&words)).unwrap().0;
-//! assert_eq!(ptr.target(), &7);
+//! assert_eq!(ptr.pointee(), &7);
 //! // A distance of 8 is past the bytes, and -4 before them.
 //! assert!(puns::from_head::<Ptr>(puns::as_bytes(&[8u32, 7])).is_err());
 //! assert!(puns::from_head::<Ptr>(puns::as_bytes(&[(-4i32).cast_unsigned(), 7])).is_err());
@@ -1180,10 +1180,10 @@
 //! - **Fields of fields in rules.** A rule names the integer fields of its struct, not a field of a
 //!   field (`header.length`) or an element of an array (`magic[0]`), which it reads with `be` or
 //!   `le` at their offsets instead.
-//! - **Signed and floating-point fields in rules.** Rules compute on unsigned integers. A signed or
-//!   floating-point field is refused, and is read as bits with `le` or `be` instead. A getter reads
-//!   fields, not bytes, and a value that only the bytes hold, such as a variable-length integer, is
-//!   decoded by the user's code.
+//! - **Floating-point fields in rules.** Rules compute on integers, and name a signed field under a
+//!   cast, as in `off as u128`. A floating-point field is refused, since its bits are not its value,
+//!   and is read as bits with `le` or `be` instead. A getter reads fields, not bytes, and a value
+//!   that only the bytes hold, such as a variable-length integer, is decoded by the user's code.
 //! - **A size that is not in the value**, such as "to the end of whatever holds it" (an MP4 box of
 //!   size 0).
 //! - **Sums of types in sequences, and recursion**, such as `OPTIONAL` and `CHOICE` of ASN.1, and
@@ -2290,14 +2290,14 @@ impl<K: Pun + Copy> Tag<K> for [u8] {
 /// #[derive(Pun)]
 /// #[repr(transparent)]
 /// struct Near16 {
-///   #[pun(pointer(target: u16 = off as u128))]
+///   #[pun(pointer(pointee: u16 = off as u128))]
 ///   off: InPlace<i16>,
 /// }
 ///
-/// // The target, 7, then a pointer 2 bytes after it, which points back at it.
+/// // The pointee, 7, then a pointer 2 bytes after it, which points back at it.
 /// let words = [7, (-2i16).cast_unsigned()];
 /// let (_, near) = puns::from_tail::<Near16>(puns::as_bytes(&words)).unwrap();
-/// assert_eq!((near.off.get(), *near.target()), (-2, 7));
+/// assert_eq!((near.off.get(), *near.pointee()), (-2, 7));
 /// // Without the target in the bytes that are checked.
 /// assert!(puns::from_bytes::<Near16>(&puns::as_bytes(&words)[2..]).is_err());
 /// ```
@@ -4867,7 +4867,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
       _ => return Err(Error::Size),
     };
     let target = ptr::from_raw_parts::<D>(addr, len);
-    // The targets of eager aims are looked for in the `n` bytes.
+    // The pointees of eager aims are looked for in the `n` bytes.
     let mut input = Input::new(addr, n);
     // SAFETY: This satisfies the safety contract of `validate`. `target` is at `addr`, and its
     // size, `size`, is at most `n`, which is checked above. So it is valid for reads of a `D`, by
@@ -4891,7 +4891,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
   #[inline(always)]
   const unsafe fn back(addr: *const u8, n: usize) -> Result<(usize, *const D), Error> {
     let layout = const { D::LAYOUT };
-    // The targets of eager aims are looked for in the `n` bytes, before the `D` too.
+    // The pointees of eager aims are looked for in the `n` bytes, before the `D` too.
     let mut input = Input::new(addr, n);
     let Some(start) = n.checked_sub(layout.size()) else { return Err(Error::Size) };
     // SAFETY: `start <= n`, and `addr` is valid for reads of `n` bytes, by contract on the
@@ -5943,9 +5943,10 @@ pub fn aim_in<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
     _ => return Err(Error::Validity),
   };
   let mut input = Input::new(bytes.as_ptr(), bytes.len());
-  // SAFETY: `value` is a reference, valid for reads of its `size` bytes, whose bytes that its rules
-  // read are initialized, since it is a valid `S`, and it is within `bytes`, `from` bytes from
-  // their start, which `input` spans. These are the requirements of `stored_at`.
+  // SAFETY: The struct is read through `bytes`, at `from` bytes from their start: its `size` bytes
+  // are within `bytes` (checked above), so they are initialized `u8`s, valid for reads, whatever
+  // padding the struct has, in the allocation that `input` spans, and they hold the value. These
+  // are the requirements of `stored_at`.
   let Some((to, wanted)) =
     (unsafe { validate::stored_at::<S, K::Of>(bytes.as_ptr().add(from), size, &input) })
   else {

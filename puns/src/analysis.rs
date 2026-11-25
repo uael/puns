@@ -264,8 +264,8 @@
 //! only if what Rust does not specify of them is of the same type ([`equal`]). A `&mut` to a part
 //! covers such a node whole, by the same type, or not at all ([`cut`]). A pun of a type whose size
 //! Rust does not specify compiles only if both sides are the same type ([`sizes_kept`]).
-//! The check of the target of an eager aim compiles only if nothing that Rust does not specify in
-//! the target has something to check ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does
+//! The check of the pointee of an eager aim compiles only if nothing that Rust does not specify in
+//! the pointee has something to check ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does
 //! not accept the zeros of an enum that is not fixed.
 //!
 //! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity

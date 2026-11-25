@@ -1,6 +1,6 @@
-//! The target of an eager aim stores its length in its sized fields: a `len` rule that reads a byte
-//! by offset could read past them, so the check refuses it, and the read never meets a length that
-//! it cannot read.
+//! The pointee of an eager aim stores its length in its sized fields: a `len` rule that reads a
+//! byte by offset could read past them, so the check refuses it, and the read never meets a length
+//! that it cannot read.
 use puns::{InPlace, Pun};
 
 /// A list whose length is its first element, after a byte.
