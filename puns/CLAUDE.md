@@ -172,7 +172,10 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   that ends with the tail of its struct (`Extent::Rest`), is within the struct and claims nothing,
   and its pointee is never handed to a loop, so that no pointee waits without a claim. The pointee
   of a shared aim (`Aim::shared`), and what it reaches, are checked in place with
-  `validate::Shared`, which claims nothing, and `aim_mut` refuses the aim at compile time.
+  `validate::Shared`, which claims nothing, and `aim_mut` refuses the aim at compile time. So a
+  cycle through shared aims ends with `Limit` (the budget of twice the bytes), and their depth is
+  bounded by `AIM_PARTS`; a write through `aim_mut` must leave valid every shared pointee that
+  overlaps what it writes, since its read trusts it (the `# Safety` of `aim_mut`).
 - The functions that check in place (`from_head` and the others) check a pointee in place, nested
   in the check of the struct whose aim leads to it, as a check without loops does, and in one pass
   hand a pointee whose type holds an eager aim and has an identity over to a loop of its type

@@ -653,8 +653,11 @@
 //!   start, which bound its own. A pointee that ends where the tail of its struct ends
 //!   (`size = ..`) is within the struct, as a pointee at the cursor is, and is not counted. An aim
 //!   declared `shared` may lead to a pointee that other aims reach, anywhere in the bytes, within
-//!   the struct too: it and what it reaches are not counted, are checked in place, as deep as
-//!   [`AIM_PARTS`] allows, and are not written by [`aim_mut`].
+//!   the struct too: it and what it reaches are not counted, are checked in place, and are not
+//!   written by [`aim_mut`]. So a cycle through shared aims, or many paths to one pointee, end
+//!   with [`Error::Limit`], when the pointees checked reach twice the bytes read, not with
+//!   [`Error::Validity`]; and shared pointees do not use the loops, so their depth is bounded by
+//!   [`AIM_PARTS`].
 //! - So a reference to a struct with an eager aim is a reference to a valid pointee, which code
 //!   reads without a check, through a safe method that the derive writes. No function makes a value
 //!   that holds an eager aim (`pun`, `try_pun`, `zeroed` and the other functions that return a
@@ -3267,7 +3270,8 @@ pub enum Error {
   Validity,
   /// The check of the pointees of eager aims ([`Check::Eager`](layout::Check::Eager)) stopped at
   /// its limit before it found the bytes valid or not: pointees that its loops cannot take
-  /// ([`AIM_PARTS`]), or pointees of more than twice as many bytes as are checked in all.
+  /// ([`AIM_PARTS`]), or pointees of more than twice as many bytes as are checked in all, which
+  /// a cycle through shared aims reaches ("Aims" in the crate documentation).
   Limit,
 }
 
@@ -5558,6 +5562,9 @@ pub const fn aim_of<S: ?Sized + Pun, K: Item<S::Rules>>(value: &S) -> &ValueOf<S
 /// - `holder` has the provenance of the bytes of that pointee.
 /// - For `'a`, the bytes of the pointee are accessed only through the result, and the bytes of the
 ///   value are not written.
+/// - What is written through the result leaves a valid value at every pointee of a shared aim
+///   that overlaps the bytes written, as its check found one there: a read of that aim, safe
+///   too, trusts it without a check.
 ///
 /// A value that a function of `puns` checked with its eager aims meets the first two, such as one
 /// that a reference that `puns` returned points to, or a value within one. Unsafe code that writes

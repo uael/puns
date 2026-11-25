@@ -6448,7 +6448,9 @@ impl Aim {
   /// and the check claims nothing for it, nor for what it reaches. [`aim_mut`](crate::aim_mut)
   /// does not write it, and a read of it is the read of any pointee. The pointee of an aim that is
   /// not shared is claimed in the order of a copy, so that no other aim that is not shared
-  /// reaches it.
+  /// reaches it. The pointee is checked in place, not in a loop, so its depth is bounded by
+  /// [`AIM_PARTS`](crate::AIM_PARTS), and a cycle through shared aims ends with
+  /// [`Error::Limit`](crate::Error::Limit).
   ///
   /// # Panics
   ///
