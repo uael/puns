@@ -1613,6 +1613,9 @@ fn valid_ranges(
 }
 
 /// Adds `ty: Pun` to the bounds of `generics`, unless they hold it already.
+///
+/// A bound written twice is one that clippy sees twice, at the span of the one that the user
+/// wrote.
 fn bound(generics: &mut syn::Generics, ty: &Type, root: &TokenStream) {
   if !has_pun(generics, &ty.to_token_stream().to_string()) {
     generics.make_where_clause().predicates.push(parse_quote!(#ty: #root::Pun));
@@ -1624,7 +1627,12 @@ fn bound(generics: &mut syn::Generics, ty: &Type, root: &TokenStream) {
 ///
 /// The bound is read by its last name, as written: `Pun`, `puns::Pun` or `crate::Pun`.
 fn has_pun(generics: &syn::Generics, name: &str) -> bool {
-  let pun = |bounds: &Punctuated<syn::TypeParamBound, Token![+]>| bounds.iter().any(is_pun);
+  let pun = |bounds: &Punctuated<syn::TypeParamBound, Token![+]>| {
+    bounds.iter().any(|bound| {
+      matches!(bound, syn::TypeParamBound::Trait(bound)
+        if bound.path.segments.last().is_some_and(|segment| segment.ident == "Pun"))
+    })
+  };
   // `<T: Pun>`
   generics.type_params().any(|param| param.ident == name && pun(&param.bounds))
     // `where T: Pun`
@@ -1634,20 +1642,13 @@ fn has_pun(generics: &syn::Generics, name: &str) -> bool {
     })
 }
 
-/// Returns whether `bound` is `Pun`, read by its last name as [`has_pun`] reads it.
-fn is_pun(bound: &syn::TypeParamBound) -> bool {
-  matches!(bound, syn::TypeParamBound::Trait(bound)
-    if bound.path.segments.last().is_some_and(|segment| segment.ident == "Pun"))
-}
-
-/// Returns the generics of `input`, with the bounds of its implementation of `Pun`: `bounds` if
-/// `#[pun(bound(..))]` gives them, but for a `Pun` bound that the type states already, and
-/// otherwise, for each type that needs it ([`needs_bound`]),
+/// Returns the generics of `input`, with the bounds of its implementation of `Pun`: `bounds` as
+/// `#[pun(bound(..))]` gives them, and otherwise, for each type that needs it ([`needs_bound`]),
 /// `ty: Pun` for the types of its fields, and `ty: Pointee` for the pointees of its aims.
 ///
 /// A bound of a type parameter joins the bounds that the parameter has, as `<T: ?Sized + Pun>` for
 /// `struct Relaxed<T: ?Sized>` with `#[pun(bound(T: Pun))]` ([`join_bounds`]), so that no type is
-/// bounded twice.
+/// bounded in two places. A bound that `bound(..)` repeats is written twice, as the user wrote it.
 fn bounded<'a>(
   input: &DeriveInput,
   (types, pointees): (impl Iterator<Item = &'a Type>, impl Iterator<Item = &'a Type>),
@@ -1656,21 +1657,7 @@ fn bounded<'a>(
 ) -> syn::Generics {
   let mut generics = input.generics.clone();
   if let Some(bounds) = bounds {
-    // A `Pun` bound that the type already states is not written again, so that a macro may write
-    // `bound(T: Pun)` for each type parameter whatever bounds the user wrote.
-    for predicate in bounds {
-      let mut predicate = predicate.clone();
-      if let syn::WherePredicate::Type(typed) = &mut predicate
-        && has_pun(&input.generics, &typed.bounded_ty.to_token_stream().to_string())
-      {
-        typed.bounds =
-          std::mem::take(&mut typed.bounds).into_iter().filter(|bound| !is_pun(bound)).collect();
-        if typed.bounds.is_empty() {
-          continue;
-        }
-      }
-      generics.make_where_clause().predicates.push(predicate);
-    }
+    generics.make_where_clause().predicates.extend(bounds.iter().cloned());
   } else {
     types.filter(|ty| needs_bound(ty, input)).for_each(|ty| bound(&mut generics, ty, root));
     for ty in pointees.filter(|ty| needs_bound(ty, input)) {
