@@ -36,7 +36,8 @@
 //! it is deep, and data that alternates types takes the frames of their loops. The pointees that
 //! hold no eager aim, those of a type without an identity, and those that find no entry are
 //! checked in place: a type without an identity that points at itself is checked by a recursive
-//! call of the same instance, and stops at [`AIM_PARTS`].
+//! call of the same instance, and stops at [`AIM_PARTS`]. A pointee that holds no eager aim, or an
+//! empty slice, takes no parts, since it nests no other pointee.
 //!
 //! # The stack of a check
 //!
@@ -1027,8 +1028,9 @@ const unsafe fn check_value<C: Checks, P: ?Sized + Pointee>(
   // An empty slice holds no aim, whatever its elements hold, and is checked in place at once. A
   // pointee waits for a loop in a value of a loop, or, in place, if it is nested in a value of its
   // type past `IN_PLACE` parts, or where its parts are not left.
+  let is_empty = const { matches!(<P::Value as Pun>::LAYOUT.kind, Kind::Slice(_)) } && len == 0;
   if const { loops::<P>() }
-    && (const { !matches!(<P::Value as Pun>::LAYOUT.kind, Kind::Slice(_)) } || len != 0)
+    && !is_empty
     && (const { C::LOOP.some() }
       || input.parts < if const { chained::<C, P>() } { nested } else { parts })
   {
@@ -1037,6 +1039,11 @@ const unsafe fn check_value<C: Checks, P: ?Sized + Pointee>(
       waits::<C, P>(Waiting { value: addr, len }, size.saturating_add(before), input)
     };
   }
+  // A pointee that holds no eager aim, or an empty slice, nests the check of no other pointee: its
+  // check is as deep as its own parts, a constant of its type, as the check of a value at the top
+  // of the bytes is, so it takes no parts. Counting them stopped a chain of values, each with a
+  // list of numbers, where the last value fitted in the parts and its list did not.
+  let parts = if const { !holds_aims::<P>() } || is_empty { 0 } else { parts };
   if !input.enter(size.saturating_add(before), parts) {
     return false;
   }
@@ -1874,18 +1881,21 @@ pub const unsafe fn value_of<T: ?Sized + Pun, L: Rules>(
 /// The check of a pointee in place nests the check of its parts in the one of the struct whose aim
 /// leads to it, and the check of each part nests a few calls of the validation, whose frames depend
 /// on the code of `puns` and on how it is compiled, not on the type. So the check counts the parts
-/// of the layouts of the values that it nests, one within another (`Layout::parts`). Where a
-/// pointee of a type that holds an eager aim and has an identity would nest past this many, it
-/// waits for a loop of its type instead, which nests a frame for each type on the path, not for
-/// each value, and the loops count their parts again from this many. What nests in the loops is the
-/// value that each loop checks, the pointees that hold no eager aim, those of a type without an
-/// identity, and those for which none of the 64 entries of the loops is left. The check returns
+/// of the layouts of the values that it nests, one within another (`Layout::parts`). A pointee that
+/// holds no eager aim, or an empty slice, nests no other pointee, so it takes no parts: its check is
+/// as deep as its own parts, a constant of its type, as the check of a value at the top of the
+/// bytes is. Where a pointee of a type that holds an eager aim and has an identity would nest past
+/// this many, it waits for a loop of its type instead, which nests a frame for each type on the
+/// path, not for each value, and the loops count their parts again from this many. What nests in
+/// the loops is the value that each loop checks, the pointees of a type without an identity, and
+/// those for which none of the 64 entries of the loops is left. The check returns
 /// [`Error::Limit`](crate::Error::Limit) where these nest past this many parts, whatever the bytes:
 /// a chain of a type without an identity, a chain each of whose values has several deep pointees
 /// of its type, or a path through many types.
 ///
 /// A check takes at most 37 KiB of stack in a build without optimizations, and at most 2.5 KiB
-/// with them, whatever the depth of the data (Rust 1.100 on aarch64: the stack of a thread filled
+/// with them, whatever the depth of the data, and the check of one pointee without eager aims on
+/// top, as deep as its type (Rust 1.100 on aarch64: the stack of a thread filled
 /// with a pattern, then the deepest byte that a check changed, on data of the shapes of
 /// `tests/aims.rs`, a list, a pair, trees, an object of a JSON document, a cycle of three types,
 /// expressions and combs, 10 to 100,000 deep). A check that takes no loop takes what a check
