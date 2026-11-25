@@ -1,6 +1,6 @@
-//! Checks, natively, the parts of a sample of sources of 3 and 4 bytes, with targets of every smaller
-//! size, against the oracles: a part of the sample of the parts that is not for Miri, which runs
-//! the selection of `parts.rs`. The sample is in two files, `parts_by_size_1.rs` and
+//! Checks, natively, the parts of a sample of sources of 3 and 4 bytes, with targets of every
+//! smaller size, against the oracles: a part of the sample of the parts that is not for Miri, which
+//! runs the selection of `parts.rs`. The sample is in two files, `parts_by_size_1.rs` and
 //! `parts_by_size_2.rs`, so that each builds in a job of CI.
 
 #![cfg(not(miri))]

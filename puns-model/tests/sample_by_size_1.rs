@@ -1,7 +1,7 @@
-//! Checks, natively, every pair of a few types of 1 and 2 bytes against the oracles: a part of the sample
-//! of the model that is not for Miri, which runs the selection of `miri_sample.rs`. The sample is
-//! in two files, `sample_by_size_1.rs` and `sample_by_size_2.rs`, so that each builds in a job of
-//! CI: each pair is an instance of the analysis.
+//! Checks, natively, every pair of a few types of 1 and 2 bytes against the oracles: a part of the
+//! sample of the model that is not for Miri, which runs the selection of `miri_sample.rs`. The
+//! sample is in two files, `sample_by_size_1.rs` and `sample_by_size_2.rs`, so that each builds in
+//! a job of CI: each pair is an instance of the analysis.
 
 #![cfg(not(miri))]
 

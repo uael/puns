@@ -1465,13 +1465,14 @@ pub use layout::{crc32, sum16};
 ///   bytes from the start of the struct, where a `Thin` has its length. `EXPR` is a rule whose
 ///   value is read as an `i128` in two's complement, so that a pointee may be before the struct.
 ///   Without `= EXPR`, the distance is the integer of the field, as its layout says, so a signed
-///   field gives a negative one. The pointee is as large as what it stores says: the size of a
-///   sized type, or of an unsized one with the length that a `Thin` stores, or that its own `size`
-///   or `len` rule gives from its sized fields. After it, `len = EXPR` gives the length of an
-///   unsized pointee, `size = EXPR` its size in bytes, and `size = ..` makes it end where the tail
-///   of the struct ends. The name may be left out (`pointer(Type = EXPR)`), for an aim that no
-///   method reads. The derive requires the type of the field to be `Pun`, as it requires the type
-///   of a field, and the pointee to be a `Pointee`.
+///   field gives a negative one. `EXPR` may read other fields instead: the field of an eager aim is
+///   then the `InPlace` that makes the struct one that safe code does not make. The pointee is as
+///   large as what it stores says: the size of a sized type, or of an unsized one with the length
+///   that a `Thin` stores, or that its own `size` or `len` rule gives from its sized fields. After
+///   it, `len = EXPR` gives the length of an unsized pointee, `size = EXPR` its size in bytes, and
+///   `size = ..` makes it end where the tail of the struct ends. The name may be left out
+///   (`pointer(Type = EXPR)`), for an aim that no method reads. The derive requires the type of the
+///   field to be `Pun`, as it requires the type of a field, and the pointee to be a `Pointee`.
 /// - `#[pun(regions(first: Type = EXPR, second: Type, last))]`, on the last field: the bytes of the
 ///   field are consecutive regions, from the cursor, the value of each aligned for its type by its
 ///   offset in the struct, after what it stores before it. A region with `= EXPR` is that many

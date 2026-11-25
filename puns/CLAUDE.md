@@ -179,9 +179,9 @@ section lists changes that could lift some of them, and what each would cost.
   count it as imprecise.
 - **A rule that two variants of a view share, where neither variant accepts every value of the
   other.** The later variants that have a rule that failed, over the same extent at the same place
-  (`Layout::same_extent`, `Layout::has_rule`), could be skipped at once, and the validation would then report which rule
-  failed. But every check would carry that report, where it is now a `bool` that the optimizer
-  folds.
+  (`Layout::same_extent`, `Layout::has_rule`), could be skipped at once, and the validation would
+  then report which rule failed. But every check would carry that report, where it is now a `bool`
+  that the optimizer folds.
 - **Precise checks of an enum whose source is another type.** Only what was not proven could be
   checked, rather than the whole enum.
 - **A checked pun from an enum to a type that is not an enum.** Relating the target to each variant
