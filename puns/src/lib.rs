@@ -3213,8 +3213,9 @@ pub const fn zeroed<T: Pun + Copy>() -> T {
       layout::UNSTABLE || T::LAYOUT.zeroable(true),
       "zero is a value of this type only by the tags that `rustc` chose for an enum of the `Rust` \
        representation, `Option` or `Result` in it, whose layout `puns` does not assume: another \
-       compiler, or `-Zrandomize-layout`, could choose others.\nAdd `#[repr(u8)]` to the enum, or \
-       enable the `unstable` feature of `puns`."
+       compiler, or `-Zrandomize-layout`, could choose others.\nGive the enum a primitive \
+       representation, such as `#[repr(u8)]`, where it is yours, or enable the `unstable` feature \
+       of `puns`"
     );
   };
   const {

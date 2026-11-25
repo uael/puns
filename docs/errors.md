@@ -653,7 +653,7 @@ let _ = puns::zeroed::<Pair>();
 
 ```text
 error[E0080]: evaluation panicked: zero is a value of this type only by the tags that `rustc` chose for an enum of the `Rust` representation, `Option` or `Result` in it, whose layout `puns` does not assume: another compiler, or `-Zrandomize-layout`, could choose others.
-Add `#[repr(u8)]` to the enum, or enable the `unstable` feature of `puns`.
+Give the enum a primitive representation, such as `#[repr(u8)]`, where it is yours, or enable the `unstable` feature of `puns`
 ```
 
 Where `puns` assumes the layout, or `core` documents it, zero bytes are a value:

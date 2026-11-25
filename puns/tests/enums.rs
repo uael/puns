@@ -372,6 +372,23 @@ fn zeroed_beside_an_unspecified_part() {
   assert_eq!(unsafe { puns::zeroed::<Lamp>().level }, 0);
 }
 
+/// A variant that holds a tuple of the `Rust` representation, whose order of fields Rust leaves to
+/// the compiler.
+#[derive(Pun, Debug, PartialEq, Clone, Copy)]
+#[repr(u8)]
+enum Triple {
+  Held((u8, u16, u8)),
+  Empty,
+}
+
+/// Zero bytes of a tuple of the `Rust` representation are zeros in every order of its fields, so
+/// they are a value of an array of such tuples, and of the variant of tag 0 that holds one.
+#[test]
+fn zeroed_around_a_tuple_of_the_rust_representation() {
+  assert_eq!(puns::zeroed::<[(u8, u16, u8); 2]>(), [(0, 0, 0); 2]);
+  assert_eq!(puns::zeroed::<Triple>(), Triple::Held((0, 0, 0)));
+}
+
 // All of this is known at compile time.
 const _: () = {
   assert!(matches!(puns::try_pun::<[u8; 4], Shape>([1, 7, 1, 0]), Ok(Shape::Rect(7, true))));
