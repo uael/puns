@@ -2460,10 +2460,56 @@ pub trait Item<L: Rules>: sealed::Sealed {
 
 /// The first item of a list of rules, which is the first rule of a struct that has an expression
 /// or is an aim: where [`aim`] and [`aim_mut`] find the item of an aim.
+///
+/// # Examples
+///
+/// ```
+/// use puns::{InPlace, Pun};
+///
+/// #[derive(Pun)]
+/// #[repr(C)]
+/// struct Two {
+///   #[pun(pointer(u8 = 2))]
+///   first: InPlace<u8>,
+///   #[pun(pointer(u8 = 3))]
+///   second: InPlace<u8>,
+/// }
+///
+/// let bytes = [0, 0, 7, 9];
+/// let two = puns::from_head::<Two>(&bytes).unwrap().0;
+/// let holder = bytes.as_ptr().with_addr(core::ptr::from_ref(two).addr()).cast();
+/// // SAFETY: `puns` checked `two` with its pointees, and the pointer has the provenance of the
+/// // bytes that hold them, which are not written while it is used.
+/// let first = unsafe { puns::aim::<Two, puns::First>(holder) };
+/// assert_eq!(*first, 7);
+/// ```
 pub struct First;
 
 /// The item after the one that `K` names, in a list of rules: `After<First>` is the second rule of
 /// a struct that has an expression or is an aim, `After<After<First>>` the third, and so on.
+///
+/// # Examples
+///
+/// ```
+/// use puns::{InPlace, Pun};
+///
+/// #[derive(Pun)]
+/// #[repr(C)]
+/// struct Two {
+///   #[pun(pointer(u8 = 2))]
+///   first: InPlace<u8>,
+///   #[pun(pointer(u8 = 3))]
+///   second: InPlace<u8>,
+/// }
+///
+/// let bytes = [0, 0, 7, 9];
+/// let two = puns::from_head::<Two>(&bytes).unwrap().0;
+/// let holder = bytes.as_ptr().with_addr(core::ptr::from_ref(two).addr()).cast();
+/// // SAFETY: `puns` checked `two` with its pointees, and the pointer has the provenance of the
+/// // bytes that hold them, which are not written while it is used.
+/// let second = unsafe { puns::aim::<Two, puns::After<puns::First>>(holder) };
+/// assert_eq!(*second, 9);
+/// ```
 pub struct After<K>(PhantomData<K>);
 
 impl<L: Rules> Item<L> for First {
