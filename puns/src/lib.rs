@@ -1442,15 +1442,15 @@ pub use layout::{crc32, sum16};
 /// [`Pointee`]: a `Pun` type, or a [`Thin<T, M>`](Thin), which stores the length of an unsized `T`
 /// before it.
 ///
-/// Both options write an aim the same way: `eager`, or `lazy` for a region, then the name and the
-/// type of the pointee. A pointer is always eager, and a region is lazy without `eager`. An eager
-/// aim is checked with the struct, and its field is an [`InPlace<T>`](InPlace), a `T` in the
-/// layout and in rules, which may name it. No code makes an `InPlace`, so no safe code makes a
-/// value of the struct, and code reads the pointee of a value without a check. A lazy region is
-/// checked when it is read, and its field is of any type. A pointer is not lazy, since nothing but
-/// the bytes that hold the struct bounds where its pointee is, and a reference to the struct does
-/// not give them: `pointer(lazy ..)` does not compile. With a name, a method reads the pointee, as
-/// visible as the field:
+/// Both options write an aim the same way: the name and the type of the pointee, after `eager` or
+/// `lazy` for a region, which is lazy without either. An eager aim is checked with the struct, and
+/// its field is an [`InPlace<T>`](InPlace), a `T` in the layout and in rules, which may name it. No
+/// code makes an `InPlace`, so no safe code makes a value of the struct, and code reads the pointee
+/// of a value without a check. A lazy region is checked when it is read, and its field is of any
+/// type. A pointer is always eager, since nothing but the bytes that hold the struct bounds where
+/// its pointee is, and a reference to the struct does not give them: it takes neither keyword, and
+/// `pointer(eager ..)` and `pointer(lazy ..)` do not compile. With a name, a method reads the
+/// pointee, as visible as the field:
 ///
 /// - eager: `fn name(&self) -> &Type`, safe, which reads through the reference to the value, which
 ///   has the provenance of the bytes of the pointee under the tree borrows model of Miri. The
@@ -1644,8 +1644,8 @@ pub use layout::{crc32, sum16};
 /// - Every rule is an expression as described in "Expressions", of the type that its option
 ///   requires, and each field it names is an unsigned integer, or a signed one under a cast, as
 ///   above. The `N` of each `le` and `be` is 1 to 16.
-/// - The field of each eager aim, that of an eager `pointer` or of `regions` of which one is eager,
-///   is of the type [`InPlace<T>`](InPlace), by any name. The pointee of an aim whose size is what
+/// - The field of each eager aim, that of a `pointer` or of `regions` of which one is eager, is
+///   of the type [`InPlace<T>`](InPlace), by any name. The pointee of an aim whose size is what
 ///   it stores is sized, a [`Thin`], or stores its length in its sized fields: a `size` or `len`
 ///   rule that reads no byte by offset. A pointee whose length `len = EXPR` gives is unsized, and a
 ///   `Thin`, which stores its length, is given neither a length nor a size.
@@ -2265,7 +2265,7 @@ impl<K: Pun + Copy> Tag<K> for [u8] {
 }
 
 /// A `T` that holds where the pointee of an eager [aim](crate#aims) is, the field of a struct with
-/// an eager `#[pun(pointer(..))]` or eager regions ([`macro@Pun`]), which no code but `puns` makes.
+/// a `#[pun(pointer(..))]` or eager regions ([`macro@Pun`]), which no code but `puns` makes.
 ///
 /// `puns` makes one only in the samples from which it finds the layout of an enum of the `Rust`
 /// representation that holds one, such as an `Option` of a pointer: values of the enum in

@@ -504,7 +504,7 @@ fn parse_repr(attrs: &[Attribute]) -> Result<Repr> {
 /// `lazy`, before its name.
 ///
 /// A region without `eager` or `lazy` is checked when it is read ([`Prefix::is_eager`]). A pointer
-/// is checked with the struct: it may say `eager`, and `lazy` is refused ([`AimOption`]).
+/// is always checked with the struct, and refuses both ([`AimOption`]).
 struct Prefix {
   /// `Some(true)` for `eager`, `Some(false)` for `lazy`, `None` for neither.
   check: Option<bool>,
@@ -590,12 +590,12 @@ impl Parse for TagOption {
 }
 
 /// The aim of `#[pun(pointer(..))]`: `name: Type = EXPR` or `Type = EXPR`, the name of the methods
-/// that read the pointee, if any, its type and where it is, after `eager` if it says so, then
+/// that read the pointee, if any, its type and where it is, then
 /// `, len = EXPR` for an unsized pointee of a given length, `, size = EXPR` for a pointee of a
 /// given size in bytes, or `, size = ..` for one that takes the rest of the tail of the struct.
 /// Without `= EXPR`, the pointee is as far from the start of the struct as the integer of the field
-/// says, as its layout says (`start`). A pointer is eager: `lazy` is refused, since a pointee at a
-/// stored place is checked with the struct (`layout::Start::Stored`).
+/// says, as its layout says (`start`). A pointer is always eager, since a pointee at a stored place
+/// is checked with the struct (`layout::Start::Stored`), so `eager` and `lazy` are refused.
 struct AimOption {
   name: Option<Ident>,
   pointee: Type,
@@ -646,15 +646,14 @@ fn keyword(input: ParseStream, word: &str) -> bool {
 
 impl Parse for AimOption {
   fn parse(input: ParseStream) -> Result<Self> {
-    if keyword(input, "lazy") {
+    if keyword(input, "eager") || keyword(input, "lazy") {
       return Err(Error::new(
         input.span(),
-        "a `pointer` is eager: its pointee is checked with the struct, since nothing but the \
-         bytes that hold the struct bounds where it is. A region at the cursor may be `lazy`",
+        "a `pointer` takes no `eager` or `lazy`: it is always eager, its pointee checked with the \
+         struct, since nothing but the bytes that hold the struct bounds where it is. A region \
+         says either",
       ));
     }
-    // `eager` says what a pointer is anyway.
-    input.parse::<Prefix>()?;
     // A name is an identifier then one colon, where a type may start with an identifier then two.
     let name = if input.peek(Ident) && input.peek2(Token![:]) && !input.peek2(Token![::]) {
       let name = input.parse()?;
