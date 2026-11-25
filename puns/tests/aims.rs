@@ -564,12 +564,14 @@ fn named(n: usize) -> Image {
 fn a_pointee_without_pointees_takes_no_parts() {
   // A text, or an empty list, nests the check of no other pointee, wherever the parts of the values
   // above it leave it: the name of the last value of a chain that fits in the parts, or the empty
-  // list of children that ends a branch of a tree.
+  // list of children that ends a branch of a tree. Under Miri, the sizes that stopped.
+  let (chains, trees) = if cfg!(miri) { (5..6, 4..5) } else { (1..12, 0..8) };
+  let n = chains.len() + trees.len();
   let results: Vec<_> = on_a_small_stack(|| {
-    let chains = (1..12).map(|n| head::<Named>(&named(n)));
-    chains.chain((0..8).map(|levels| head::<Node>(&nodes(levels)))).collect()
+    let chains = chains.map(|n| head::<Named>(&named(n)));
+    chains.chain(trees.map(|levels| head::<Node>(&nodes(levels)))).collect()
   });
-  assert_eq!(results, vec![Ok(()); 19]);
+  assert_eq!(results, vec![Ok(()); n]);
 }
 
 /// A struct of many parts, its aims first, then 24 bytes.
