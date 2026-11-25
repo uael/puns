@@ -8,7 +8,6 @@
 //! `full` feature, runs every pair of the model natively, in `parts2_*.rs`, `parts3.rs`,
 //! `parts4_*.rs` and `parts8.rs`.
 
-use puns::num::*;
 use puns_model::types::*;
 
 /// Checks the parts of a selection of pairs.

@@ -5,7 +5,6 @@
 
 #![cfg(not(miri))]
 
-use puns::num::*;
 use puns_model::types::*;
 
 /// Checks the parts of a sample of sources of 3 and 4 bytes.

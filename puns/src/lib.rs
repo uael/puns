@@ -2236,6 +2236,7 @@ impl<K: Pun + Copy> Tag<K> for [u8] {
 
 /// A `T` that holds where the pointee of an eager [aim](crate#aims) is, the field of a struct with
 /// an eager `#[pun(pointer(..))]` or eager regions ([`macro@Pun`]), which no code but `puns` makes.
+///
 /// `puns` makes one only in the samples from which it finds the layout of an enum of the `Rust`
 /// representation that holds one, such as an `Option` of a pointer: values of the enum in
 /// `MaybeUninit`s, in constants, which its analysis reads at compile time, and which give no
