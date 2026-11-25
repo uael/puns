@@ -24,8 +24,7 @@ macro_rules! pairs {
       Opt, OptFlag, Either, EitherC, Skewed, OptSoftBit, [E01; 2], (u8c<1>, u8), ByteZero, Never,
       Pair, Mixed, Single, Flags2, FlagsU, NestPair,
       core::mem::MaybeUninit<u16>, LastNotFf2, NotOneOneNz, ThirdIn, ThirdSoftIn, RustThird,
-      RustThirdSoft, ThirdUninit, ThirdSoftUninit, [Third; 2], [ThirdSoft; 2], HoldsOpaque,
-      MaybeOpaque, HoldsOptOpaque,
+      RustThirdSoft, ThirdUninit, ThirdSoftUninit, [Third; 2], [ThirdSoft; 2],
     );
     puns_model::finish(concat!("2 bytes, sources ", stringify!($($mark)+)));
   }};

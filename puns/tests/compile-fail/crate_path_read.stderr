@@ -1,0 +1,8 @@
+error[E0133]: call to unsafe function `transmute_copy` is unsafe and requires unsafe block
+  --> tests/compile-fail/crate_path_read.rs:22:10
+   |
+22 | #[derive(puns::Pun)]
+   |          ^^^^^^^^^ call to unsafe function
+   |
+   = note: consult the function's documentation for information on how to avoid undefined behavior
+   = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

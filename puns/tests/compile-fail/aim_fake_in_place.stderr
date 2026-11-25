@@ -1,0 +1,66 @@
+error[E0277]: the field of an eager aim is an `InPlace<T>`, not `InPlace<i32>`
+  --> tests/compile-fail/aim_fake_in_place.rs:11:8
+   |
+11 |   off: InPlace<i32>,
+   |        ^^^^^^^ not an `InPlace<T>`
+   |
+help: the trait `puns::InPlaceOf` is not implemented for `InPlace<i32>`
+  --> tests/compile-fail/aim_fake_in_place.rs:5:1
+   |
+ 5 | struct InPlace<T>(T);
+   | ^^^^^^^^^^^^^^^^^
+   = note: an `InPlace<T>` is a `T` that only `puns` makes, so that no safe code makes a value of a struct whose pointee `puns` did not check
+help: the trait `puns::InPlaceOf` is implemented for `puns::InPlace<T>`
+  --> src/lib.rs
+   |
+   | impl<T: ?Sized> InPlaceOf for InPlace<T> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0277]: the field of an eager aim is an `InPlace<T>`, not `InPlace<i32>`
+ --> tests/compile-fail/aim_fake_in_place.rs:7:10
+  |
+7 | #[derive(puns::Pun)]
+  |          ^^^^^^^^^ not an `InPlace<T>`
+  |
+help: the trait `puns::InPlaceOf` is not implemented for `InPlace<i32>`
+ --> tests/compile-fail/aim_fake_in_place.rs:5:1
+  |
+5 | struct InPlace<T>(T);
+  | ^^^^^^^^^^^^^^^^^
+  = note: an `InPlace<T>` is a `T` that only `puns` makes, so that no safe code makes a value of a struct whose pointee `puns` did not check
+help: the trait `puns::InPlaceOf` is implemented for `puns::InPlace<T>`
+ --> src/lib.rs
+  |
+  | impl<T: ?Sized> InPlaceOf for InPlace<T> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+  --> tests/compile-fail/aim_fake_in_place.rs:11:8
+   |
+ 7 | #[derive(puns::Pun)]
+   |          --------- in this derive macro expansion
+...
+11 |   off: InPlace<i32>,
+   |        ^^^^^^^
+   |        |
+   |        expected `&mut *mut InPlace<_>`, found `&mut *mut InPlace<i32>`
+   |        arguments to this function are incorrect
+   |
+   = note: `InPlace<i32>` and `puns::InPlace<_>` have similar names, but are actually distinct types
+note: `InPlace<i32>` is defined in the current crate
+  --> tests/compile-fail/aim_fake_in_place.rs:5:1
+   |
+ 5 | struct InPlace<T>(T);
+   | ^^^^^^^^^^^^^^^^^
+note: `puns::InPlace<_>` is defined in crate `puns`
+  --> src/lib.rs
+   |
+   | pub struct InPlace<T: ?Sized>(T);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: associated function defined here
+  --> src/layout.rs
+   |
+   |   pub const fn in_place<T: ?Sized>(_: &mut *mut crate::InPlace<T>) {}
+   |                ^^^^^^^^
+   = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

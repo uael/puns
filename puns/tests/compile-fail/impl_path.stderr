@@ -25,8 +25,8 @@ note: required by a bound in `puns::Path`
             puns::steps::One<I>
             puns::steps::Two<A, B>
             puns::steps::Walk<I, C, N>
-            puns::RuleAt<R, E, N>
-            puns::steps::InRule<T, R>
-            puns::steps::InWalk<X, W, NEXT>
-            puns::Root
-            puns::At<P, F>
+            puns::RuleAt<R, E, N, P, X>
+            puns::First
+            puns::After<K>
+            puns::steps::InRule<T, R, WHICH>
+          and $N others

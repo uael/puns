@@ -1,3 +1,12 @@
+error[E0046]: not all trait items implemented, missing: `Extent`, `Pointee`
+ --> tests/compile-fail/impl_rules.rs:6:1
+  |
+6 | impl puns::Rules for Nothing {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `Extent`, `Pointee` in implementation
+  |
+  = help: implement the missing item: `type Extent = /* Type */;`
+  = help: implement the missing item: `type Pointee = /* Type */;`
+
 error[E0277]: the trait bound `Nothing: puns::sealed::Sealed` is not satisfied
  --> tests/compile-fail/impl_rules.rs:6:22
   |
@@ -25,8 +34,8 @@ note: required by a bound in `puns::Rules`
             puns::steps::One<I>
             puns::steps::Two<A, B>
             puns::steps::Walk<I, C, N>
-            puns::RuleAt<R, E, N>
-            puns::steps::InRule<T, R>
-            puns::steps::InWalk<X, W, NEXT>
-            puns::Root
-            puns::At<P, F>
+            puns::RuleAt<R, E, N, P, X>
+            puns::First
+            puns::After<K>
+            puns::steps::InRule<T, R, WHICH>
+          and $N others

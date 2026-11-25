@@ -9,7 +9,7 @@ repository.
 cargo build                          # Build all crates
 cargo build --all-targets            # Also tests and examples: refusals are only reported by a build
 cargo test --all                     # All tests: unit, integration, compile-fail, doc tests (README included)
-cargo test --test api                # Run only one integration test file (also: bytes, parts, enums, ethernet, str, never)
+cargo test --test api                # Run only one integration test file (also: bytes, parts, enums, ethernet, str, aims)
 cargo test --test api TESTNAME       # Run a single test
 cargo test --test compile_fail       # Compile-fail tests (trybuild); TRYBUILD=overwrite to regenerate .stderr
 cargo run --example ethernet         # The Ethernet example; it asserts its results and prints `ok`
@@ -17,8 +17,9 @@ cargo rustc --release --features unstable --example codegen -- --emit asm -C llv
 cargo bench -p puns --features unstable --bench checks   # Time of the run-time checks, next to the same checks by hand (not in CI)
 cargo bench -p puns --features unstable --bench checks -- ipv6  # Only the cases whose name has `ipv6`
 MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests  # Miri, tree borrows
-MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests --target s390x-unknown-linux-gnu  # Miri, stacked borrows, on a big-endian target
-MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests --target i686-unknown-linux-gnu  # 32 bits
+MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --lib $(MIRI=1 STACKED=1 sh .github/tests.sh default) --target s390x-unknown-linux-gnu  # Miri, stacked borrows, on a big-endian target: the files that it runs (`.github/tests.sh`)
+MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --lib $(MIRI=1 STACKED=1 sh .github/tests.sh default) --target i686-unknown-linux-gnu  # 32 bits, stacked borrows too
+MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns $(sh .github/tests.sh tree) --target i686-unknown-linux-gnu  # The files of tree borrows only, on 32 bits (and s390x)
 cargo test --profile model -p puns-model --features full  # The full model check (every night in model.yml, also with `full,unstable`); `cargo test` runs a sample
 cargo test -p puns --features verdict  # Without the `unstable` feature, the default: every test that builds without it, the record of verdicts included
 cargo test -p puns --features unstable  # With it: the targets that need it too (`required-features`), the cases of `compile-fail-unstable`
@@ -59,12 +60,15 @@ seconds of each job go to the checkout and the toolchain before anything runs, a
 slower and vary by a third from one run to the next, so aim at 45 seconds and read the times of the
 jobs after a change of the workflow. The first run after a change of a cache key has nothing cached.
 With the caches, a job takes 15 to 20 seconds before its work starts, so the work is at most about
-20 seconds. Building the model's `miri_sample` tests, or its `parts` tests, already takes that long.
+20 seconds. Building a test file of the model of a hundred pairs, or the cases of `compile-fail`,
+already takes that long.
 
-This is why `cargo test --all` is fourteen jobs there: the tests of `puns` in six, four without the
-`unstable` feature and two with it, and the sample of the model check in eight, four each way. It is
-also why each Miri run of the tests of `puns` is five jobs. Without the feature, there are three
-parts of about the same time: two name their files, and the third takes all the remaining files.
+This is why `cargo test --all` is twenty jobs there: the tests of `puns` in eight, five without the
+`unstable` feature and three with it (the cases of `compile-fail` in two halves each way), and the
+sample of the model check in twelve, six each way (the native samples of pairs and of parts are in
+two files each, `sample_by_size_*` and `parts_by_size_*`). It is also why each Miri run of the
+tests of `puns` is six jobs. Without the feature, there are four parts of about the same time:
+three name their files, and the fourth takes all the remaining files.
 With the feature, the files that test it are split in two. Split a job again rather than let it pass
 45 seconds. These jobs have a cache of the standard library that Miri builds and of the sources it
 builds it from, and Miri builds it again when the modification time of a source changes, which a
@@ -82,10 +86,13 @@ these files: measure the peak memory of their `rustc`. Under Miri, the model che
 of pairs that reaches every unsafe path, not every pair. `puns-model/tests/miri_sample.rs` names the
 unsafe path that each pair reaches. Of the examples, only `ethernet` runs under Miri, since the
 others reach the same unsafe code of the library. A test file that is not for Miri starts with
-`#![cfg(not(miri))]` and says why. CI gives Miri the other ones by name, since Miri takes a second
-to start each test binary, even one that runs nothing. Each pair of types in a test of the model is
-an instance of the analysis, about a tenth of a second of build, so keep the tests that every push
-builds small.
+`#![cfg(not(miri))]` and says why. One that Miri runs with tree borrows only, since it reads
+through a reference what stacked borrows gives no access to (the safe reads of pointees outside
+their values), is in `tree_borrows_only` of `.github/tests.sh`, and the Miri jobs of 32 bits and
+big-endian run it with tree borrows apart (`tests.sh tree`). CI gives Miri the other ones by
+name, since Miri takes a second to start each test binary, even one that runs nothing. Each pair
+of types in a test of the model is an instance of the analysis, about a tenth of a second of build,
+so keep the tests that every push builds small.
 
 What `unsafe` code assumes of the target (the alignment of a primitive, the width of `usize` and of
 `isize`, the byte order) is asserted in a `const` where it is used, or derived from the target, and
@@ -141,11 +148,11 @@ docs of each part, private modules included (`cargo doc --document-private-items
 done yet: read it, and the module docs of what you change, before changing the library. Keep them,
 the crate docs and `README.md` consistent with the code.
 
-- **`puns/`**: the library (`#![no_std]`, no dependency but the derive). A scalar whose validity
-  is not in its bytes, such as the offset of a self-relative pointer of `nearest`, is a `Scalar`
-  with `Spec::never`: a pun reads it and never makes it, and its crate proves it, so `nearest`
-  depends on `puns`, not the reverse. The tests declare such scalars through that API only
-  (`tests/support/never.rs`, shared by `#[path]` with the compile-fail cases).
+- **`puns/`**: the library (`#![no_std]`, no dependency but the derive). A self-relative pointer,
+  such as one of `nearest`, derives `Pun` with `#[pun(pointer(..))]` on a field of type
+  `InPlace<T>`, an eager aim (`layout::Aim`) whose pointee `puns` checks, so `nearest` depends on
+  `puns`, not the reverse. The tests declare such a pointer through that API only
+  (`tests/support/aims.rs`, shared by `#[path]` with the compile-fail cases).
 - **`puns-derive/`**: `#[derive(Pun)]`, re-exported as `puns::Pun`.
 - **`puns-model/`**: the model check of the analysis against oracles that do not use it (not
   published, and using the test-only `verdict` feature of `puns`), with `fakecore/`, a `core` whose

@@ -1,0 +1,39 @@
+error[E0080]: evaluation panicked: the pointee of an aim whose extent is what it stores is sized, a `Thin`, or stores its length in its sized fields: a `size` or `len` rule that reads no byte by offset
+ --> src/validate.rs
+  |
+  |     pointee_checked::<T, L>();
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::validate::check_aim::<puns::Plan<[u8], ToCounted>, ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>>::{constant#0}` failed inside this call
+  |
+note: inside `puns::validate::pointee_checked::<ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>>`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/validate.rs
+  |
+  | /   assert!(
+  | |     !matches!(aim.extent, Extent::Pointee)
+  | |       || L::Pointee::LENGTH.is_some()
+  | |       || <<L::Pointee as Pointee>::Value as Pun>::LAYOUT.stores_length(),
+  | |     "{}",
+  | |     STORES_LENGTH
+  | |   );
+  | |___- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let (eager, next) = const {
+  |  _______________________^
+  | |     pointee_checked::<T, L>();
+  | |     match T::LAYOUT.rule(L::RULE) {
+  | |       Some(Rule::Aim(Aim { check, start, .. })) => {
+... |
+  | |   };
+  | |___^
+
+note: the above error was encountered while instantiating `fn puns::validate::check_aim::<puns::Plan<[u8], ToCounted>, ToCounted, puns::RuleAt<0, puns::steps::One<0>, (), Counted>>`
+ --> src/validate.rs
+  |
+  |     match unsafe { check_aim::<C, T, L>(base, size, (head, tail), cursor, input) } {
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

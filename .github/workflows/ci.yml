@@ -29,11 +29,15 @@ jobs:
             run: |
               cargo test -p puns --lib
               cargo test --workspace --exclude puns-model --doc
-          # Apart: trybuild builds each program, about twenty seconds. The cases of
-          # `compile-fail-kept`: the refusals and their messages.
-          - name: compile-fail
-            id: compile-fail
-            run: cargo test -p puns --test compile_fail
+          # Apart: trybuild builds each program, about twenty seconds of each half (the two tests
+          # of `compile_fail.rs`). The cases of `compile-fail-kept`: the refusals and their
+          # messages.
+          - name: compile-fail, 1 of 2
+            id: compile-fail-1
+            run: cargo test -p puns --test compile_fail -- --exact from_a_to_s
+          - name: compile-fail, 2 of 2
+            id: compile-fail-2
+            run: cargo test -p puns --test compile_fail -- --exact the_others
           # The other test files, every other one each. Each example is run through its test
           # (`tests/ethernet.rs`...), which asserts its results.
           - name: integration, 1 of 2
@@ -53,9 +57,12 @@ jobs:
               cargo test -p puns --features unstable --lib $TESTS
               cargo test -p puns --features unstable --doc
               cargo build -p puns --features unstable --example codegen
-          - name: unstable, compile-fail
-            id: unstable-compile-fail
-            run: cargo test -p puns --features unstable --test compile_fail
+          - name: unstable, compile-fail, 1 of 2
+            id: unstable-compile-fail-1
+            run: cargo test -p puns --features unstable --test compile_fail -- --exact from_a_to_s
+          - name: unstable, compile-fail, 2 of 2
+            id: unstable-compile-fail-2
+            run: cargo test -p puns --features unstable --test compile_fail -- --exact the_others
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -80,11 +87,13 @@ jobs:
       - run: ${{ matrix.run }}
 
   # The sample of the model check that every push runs (the exhaustive one is `model.yml`): about
-  # as long to build as everything else, so jobs of its own. `miri_sample` and `parts` are each
-  # about twenty seconds of build, a job each; the shapes are a job each way too; the other files
-  # together are less. Together they
-  # are `cargo test -p puns-model`, without the `unstable` feature, then with it (`puns` takes
-  # the layout that `rustc` chose: other verdicts, of other code).
+  # as long to build as everything else, so jobs of its own. Each pair is an instance of the
+  # analysis: the native samples of every pair of a few types of each size, and of their parts,
+  # are each in two files (`sample_by_size_*`, `parts_by_size_*`) of about ten seconds of build,
+  # a job each with the selections for Miri; the shapes are a job each way too; the other files
+  # together are less. Together they are `cargo test -p puns-model`, without the `unstable`
+  # feature, then with it (`puns` takes the layout that `rustc` chose: other verdicts, of other
+  # code).
   model:
     name: Model check (sample, ${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -94,32 +103,44 @@ jobs:
         include:
           - name: puns
             id: model-puns
-            tests: --test miri_sample
-          - name: rules, unsized, views, never made
+            tests: --test miri_sample --test sample_by_size_1
+          - name: puns, by size
+            id: model-puns-size
+            tests: --test sample_by_size_2
+          - name: rules, unsized, views
             id: model-rules
             tests: >-
               --lib --test core_shadowed --test regressions --test rules --test dst --test views
-              --test opaque
+              --test aims
           - name: shapes
             id: model-shapes
             tests: --test shapes
           - name: parts
             id: model-parts
-            tests: --test parts
+            tests: --test parts --test parts_by_size_1
+          - name: parts, by size
+            id: model-parts-size
+            tests: --test parts_by_size_2
           - name: unstable, puns
             id: model-unstable-puns
-            tests: --features unstable --test miri_sample
-          - name: unstable, rules, unsized, views, never made
+            tests: --features unstable --test miri_sample --test sample_by_size_1
+          - name: unstable, puns, by size
+            id: model-unstable-puns-size
+            tests: --features unstable --test sample_by_size_2
+          - name: unstable, rules, unsized, views
             id: model-unstable-rules
             tests: >-
               --features unstable --lib --test core_shadowed --test regressions --test rules
-              --test dst --test views --test opaque
+              --test dst --test views --test aims
           - name: unstable, shapes
             id: model-unstable-shapes
             tests: --features unstable --test shapes
           - name: unstable, parts
             id: model-unstable-parts
-            tests: --features unstable --test parts
+            tests: --features unstable --test parts --test parts_by_size_1
+          - name: unstable, parts, by size
+            id: model-unstable-parts-size
+            tests: --features unstable --test parts_by_size_2
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -278,23 +299,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Of the tests of `puns`, the ones that Miri runs, for each run: three parts of about the
+          # Of the tests of `puns`, the ones that Miri runs, for each run: four parts of about the
           # same time under Miri without the `unstable` feature, and the files about it, with it, in
           # two parts (see the step that selects them).
-          - name: tree borrows, 1 of 3
+          - name: tree borrows, 1 of 4
             id: tree
             args: -p puns
             part: 1
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
-          - name: tree borrows, 2 of 3
+          - name: tree borrows, 2 of 4
             id: tree
             args: -p puns
             part: 2
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
-          - name: tree borrows, 3 of 3
+          - name: tree borrows, 3 of 4
             id: tree
             args: -p puns
             part: 3
+            flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
+          - name: tree borrows, 4 of 4
+            id: tree
+            args: -p puns
+            part: 4
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
           - name: tree borrows, unstable, 1 of 2
             id: tree-unstable-1
@@ -309,23 +335,29 @@ jobs:
           # Stacked borrows, on a big-endian target: what loads integers, sums and CRCs several
           # bytes at a time must not depend on the byte order of the target, and the rules of
           # stacked borrows do not depend on the target (x86-64 has the jobs above).
-          - name: stacked borrows, big-endian, 1 of 3
+          - name: stacked borrows, big-endian, 1 of 4
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 1
             flags: -Zmiri-strict-provenance
-          - name: stacked borrows, big-endian, 2 of 3
+          - name: stacked borrows, big-endian, 2 of 4
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 2
             flags: -Zmiri-strict-provenance
-          - name: stacked borrows, big-endian, 3 of 3
+          - name: stacked borrows, big-endian, 3 of 4
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 3
+            flags: -Zmiri-strict-provenance
+          - name: stacked borrows, big-endian, 4 of 4
+            id: stacked-s390x
+            args: -p puns
+            target: s390x-unknown-linux-gnu
+            part: 4
             flags: -Zmiri-strict-provenance
           - name: stacked borrows, big-endian, unstable, 1 of 2
             id: stacked-s390x-unstable-1
@@ -340,23 +372,29 @@ jobs:
             part: unstable-2
             flags: -Zmiri-strict-provenance
           # 32 bits: a smaller `usize`, a `u64` aligned to 4.
-          - name: 32 bits, 1 of 3
+          - name: 32 bits, 1 of 4
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 1
             flags: -Zmiri-strict-provenance
-          - name: 32 bits, 2 of 3
+          - name: 32 bits, 2 of 4
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 2
             flags: -Zmiri-strict-provenance
-          - name: 32 bits, 3 of 3
+          - name: 32 bits, 3 of 4
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 3
+            flags: -Zmiri-strict-provenance
+          - name: 32 bits, 4 of 4
+            id: i686
+            args: -p puns
+            target: i686-unknown-linux-gnu
+            part: 4
             flags: -Zmiri-strict-provenance
           - name: 32 bits, unstable, 1 of 2
             id: i686-unstable-1
@@ -433,30 +471,38 @@ jobs:
       # A test file that is not for Miri says so (`#![cfg(not(miri))]`: the examples other than
       # `ethernet`, the trybuild test, what is about the derive and not the unsafe code). With
       # `--tests`, each would still be a binary that Miri starts to run nothing, a second each.
-      # The first two parts are named, about seventeen seconds of Miri each on x86-64 with tree
-      # borrows (less on the other targets); the third is every other file that Miri runs without
-      # the feature, so that a new file runs. A named file that is not there fails the job. The
-      # files about the feature run with it, every other one each. Under Miri, the unit tests run
-      # without the feature only: with it, fourteen seconds more.
+      # The first three parts are named, at most twenty seconds of Miri each on x86-64 with tree
+      # borrows, as the times of the test binaries in the logs of the jobs say; the fourth is every
+      # other file that Miri runs without the feature, so that a new file runs. A named file that
+      # is not there fails the job: `aim_reads`, which stacked borrows does not run, is in the
+      # fourth, and the fourth of a target with stacked borrows runs it with tree borrows, in the
+      # step after. The files about the feature run with it, every other one each. Under Miri, the
+      # unit tests run without the feature only: with it, fourteen seconds more.
       - name: Select the tests that Miri runs
         if: matrix.part
+        env:
+          # The targets other than the host run with stacked borrows.
+          STACKED: ${{ matrix.target && '1' || '0' }}
         run: |
           one="--lib --test core_shadowed --test str"
           two="--test ethernet --test checksums --test bytes --test patterns"
+          three="--test aims --test api --test assumed --test enums"
           case "${{ matrix.part }}" in
             1) tests=$one ;;
             2) tests=$two ;;
-            3)
+            3) tests=$three ;;
+            4)
               tests=""
-              for test in $(MIRI=1 sh .github/tests.sh default | sed 's/^--test //'); do
-                case " $one $two " in
+              files=$(MIRI=1 STACKED=$STACKED sh .github/tests.sh default | sed 's/^--test //')
+              for test in $files; do
+                case " $one $two $three " in
                   *" --test $test "*) ;;
                   *) tests="$tests --test $test" ;;
                 esac
               done
               ;;
             unstable-*)
-              tests=$(MIRI=1 sh .github/tests.sh unstable)
+              tests=$(MIRI=1 STACKED=$STACKED sh .github/tests.sh unstable)
               half="${{ matrix.part }}"
               tests=$(echo "$tests" | awk -v half="${half#unstable-}" 'NR % 2 == half % 2')
               tests="--features unstable $tests"
@@ -468,6 +514,12 @@ jobs:
           ${{ matrix.target && format('--target {0}', matrix.target) }} $TESTS ${{ matrix.filter }}
         env:
           MIRIFLAGS: ${{ matrix.flags }}
+      # The reads of pointees through references, which only tree borrows allows (`tree` in
+      # `.github/tests.sh`), on 32 bits and on a big-endian target too: a few seconds.
+      - if: matrix.target && matrix.part == 4
+        run: cargo miri test -p puns --target ${{ matrix.target }} $(sh .github/tests.sh tree)
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-strict-provenance
 
   deny:
     name: Cargo Deny

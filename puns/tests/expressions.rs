@@ -292,6 +292,16 @@ where
   again: T,
 }
 
+/// A struct whose `#[pun(bound(..))]` bounds a parameter that has bounds of its own. The derive
+/// adds the bound to them, or clippy would report `type_repetition_in_bounds`.
+#[derive(Pun)]
+#[pun(bound(T: Pun))]
+#[repr(C)]
+struct Relaxed<T: ?Sized> {
+  value: u8,
+  kind: core::marker::PhantomData<T>,
+}
+
 #[derive(Pun, Clone, Copy)]
 #[repr(u8)]
 enum Choice<T: Pun + Copy> {
@@ -303,6 +313,7 @@ enum Choice<T: Pun + Copy> {
 fn bounds_are_not_repeated() {
   let bounded = puns::from_bytes::<Bounded<u8, bool>>(&[1, 1, 2]).unwrap();
   assert_eq!((bounded.value, bounded.other, bounded.again), (1, true, 2));
+  assert_eq!(puns::from_bytes::<Relaxed<str>>(&[7]).map(|relaxed| relaxed.value), Ok(7));
   assert!(matches!(puns::try_pun::<_, Choice<bool>>([1u8, 1, 0]), Ok(Choice::B(true, false))));
   assert!(matches!(puns::try_pun::<_, Choice<bool>>([0u8, 1, 0]), Ok(Choice::A(true))));
   for choice in [Choice::A(true), Choice::B(false, true)] {
@@ -327,4 +338,57 @@ fn a_typed_region_of_a_parameter() {
   let packet = puns::from_bytes::<Packet<[bool]>>(&[7, 1, 0]).unwrap();
   assert_eq!((packet.kind, packet.body()), (7, Ok(&[true, false][..])));
   assert!(puns::from_bytes::<Packet<[bool]>>(&[7, 2]).unwrap().body().is_err());
+}
+
+/// Signed fields, which a rule reads under a cast, as Rust converts them: sign-extended to 128
+/// bits, then truncated to the type of the cast.
+#[derive(Pun)]
+#[repr(C)]
+#[pun(assert((small as u128) < 8 && small as u8 != 0x80))]
+#[pun(assert(order as u16 == 0xfffe && order as u128 == u128::MAX - 1))]
+#[pun(assert(never as u128 == u128::MAX && (self.wrapped as u128) < 0x8000))]
+struct Signed {
+  small: i8,
+  order: puns::num::i16be,
+  never: core::num::NonZero<i32>,
+  wrapped: Delta,
+}
+
+/// A signed integer in a struct of its own, which a rule reads as the integer.
+#[derive(Pun)]
+#[repr(transparent)]
+struct Delta(i16);
+
+#[test]
+fn a_signed_field_is_sign_extended() {
+  // `small` at 0, `order` at 1 (a `num` type has an alignment of 1), `never` at 4, `wrapped` at 8.
+  let bytes = |small: i8, wrapped: i16| {
+    let mut bytes = [0u8; 12];
+    bytes[0] = small.cast_unsigned();
+    bytes[1..3].copy_from_slice(&(-2i16).to_be_bytes());
+    bytes[4..8].copy_from_slice(&(-1i32).to_ne_bytes());
+    bytes[8..10].copy_from_slice(&wrapped.to_ne_bytes());
+    puns::pun::<[u8; 12], [u32; 3]>(bytes)
+  };
+  let check = |words: [u32; 3]| puns::from_bytes::<Signed>(puns::as_bytes(&words)).map(|_| ());
+  assert!(check(bytes(7, 1)).is_ok());
+  // -1 is `u128::MAX` under a cast, which is not less than 8, and -128 is `0x80` as a `u8`.
+  assert!(check(bytes(-1, 1)).is_err());
+  assert!(check(bytes(-128, 1)).is_err());
+  assert!(check(bytes(7, -1)).is_err());
+}
+
+/// As in Rust, a sum that overflows fails, and a negative number is near `u128::MAX` under a
+/// cast.
+#[derive(Pun)]
+#[repr(C)]
+#[pun(assert((value as u128) + 2 > 0))]
+struct Overflow {
+  value: i8,
+}
+
+#[test]
+fn a_negative_number_overflows_as_in_rust() {
+  assert!(puns::from_bytes::<Overflow>(&[1]).is_ok());
+  assert!(puns::from_bytes::<Overflow>(&[(-2i8).cast_unsigned()]).is_err());
 }

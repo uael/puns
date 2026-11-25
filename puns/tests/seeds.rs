@@ -24,20 +24,7 @@
 
 use core::{any::type_name, fmt::Write as _, num::NonZero};
 
-use puns::{Pun, Scalar, hook, layout::Spec};
-
-/// A scalar that a pun reads as initialized bytes but never makes, as an offset of another crate
-/// would be.
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-struct Sealed(u32);
-
-// SAFETY: `Sealed` is `repr(transparent)` over a `u32`, so it has its size, and every value is 4
-// initialized bytes, which is all that `Spec::never` says is known of it. It accepts no value, so
-// no pun makes one. It holds no `UnsafeCell`.
-unsafe impl Scalar for Sealed {
-  const SPEC: Spec = Spec::never::<Sealed>();
-}
+use puns::{InPlace, Pun, hook};
 
 /// A struct of the `Rust` representation. Rust specifies its size and that its bytes are
 /// initialized, but leaves to the compiler which byte is its `bool`.
@@ -135,6 +122,40 @@ enum Plain {
 enum Kept {
   X,
   Y,
+}
+
+/// A `repr(C)` struct whose first byte is an eager aim at a `bool`, that many bytes after it: 0 at
+/// the aim itself, 1 at `flag`. `puns` reads it from bytes once it checked the pointee, and makes
+/// no value of it.
+#[derive(Pun)]
+#[repr(C)]
+struct Aimed {
+  #[pun(pointer(bool = off as u128))]
+  off: InPlace<u8>,
+  flag: bool,
+}
+
+/// A struct of the `Rust` representation that holds an eager aim, at offset 0 or 1 (`flag` first).
+#[derive(Pun)]
+struct HoldsAim {
+  aimed: Aimed,
+  flag: bool,
+}
+
+/// A `repr(C)` struct whose last field is regions: an eager `bool`, then a byte.
+#[derive(Pun)]
+#[repr(C)]
+struct Framed {
+  len: u8,
+  #[pun(regions(eager flag: bool = 1, rest))]
+  tail: InPlace<[u8; 2]>,
+}
+
+/// A struct of the `Rust` representation that holds regions, at offset 0 or 1 (`flag` first).
+#[derive(Pun)]
+struct HoldsRegions {
+  framed: Framed,
+  flag: bool,
 }
 
 /// The values that a byte takes in the patterns. They are the bounds of `bool`, of `NonZero` and
@@ -243,14 +264,16 @@ fn the_same_whatever_the_layout() {
     Wraps,
     Either,
     [Mixed; 2],
-    Sealed,
-    (u8, Sealed),
     Tagged,
     Plain,
     Kept,
     Option<bool>,
     Option<NonZero<u16>>,
     Result<NonZero<u8>, ()>,
+    Aimed,
+    HoldsAim,
+    Framed,
+    HoldsRegions,
   );
   let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/seeds.txt");
   if std::env::var_os("PUNS_BLESS").is_some() {

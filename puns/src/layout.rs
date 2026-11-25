@@ -57,9 +57,6 @@
 //!   code can write, only serves to tell two automata apart, and two patterns are the same layout
 //!   only if their automata are the same, state by state. A value is checked with `str::from_utf8`
 //!   only where the automaton is the UTF-8 one, which is decided at compile time.
-//! - A **scalar that a pun never makes** ([`Spec::never`]), such as the offset of a self-relative
-//!   pointer, is initialized bytes as a source, and accepts no value as a target. What makes a
-//!   value of it valid is not in the layout.
 //!
 //! A layout is an automaton written as a tree, where a position in it is a state. The analysis
 //! walks the layouts of the source and the target together, position by position.
@@ -131,9 +128,6 @@ pub(crate) enum Valid {
   /// The ranges are sorted, disjoint and not adjacent. They are never empty, and never the single
   /// range of every value, which is [`Valid::Any`].
   In(&'static [(u128, u128)]),
-  /// No value. Only in [`Spec::valid`], for a scalar that a pun reads but never makes
-  /// ([`Spec::never`]). It is known to hold initialized bytes ([`Valid::Any`]).
-  Never,
 }
 
 /// The size, the byte order and the valid values of a scalar.
@@ -145,12 +139,11 @@ pub(crate) enum Valid {
 /// A `Spec` holds two sets of values. The values it *accepts* are what a target requires, so a pun
 /// makes a value of the scalar only from one of these. The values it is *known* to hold are what
 /// every value of the type guarantees, whatever safe code does, so a source proves these values,
-/// and no others. Both sets are the same, with three exceptions. A field restricted by
+/// and no others. Both sets are the same, with two exceptions. A field restricted by
 /// `#[pun(valid(..))]` ([`Layout::restricted`]) accepts fewer values than it is known to hold
 /// ([Guarantees and requirements](crate#guarantees-and-requirements)). A scalar that may be
 /// uninitialized ([`Spec::maybe_uninit`]) accepts some values, but is known to hold anything,
-/// padding included. A scalar that a pun never makes ([`Spec::never`]) accepts no value, but is
-/// known to hold initialized bytes.
+/// padding included.
 ///
 /// # Examples
 ///
@@ -176,9 +169,8 @@ pub struct Spec {
   /// known beyond what its type guarantees (safe code may write any value of that type to the
   /// field), and for a scalar that may be uninitialized.
   pub(crate) known: Valid,
-  /// Whether the value of the scalar is the value of an unsigned integer, which rules can read. It
-  /// is not for a signed or floating-point number, a `bool`, a `char` or an enum.
-  pub(crate) number: bool,
+  /// How the rules of `#[derive(Pun)]` read the value of the scalar, if they read it.
+  pub(crate) number: Number,
   /// Whether the values that `known` lists are exactly those that Rust allows for the type. This is
   /// so only for the types of `core` that `puns` knows and whose validity Rust restricts (`bool`,
   /// `char`, `NonZero`) and for the enums without fields that derive `Pun`. `rustc` puts a niche
@@ -187,6 +179,20 @@ pub struct Spec {
   /// The layout of the type that the bytes of the scalar are, if its `Scalar` declares one
   /// ([`Spec::stored_as`]). Its niche is the niche of the scalar.
   pub(crate) stored: Option<&'static Layout>,
+}
+
+/// How the rules of `#[derive(Pun)]` read the value of a scalar ([`Spec::signed`],
+/// [`Spec::not_a_number`]).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Number {
+  /// An unsigned integer, whose value is its bytes in its byte order. A rule reads it as it is.
+  Unsigned,
+  /// A signed integer in two's complement. A rule reads it under a cast, as Rust converts it:
+  /// sign-extended, so that `-1` is `u128::MAX`.
+  Signed,
+  /// A floating-point number, a `bool`, a `char` or an enum, whose bits are not an integer. A rule
+  /// does not read it.
+  Not,
 }
 
 /// Returns the greatest value of an unsigned integer of `size` bytes, `u128::MAX` from 16 bytes.
@@ -220,56 +226,7 @@ impl Spec {
       endian: Endian::NATIVE,
       valid: Valid::Any,
       known: Valid::Any,
-      number: true,
-      validity: false,
-      stored: None,
-    }
-  }
-
-  /// Returns the `Spec` of a scalar of type `T` that a pun reads as initialized bytes, but never
-  /// makes, because what makes a value of it valid is not in its bytes.
-  ///
-  /// A self-relative pointer is such a scalar: its bytes are an offset, and whether it is valid
-  /// depends on where it is and on what it aims at. A pun proves from such a scalar what
-  /// initialized bytes prove. A pun or a check that would make one does not compile, and a check
-  /// never accepts a variant of an enum that holds one: only the crate that declares the scalar
-  /// makes a value of it, and proves it.
-  /// [`validate_but_never`](crate::validate_but_never) checks the rest of a value that holds one.
-  /// A rule cannot name it as a field, since it is not a number, though a rule that reads bytes at
-  /// an offset reads its bytes as any others. An `Option` of it is such a scalar too, if the
-  /// `Option` has the size of the scalar ([Scalars that a pun never
-  /// makes](crate#scalars-that-a-pun-never-makes)).
-  ///
-  /// # Panics
-  ///
-  /// Panics if `T` has a size of 0. A pun relates bytes, so it would make such a scalar from no
-  /// bytes at all. In the `SPEC` of a [`Scalar`](crate::Scalar), this is an error at compile time.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::layout::{Layout, Spec};
-  ///
-  /// let spec = Spec::never::<u32>();
-  /// // No value is accepted, so no check makes one.
-  /// assert!(!spec.contains(0) && !spec.contains(8));
-  /// // Its bytes are initialized: a value that holds one is plain.
-  /// assert!(Layout::scalar::<u32>(spec).is_plain());
-  /// ```
-  ///
-  /// The scalar of a type is declared with [`Scalar`](crate::Scalar), as in the example of
-  /// [`validate_but_never`](crate::validate_but_never).
-  #[inline]
-  #[must_use]
-  pub const fn never<T>() -> Self {
-    let size = size_of::<T>();
-    assert!(size > 0, "a scalar that a pun never makes has at least one byte");
-    Self {
-      size,
-      endian: Endian::NATIVE,
-      valid: Valid::Never,
-      known: Valid::Any,
-      number: false,
+      number: Number::Unsigned,
       validity: false,
       stored: None,
     }
@@ -291,7 +248,7 @@ impl Spec {
       endian: Endian::NATIVE,
       valid: Valid::Any,
       known: Valid::Any,
-      number: true,
+      number: Number::Unsigned,
       validity: false,
       stored: None,
     }
@@ -320,7 +277,7 @@ impl Spec {
       endian,
       valid: Valid::Uninit,
       known: Valid::Uninit,
-      number: true,
+      number: Number::Unsigned,
       validity: false,
       stored: None,
     }
@@ -355,7 +312,7 @@ impl Spec {
       endian,
       valid: Valid::Any,
       known: Valid::Any,
-      number: true,
+      number: Number::Unsigned,
       validity: false,
       stored: None,
     }
@@ -446,33 +403,69 @@ impl Spec {
     Self { known: Valid::Uninit, ..self }
   }
 
-  /// Returns whether no value is valid for the scalar, which a pun reads but never makes
-  /// ([`Spec::never`]).
-  #[inline]
-  pub(crate) const fn is_never(&self) -> bool {
-    matches!(self.valid, Valid::Never)
-  }
-
   /// Returns whether a source may hold uninitialized bytes in this scalar.
   #[inline]
   pub(crate) const fn may_be_uninit(&self) -> bool {
     matches!(self.known, Valid::Uninit)
   }
 
-  /// Returns the same scalar, whose bytes are not the value of an unsigned integer.
+  /// Returns the same scalar, whose bytes are not an integer.
   ///
-  /// This is the scalar of a signed or floating-point number, a `bool`, a `char` or an enum. The
-  /// expressions of `#[pun(..)]` compute on unsigned integers, and do not read such a scalar.
+  /// This is the scalar of a floating-point number, a `bool`, a `char` or an enum, whose bits are
+  /// not its value. The expressions of `#[pun(..)]` compute on integers, and do not read such a
+  /// scalar. A signed integer is [`Spec::signed`].
   ///
   /// # Examples
   ///
-  /// The `Spec` of `i16` is `Spec::any::<i16>().not_a_number()`. A type of two bytes that are a
-  /// signed number is declared the same way, and a rule then does not read it:
+  /// The `Spec` of `f32` is `Spec::any::<f32>().not_a_number()`. A type of two bytes that are a
+  /// floating-point number is declared the same way, and a rule then does not read it:
   ///
   /// ```should_panic
   /// use puns::{
   ///   Scalar,
   ///   layout::{Endian, Op, Spec},
+  /// };
+  ///
+  /// /// A floating-point number of two bytes (half precision), the most significant first.
+  /// #[derive(Clone, Copy)]
+  /// #[repr(transparent)]
+  /// struct F16be([u8; 2]);
+  ///
+  /// // SAFETY: `F16be` is `repr(transparent)` over `[u8; 2]`, so it has the layout of a `[u8; 2]`
+  /// // [1], and `SPEC` has its size. Every value is two initialized bytes, which `Spec::any`
+  /// // accepts, any two initialized bytes are a valid `F16be`, and it holds no `UnsafeCell`.
+  /// //
+  /// // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi:
+  /// //
+  /// //     Structs and enums with this representation have the same layout and ABI as the only
+  /// //     non-size 0 non-alignment 1 field, if present, or unit otherwise.
+  /// unsafe impl Scalar for F16be {
+  ///   const SPEC: Spec = Spec::any::<F16be>().with_endian(Endian::Big).not_a_number();
+  /// }
+  ///
+  /// // A rule reads a `u16`, but neither an `f32` nor an `F16be`.
+  /// let _ = Op::load::<u16>(0);
+  /// let _ = Op::load::<F16be>(0);
+  /// ```
+  #[must_use]
+  pub const fn not_a_number(self) -> Self {
+    Self { number: Number::Not, ..self }
+  }
+
+  /// Returns the same scalar, whose bytes are a signed integer in two's complement.
+  ///
+  /// This is the scalar of `i8` to `i128`, `isize`, `NonZero` of one of them, and the signed
+  /// integers of [`num`](crate::num). The expressions of `#[pun(..)]` compute on `u128`s, where a
+  /// negative number is not one, so a rule reads such a field only under a cast, `field as u128`
+  /// or `field as u16`, as Rust converts it: sign-extended to 128 bits, then truncated to the type
+  /// of the cast. A rule that names the field alone does not compile.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::{
+  ///   Pun, Scalar,
+  ///   layout::{Endian, Spec},
   /// };
   ///
   /// /// A signed number of two bytes, the most significant first.
@@ -489,16 +482,24 @@ impl Spec {
   /// //     Structs and enums with this representation have the same layout and ABI as the only
   /// //     non-size 0 non-alignment 1 field, if present, or unit otherwise.
   /// unsafe impl Scalar for I16be {
-  ///   const SPEC: Spec = Spec::any::<I16be>().with_endian(Endian::Big).not_a_number();
+  ///   const SPEC: Spec = Spec::any::<I16be>().with_endian(Endian::Big).signed();
   /// }
   ///
-  /// // A rule reads a `u16`, but neither an `i16` nor an `I16be`.
-  /// let _ = Op::load::<u16>(0);
-  /// let _ = Op::load::<I16be>(0);
+  /// /// A change of -10 to 10: `-3 as u16` is `0xfffd`, as in Rust.
+  /// #[derive(Pun)]
+  /// #[repr(C)]
+  /// #[pun(assert((delta as u16) <= 10 || (delta as u16) >= 0xfff6))]
+  /// struct Change {
+  ///   delta: I16be,
+  /// }
+  ///
+  /// assert!(puns::from_bytes::<Change>(&(-3i16).to_be_bytes()).is_ok());
+  /// assert!(puns::from_bytes::<Change>(&(-11i16).to_be_bytes()).is_err());
+  /// assert!(puns::from_bytes::<Change>(&10i16.to_be_bytes()).is_ok());
   /// ```
   #[must_use]
-  pub const fn not_a_number(self) -> Self {
-    Self { number: false, ..self }
+  pub const fn signed(self) -> Self {
+    Self { number: Number::Signed, ..self }
   }
 
   /// Returns the same scalar, whose values are those that Rust allows for its type
@@ -683,7 +684,7 @@ impl Spec {
   /// }
   ///
   /// // What a rule reads of it.
-  /// assert_eq!(Op::load::<Be16>(0), Op::Load { offset: 0, size: 2, big: true });
+  /// assert_eq!(Op::load::<Be16>(0), Op::Load { offset: 0, size: 2, big: true, signed: false });
   /// ```
   #[inline]
   #[must_use]
@@ -718,10 +719,10 @@ impl Spec {
     unsafe { load(ptr, self.size, self.endian) }
   }
 
-  /// Returns whether the scalar accepts only some initialized values, or none.
+  /// Returns whether the scalar accepts only some initialized values.
   #[inline]
   pub(crate) const fn is_constrained(&self) -> bool {
-    matches!(self.valid, Valid::In(_) | Valid::Never)
+    matches!(self.valid, Valid::In(_))
   }
 
   /// Returns whether the scalar accepts `value`, the value of its bytes as an unsigned integer.
@@ -742,14 +743,12 @@ impl Spec {
     match self.valid {
       Valid::Uninit | Valid::Any => self.size >= 16 || value <= max_value(self.size),
       Valid::In(ranges) => contains(ranges, value),
-      Valid::Never => false,
     }
   }
 
   /// Returns whether the scalar accepts the value of its bytes at `ptr`.
   ///
-  /// A scalar that accepts any initialized bytes, or uninitialized ones, reads nothing, and neither
-  /// does a scalar that a pun never makes, which accepts no value.
+  /// A scalar that accepts any initialized bytes, or uninitialized ones, reads nothing.
   ///
   /// # Safety
   ///
@@ -765,7 +764,6 @@ impl Spec {
       // `self.size` initialized bytes, by contract on the caller. Only `Spec::with_ranges` makes a
       // `Valid::In`, and it asserts that the size is 1 to 16. These are the requirements of `load`.
       Valid::In(ranges) => contains(ranges, unsafe { load(ptr, self.size, self.endian) }),
-      Valid::Never => false,
     }
   }
 }
@@ -840,6 +838,17 @@ pub(crate) const unsafe fn load(ptr: *const u8, size: usize, endian: Endian) -> 
   }
 }
 
+/// Returns the signed integer of `size` bytes whose bits are the low bits of `value`, sign-extended
+/// to 128 bits in two's complement: what `as u128` makes of it in Rust.
+#[inline(always)]
+pub(crate) const fn sign_extend(value: u128, size: usize) -> u128 {
+  if size >= 16 {
+    return value;
+  }
+  let shift = 128 - 8 * size as u32;
+  ((value << shift).cast_signed() >> shift).cast_unsigned()
+}
+
 /// Returns the inclusive ranges of `values`, sorted, disjoint and not adjacent, and their count.
 ///
 /// The first `count` elements of the array are the ranges, as [`Spec::ranges`] takes them, and the
@@ -902,9 +911,8 @@ pub(crate) enum Uniform {
 /// Without the `unstable` feature, the analysis does not look into a layout that is not `fixed`
 /// ([`Layout::is_opaque`]). As a source, such a layout is what every choice of it is (initialized
 /// bytes if `init`, and otherwise bytes that may be padding). As a target, it is proven by the same
-/// type at the same place (`Id`). A struct whose size is the same in every layout, and that has
-/// no rule and no scalar that a pun never makes, is also proven field by field, at every offset
-/// each field may have.
+/// type at the same place (`Id`). A struct whose size is the same in every layout, and that has no
+/// rule, is also proven field by field, at every offset each field may have.
 #[derive(Copy, Clone, Debug)]
 #[expect(clippy::struct_excessive_bools, reason = "five facts of a layout, each asked alone")]
 pub(crate) struct Stable {
@@ -1054,7 +1062,7 @@ impl Id {
 
   /// Returns whether the identity is known. It is known if the type and every parameter, at any
   /// depth, have a name.
-  const fn known(&self) -> bool {
+  pub(crate) const fn known(&self) -> bool {
     if self.name.is_empty() {
       return false;
     }
@@ -1596,10 +1604,10 @@ impl Variant {
   ///   is.
   ///
   /// A variant without a sample of which `exists` says that a value may exist in a source holds a
-  /// scalar that a pun never makes, or a union none of whose fields has values. Its tag must be
-  /// known. That of a variant of which no value may exist need not be: no value has it, and it is
-  /// not the tag of another variant, since the tags of `T` are distinct, and those of the variants
-  /// of which a value may exist are those of `E`.
+  /// union none of whose fields has values. Its tag must be known. That of a variant of which no
+  /// value may exist need not be: no value has it, and it is not the tag of another variant, since
+  /// the tags of `T` are distinct, and those of the variants of which a value may exist are those
+  /// of `E`.
   ///
   /// [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
   ///
@@ -1878,7 +1886,8 @@ pub struct Layout {
   pub(crate) unsized_: bool,
   /// The number of leaves, the parts that the validation may have to check: scalars that accept
   /// only some values (or none), patterns, enums with fields, unions, types without values, and
-  /// structs with rules. The element of an array or a slice counts once.
+  /// each rule of a struct, which are the last leaves of the struct, in order
+  /// ([`Layout::rule_leaf`]). The element of an array or a slice counts once.
   pub(crate) leaves: usize,
   /// What every byte is, if every byte is the same thing.
   pub(crate) uniform: Uniform,
@@ -1998,6 +2007,33 @@ impl Layout {
     pin::<Checksum>,
     pin::<Varint>,
   );
+
+  /// The types whose functions the code of `#[derive(Pun)]` calls to make the aims of a struct with
+  /// regions or an eager aim, pinned as [`Layout::PIN`] pins the others. It is a constant of its
+  /// own, which the derive writes only for such a struct.
+  #[doc(hidden)]
+  #[expect(
+    clippy::type_complexity,
+    reason = "the derive writes this tuple of `fn` types out, with the paths it is told"
+  )]
+  pub const PIN_AIMS: (fn(Aim), fn(Start), fn(Extent), fn(Check)) =
+    (pin::<Aim>, pin::<Start>, pin::<Extent>, pin::<Check>);
+
+  /// Ties the field of an eager aim to the [`InPlace<T>`] of this crate, where `T` is the type of
+  /// the field in the layout, for `#[derive(Pun)]`: the function that the derive never calls
+  /// (`item` of `homes`) gives it a `&mut` to a pointer to the field, which compiles only if the
+  /// field is an `InPlace<T>`, since a `&mut` to a raw pointer admits no coercion.
+  ///
+  /// The derive names this function through `Layout`, which the type of [`Pun::LAYOUT`] fixes in an
+  /// implementation of the `Pun` of this crate, and not through a path of the crate that
+  /// `#[pun(crate = ..)]` names, which could make `InPlace<T>` another type for some `T`. So the
+  /// field of an eager aim of a `Pun` type is the `InPlace` that no safe code makes, for the `T` of
+  /// each instance, as the `# Safety` of `Pun` requires of a type with an eager aim.
+  ///
+  /// [`InPlace<T>`]: crate::InPlace
+  /// [`Pun::LAYOUT`]: crate::Pun::LAYOUT
+  #[doc(hidden)]
+  pub const fn in_place<T: ?Sized>(_: &mut *mut crate::InPlace<T>) {}
 
   /// Returns an uninitialized `T`, for `#[derive(Pun)]`, which measures the offsets of the fields
   /// of a struct by projecting a pointer into it.
@@ -2160,8 +2196,7 @@ impl Layout {
   ///
   /// # Panics
   ///
-  /// Panics if `T` has no value, or if its sample holds a scalar that a pun never makes, since
-  /// `puns` cannot make a value of one.
+  /// Panics if `T` has no value.
   #[doc(hidden)]
   #[must_use]
   pub const fn sample<T: crate::Pun>() -> mem::MaybeUninit<T> {
@@ -2198,21 +2233,6 @@ impl Layout {
     let mut i = 0;
     while i < fields.len() {
       if !fields[i].may_exist() {
-        return false;
-      }
-      i += 1;
-    }
-    true
-  }
-
-  /// Returns whether [`Layout::sample`] makes a value of the type of each layout of `fields`, so
-  /// that a value made of these fields can be made in const evaluation.
-  #[doc(hidden)]
-  #[must_use]
-  pub const fn sampled_all(fields: &[&'static Layout]) -> bool {
-    let mut i = 0;
-    while i < fields.len() {
-      if !crate::discover::has_sample(fields[i]) {
         return false;
       }
       i += 1;
@@ -2301,7 +2321,7 @@ impl Layout {
       uniform: match spec.valid {
         Valid::Uninit => Uniform::Pad,
         Valid::Any => Uniform::Any,
-        Valid::In(_) | Valid::Never => Uniform::No,
+        Valid::In(_) => Uniform::No,
       },
       has_rules: false,
       stable: Stable::FIXED,
@@ -2317,10 +2337,15 @@ impl Layout {
   /// safe code may write any value of the type. [`Field::restricted`] makes the field. The ranges
   /// are as [`Spec::with_ranges`] takes them, and must all be values of the scalar.
   ///
+  /// A struct whose layout Rust specifies, that requires nothing, and that is one integer and
+  /// fields of size 0, such as a `#[repr(transparent)]` struct around an integer, is restricted as
+  /// that integer, since its values are the values of the integer: the result is the scalar,
+  /// restricted, with the identity of the struct.
+  ///
   /// # Panics
   ///
-  /// Panics if `self` is not a scalar, is a scalar that accepts uninitialized bytes
-  /// ([`Spec::uninit`]), or is not 1 to 16 bytes. Also panics if `ranges` are not as
+  /// Panics if `self` is not a scalar or such a struct, is a scalar that accepts uninitialized
+  /// bytes ([`Spec::uninit`]), or is not 1 to 16 bytes. Also panics if `ranges` are not as
   /// [`Spec::with_ranges`] requires, or hold a value that the scalar does not accept.
   ///
   /// # Examples
@@ -2340,8 +2365,37 @@ impl Layout {
   /// let bit = Layout::scalar::<u8>(Spec::ranges::<u8>(Endian::NATIVE, &[(0, 1)]));
   /// let _ = bit.restricted(&[(1, 2)]);
   /// ```
+  ///
+  /// A field whose type is a struct around an integer, restricted as the integer:
+  ///
+  /// ```
+  /// use puns::Pun;
+  ///
+  /// #[derive(Pun, Clone, Copy)]
+  /// #[repr(transparent)]
+  /// struct Count(u16);
+  ///
+  /// #[derive(Pun)]
+  /// #[repr(C)]
+  /// struct Header {
+  ///   #[pun(valid(..=500))]
+  ///   count: Count,
+  /// }
+  ///
+  /// assert!(puns::from_bytes::<Header>(&500u16.to_ne_bytes()).is_ok());
+  /// assert!(puns::from_bytes::<Header>(&501u16.to_ne_bytes()).is_err());
+  /// ```
   #[must_use]
   pub const fn restricted(&self, ranges: &'static [(u128, u128)]) -> Self {
+    if let Kind::Struct(..) = self.kind {
+      let Some(number) = self.number_field() else {
+        panic!(
+          "only scalars, and structs that Rust lays out as one integer and require nothing, can be \
+           restricted"
+        )
+      };
+      return Self { id: self.id, stable: self.stable, ..number.restricted(ranges) };
+    }
     let Kind::Scalar(spec) = self.kind else { panic!("only scalars can be restricted") };
     assert!(!matches!(spec.valid, Valid::Uninit), "only initialized scalars can be restricted");
     // The restriction is not something that the type of the field enforces.
@@ -2716,7 +2770,7 @@ impl Layout {
     fields: &'static [Field],
     rules: &'static [Rule],
   ) -> Self {
-    let (mut i, mut end, mut leaves) = (0, 0, (!rules.is_empty()) as usize);
+    let (mut i, mut end, mut leaves) = (0, 0, rules.len());
     let mut has_rules = !rules.is_empty();
     let (mut all_any, mut all_pad) = (true, true);
     let mut tail: Option<&Field> = None;
@@ -3050,6 +3104,23 @@ impl Layout {
   // -----------------------------------------------------------------------------------------------
   // What every layout that Rust allows has (see "The `unstable` feature" in the crate docs)
 
+  /// Returns the same layout, the layout of `T`, after asserting that the metadata of a pointer to
+  /// `T` ([`Pun::Metadata`](crate::Pun)) is `()` exactly when the layout is sized, as the derive
+  /// declares it: that of the last field of a struct.
+  ///
+  /// # Panics
+  ///
+  /// Panics if the metadata of `T` says otherwise.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn measured<T: ?Sized + crate::Pun>(self) -> Self {
+    assert!(
+      self.unsized_ == (size_of::<T::Metadata>() != 0),
+      "the metadata of a type is `()` exactly when the type is sized"
+    );
+    self
+  }
+
   /// Returns the same layout, of the type whose identity is `id`.
   #[doc(hidden)]
   #[must_use]
@@ -3371,9 +3442,9 @@ impl Layout {
   /// the compiler.
   ///
   /// A struct whose field orders all make the same bytes counts, as `(u8, u8)` does, though which
-  /// byte holds which field depends on the compiler. What
-  /// [`validate_but_never`](crate::validate_but_never) checks of a value of such a layout is the
-  /// same in every layout that Rust allows. The answer does not depend on the `unstable` feature.
+  /// byte holds which field depends on the compiler. A check of every part of a value of such a
+  /// layout gives the same answer in every layout that Rust allows. The answer does not depend on
+  /// the `unstable` feature.
   ///
   /// # Examples
   ///
@@ -3398,45 +3469,6 @@ impl Layout {
   #[must_use]
   pub const fn is_specified(&self) -> bool {
     self.stable.deep
-  }
-
-  /// Returns whether the layout is a scalar that a pun never makes ([`Spec::never`]).
-  pub(crate) const fn is_never(&self) -> bool {
-    matches!(self.kind, Kind::Scalar(spec) if spec.is_never())
-  }
-
-  /// Returns whether a part of the layout, at any depth, is a scalar that a pun never makes
-  /// ([`Spec::never`]).
-  pub(crate) const fn holds_never(&self) -> bool {
-    // Such a scalar is a leaf.
-    if self.leaves == 0 {
-      return false;
-    }
-    match self.kind {
-      Kind::Scalar(spec) => spec.is_never(),
-      Kind::Pattern(_) => false,
-      Kind::Array(elem, _) | Kind::Slice(elem) => elem.holds_never(),
-      Kind::Struct(fields, _) => {
-        let mut i = 0;
-        while i < fields.len() {
-          if fields[i].layout.holds_never() {
-            return true;
-          }
-          i += 1;
-        }
-        false
-      }
-      Kind::Enum(layout) => {
-        let mut i = 0;
-        while i < layout.variants.len() {
-          if layout.variants[i].layout.holds_never() {
-            return true;
-          }
-          i += 1;
-        }
-        false
-      }
-    }
   }
 
   /// Returns whether a part of the layout, at any depth, requires what a value of its type may not
@@ -3483,9 +3515,8 @@ impl Layout {
   /// Returns whether no part that is not `fixed`, at any depth, has something to check, or whether
   /// the `unstable` feature is enabled.
   ///
-  /// What a check of every part of a value of the layout does, as
-  /// [`validate_but_never`](crate::validate_but_never) makes, is then the same in every layout that
-  /// Rust allows.
+  /// What a check of every part of a value of the layout does, as the check of an enum as a whole
+  /// or of the pointee of an eager aim makes, is then the same in every layout that Rust allows.
   pub(crate) const fn checks_kept(&self) -> bool {
     if UNSTABLE {
       return true;
@@ -3522,14 +3553,14 @@ impl Layout {
     }
   }
 
-  /// Returns the expression of the `rule`th rule of a struct, or no operation if there is no such
-  /// rule or it has no expression.
-  pub(crate) const fn rule_ops(&self, rule: usize) -> &'static [Op] {
+  /// Returns the `which`th expression of the `rule`th rule of a struct ([`Rule::expression`]), or
+  /// no operation if there is no such rule or expression.
+  pub(crate) const fn rule_ops(&self, rule: usize, which: usize) -> &'static [Op] {
     let rules = self.rules();
     if rule >= rules.len() {
       return &[];
     }
-    match rules[rule].ops() {
+    match rules[rule].expression(which) {
       Some(ops) => ops,
       None => &[],
     }
@@ -3702,8 +3733,8 @@ impl Layout {
   /// # Panics
   ///
   /// Panics if `layout` is not the layout of a union as `#[derive(Pun)]` makes it, if the layout of
-  /// a variant does not have the size of `T`, has more than one field, or holds a scalar that a pun
-  /// never makes, or if a field is not at offset 0, is larger than `T`, or is unsized.
+  /// a variant does not have the size of `T` or has more than one field, or if a field is not at
+  /// offset 0, is larger than `T`, or is unsized.
   ///
   /// # Examples
   ///
@@ -3748,8 +3779,14 @@ impl Layout {
         let field = &fields[0];
         assert!(field.offset == 0 && field.layout.size <= size, "the fields of a union are at 0");
         assert!(!field.layout.unsized_, "the fields of a union are sized");
+        // A check of a union checks its fields until one is valid, and would have to check the
+        // pointees of a field to tell, where a check with a worklist checks them later.
+        assert!(
+          !field.layout.holds_eager(false),
+          "a field of a union holds an eager aim, whose pointee is checked after the value that \
+           holds it, too late to choose the field"
+        );
       }
-      assert!(!variant.layout.holds_never(), "a union holds no scalar that a pun never makes");
       i += 1;
     }
     Self {
@@ -4061,9 +4098,7 @@ impl Layout {
   pub(crate) const fn rules_read_bytes(&self) -> bool {
     let (rules, mut i) = (self.rules(), 0);
     while i < rules.len() {
-      if let Some(ops) = rules[i].ops()
-        && ops_read_bytes(ops)
-      {
+      if rules[i].reads_bytes() {
         return true;
       }
       i += 1;
@@ -4127,8 +4162,8 @@ impl Layout {
           i += 1;
         }
         let mut i = 0;
-        while i < rules.len() {
-          if let Some(ops) = rules[i].ops()
+        while i < 2 * rules.len() {
+          if let Some(ops) = rules[i / 2].expression(i % 2)
             && !cheap_ops(ops)
           {
             return false;
@@ -4150,6 +4185,12 @@ impl Layout {
     }
   }
 
+  /// Returns the leaf of the rule `r` of a struct, from its first leaf: its rules are its last
+  /// leaves, one each, in order, so that each is proven or checked on its own.
+  pub(crate) const fn rule_leaf(&self, r: usize) -> usize {
+    self.leaves - self.rules().len() + r
+  }
+
   /// Returns the fields of a struct sorted by offset, or none if the layout is not a struct.
   pub(crate) const fn struct_fields(&self) -> &'static [Field] {
     match self.kind {
@@ -4158,10 +4199,150 @@ impl Layout {
     }
   }
 
-  /// Returns whether the last rule of a struct is a region without an expression, which takes
-  /// whatever remains of the tail.
-  pub(crate) const fn has_last_region(&self) -> bool {
-    matches!(self.rules().last(), Some(Rule::Region(None)))
+  /// Returns whether a value of the layout holds an eager aim ([`Check::Eager`]): a struct of it,
+  /// at any depth, has one, in a variant of an enum or an element of an array or a slice too.
+  ///
+  /// No function makes a value that holds one, and a check of one follows it to its pointee. A
+  /// crate of pointers tells by it which of its types hold pointers.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::{InPlace, Pun};
+  ///
+  /// #[derive(Pun)]
+  /// #[repr(transparent)]
+  /// struct Ptr {
+  ///   #[pun(pointer(u32 = off as u128))]
+  ///   off: InPlace<i32>,
+  /// }
+  ///
+  /// // `LAYOUT` is hidden, and read here only to show the answer.
+  /// assert!(<[Option<Ptr>; 2]>::LAYOUT.holds_eager_aims());
+  /// assert!(!<(u32, u8)>::LAYOUT.holds_eager_aims());
+  /// ```
+  #[must_use]
+  pub const fn holds_eager_aims(&self) -> bool {
+    self.holds_eager(false)
+  }
+
+  /// Returns whether a struct of the layout, at any depth, has an eager aim
+  /// ([`Check::Eager`]), and, if `unidentified`, one whose pointee has no identity, which nothing
+  /// proves ([`Aim::equals`]). The variants of an enum count, and the elements of an array or a
+  /// slice.
+  pub(crate) const fn holds_eager(&self, unidentified: bool) -> bool {
+    // An aim is a rule, which is a leaf.
+    if self.leaves == 0 {
+      return false;
+    }
+    match self.kind {
+      Kind::Scalar(_) | Kind::Pattern(_) => false,
+      Kind::Array(elem, _) | Kind::Slice(elem) => elem.holds_eager(unidentified),
+      Kind::Struct(fields, rules) => {
+        let mut i = 0;
+        while i < rules.len() {
+          if let Some(aim) = rules[i].aim()
+            && matches!(aim.check, Check::Eager)
+            && (!unidentified || !aim.id.known())
+          {
+            return true;
+          }
+          i += 1;
+        }
+        let mut i = 0;
+        while i < fields.len() {
+          if fields[i].layout.holds_eager(unidentified) {
+            return true;
+          }
+          i += 1;
+        }
+        false
+      }
+      Kind::Enum(layout) => {
+        let mut i = 0;
+        while i < layout.variants.len() {
+          if layout.variants[i].layout.holds_eager(unidentified) {
+            return true;
+          }
+          i += 1;
+        }
+        false
+      }
+    }
+  }
+
+  /// Returns the number of parts of the layout: the layout itself, and the parts of each of its
+  /// fields, its rules, the element of an array or a slice, and the variants of an enum. A rule is
+  /// one part, and the pointee of an aim is not a part of the layout.
+  ///
+  /// The validation of a value nests at most a few calls for each part of its layout, so the stack
+  /// that it takes grows with the parts, whatever the type. The check of the pointees of eager aims
+  /// in place counts them to bound its stack ([`AIM_PARTS`](crate::AIM_PARTS)).
+  pub(crate) const fn parts(&self) -> usize {
+    let mut parts = 1;
+    match self.kind {
+      Kind::Scalar(_) | Kind::Pattern(_) => {}
+      Kind::Array(elem, _) | Kind::Slice(elem) => parts += elem.parts(),
+      Kind::Struct(fields, rules) => {
+        parts += rules.len();
+        let mut i = 0;
+        while i < fields.len() {
+          parts = parts.saturating_add(fields[i].layout.parts());
+          i += 1;
+        }
+      }
+      Kind::Enum(layout) => {
+        let mut i = 0;
+        while i < layout.variants.len() {
+          parts = parts.saturating_add(layout.variants[i].layout.parts());
+          i += 1;
+        }
+      }
+    }
+    parts
+  }
+
+  /// Returns the most pointees that the validation of a value of the layout puts in the worklist
+  /// of [`check`](crate::check): one for each eager aim of a struct of it, in its fields, the
+  /// elements of an array and the variant of an enum that has the most, and, for a slice whose
+  /// elements hold eager aims, those of one element and the rest of the slice, which waits in one
+  /// entry once an element has put one there.
+  pub(crate) const fn defers(&self) -> usize {
+    match self.kind {
+      Kind::Scalar(_) | Kind::Pattern(_) => 0,
+      Kind::Array(elem, len) => elem.defers().saturating_mul(len),
+      Kind::Slice(elem) => match elem.defers() {
+        0 => 0,
+        one => one.saturating_add(1),
+      },
+      Kind::Struct(fields, rules) => {
+        let mut defers = 0usize;
+        let mut i = 0;
+        while i < rules.len() {
+          if matches!(rules[i], Rule::Aim(Aim { check: Check::Eager, .. })) {
+            defers = defers.saturating_add(1);
+          }
+          i += 1;
+        }
+        let mut i = 0;
+        while i < fields.len() {
+          defers = defers.saturating_add(fields[i].layout.defers());
+          i += 1;
+        }
+        defers
+      }
+      Kind::Enum(layout) => {
+        let (mut most, mut i) = (0, 0);
+        while i < layout.variants.len() {
+          let defers = layout.variants[i].layout.defers();
+          if defers > most {
+            most = defers;
+          }
+          i += 1;
+        }
+        most
+      }
+    }
   }
 
   /// Returns the rule that tells how long a value is from its first bytes, if there is one.
@@ -4189,16 +4370,69 @@ impl Layout {
     }
   }
 
+  /// Returns whether a value of the layout tells the length of its tail from its sized fields: it
+  /// is sized, or its `size` or `len` rule reads only its sized fields ([`LengthRule::in_head`]).
+  /// The pointee of an aim whose extent is what it stores ([`Extent::Pointee`]) is such a value, or
+  /// a [`Thin`](crate::Thin), and both the check of the aim and the read of its pointee evaluate
+  /// the rule over the sized fields, so that a pointee that the check accepts is one that the read
+  /// reads.
+  pub(crate) const fn stores_length(&self) -> bool {
+    match self.length_rule() {
+      _ if !self.unsized_ => true,
+      Some(rule) => rule.in_head(),
+      None => false,
+    }
+  }
+
   /// Returns the scalar of the unsigned integer that the layout is, if it is one.
   ///
-  /// This is a scalar of 1 to 16 bytes, always initialized, whose value is a number
-  /// ([`Spec::not_a_number`]), or a sized struct whose only field with a size is such a scalar, at
-  /// offset 0 and with the size of the struct. Rules read such a field.
+  /// This is what [`Layout::as_number`] returns, if it is unsigned. Rules read such a field as it
+  /// is.
   #[doc(hidden)]
   #[must_use]
   pub const fn as_integer(&self) -> Option<Spec> {
+    match self.as_number() {
+      Some(spec) if matches!(spec.number, Number::Unsigned) => Some(spec),
+      _ => None,
+    }
+  }
+
+  /// Returns the scalar that ends a sized layout, if it is an integer of 1 to 8 bytes, signed or
+  /// not, with no padding after it: the layout itself, or the last field of a struct, at any depth.
+  /// This is the length that a [`Thin`](crate::Thin) stores at the end of its `M`, right before its
+  /// value. Its valid values may be fewer than those of its type (`#[pun(valid(..))]`): what is
+  /// stored before a value is checked before its length is read.
+  pub(crate) const fn last_integer(&self) -> Option<Spec> {
     match self.kind {
-      Kind::Scalar(spec) if spec.is_integer() && spec.number && spec.size >= 1 => Some(spec),
+      Kind::Scalar(spec)
+        if spec.size >= 1
+          && spec.size <= 8
+          && spec.is_integer()
+          && !matches!(spec.number, Number::Not) =>
+      {
+        Some(spec)
+      }
+      Kind::Struct(fields, _) if !self.unsized_ && !fields.is_empty() => {
+        let last = &fields[fields.len() - 1];
+        if last.offset + last.layout.size == self.size { last.layout.last_integer() } else { None }
+      }
+      _ => None,
+    }
+  }
+
+  /// Returns the scalar of the integer that the layout is, signed or not, if it is one.
+  ///
+  /// This is a scalar of 1 to 16 bytes, always initialized, whose value is an integer
+  /// ([`Spec::signed`], [`Spec::not_a_number`]), or a sized struct whose only field with a size is
+  /// such a scalar, at offset 0 and with the size of the struct. Rules read such a field, a signed
+  /// one under a cast.
+  pub(crate) const fn as_number(&self) -> Option<Spec> {
+    match self.kind {
+      Kind::Scalar(spec)
+        if spec.is_integer() && !matches!(spec.number, Number::Not) && spec.size >= 1 =>
+      {
+        Some(spec)
+      }
       Kind::Struct(fields, _) if !self.unsized_ => {
         let (mut inner, mut i): (Option<&Layout>, usize) = (None, 0);
         while i < fields.len() {
@@ -4212,11 +4446,63 @@ impl Layout {
           i += 1;
         }
         match inner {
-          Some(inner) => inner.as_integer(),
+          Some(inner) => inner.as_number(),
           None => None,
         }
       }
       _ => None,
+    }
+  }
+
+  /// Returns the layout of the integer that a struct is, if Rust specifies its layout, it requires
+  /// nothing ([`is_free`](Self::is_free): no rule, no restricted value, no part without values),
+  /// and it is that integer and fields of size 0, the integer at offset 0 with the size of the
+  /// struct, at any depth.
+  const fn number_field(&self) -> Option<&'static Layout> {
+    let Kind::Struct(fields, _) = self.kind else { return None };
+    if self.unsized_ || !self.is_free() || !(self.is_specified() || UNSTABLE) {
+      return None;
+    }
+    let (mut inner, mut i): (Option<&'static Layout>, usize) = (None, 0);
+    while i < fields.len() {
+      let field = &fields[i];
+      if field.layout.size > 0 {
+        if inner.is_some() || field.offset != 0 || field.layout.size != self.size {
+          return None;
+        }
+        inner = Some(field.layout);
+      }
+      i += 1;
+    }
+    match inner {
+      Some(layout) if matches!(layout.kind, Kind::Scalar(_)) && layout.as_number().is_some() => {
+        Some(layout)
+      }
+      Some(layout) => layout.number_field(),
+      None => None,
+    }
+  }
+
+  /// Returns whether every byte of every value of the layout, up to the end of its tail, is
+  /// initialized: no padding, and no scalar that may be uninitialized. An enum is not taken to be,
+  /// though its variants may all be.
+  pub(crate) const fn initialized(&self) -> bool {
+    match self.kind {
+      Kind::Scalar(spec) => !spec.may_be_uninit(),
+      Kind::Array(elem, _) | Kind::Slice(elem) => elem.initialized(),
+      Kind::Pattern(_) => true,
+      Kind::Struct(fields, _) => {
+        let (mut i, mut covered) = (0, 0);
+        while i < fields.len() {
+          if fields[i].offset != covered || !fields[i].layout.initialized() {
+            return false;
+          }
+          covered += fields[i].layout.size;
+          i += 1;
+        }
+        covered == self.size
+      }
+      Kind::Enum(_) => false,
     }
   }
 
@@ -4316,47 +4602,68 @@ impl Layout {
     }
   }
 
-  /// Returns whether two structs have rules that are the same function of the bytes of each.
+  /// Returns whether two structs compute their rules over the same extent, so that a rule of one is
+  /// the same function of the bytes of each as the same rule of the other ([`Layout::has_rule`]).
   ///
   /// A rule is a function of the bytes of its struct, of its size (`size_of_val(self)`, a `size`
   /// rule), of the length of its tail (a `len` rule), and of the bytes of its tail (regions). So
-  /// two structs compute the same rules over the same bytes, whatever their fields, if they have at
-  /// least one rule, the same rules in the same order ([`Rule::equals`]), the same sized part, and
-  /// the same tail (where it starts, the size of an element, and, for a sized struct, the size of
-  /// the tail and the length of the array it ends with).
-  pub(crate) const fn same_rules(&self, other: &Layout) -> bool {
-    let (Kind::Struct(_, mine), Kind::Struct(_, theirs)) = (self.kind, other.kind) else {
+  /// two structs compute the same rule over the same bytes, whatever their fields, if they have the
+  /// same sized part and the same tail (where it starts, the size of an element, and, for a sized
+  /// struct, the size of the tail and the length of the array it ends with).
+  pub(crate) const fn same_extent(&self, other: &Layout) -> bool {
+    let (Kind::Struct(..), Kind::Struct(..)) = (self.kind, other.kind) else {
       return false;
     };
     let (tail, other_tail) = (self.tail_shape(), other.tail_shape());
-    if mine.is_empty()
-      || mine.len() != theirs.len()
-      || self.size != other.size
-      || self.tail != other.tail
-      || self.unsized_ != other.unsized_
-      || tail.start != other_tail.start
-      || tail.bytes != other_tail.bytes
-      || tail.len != other_tail.len
-      || tail.array != other_tail.array
-    {
+    self.size == other.size
+      && self.tail == other.tail
+      && self.unsized_ == other.unsized_
+      && tail.start == other_tail.start
+      && tail.bytes == other_tail.bytes
+      && tail.len == other_tail.len
+      && tail.array == other_tail.array
+  }
+
+  /// Returns whether the struct `self` has the rule `r` of the struct `other`, of the same extent
+  /// ([`Layout::same_extent`]), as the same function of its bytes: the same rule
+  /// ([`Rule::equals`]), and, for an aim at the cursor, after the same aims at the cursor, which
+  /// place it. A rule of any other kind does not depend on the other rules.
+  pub(crate) const fn has_rule(&self, other: &Layout, r: usize) -> bool {
+    let (mine, theirs) = (self.rules(), other.rules());
+    let mut i = 0;
+    if !theirs[r].at_cursor() {
+      while i < mine.len() {
+        if mine[i].equals(&theirs[r]) {
+          return true;
+        }
+        i += 1;
+      }
       return false;
     }
-    let mut i = 0;
-    while i < mine.len() {
-      if !mine[i].equals(&theirs[i]) {
+    // The aims at the cursor of each, in order, up to the rule.
+    let mut j = 0;
+    loop {
+      while !theirs[j].at_cursor() {
+        j += 1;
+      }
+      while i < mine.len() && !mine[i].at_cursor() {
+        i += 1;
+      }
+      if i == mine.len() || !mine[i].equals(&theirs[j]) {
         return false;
       }
-      i += 1;
+      if j == r {
+        return true;
+      }
+      (i, j) = (i + 1, j + 1);
     }
-    true
   }
 
   /// Returns whether two layouts are the same. They are the same if they require the same values,
   /// and guarantee the same values, at the same places.
   ///
   /// Identities are not compared. A scalar that may be uninitialized is equal to none. Two patterns
-  /// are equal only if their automata are, state by state. Two layouts that are the same prove
-  /// nothing of a scalar that a pun never makes: the analysis refuses it whatever the source.
+  /// are equal only if their automata are, state by state.
   #[expect(
     clippy::many_single_char_names,
     reason = "`a` and `x` are parts of `self`, `b` and `y` the same parts of `other`"
@@ -4506,9 +4813,7 @@ offsets!(12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35
 )]
 const fn same_valid(a: Valid, b: Valid, endian_a: Endian, endian_b: Endian) -> bool {
   match (a, b) {
-    (Valid::Uninit, Valid::Uninit) | (Valid::Any, Valid::Any) | (Valid::Never, Valid::Never) => {
-      true
-    }
+    (Valid::Uninit, Valid::Uninit) | (Valid::Any, Valid::Any) => true,
     (Valid::In(x), Valid::In(y)) => {
       let mut i = 0;
       while i < x.len() && i < y.len() && x[i].0 == y[i].0 && x[i].1 == y[i].1 {
@@ -4902,7 +5207,7 @@ impl Dfa {
 pub enum Op {
   /// Pushes a constant.
   Lit(u128),
-  /// Pushes the unsigned integer of `size` bytes at `offset` in the struct, a field.
+  /// Pushes the integer of `size` bytes at `offset` in the struct, a field.
   Load {
     /// Where the integer is, in bytes from the start of the struct.
     offset: usize,
@@ -4910,13 +5215,16 @@ pub enum Op {
     size: u8,
     /// `true` if it is big-endian, `false` if little-endian.
     big: bool,
+    /// `true` if it is a signed integer in two's complement, which is pushed sign-extended to 128
+    /// bits, as `as u128` converts it in Rust, so that `-1` is `u128::MAX`.
+    signed: bool,
   },
   /// Pushes the extent of the value in bytes, `size_of_val(self)` in a rule. The extent is its size
   /// up to the end of its slice, without the padding that may follow the slice. A `size` or `len`
   /// rule, which defines it, does not read it.
   Size,
-  /// Replaces an offset with the unsigned integer of `size` bytes at that offset in the value.
-  /// Fails if these bytes are not all within the value.
+  /// Replaces an offset with the integer of `size` bytes at that offset in the value. Fails if
+  /// these bytes are not all within the value.
   At {
     /// The size in bytes of the integer.
     size: u8,
@@ -5102,8 +5410,8 @@ impl Op {
   /// Returns the operation that pushes the value of the field of type `T` at `offset`.
   ///
   /// `T` must be an unsigned integer, or a sized struct whose only field with a size is one and is
-  /// as large as the struct ([`Spec::not_a_number`] says what is not an integer). The operation
-  /// reads it in its byte order.
+  /// as large as the struct ([`Spec::signed`] and [`Spec::not_a_number`] say what is not one). The
+  /// operation reads it in its byte order.
   ///
   /// # Panics
   ///
@@ -5118,7 +5426,7 @@ impl Op {
   /// #[repr(transparent)]
   /// struct Port(u16be);
   ///
-  /// assert_eq!(Op::load::<u16be>(4), Op::Load { offset: 4, size: 2, big: true });
+  /// assert_eq!(Op::load::<u16be>(4), Op::Load { offset: 4, size: 2, big: true, signed: false });
   /// // A struct that holds one integer is that integer.
   /// assert_eq!(Op::load::<Port>(4), Op::load::<u16be>(4));
   /// ```
@@ -5126,12 +5434,49 @@ impl Op {
   pub const fn load<T: crate::Pun>(offset: usize) -> Self {
     let Some(spec) = T::LAYOUT.as_integer() else {
       panic!(
-        "a rule reads the unsigned integer fields of its struct, and this field is not one (a \
-         signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes \
-         with `le(offset, size)` or `be(offset, size)`"
+        "a rule reads the unsigned integer fields of its struct, and this field is not one: read a \
+         signed integer under a cast (`field as u128`), which sign-extends it, and the bytes of a \
+         floating-point number, a `bool`, a `char` or an enum with `le(offset, size)` or \
+         `be(offset, size)`"
       )
     };
-    Op::Load { offset, size: spec.size as u8, big: !spec.endian.is_little() }
+    Op::Load { offset, size: spec.size as u8, big: !spec.endian.is_little(), signed: false }
+  }
+
+  /// Returns the operation that pushes the value of the field of type `T` at `offset`, as `as`
+  /// converts it, for `#[derive(Pun)]`, which writes it under a cast.
+  ///
+  /// `T` is an integer, signed or not, or a sized struct whose only field with a size is one and is
+  /// as large as the struct. A signed integer is sign-extended ([`Spec::signed`]).
+  ///
+  /// # Panics
+  ///
+  /// Panics if `T` is neither an integer nor such a struct.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn load_as<T: crate::Pun>(offset: usize) -> Self {
+    let Some(spec) = T::LAYOUT.as_number() else {
+      panic!(
+        "a rule casts the integer fields of its struct, and this field is not one (a \
+         floating-point number, a `bool`, a `char` or an enum is not): read its bytes with \
+         `le(offset, size)` or `be(offset, size)`"
+      )
+    };
+    let signed = matches!(spec.number, Number::Signed);
+    Op::Load { offset, size: spec.size as u8, big: !spec.endian.is_little(), signed }
+  }
+
+  /// Returns [`Op::At`] of an unsigned integer of `size` bytes in the byte order `endian`, for
+  /// `#[derive(Pun)]`.
+  ///
+  /// # Panics
+  ///
+  /// Panics if `size` is not 1 to 16.
+  #[doc(hidden)]
+  #[must_use]
+  pub const fn at(size: usize, endian: Endian) -> Self {
+    assert!(size >= 1 && size <= 16, "a rule reads an integer of 1 to 16 bytes");
+    Op::At { size: size as u8, big: !endian.is_little() }
   }
 
   /// Returns whether two operations are the same, data included. Two [`Op::Matches`] are the same
@@ -5143,9 +5488,10 @@ impl Op {
   const fn equals(&self, other: &Op) -> bool {
     match (*self, *other) {
       (Op::Lit(a), Op::Lit(b)) => a == b,
-      (Op::Load { offset: a, size: b, big: c }, Op::Load { offset: x, size: y, big: z }) => {
-        a == x && b == y && c == z
-      }
+      (
+        Op::Load { offset: a, size: b, big: c, signed: d },
+        Op::Load { offset: w, size: x, big: y, signed: z },
+      ) => a == w && b == x && c == y && d == z,
       (Op::At { size: a, big: b }, Op::At { size: x, big: y }) => a == x && b == y,
       (Op::Varint { form: a, length: b }, Op::Varint { form: x, length: y }) => {
         a as u8 == x as u8 && b == y
@@ -5808,8 +6154,9 @@ pub(crate) const fn same_ops(a: &[Op], b: &[Op]) -> bool {
 /// write the fields of a value so that its rules do not hold, and unsafe code must not rely on a
 /// rule of a value that it did not check.
 ///
-/// `#[derive(Pun)]` makes the rules of `#[pun(size = ..)]` and `#[pun(assert(..))]` on a struct,
-/// and of `#[pun(len = ..)]` and `#[pun(regions(..))]` on its last field.
+/// `#[derive(Pun)]` makes the rules of `#[pun(size = ..)]` and `#[pun(assert(..))]` on a struct, of
+/// `#[pun(len = ..)]` and `#[pun(regions(..))]` on its last field, and of `#[pun(pointer(..))]` on
+/// a field of type [`InPlace<T>`](crate::InPlace).
 ///
 /// # Examples
 ///
@@ -5839,10 +6186,250 @@ pub enum Rule {
   Len(&'static [Op]),
   /// The value of the expression is not 0.
   Assert(&'static [Op]),
-  /// The tail of the value has a region of as many bytes as the value of the expression, or of
-  /// whatever remains of the tail for `None`. The regions follow each other from the start of the
-  /// tail, in the order of the rules.
-  Region(Option<&'static [Op]>),
+  /// A value at a place of the checked bytes that the struct points at ([`Aim`]), whose type is
+  /// the `Pointee` of the item of this rule in the list `Pun::Rules`.
+  Aim(Aim),
+}
+
+/// A value at a place of the checked bytes, which a struct points at: its *pointee*, such as the
+/// value that a self-relative pointer points at, or a region of the tail of the struct.
+///
+/// An aim says three things, and every combination of them is an aim that `puns` checks and reads:
+///
+/// - Where its pointee is ([`Start`]): where an expression over the struct says, from the start of
+///   the struct, or at the cursor of the tail of the struct, after the pointee of the aim before.
+/// - How large it is ([`Extent`]): what the pointee stores, the length that an expression over the
+///   struct gives, the size in bytes that one gives, or the rest of the tail of the struct.
+/// - When it is checked ([`Check`]): with the struct, or when it is read.
+///
+/// The type of the pointee is a [`Pointee`](crate::Pointee): a [`Pun`](crate::Pun) type, or a
+/// [`Thin`](crate::Thin), which stores the length of its value before it. It is named by the item
+/// of the rule in the hidden list `Pun::Rules`, through which the validation reaches the checks of
+/// the pointee, so that a type that points at itself, as a list of pairs does, is checked by a
+/// recursive call of the same function. A layout cannot hold itself, so an aim records the size,
+/// the alignment and the identity of its pointee (`Pun::ID`, made without a layout) instead of its
+/// layout.
+///
+/// A pointee must be of a type that its extent applies to, which [`Aim::new`] asserts: what a
+/// pointee stores is its length only if it is sized, a `Thin`, or a struct whose `size` or `len`
+/// rule reads its sized fields; a length is given only to an unsized pointee; and a `Thin` stores
+/// its own length, which no expression gives.
+///
+/// The expressions of an aim read the struct that holds it, as those of the other rules do: one for
+/// where the pointee is if it is stored, and one for its length or its size if it is given.
+///
+/// `#[derive(Pun)]` makes an aim at a stored place with `#[pun(pointer(..))]` on a field, and the
+/// aims at the cursor with `#[pun(regions(..))]` on the last field ([`macro@crate::Pun`]).
+///
+/// # Examples
+///
+/// ```
+/// use puns::layout::{Aim, Check, Extent, Op, Start};
+///
+/// // The pointee of a self-relative pointer: a `u64` at the address of the struct plus the `u32`
+/// // at its offset 0, checked with the struct.
+/// const AT: [Op; 1] = [Op::load::<u32>(0)];
+/// const POINTER: Aim = Aim::new::<u64>(Start::Stored(&AT), Extent::Pointee, Check::Eager);
+///
+/// // A region: as many bytes as the `u16` at offset 4 says, from the cursor, checked when read.
+/// const LEN: [Op; 1] = [Op::load::<u16>(4)];
+/// const REGION: Aim = Aim::new::<[u8]>(Start::Next, Extent::Bytes(&LEN), Check::Lazy);
+///
+/// assert_eq!((POINTER.check(), REGION.check()), (Check::Eager, Check::Lazy));
+/// ```
+#[derive(Copy, Clone, Debug)]
+pub struct Aim {
+  /// Where the pointee is.
+  pub(crate) start: Start,
+  /// How large the pointee is.
+  pub(crate) extent: Extent,
+  /// When the pointee is checked.
+  pub(crate) check: Check,
+  /// The size of the value of the pointee, without the elements of its tail if it is unsized.
+  pub(crate) size: usize,
+  /// The alignment of the pointee.
+  pub(crate) align: usize,
+  /// The identity of the type of the pointee.
+  pub(crate) id: Id,
+}
+
+/// Where the pointee of an [`Aim`] is.
+///
+/// # Examples
+///
+/// ```
+/// use puns::layout::{Op, Start};
+///
+/// // At the address of the struct plus the `u32` at its offset 0.
+/// const AT: [Op; 1] = [Op::load::<u32>(0)];
+/// let pointer = Start::Stored(&AT);
+/// // Where the pointee before it ends: a region.
+/// let region = Start::Next;
+/// assert!(matches!((pointer, region), (Start::Stored(_), Start::Next)));
+/// ```
+#[derive(Copy, Clone, Debug)]
+pub enum Start {
+  /// At the address of the struct that holds the aim, plus the value of the expression, read as
+  /// an `i128` in two's complement, so that a pointee may be before the struct. A
+  /// [`Thin`](crate::Thin) is there where its length is, and its value right after it.
+  Stored(&'static [Op]),
+  /// At the cursor of the struct: where the pointee of the aim at the cursor before it ends, or the
+  /// start of the tail of the struct for the first one. The value is aligned for the pointee by its
+  /// offset from the start of the struct, with what the pointee stores before it right before it.
+  Next,
+}
+
+/// How large the pointee of an [`Aim`] is: how its metadata, the length of its tail if it is
+/// unsized, is found. Its size is the size of its value with that length, as `size_of_val` gives.
+///
+/// The metadata is at the pointee (`Pointee`), or the aim gives it, as a length (`Length`), or as
+/// the size in bytes that the length makes (`Bytes`, and `Rest` for what remains of the tail).
+/// Regions give their sizes in bytes. A pointer may give one too: every extent applies at either
+/// start, so that an aim is any start, any extent and either check.
+///
+/// # Examples
+///
+/// ```
+/// use puns::layout::{Extent, Op};
+///
+/// // A pointee that is sized, or that stores its length.
+/// let stored = Extent::Pointee;
+/// // A pointee of as many elements as the `u16` at offset 4 of the struct says.
+/// const LEN: [Op; 1] = [Op::load::<u16>(4)];
+/// let length = Extent::Length(&LEN);
+/// // A pointee of as many bytes.
+/// let bytes = Extent::Bytes(&LEN);
+/// // A pointee that ends where the tail of the struct ends.
+/// let rest = Extent::Rest;
+/// assert!(matches!(
+///   (stored, length, bytes, rest),
+///   (Extent::Pointee, Extent::Length(_), Extent::Bytes(_), Extent::Rest)
+/// ));
+/// ```
+#[derive(Copy, Clone, Debug)]
+pub enum Extent {
+  /// What the pointee stores: nothing if it is sized, the length that a [`Thin`](crate::Thin)
+  /// stores before its value, or the length that its `size` or `len` rule gives from its sized
+  /// fields (a rule that reads no byte by offset).
+  Pointee,
+  /// The value of the expression: the length of the tail of the pointee, which is unsized.
+  Length(&'static [Op]),
+  /// The value of the expression, in bytes: the size of the pointee, whose length is the one of
+  /// that size, trailing padding included, as [`from_bytes`](crate::from_bytes) finds it.
+  Bytes(&'static [Op]),
+  /// To the end of the tail of the struct that holds the aim: the size of the pointee is what
+  /// remains from where its value is, and its length the one of that size, as for
+  /// [`Extent::Bytes`].
+  Rest,
+}
+
+/// When the pointee of an [`Aim`] is checked.
+///
+/// # Examples
+///
+/// ```
+/// use puns::layout::{Aim, Check, Extent, Start};
+///
+/// // A region is checked when it is read.
+/// let region = Aim::new::<[u8]>(Start::Next, Extent::Rest, Check::Lazy);
+/// assert_eq!(region.check(), Check::Lazy);
+/// ```
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Check {
+  /// With the struct that holds it: a check of the struct finds the pointee, and checks it in the
+  /// bytes that the check reads, recursively. A pointee whose place or size does not fit in them,
+  /// or that is not valid, makes the struct invalid. A reference to the struct is then a reference
+  /// to a valid pointee, which code may read without a check. So no function of `puns` makes a
+  /// value that holds an eager aim, nor gives a `&mut` to one, and only the same aim at the same
+  /// place of a source, of a pointee of the same identity, proves one.
+  Eager,
+  /// When it is read: what reads the pointee checks it then. A pointee at the cursor must fit in
+  /// the tail of the struct, since the next one starts where it ends, and a pointee at a stored
+  /// place requires nothing of the struct. Where the struct does not keep to this, since safe code
+  /// may write its fields, the reader of a region truncates it to the tail, and a size whose
+  /// expression fails takes what remains.
+  Lazy,
+}
+
+impl Aim {
+  /// Returns an aim at a `T`, the `Pointee` of the item of its rule in the list `Pun::Rules`.
+  ///
+  /// The size, the alignment and the identity of `T` are read from its probe and its identity,
+  /// not from its layout, which may hold this aim.
+  ///
+  /// # Panics
+  ///
+  /// Panics if the extent does not apply to `T`: [`Extent::Length`] for a sized `T`, and an extent
+  /// other than [`Extent::Pointee`] for a [`Thin`](crate::Thin), which stores its own. A call in a
+  /// constant does not compile then. That an unsized `T` whose extent is what it stores stores its
+  /// length is asserted where the aim is checked or read, since the layout of `T` may hold this
+  /// aim.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::layout::{Aim, Check, Extent, Op, Start};
+  ///
+  /// // The pointee of a self-relative pointer, a `u64` at the address of the struct plus the
+  /// // `u32` at its offset 0.
+  /// const AT: [Op; 1] = [Op::load::<u32>(0)];
+  /// let _ = Aim::new::<u64>(Start::Stored(&AT), Extent::Pointee, Check::Eager);
+  /// // A list of 4 bytes after the `u32`, checked when read.
+  /// const FOUR: [Op; 1] = [Op::Lit(4)];
+  /// let _ = Aim::new::<[u8]>(Start::Stored(&AT), Extent::Length(&FOUR), Check::Lazy);
+  /// ```
+  #[must_use]
+  pub const fn new<T: ?Sized + crate::Pointee>(start: Start, extent: Extent, check: Check) -> Self {
+    // The type of the pointee, not its layout, which may hold this aim.
+    let sized = size_of::<<T::Value as crate::Pun>::Metadata>() == 0;
+    assert!(!sized || !matches!(extent, Extent::Length(_)), "a sized pointee has no length");
+    assert!(
+      T::LENGTH.is_none() || matches!(extent, Extent::Pointee),
+      "a `Thin` stores the length of its value, which no expression gives"
+    );
+    Self { start, extent, check, size: T::POINTEE_SIZE, align: T::POINTEE_ALIGN, id: T::POINTEE_ID }
+  }
+
+  /// Returns when the pointee is checked.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::layout::{Aim, Check, Extent, Op, Start};
+  ///
+  /// const AT: [Op; 1] = [Op::load::<u32>(0)];
+  /// let pointer = Aim::new::<u64>(Start::Stored(&AT), Extent::Pointee, Check::Eager);
+  /// assert_eq!(pointer.check(), Check::Eager);
+  /// ```
+  #[must_use]
+  pub const fn check(&self) -> Check {
+    self.check
+  }
+
+  /// Returns whether two aims are the same function of the same bytes, and require the same of
+  /// the struct that holds them: pointees of the same alignment, which places the next one at the
+  /// cursor, and, where the type of the pointee counts, of the same size and identity, which must
+  /// be known. It counts for an eager aim, whose pointee is checked with the struct, and for an aim
+  /// whose pointee stores its length, which the type tells where to find. The pointee of another
+  /// lazy aim is checked when it is read, so its type does not count.
+  pub(crate) const fn equals(&self, other: &Aim) -> bool {
+    let same_start = match (self.start, other.start) {
+      (Start::Stored(a), Start::Stored(b)) => same_ops(a, b),
+      (Start::Next, Start::Next) => true,
+      _ => false,
+    };
+    let same_extent = match (self.extent, other.extent) {
+      (Extent::Pointee, Extent::Pointee) | (Extent::Rest, Extent::Rest) => true,
+      (Extent::Length(a), Extent::Length(b)) | (Extent::Bytes(a), Extent::Bytes(b)) => {
+        same_ops(a, b)
+      }
+      _ => false,
+    };
+    let typed = matches!(self.check, Check::Eager) || matches!(self.extent, Extent::Pointee);
+    let same_pointee =
+      self.align == other.align && (!typed || self.size == other.size && self.id.equals(&other.id));
+    same_start && same_extent && same_pointee && self.check as u8 == other.check as u8
+  }
 }
 
 /// Returns whether an expression reads the bytes of the value by offset, rather than its fields:
@@ -5869,26 +6456,76 @@ const fn ops_read_bytes(ops: &[Op]) -> bool {
 }
 
 impl Rule {
-  /// Returns the expression of the rule, or `None` for a region of what remains.
+  /// Returns the first expression of the rule: the expression of a `size`, `len` or `assert`
+  /// rule, or where the pointee of an aim starts if it is stored. `None` for an aim at the cursor.
   pub(crate) const fn ops(&self) -> Option<&'static [Op]> {
     match *self {
-      Rule::Size(ops) | Rule::Len(ops) | Rule::Assert(ops) | Rule::Region(Some(ops)) => Some(ops),
-      Rule::Region(None) => None,
+      Rule::Size(ops)
+      | Rule::Len(ops)
+      | Rule::Assert(ops)
+      | Rule::Aim(Aim { start: Start::Stored(ops), .. }) => Some(ops),
+      Rule::Aim(_) => None,
     }
   }
 
-  /// Returns whether two rules are of the same kind, with the same expression.
+  /// Returns the second expression of the rule: the length or the size of the pointee of an aim,
+  /// if it is given. `None` for any other rule.
+  pub(crate) const fn extent_ops(&self) -> Option<&'static [Op]> {
+    match *self {
+      Rule::Aim(Aim { extent: Extent::Length(ops) | Extent::Bytes(ops), .. }) => Some(ops),
+      _ => None,
+    }
+  }
+
+  /// Returns the `which`th expression of the rule, 0 or 1 ([`Rule::ops`], [`Rule::extent_ops`]),
+  /// for what reads every expression of a struct.
+  pub(crate) const fn expression(&self, which: usize) -> Option<&'static [Op]> {
+    if which == 0 { self.ops() } else { self.extent_ops() }
+  }
+
+  /// Returns the aim of the rule, if it is one.
+  pub(crate) const fn aim(&self) -> Option<Aim> {
+    match *self {
+      Rule::Aim(aim) => Some(aim),
+      _ => None,
+    }
+  }
+
+  /// Returns whether the rule is listed in `Pun::Rules`: it has an expression, or it is an aim,
+  /// whose item names its pointee.
+  pub(crate) const fn listed(&self) -> bool {
+    matches!(self, Rule::Aim(_)) || self.ops().is_some()
+  }
+
+  /// Returns whether the rule is an aim at the cursor, which the aims at the cursor before it
+  /// place.
+  pub(crate) const fn at_cursor(&self) -> bool {
+    matches!(self, Rule::Aim(Aim { start: Start::Next, .. }))
+  }
+
+  /// Returns whether an expression of the rule reads the bytes of its struct by offset, rather than
+  /// its fields ([`Layout::rules_read_bytes`]).
+  pub(crate) const fn reads_bytes(&self) -> bool {
+    let mut i = 0;
+    while i < 2 {
+      if let Some(ops) = self.expression(i)
+        && ops_read_bytes(ops)
+      {
+        return true;
+      }
+      i += 1;
+    }
+    false
+  }
+
+  /// Returns whether two rules are of the same kind, with the same expressions, and for aims the
+  /// same pointees ([`Aim::equals`]).
   pub(crate) const fn equals(&self, other: &Rule) -> bool {
-    let same_kind = matches!(
-      (self, other),
-      (Rule::Size(_), Rule::Size(_))
-        | (Rule::Len(_), Rule::Len(_))
-        | (Rule::Assert(_), Rule::Assert(_))
-        | (Rule::Region(_), Rule::Region(_))
-    );
-    match (self.ops(), other.ops()) {
-      (None, None) => same_kind,
-      (Some(a), Some(b)) => same_kind && same_ops(a, b),
+    match (self, other) {
+      (Rule::Size(a), Rule::Size(b))
+      | (Rule::Len(a), Rule::Len(b))
+      | (Rule::Assert(a), Rule::Assert(b)) => same_ops(a, b),
+      (Rule::Aim(a), Rule::Aim(b)) => a.equals(b),
       _ => false,
     }
   }
@@ -5920,6 +6557,16 @@ pub(crate) struct LengthRule {
   pub(crate) ops: &'static [Op],
 }
 
+impl LengthRule {
+  /// Returns whether the rule reads the sized fields of the value only, so that its value is known
+  /// from them: it reads no byte by offset ([`ops_read_bytes`]), and a `size` or `len` rule never
+  /// reads the extent ([`check_ops`]). Its walks are evaluated over the sized fields too, wherever
+  /// it is evaluated, so that the number of their steps is bounded the same way.
+  pub(crate) const fn in_head(&self) -> bool {
+    !ops_read_bytes(self.ops)
+  }
+}
+
 /// The depth of the stack of the evaluator ([`Machine`]).
 pub(crate) const STACK: usize = 16;
 /// The number of variables of an expression.
@@ -5942,9 +6589,9 @@ pub(crate) const MAX_WALKS: usize = 4;
 /// Panics as [`check_ops`] does.
 const fn check_rules(rules: &[Rule], head: usize) {
   let mut i = 0;
-  while i < rules.len() {
-    if let Some(ops) = rules[i].ops() {
-      let sizes = matches!(rules[i], Rule::Size(_) | Rule::Len(_));
+  while i < 2 * rules.len() {
+    if let Some(ops) = rules[i / 2].expression(i % 2) {
+      let sizes = matches!(rules[i / 2], Rule::Size(_) | Rule::Len(_));
       check_ops(ops, head, sizes, 0, 0);
     }
     i += 1;
@@ -6275,14 +6922,15 @@ impl Machine {
     let depth = self.depth;
     match op {
       Op::Lit(value) => self.push(value),
-      Op::Load { offset, size, big } => {
+      Op::Load { offset, size, big, signed } => {
         let endian = if big { Endian::Big } else { Endian::Little };
         // SAFETY: `op` is an operation of a rule that `Layout::structure` accepted, by contract on
         // the caller. `check_ops` asserted that a load reads 1 to 16 bytes within the sized
         // fields of the struct. `base` is valid for reads of these bytes, which are initialized,
         // by contract on the caller. So `add(offset)` stays within them, and they meet the
         // requirements of `load`.
-        self.push(unsafe { load(base.add(offset), size as usize, endian) });
+        let value = unsafe { load(base.add(offset), size as usize, endian) };
+        self.push(if signed { sign_extend(value, size as usize) } else { value });
       }
       Op::Size => self.push(size as u128),
       Op::Get(index) => self.push(fit(self.variables.get(index as usize), how.result)),

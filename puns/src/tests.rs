@@ -343,6 +343,27 @@ struct TwoRulesSwapped {
   b: u8,
 }
 
+/// Two regions at the cursor, and the same two in the other order, which places each elsewhere.
+#[derive(Pun)]
+#[repr(C)]
+#[pun(crate)]
+struct TwoRegions {
+  a: u8,
+  b: u8,
+  #[pun(regions(x = a as u128, y = b as u128, rest))]
+  tail: [u8],
+}
+
+#[derive(Pun)]
+#[repr(C)]
+#[pun(crate)]
+struct TwoRegionsSwapped {
+  a: u8,
+  b: u8,
+  #[pun(regions(y = b as u128, x = a as u128, rest))]
+  tail: [u8],
+}
+
 /// A rule that reads `size_of_val(self)`, over a slice: the same rule, the same extent.
 #[derive(Pun)]
 #[repr(C)]
@@ -410,9 +431,13 @@ fn rules_proven_by_the_same_rules() {
   assert_eq!(verdict::<DistinctAscii, Distinct>(), "infallible");
   assert_eq!(verdict::<Distinct, DistinctAscii>(), "fallible at 0, mutable");
   assert_eq!(verdict::<Pair<u8, DistinctAscii>, Pair<u8, Distinct>>(), "infallible");
-  // Not the same extent, not the same order, no such struct.
+  // Not the same extent, no such struct.
   assert_eq!(verdict::<DistinctWide, Pair<Distinct, u8>>(), "fallible at 0, mutable");
-  assert_eq!(verdict::<TwoRules, TwoRulesSwapped>(), "fallible at 0, mutable");
+  // Each rule is proven on its own: in another order, each is the same function of the bytes. But
+  // an aim at the cursor is placed by those before it.
+  assert_eq!(verdict::<TwoRules, TwoRulesSwapped>(), "infallible, mutable");
+  assert_eq!(verdict::<TwoRegions, TwoRegionsSwapped>(), "fallible at 0, mutable");
+  assert_eq!(verdict::<TwoRegions, TwoRegions>(), "infallible, mutable");
   assert_eq!(verdict::<[u8; 2], Distinct>(), "fallible at 0, mutable");
   // Parts: a struct of the same extent at the same place.
   assert_eq!(tail::<Pair<u16, DistinctAscii>, Distinct>(), "infallible from 2");

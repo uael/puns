@@ -8,13 +8,13 @@ error[E0277]: `String` is not a `Pun` type: `puns` does not know its layout and 
   = note: a struct, an enum or a union is one with `#[derive(Pun)]`, a scalar with `Scalar`
   = help: the following other types implement trait `Scalar`:
             ()
-            NonZero<i128>
-            NonZero<i16>
-            NonZero<i32>
-            NonZero<i64>
-            NonZero<i8>
-            NonZero<isize>
-            NonZero<u128>
+            PhantomData<T>
+            PhantomPinned
+            bool
+            char
+            f32
+            f32be
+            f32le
           and $N others
   = note: required for `String` to implement `Pun`
 note: required by a bound in `puns::Fields::Type`
@@ -23,6 +23,25 @@ note: required by a bound in `puns::Fields::Type`
   | pub unsafe trait Fields {
   |   type Type: ?Sized + Pun;
   |                       ^^^ required by this bound in `Fields::Type`
+
+error[E0277]: the trait bound `String: Scalar` is not satisfied
+ --> tests/compile-fail/field_not_pun.rs:2:10
+  |
+2 | #[derive(puns::Pun)]
+  |          ^^^^^^^^^ the trait `Scalar` is not implemented for `String`
+  |
+  = help: the following other types implement trait `Scalar`:
+            ()
+            PhantomData<T>
+            PhantomPinned
+            bool
+            char
+            f32
+            f32be
+            f32le
+          and $N others
+  = note: required for `String` to implement `Pun`
+  = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: `String` is not a `Pun` type: `puns` does not know its layout and its valid values
  --> tests/compile-fail/field_not_pun.rs:6:9
@@ -34,12 +53,12 @@ error[E0277]: `String` is not a `Pun` type: `puns` does not know its layout and 
   = note: a struct, an enum or a union is one with `#[derive(Pun)]`, a scalar with `Scalar`
   = help: the following other types implement trait `Scalar`:
             ()
-            NonZero<i128>
-            NonZero<i16>
-            NonZero<i32>
-            NonZero<i64>
-            NonZero<i8>
-            NonZero<isize>
-            NonZero<u128>
+            PhantomData<T>
+            PhantomPinned
+            bool
+            char
+            f32
+            f32be
+            f32le
           and $N others
   = note: required for `String` to implement `Pun`

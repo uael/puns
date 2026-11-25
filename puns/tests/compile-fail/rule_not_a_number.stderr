@@ -1,10 +1,10 @@
-error[E0080]: evaluation panicked: a rule reads the unsigned integer fields of its struct, and this field is not one (a signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes with `le(offset, size)` or `be(offset, size)`
- --> tests/compile-fail/rule_not_a_number.rs:6:14
+error[E0080]: evaluation panicked: a rule reads the unsigned integer fields of its struct, and this field is not one: read a signed integer under a cast (`field as u128`), which sign-extends it, and the bytes of a floating-point number, a `bool`, a `char` or an enum with `le(offset, size)` or `be(offset, size)`
+ --> tests/compile-fail/rule_not_a_number.rs:7:14
   |
-4 | #[derive(puns::Pun)]
+5 | #[derive(puns::Pun)]
   |          --------- in this derive macro expansion
-5 | #[repr(C)]
-6 | #[pun(assert(x + 1 > 0))]
+6 | #[repr(C)]
+7 | #[pun(assert(x + 1 > 0))]
   |              ^ evaluation of `_::<impl puns::Pun for Signed>::LAYOUT::{constant#1}` failed inside this call
   |
 note: inside `Op::load::<i8>`
@@ -15,27 +15,28 @@ note: inside `Op::load::<i8>`
  ::: src/layout.rs
   |
   | /       panic!(
-  | |         "a rule reads the unsigned integer fields of its struct, and this field is not one (a \
-  | |          signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes \
-  | |          with `le(offset, size)` or `be(offset, size)`"
+  | |         "a rule reads the unsigned integer fields of its struct, and this field is not one: read a \
+  | |          signed integer under a cast (`field as u128`), which sign-extends it, and the bytes of a \
+  | |          floating-point number, a `bool`, a `char` or an enum with `le(offset, size)` or \
+  | |          `be(offset, size)`"
   | |       )
   | |_______- in this macro invocation
 
 note: erroneous constant encountered
- --> tests/compile-fail/rule_not_a_number.rs:4:10
+ --> tests/compile-fail/rule_not_a_number.rs:5:10
   |
-4 | #[derive(puns::Pun)]
+5 | #[derive(puns::Pun)]
   |          ^^^^^^^^^
   |
   = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0080]: evaluation panicked: a rule reads the unsigned integer fields of its struct, and this field is not one (a signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes with `le(offset, size)` or `be(offset, size)`
-  --> tests/compile-fail/rule_not_a_number.rs:13:14
+error[E0080]: evaluation panicked: a rule reads the unsigned integer fields of its struct, and this field is not one: read a signed integer under a cast (`field as u128`), which sign-extends it, and the bytes of a floating-point number, a `bool`, a `char` or an enum with `le(offset, size)` or `be(offset, size)`
+  --> tests/compile-fail/rule_not_a_number.rs:14:14
    |
-11 | #[derive(puns::Pun)]
+12 | #[derive(puns::Pun)]
    |          --------- in this derive macro expansion
-12 | #[repr(C)]
-13 | #[pun(assert(x > 0))]
+13 | #[repr(C)]
+14 | #[pun(assert(x > 0))]
    |              ^ evaluation of `_::<impl puns::Pun for Float>::LAYOUT::{constant#1}` failed inside this call
    |
 note: inside `Op::load::<f32>`
@@ -46,27 +47,28 @@ note: inside `Op::load::<f32>`
   ::: src/layout.rs
    |
    | /       panic!(
-   | |         "a rule reads the unsigned integer fields of its struct, and this field is not one (a \
-   | |          signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes \
-   | |          with `le(offset, size)` or `be(offset, size)`"
+   | |         "a rule reads the unsigned integer fields of its struct, and this field is not one: read a \
+   | |          signed integer under a cast (`field as u128`), which sign-extends it, and the bytes of a \
+   | |          floating-point number, a `bool`, a `char` or an enum with `le(offset, size)` or \
+   | |          `be(offset, size)`"
    | |       )
    | |_______- in this macro invocation
 
 note: erroneous constant encountered
-  --> tests/compile-fail/rule_not_a_number.rs:11:10
+  --> tests/compile-fail/rule_not_a_number.rs:12:10
    |
-11 | #[derive(puns::Pun)]
+12 | #[derive(puns::Pun)]
    |          ^^^^^^^^^
    |
    = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0080]: evaluation panicked: a rule reads the unsigned integer fields of its struct, and this field is not one (a signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes with `le(offset, size)` or `be(offset, size)`
-  --> tests/compile-fail/rule_not_a_number.rs:20:14
+error[E0080]: evaluation panicked: a rule reads the unsigned integer fields of its struct, and this field is not one: read a signed integer under a cast (`field as u128`), which sign-extends it, and the bytes of a floating-point number, a `bool`, a `char` or an enum with `le(offset, size)` or `be(offset, size)`
+  --> tests/compile-fail/rule_not_a_number.rs:21:14
    |
-18 | #[derive(puns::Pun)]
+19 | #[derive(puns::Pun)]
    |          --------- in this derive macro expansion
-19 | #[repr(C)]
-20 | #[pun(assert(x == 1))]
+20 | #[repr(C)]
+21 | #[pun(assert(x == 1))]
    |              ^ evaluation of `_::<impl puns::Pun for Bool>::LAYOUT::{constant#1}` failed inside this call
    |
 note: inside `Op::load::<bool>`
@@ -77,16 +79,48 @@ note: inside `Op::load::<bool>`
   ::: src/layout.rs
    |
    | /       panic!(
-   | |         "a rule reads the unsigned integer fields of its struct, and this field is not one (a \
-   | |          signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes \
-   | |          with `le(offset, size)` or `be(offset, size)`"
+   | |         "a rule reads the unsigned integer fields of its struct, and this field is not one: read a \
+   | |          signed integer under a cast (`field as u128`), which sign-extends it, and the bytes of a \
+   | |          floating-point number, a `bool`, a `char` or an enum with `le(offset, size)` or \
+   | |          `be(offset, size)`"
    | |       )
    | |_______- in this macro invocation
 
 note: erroneous constant encountered
-  --> tests/compile-fail/rule_not_a_number.rs:18:10
+  --> tests/compile-fail/rule_not_a_number.rs:19:10
    |
-18 | #[derive(puns::Pun)]
+19 | #[derive(puns::Pun)]
+   |          ^^^^^^^^^
+   |
+   = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0080]: evaluation panicked: a rule casts the integer fields of its struct, and this field is not one (a floating-point number, a `bool`, a `char` or an enum is not): read its bytes with `le(offset, size)` or `be(offset, size)`
+  --> tests/compile-fail/rule_not_a_number.rs:28:14
+   |
+26 | #[derive(puns::Pun)]
+   |          --------- in this derive macro expansion
+27 | #[repr(C)]
+28 | #[pun(assert(x as u128 > 0))]
+   |              ^ evaluation of `_::<impl puns::Pun for CastFloat>::LAYOUT::{constant#1}` failed inside this call
+   |
+note: inside `Op::load_as::<f32>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   | /       panic!(
+   | |         "a rule casts the integer fields of its struct, and this field is not one (a \
+   | |          floating-point number, a `bool`, a `char` or an enum is not): read its bytes with \
+   | |          `le(offset, size)` or `be(offset, size)`"
+   | |       )
+   | |_______- in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/rule_not_a_number.rs:26:10
+   |
+26 | #[derive(puns::Pun)]
    |          ^^^^^^^^^
    |
    = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

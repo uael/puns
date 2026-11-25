@@ -15,7 +15,11 @@ every push, with and without the `unstable` feature. The [crate documentation of
 
 The tests of `puns` run under [Miri] on every push: with tree borrows on x86-64, and with stacked
 borrows on a 32-bit target (`i686`) and on a big-endian one (`s390x`). Test files that are not about
-the `unsafe` code, such as the examples other than `ethernet`, do not run there.
+the `unsafe` code, such as the examples other than `ethernet`, do not run there. The safe reads of
+the pointees of aims, through a reference to a value that holds the aim, give access to bytes
+outside the value. Tree borrows allows this, and stacked borrows does not. So their tests,
+[`aim_reads.rs`][aim-reads], run with tree borrows only, as `.github/tests.sh` lists them. The
+other aims tests read the same pointees from pointers, under both models.
 
 The model check runs under Miri too, with tree borrows on x86-64 only. It runs a few pairs for each
 `unsafe` path that it reaches instead of every pair, and [`miri_sample.rs`][sample] names the unsafe
@@ -51,5 +55,6 @@ user's crate can redefine.
 [Miri]: https://github.com/rust-lang/miri
 [model]: ../puns-model/src/lib.rs
 [sample]: ../puns-model/tests/miri_sample.rs
+[aim-reads]: ../puns/tests/aim_reads.rs
 [compile-fail]: ../puns/tests/compile-fail
 [Soundness]: https://docs.rs/puns/0.2.4/puns/#soundness

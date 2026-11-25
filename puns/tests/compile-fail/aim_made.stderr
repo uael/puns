@@ -1,0 +1,67 @@
+error[E0277]: the trait bound `InPlace<i32>: Clone` is not satisfied
+  --> tests/compile-fail/aim_made.rs:10:3
+   |
+ 6 | #[derive(puns::Pun, Clone, Default)]
+   |                     ----- in this derive macro expansion
+...
+10 |   off: InPlace<i32>,
+   |   ^^^^^^^^^^^^^^^^^ the trait `Clone` is not implemented for `InPlace<i32>`
+
+error[E0277]: the trait bound `InPlace<i32>: Default` is not satisfied
+  --> tests/compile-fail/aim_made.rs:10:3
+   |
+ 6 | #[derive(puns::Pun, Clone, Default)]
+   |                            ------- in this derive macro expansion
+...
+10 |   off: InPlace<i32>,
+   |   ^^^^^^^^^^^^^^^^^ the trait `Default` is not implemented for `InPlace<i32>`
+
+error[E0423]: cannot initialize a tuple struct which contains private fields
+  --> tests/compile-fail/aim_made.rs:14:23
+   |
+14 |   let _ = Near { off: InPlace(1000) };
+   |                       ^^^^^^^
+   |
+   = note: a struct named `InPlace` exists in another namespace
+note: constructor is not visible here due to private fields
+  --> src/lib.rs
+   |
+   | pub struct InPlace<T: ?Sized>(T);
+   |                               ^ private field
+
+error[E0277]: the trait bound `InPlace<i32>: Copy` is not satisfied
+  --> tests/compile-fail/aim_made.rs:15:25
+   |
+15 |   let _: InPlace<i32> = puns::pun(1000);
+   |                         ^^^^^^^^^^^^^^^ the trait `Copy` is not implemented for `InPlace<i32>`
+   |
+note: required by a bound in `pun`
+  --> src/lib.rs
+   |
+   | pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
+   |                                          ^^^^ required by this bound in `pun`
+
+error[E0277]: `InPlace<i32>` is not a `Pun` type: `puns` does not know its layout and its valid values
+  --> tests/compile-fail/aim_made.rs:15:25
+   |
+15 |   let _: InPlace<i32> = puns::pun(1000);
+   |                         ^^^^^^^^^^^^^^^ not a `Pun` type
+   |
+   = help: the trait `Scalar` is not implemented for `InPlace<i32>`
+   = note: a struct, an enum or a union is one with `#[derive(Pun)]`, a scalar with `Scalar`
+   = help: the following other types implement trait `Scalar`:
+             ()
+             PhantomData<T>
+             PhantomPinned
+             bool
+             char
+             f32
+             f32be
+             f32le
+           and $N others
+   = note: required for `InPlace<i32>` to implement `Pun`
+note: required by a bound in `pun`
+  --> src/lib.rs
+   |
+   | pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
+   |                                    ^^^ required by this bound in `pun`

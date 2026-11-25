@@ -110,6 +110,7 @@ fn fallback(input: &DeriveInput) -> TokenStream {
       type Fields = ();
       type Variants = ();
       type Rules = ();
+      type Metadata = ();
       const PROBE: *const Self = ::core::panic!("`#[derive(Pun)]` failed");
       const LAYOUT: #root::layout::Layout = ::core::panic!("`#[derive(Pun)]` failed");
     }
@@ -229,9 +230,46 @@ fn parse_repr(attrs: &[Attribute]) -> Result<Repr> {
   Ok(repr)
 }
 
+/// When the pointee of an aim is checked: what an aim of either option starts with, `eager` or
+/// `lazy`, before its name.
+///
+/// An aim without `eager` or `lazy` is checked as its option says: a `pointer` with the struct, and
+/// a region when it is read ([`Prefix::is_eager`]).
+struct Prefix {
+  /// `Some(true)` for `eager`, `Some(false)` for `lazy`, `None` for neither.
+  check: Option<bool>,
+}
+
+impl Parse for Prefix {
+  fn parse(input: ParseStream) -> Result<Self> {
+    let check = if keyword(input, "eager") {
+      Some(true)
+    } else if keyword(input, "lazy") {
+      Some(false)
+    } else {
+      None
+    };
+    if check.is_some() {
+      input.parse::<Ident>()?;
+    }
+    Ok(Self { check })
+  }
+}
+
+impl Prefix {
+  /// Returns whether the aim is eager: as it says, or as `by_default` says for its option.
+  const fn is_eager(&self, by_default: bool) -> bool {
+    match self.check {
+      Some(eager) => eager,
+      None => by_default,
+    }
+  }
+}
+
 /// A region of `#[pun(regions(..))]`: `name`, `name: Type`, `name = EXPR` or
-/// `name: Type = EXPR`.
+/// `name: Type = EXPR`, after the [`Prefix`] of its aim.
 struct Region {
+  prefix: Prefix,
   name: Ident,
   ty: Option<Type>,
   size: Option<Expr>,
@@ -239,6 +277,7 @@ struct Region {
 
 impl Parse for Region {
   fn parse(input: ParseStream) -> Result<Self> {
+    let prefix = input.parse()?;
     let name = input.parse()?;
     let ty = if input.peek(Token![:]) {
       input.parse::<Token![:]>()?;
@@ -252,7 +291,20 @@ impl Parse for Region {
     } else {
       None
     };
-    Ok(Self { name, ty, size })
+    Ok(Self { prefix, name, ty, size })
+  }
+}
+
+/// Whether a region is eager unless it says `lazy` or `eager`: no, it is checked when it is read.
+const REGION_EAGER: bool = false;
+
+/// Whether a pointer is eager unless it says `lazy` or `eager`: yes, it is checked with the struct.
+const POINTER_EAGER: bool = true;
+
+impl Region {
+  /// Returns whether the region is eager ([`REGION_EAGER`]).
+  const fn eager(&self) -> bool {
+    self.prefix.is_eager(REGION_EAGER)
   }
 }
 
@@ -267,6 +319,109 @@ impl Parse for TagOption {
     let key = input.parse()?;
     input.parse::<Token![=]>()?;
     Ok(Self { key, tag: input.parse()? })
+  }
+}
+
+/// The aim of `#[pun(pointer(..))]`: `name: Type = EXPR` or `Type = EXPR`, the name of the methods
+/// that read the pointee, if any, its type and where it is, after the [`Prefix`] of its aim, then
+/// `, len = EXPR` for an unsized pointee of a given length, `, size = EXPR` for a pointee of a
+/// given size in bytes, or `, size = ..` for one that takes the rest of the tail of the struct.
+/// Without `= EXPR`, the pointee is as far from the start of the struct as the integer of the field
+/// says, as its layout says (`start`).
+struct AimOption {
+  prefix: Prefix,
+  name: Option<Ident>,
+  pointee: Type,
+  start: Option<Expr>,
+  size: AimSize,
+}
+
+impl AimOption {
+  /// Returns whether the aim is eager ([`POINTER_EAGER`]).
+  const fn eager(&self) -> bool {
+    self.prefix.is_eager(POINTER_EAGER)
+  }
+
+  /// Returns where the pointee is from the start of the struct whose field `member` has the aim:
+  /// its expression, or the integer of the field, as its layout says, under a cast that
+  /// sign-extends a signed one. The cast has the span of the field, so that a refusal of the cast
+  /// points at the field.
+  fn start(&self, member: &Member) -> Expr {
+    let span = member.span();
+    self.start.clone().unwrap_or_else(|| syn::parse_quote_spanned!(span=> self.#member as u128))
+  }
+}
+
+/// How large the pointee of an aim is, as `layout::Extent` says.
+enum AimSize {
+  /// What the pointee stores: nothing if it is sized, its length otherwise.
+  Pointee,
+  /// The length of its tail, the value of the expression.
+  Length(Expr),
+  /// The value of the expression, in bytes.
+  Bytes(Expr),
+  /// The rest of the tail of the struct.
+  Rest,
+}
+
+/// Returns whether `expr` is `self`, the value whose fields an expression reads as `self.field`.
+fn is_self(expr: &Expr) -> bool {
+  matches!(expr, Expr::Path(path) if path.path.is_ident("self"))
+}
+
+/// Returns whether the identifier that `input` starts with is the keyword `word` before what
+/// follows it, rather than a name, which a `:`, a `=`, a `,` or nothing follows, or the start of a
+/// path, which a `::` follows: `lazy [u8] = ..`, `eager mut name: u8` and `lazy <T as X>::P = ..`
+/// start with a keyword, `lazy: u8 = ..` and `regions(eager, rest)` with a name.
+fn keyword(input: ParseStream, word: &str) -> bool {
+  let after = input.fork();
+  after.parse::<Ident>().is_ok_and(|ident| ident == word)
+    && !after.is_empty()
+    && !after.peek(Token![:])
+    && !after.peek(Token![=])
+    && !after.peek(Token![,])
+}
+
+impl Parse for AimOption {
+  fn parse(input: ParseStream) -> Result<Self> {
+    let prefix = input.parse()?;
+    // A name is an identifier then one colon, where a type may start with an identifier then two.
+    let name = if input.peek(Ident) && input.peek2(Token![:]) && !input.peek2(Token![::]) {
+      let name = input.parse()?;
+      input.parse::<Token![:]>()?;
+      Some(name)
+    } else {
+      None
+    };
+    let pointee = input.parse()?;
+    let start = if input.peek(Token![=]) {
+      input.parse::<Token![=]>()?;
+      Some(input.parse()?)
+    } else {
+      None
+    };
+    let size = if input.peek(Token![,]) {
+      input.parse::<Token![,]>()?;
+      let key: Ident = input.parse()?;
+      input.parse::<Token![=]>()?;
+      match key.to_string().as_str() {
+        "len" => AimSize::Length(input.parse()?),
+        "size" if input.peek(Token![..]) => {
+          input.parse::<Token![..]>()?;
+          AimSize::Rest
+        }
+        "size" => AimSize::Bytes(input.parse()?),
+        _ => {
+          return Err(Error::new(
+            key.span(),
+            "a `pointer` takes `len = EXPR`, `size = EXPR` or `size = ..` after it",
+          ));
+        }
+      }
+    } else {
+      AimSize::Pointee
+    };
+    Ok(Self { prefix, name, pointee, start, size })
   }
 }
 
@@ -301,6 +456,7 @@ struct Options {
   valid: Option<Punctuated<Expr, Token![,]>>,
   len: Option<Expr>,
   regions: Option<Punctuated<Region, Token![,]>>,
+  pointer: Option<AimOption>,
   /// The bounds of the implementation, instead of the ones that the derive finds.
   bounds: Option<Bounds>,
 }
@@ -327,6 +483,7 @@ fn parse_options(attrs: &[Attribute], place: &str, allowed: &[&str]) -> Result<O
             "bound" => "a struct, an enum with fields that is not a view, or a union",
             "size" | "assert" | "tag" | "get" => "a struct",
             "valid" => "a field",
+            "pointer" => "a field of a struct",
             _ => "the last field of a struct",
           };
           return Err(meta.error(format!("`{name}` is an option of {of}, not of {place}")));
@@ -372,6 +529,10 @@ fn parse_options(attrs: &[Attribute], place: &str, allowed: &[&str]) -> Result<O
         let content;
         syn::parenthesized!(content in meta.input);
         options.regions = Some(Punctuated::parse_terminated(&content)?);
+      } else if meta.path.is_ident("pointer") {
+        let content;
+        syn::parenthesized!(content in meta.input);
+        options.pointer = Some(content.parse()?);
       } else {
         return Err(meta.error("unknown `pun` option"));
       }
@@ -382,8 +543,8 @@ fn parse_options(attrs: &[Attribute], place: &str, allowed: &[&str]) -> Result<O
 }
 
 /// Every option of `#[pun(..)]`.
-const ALL_OPTIONS: [&str; 9] =
-  ["crate", "bound", "size", "len", "assert", "tag", "get", "valid", "regions"];
+const ALL_OPTIONS: [&str; 10] =
+  ["crate", "bound", "size", "len", "assert", "tag", "get", "valid", "regions", "pointer"];
 
 // -------------------------------------------------------------------------------------------------
 // Expressions
@@ -391,7 +552,9 @@ const ALL_OPTIONS: [&str; 9] =
 /// A field of a struct, as the derive compiles it.
 struct FieldInfo<'a> {
   member: Member,
-  /// Its type, as written: what the bounds name, and what the derive reads of it.
+  /// Its type, as written: what the bounds name, and what the derive reads of it. For the field
+  /// of an eager aim, an `InPlace<T>`, it is `T`, the type of the field in the layout
+  /// (`<F as InPlaceOf>::Inner`).
   ty: &'a Type,
   /// Its type, from its home (see [`homes`]): what the generated code names.
   home: TokenStream,
@@ -451,8 +614,8 @@ fn op_name(op: &TokenStream) -> Option<String> {
 /// puts on it.
 fn effect(op: &TokenStream) -> (usize, usize) {
   match op_name(op).as_deref() {
-    Some("Lit" | "load" | "Size" | "Get") => (0, 1),
-    Some("At" | "Varint" | "Not" | "Walk" | "Shortcut" | "Then") => (1, 1),
+    Some("Lit" | "load" | "load_as" | "Size" | "Get") => (0, 1),
+    Some("at" | "Varint" | "Not" | "Walk" | "Shortcut" | "Then") => (1, 1),
     // After a branch, which it does not take off: see `layout::check_ops`.
     Some("Else") => (0, 0),
     Some("Select") => (3, 1),
@@ -693,7 +856,15 @@ fn compile(
         ops.push(quote_spanned!(expr.span()=> #op::Lit(#op::constant(&(#expr)))));
         return Ok(Ty::Int);
       }
-      let ty = compile(&cast.expr, fields, root, ops, scope)?;
+      let ty = match named_field(&cast.expr, fields, scope) {
+        // A field, signed or not: its value as `as` converts it, a signed one sign-extended.
+        Some((field, span)) => {
+          let (ty, offset) = (&field.home, &field.offset);
+          ops.push(located(quote!(#op::load_as::<#ty>(#offset)), span));
+          Ty::Int
+        }
+        None => compile(&cast.expr, fields, root, ops, scope)?,
+      };
       if let (Some(mask), Ty::Int) = (mask, ty) {
         ops.push(quote!(#op::Lit(#mask)));
         ops.push(quote!(#op::And));
@@ -753,7 +924,7 @@ fn compile(
     {
       Ty::Int
     }
-    Expr::Field(field) if matches!(&*field.base, Expr::Path(path) if path.path.is_ident("self")) => {
+    Expr::Field(field) if is_self(&field.base) => {
       load(&field.member, field.span(), ops)
         .ok_or_else(|| Error::new(field.member.span(), "no such field"))?;
       Ty::Int
@@ -815,7 +986,7 @@ fn compile(
       if call.args.len() == 1
         && matches!(&*call.func, Expr::Path(path)
           if path.path.segments.last().is_some_and(|segment| segment.ident == "size_of_val"))
-        && matches!(&call.args[0], Expr::Path(path) if path.path.is_ident("self")) =>
+        && is_self(&call.args[0]) =>
     {
       if scope.sizing {
         return Err(Error::new_spanned(
@@ -836,11 +1007,13 @@ fn compile(
       ops.push(checksum?);
       Ty::Int
     }
-    // `le(offset, size)`, `be(offset, size)`: an integer, anywhere in the value.
+    // `le(offset, size)` and `be(offset, size)`: an unsigned integer, anywhere in the value.
     Expr::Call(call) if call.args.len() == 2 && (is_call(call, "le") || is_call(call, "be")) => {
+      let (size, endian) = (&call.args[1], if is_call(call, "be") { "Big" } else { "Little" });
+      let endian = format_ident!("{endian}");
       int(&call.args[0], ops, scope)?;
-      let (size, big) = (&call.args[1], is_call(call, "be"));
-      ops.push(quote!(#op::At { size: #size, big: #big }));
+      let endian = quote!(#root::layout::Endian::#endian);
+      ops.push(located(quote!(#op::at((#size) as usize, #endian)), size.span()));
       Ty::Int
     }
     // `matches(DFA, start, end)`: whether an automaton accepts the bytes.
@@ -914,6 +1087,29 @@ fn compile(
       Ty::Int
     }
   })
+}
+
+/// Returns the field that `expr` names, alone or in parentheses, and where it names it: `name`,
+/// unless a variable of `scope` has that name, or `self.name`.
+fn named_field<'f, 'a>(
+  expr: &Expr,
+  fields: &'f [FieldInfo<'a>],
+  scope: &Scope,
+) -> Option<(&'f FieldInfo<'a>, Span)> {
+  match expr {
+    Expr::Paren(inner) => named_field(&inner.expr, fields, scope),
+    Expr::Group(inner) => named_field(&inner.expr, fields, scope),
+    Expr::Path(path) => {
+      let ident = path.path.get_ident().filter(|ident| scope.get(ident).is_none())?;
+      let member = Member::Named(ident.clone());
+      fields.iter().find(|field| field.member == member).map(|field| (field, ident.span()))
+    }
+    Expr::Field(field) if is_self(&field.base) => fields
+      .iter()
+      .find(|found| found.member == field.member)
+      .map(|found| (found, field.member.span())),
+    _ => None,
+  }
 }
 
 /// The functions that a rule can call, as messages name them.
@@ -1248,9 +1444,7 @@ impl VisitMut for Fielder<'_> {
         .get_ident()
         .filter(|ident| !self.shadowed.contains(ident))
         .and_then(|ident| self.value(&Member::Named(ident.clone()), ident.span())),
-      Expr::Field(access) if matches!(&*access.base, Expr::Path(path) if path.path.is_ident("self")) => {
-        self.value(&access.member, access.span())
-      }
+      Expr::Field(access) if is_self(&access.base) => self.value(&access.member, access.span()),
       Expr::Closure(closure) => {
         let visible = self.shadowed.len();
         let mut names = vec![];
@@ -1448,21 +1642,67 @@ fn has_pun(generics: &syn::Generics, name: &str) -> bool {
     })
 }
 
-/// Returns the generics of `input`, with the bounds of its implementation of `Pun`: `bounds` if
-/// `#[pun(bound(..))]` gives them, and otherwise `ty: Pun` for each of the `types` of its fields
-/// that needs it ([`needs_bound`]).
+/// Returns the generics of `input`, with the bounds of its implementation of `Pun`: `bounds` as
+/// `#[pun(bound(..))]` gives them, and otherwise, for each type that needs it ([`needs_bound`]),
+/// `ty: Pun` for the types of its fields, and `ty: Pointee` for the pointees of its aims.
+///
+/// A bound of a type parameter joins the bounds that the parameter has, as `<T: ?Sized + Pun>` for
+/// `struct Relaxed<T: ?Sized>` with `#[pun(bound(T: Pun))]` ([`join_bounds`]), so that no type is
+/// bounded in two places. A bound that `bound(..)` repeats is written twice, as the user wrote it.
 fn bounded<'a>(
   input: &DeriveInput,
-  types: impl Iterator<Item = &'a Type>,
+  (types, pointees): (impl Iterator<Item = &'a Type>, impl Iterator<Item = &'a Type>),
   bounds: Option<&Bounds>,
   root: &TokenStream,
 ) -> syn::Generics {
   let mut generics = input.generics.clone();
-  match bounds {
-    Some(bounds) => generics.make_where_clause().predicates.extend(bounds.iter().cloned()),
-    None => types.filter(|ty| needs_bound(ty, input)).for_each(|ty| bound(&mut generics, ty, root)),
+  if let Some(bounds) = bounds {
+    generics.make_where_clause().predicates.extend(bounds.iter().cloned());
+  } else {
+    types.filter(|ty| needs_bound(ty, input)).for_each(|ty| bound(&mut generics, ty, root));
+    for ty in pointees.filter(|ty| needs_bound(ty, input)) {
+      generics.make_where_clause().predicates.push(parse_quote!(#ty: #root::Pointee));
+    }
   }
+  join_bounds(&mut generics);
   generics
+}
+
+/// Moves each predicate of the `where` clause of `generics` that bounds a type parameter, written
+/// as the parameter alone, without `for<..>`, into the bounds of the parameter, which a path of
+/// one name without arguments names in the scope of the generics.
+fn join_bounds(generics: &mut syn::Generics) {
+  let Some(clause) = generics.where_clause.take() else { return };
+  let mut kept = Punctuated::<syn::WherePredicate, Token![,]>::new();
+  for predicate in clause.predicates {
+    let param = match &predicate {
+      syn::WherePredicate::Type(predicate) if predicate.lifetimes.is_none() => {
+        match &predicate.bounded_ty {
+          Type::Path(path) if path.qself.is_none() => path.path.get_ident().and_then(|ident| {
+            generics
+              .params
+              .iter()
+              .position(|param| matches!(param, GenericParam::Type(param) if param.ident == *ident))
+          }),
+          _ => None,
+        }
+      }
+      _ => None,
+    };
+    match (param, predicate) {
+      (Some(i), syn::WherePredicate::Type(predicate)) => {
+        if let GenericParam::Type(param) = &mut generics.params[i] {
+          param.colon_token.get_or_insert_default();
+          param.bounds.extend(predicate.bounds);
+        }
+      }
+      (_, predicate) => kept.push(predicate),
+    }
+  }
+  if !kept.is_empty() {
+    generics.where_clause =
+      Some(syn::WhereClause { where_token: clause.where_token, predicates: kept });
+  }
 }
 
 /// Returns the constant that pins the types whose functions the generated code calls to make a
@@ -1600,6 +1840,237 @@ fn variant_homes(input: &DeriveInput, data: &DataEnum) -> (TokenStream, Vec<Vec<
 // -------------------------------------------------------------------------------------------------
 // Structs
 
+/// Returns the `T` of the type `ty` of the field of an eager aim, an `InPlace<T>`, however it is
+/// spelled: `<ty as InPlaceOf>::Inner`. Rust names a trait only by a path, which a crate path may
+/// redirect, so this projection alone does not make the field an `InPlace<T>`: `item` of [`homes`]
+/// ties the field to the `InPlace<T>` of `puns` for this `T` (`Layout::in_place`).
+fn in_place(ty: &Type, root: &TokenStream) -> Type {
+  let span = ty.span();
+  syn::parse_quote_spanned!(span=> <#ty as #root::InPlaceOf>::Inner)
+}
+
+/// Returns whether a field with `options` holds an eager aim, and is then an `InPlace<T>`: the
+/// field of an eager `pointer`, or the field of regions of which one is eager.
+fn in_place_field(options: &Options) -> bool {
+  options.pointer.as_ref().is_some_and(AimOption::eager)
+    || options.regions.iter().flatten().any(Region::eager)
+}
+
+/// Returns the rule of an aim at a `pointee` that a struct declares, at the place that `start`
+/// gives (`Stored(start)`), or at the cursor (`Next`) without one, as large as `size` says, checked
+/// with the struct if `eager`, and the steps of its two expressions, where its pointee is and how
+/// large it is ([`steps`]). `#[pun(pointer(..))]` gives a start, and `#[pun(regions(..))]` none: both are
+/// one rule, written here.
+///
+/// The type is written in the rule and in the list of the rules (`Pun::Rules`), in the one
+/// implementation, where it names one type, and `validate::listed` compares the two.
+///
+/// # Errors
+///
+/// Returns an error if an expression does not compile.
+fn aim_rule(
+  pointee: &TokenStream,
+  (start, size): (Option<&Expr>, &AimSize),
+  eager: bool,
+  fields: &[FieldInfo],
+  root: &TokenStream,
+) -> Result<(TokenStream, TokenStream, TokenStream)> {
+  let layout = quote!(#root::layout);
+  // An expression of the aim, in a block of its own: what a function takes is not extended to
+  // `'static`.
+  let expression = |expr| -> Result<_> {
+    let Expression { ops, steps } = expression(expr, Ty::Int, false, fields, root)?;
+    Ok((quote!(const { #ops }), steps))
+  };
+  let (start, start_steps) = match start {
+    Some(start) => {
+      let (ops, steps) = expression(start)?;
+      (quote!(Stored(#ops)), steps)
+    }
+    None => (quote!(Next), quote!(())),
+  };
+  let (extent, extent_steps) = match size {
+    AimSize::Pointee => (quote!(Pointee), quote!(())),
+    AimSize::Rest => (quote!(Rest), quote!(())),
+    AimSize::Length(length) => {
+      let (ops, steps) = expression(length)?;
+      (quote!(Length(#ops)), steps)
+    }
+    AimSize::Bytes(bytes) => {
+      let (ops, steps) = expression(bytes)?;
+      (quote!(Bytes(#ops)), steps)
+    }
+  };
+  let check = if eager { quote!(Eager) } else { quote!(Lazy) };
+  let rule = quote!(#layout::Rule::Aim(#layout::Aim::new::<#pointee>(
+    #layout::Start::#start,
+    #layout::Extent::#extent,
+    #layout::Check::#check,
+  )));
+  Ok((rule, start_steps, extent_steps))
+}
+
+/// How the pointee of an aim is read, which follows from where it is, when it is checked, and its
+/// type.
+#[derive(Clone, Copy)]
+enum Read {
+  /// An eager aim: `name(&self)`, safe.
+  Eager,
+  /// A lazy aim at a stored place: `name(&self, bytes)`, which checks the pointee in the bytes
+  /// that it is given, since a reference to the value covers only its own.
+  Stored,
+  /// A lazy region with a type: `name(&self)`, which checks the pointee in the bytes of the value.
+  Region,
+  /// A lazy region without a type: `name(&self)`, its bytes.
+  Bytes,
+}
+
+/// Returns the methods that read the pointee of an aim, a `pointee` whose rule `item` names in the
+/// list of the rules of `Self` (`puns::Item`), named `name` and as visible as `vis`, as `read`
+/// says.
+fn read_aim(
+  (name, pointee, item): (&Ident, &TokenStream, &TokenStream),
+  read: Read,
+  vis: &Visibility,
+  root: &TokenStream,
+) -> TokenStream {
+  // The value of the pointee, which a read returns: the pointee itself, or the `T` of a `Thin`.
+  let value = quote!(<#pointee as #root::Pointee>::Value);
+  let check = "\n\n# Compile-time errors\n\nA call compiles only if every byte of the struct, up \
+               to the end of its tail, is initialized and, without the `unstable` feature of \
+               `puns`, this does not depend on a layout that Rust leaves to the compiler.";
+  match read {
+    Read::Bytes => {
+      let doc = format!(
+        "Returns the bytes of the `{name}` region of the tail, truncated if the fields that size \
+         the regions give more bytes than the tail holds. The region takes the rest of the tail \
+         if its expression fails.{check}"
+      );
+      quote! {
+        #[doc = #doc]
+        #[inline]
+        #vis const fn #name(&self) -> &[::core::primitive::u8] {
+          #root::region::<Self, #item>(self)
+        }
+      }
+    }
+    Read::Region => {
+      let doc = format!(
+        "Returns the `{name}` region of the tail as the type it holds, checked as \
+         `puns::from_bytes` checks bytes, with the pointees of its eager aims in the bytes of the \
+         value. The region is truncated if the fields that size the regions give more bytes than \
+         the tail holds, and takes the rest of the tail if its expression fails.\n\n# Errors\n\n\
+         Returns the error of `puns::from_bytes` if the bytes of the region are not a value of \
+         that type.{check} It also compiles only under the compile-time conditions of \
+         `puns::from_bytes` for the type of the region."
+      );
+      quote! {
+        #[doc = #doc]
+        #[inline]
+        #vis const fn #name(&self) -> ::core::result::Result<&#value, #root::Error> {
+          #root::region_as::<Self, #item>(self)
+        }
+      }
+    }
+    Read::Stored => {
+      let doc = format!(
+        "Returns the pointee of the aim `{name}`, where the value points in `bytes`, which hold \
+         it, checked as `puns::from_bytes` checks bytes, with the pointees of its eager aims in \
+         `bytes`.\n\n# Errors\n\nIf the value is not in `bytes`, if the pointee is not within \
+         them, and the errors of `puns::from_bytes` on its bytes.\n\n# Compile-time errors\n\n\
+         A call compiles only under the compile-time conditions of `puns::from_bytes` for the \
+         pointee."
+      );
+      quote! {
+        #[doc = #doc]
+        #[inline]
+        #vis fn #name<'a>(
+          &self,
+          bytes: &'a [::core::primitive::u8],
+        ) -> ::core::result::Result<&'a #value, #root::Error> {
+          #root::aim_in::<Self, #item>(self, bytes)
+        }
+      }
+    }
+    Read::Eager => {
+      let doc = format!(
+        "Returns the pointee of the aim `{name}`, where the value points, which `puns` checked \
+         with the value, or which unsafe code that made the value put there: no safe code makes \
+         a value with an eager aim.\n\nThe pointee is read through the reference to the value, \
+         which has the provenance of its bytes under the tree borrows model of Miri, but not \
+         under stacked borrows, where `puns::aim` reads it from a pointer to the bytes that hold \
+         both, with `Self::AIMS.{name}`.\n\n# Compile-time errors\n\nA call compiles only if \
+         the pointee is sized, a `Thin`, or stores the length of its tail in its sized fields, \
+         where its extent is what it stores."
+      );
+      // No `unsafe` block: the function that the path names is called as safe code, whatever it
+      // is ("What the derive trusts" in the documentation of the derive).
+      quote! {
+        #[doc = #doc]
+        #[inline]
+        #vis const fn #name(&self) -> &#value {
+          #root::aim_of::<Self, #item>(self)
+        }
+      }
+    }
+  }
+}
+
+/// Returns the constant `AIMS` of a struct whose eager aims `aims` have a name, with the item of
+/// each in the list of the rules of the struct, and the visibility of its field: a value whose
+/// fields, named as the aims, are their `puns::AimOf`, for `puns::aim` and `puns::aim_mut`. Nothing
+/// without such an aim.
+///
+/// The constant is as visible as the struct, whatever the visibilities of its fields, and hidden
+/// from the documentation, since its type has no name there: the documentation of the derive
+/// describes it.
+fn aims_constant(
+  input: &DeriveInput,
+  aims: &[(&Ident, TokenStream, &Visibility)],
+  root: &TokenStream,
+) -> Option<TokenStream> {
+  if aims.is_empty() {
+    return None;
+  }
+  let (ident, vis) = (&input.ident, &input.vis);
+  let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+  let this = quote!(#ident #ty_generics);
+  let fields = aims.iter().map(|(name, item, vis)| {
+    let doc = format!("The aim `{name}`.");
+    quote!(#[doc = #doc] #vis #name: #root::AimOf<#this, #item>)
+  });
+  let names = aims.iter().map(|(name, ..)| name);
+  let doc = format!(
+    "The eager aims of `{ident}` that have a name, for `puns::aim` and `puns::aim_mut`: the field \
+     `name` is the aim `name`."
+  );
+  Some(quote! {
+    #[doc = #doc]
+    #vis struct __PunAims #impl_generics #where_clause {
+      #(#fields),*
+    }
+
+    impl #impl_generics #this #where_clause {
+      #[doc(hidden)]
+      #vis const AIMS: __PunAims #ty_generics = __PunAims { #(#names: #root::AimOf::NEW),* };
+    }
+  })
+}
+
+/// Returns the constant that pins the types whose functions the generated code calls to make the
+/// aims of a struct, as [`pin`] pins the others.
+fn pin_aims(root: &TokenStream) -> TokenStream {
+  let layout = quote!(#root::layout);
+  quote! {
+    const _: (
+      fn(#layout::Aim),
+      fn(#layout::Start),
+      fn(#layout::Extent),
+      fn(#layout::Check),
+    ) = #layout::Layout::PIN_AIMS;
+  }
+}
+
 /// Returns whether `ty` is unsized as written: a slice, `str` or a trait object, in parentheses or
 /// not.
 fn is_unsized(ty: &Type) -> bool {
@@ -1618,7 +2089,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     parse_options(&input.attrs, "a struct", &["crate", "bound", "size", "assert", "tag", "get"])?;
   let root = options.root.clone().unwrap_or_else(|| quote!(::puns));
   let ident = &input.ident;
-  let (impl_generics, ty_generics, _) = input.generics.split_for_impl();
+  let (_, ty_generics, _) = input.generics.split_for_impl();
   let this = quote!(#ident #ty_generics);
   // The offsets of the fields of any other representation are found on a value, which an unsized
   // struct cannot be. Without this, the build fails in the generated code, where the struct is
@@ -1640,20 +2111,38 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     Fields::Unnamed(fields) => Some(&fields.unnamed),
     Fields::Unit => None,
   };
-  let mut fields = fields
-    .into_iter()
-    .flatten()
+  let declared = fields.into_iter().flatten().collect::<Vec<_>>();
+  // The `T` of each field, were it the `InPlace<T>` of an eager aim.
+  let inner = declared.iter().map(|field| in_place(&field.ty, &root)).collect::<Vec<_>>();
+  let mut fields = declared
+    .iter()
     .enumerate()
     .map(|(i, field)| {
+      let options =
+        parse_options(&field.attrs, "a field", &["valid", "len", "regions", "pointer"])?;
+      if let (Some(pointer), true) =
+        (&options.pointer, options.len.is_some() || options.regions.is_some())
+      {
+        return Err(Error::new_spanned(
+          &pointer.pointee,
+          "the field of a `pointer` is sized: it takes neither `len` nor `regions`",
+        ));
+      }
+      // The field of an eager aim is an `InPlace<T>`, a `T` in the layout, whose home is apart.
+      let (ty, name) = if in_place_field(&options) {
+        (&inner[i], format_ident!("I{}", i))
+      } else {
+        (&field.ty, format_ident!("F{}", i))
+      };
       Ok(FieldInfo {
         member: field
           .ident
           .as_ref()
           .map_or_else(|| Member::Unnamed(Index::from(i)), |ident| Member::Named(ident.clone())),
-        ty: &field.ty,
-        home: home(&this, &format_ident!("F{}", i), &field.ty),
+        ty,
+        home: home(&this, &name, ty),
         vis: &field.vis,
-        options: parse_options(&field.attrs, "a field", &["valid", "len", "regions"])?,
+        options,
         offset: TokenStream::new(),
       })
     })
@@ -1694,18 +2183,20 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
 
   // Only the layout of `repr(C)` and `repr(transparent)` is known without the size of the fields.
   let sized = !(repr.c || repr.transparent);
-  let types = fields.iter().map(|field| field.ty);
+  // The types of the fields, which are `Pun`, and the pointees that depend on a type parameter,
+  // which are `Pointee`s, as every aim requires (`Aim::new`): a `Thin` is one, and every `Pun`
+  // type. `#[pun(bound(..))]` gives all of them instead.
+  let pointees = fields.iter().flat_map(|field| {
+    let pointer = field.options.pointer.iter().map(|aim| &aim.pointee);
+    pointer.chain(field.options.regions.iter().flatten().filter_map(|region| region.ty.as_ref()))
+  });
+  let types = (fields.iter().map(|field| field.ty), pointees);
   let mut generics = bounded(input, types, options.bounds.as_ref(), &root);
-  // The types of the typed regions.
-  for field in &fields {
-    for ty in field.options.regions.iter().flatten().filter_map(|region| region.ty.as_ref()) {
-      bound(&mut generics, ty, &root);
-    }
-  }
   if sized {
     generics.make_where_clause().predicates.push(parse_quote!(#this: ::core::marker::Sized));
   }
-  let where_clause = &generics.where_clause;
+  // The bounds of the implementations, which `bounded` puts on the parameters where it can.
+  let (impl_generics, _, where_clause) = generics.split_for_impl();
 
   // Layout of the fields.
   let offsets_trait = (repr.c || repr.transparent).then(|| {
@@ -1730,7 +2221,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       }
     });
     // The impl of `Offsets` for memory of any size.
-    let mut sized_memory = input.generics.clone();
+    let mut sized_memory = generics.clone();
     sized_memory.params.push(parse_quote!(const __PunMemory: ::core::primitive::usize));
     let (memory_generics, _, _) = sized_memory.split_for_impl();
     quote! {
@@ -1787,88 +2278,95 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   // Rules.
   let rule = quote!(#root::layout::Rule);
   let mut rules = vec![];
-  // The rules that have an expression: their index, and their operations as a type.
-  let mut listed = vec![];
+  // The rules that have an expression or are aims: their index, the operations of each of their
+  // expressions as a type, and the type of the pointee of an aim.
+  let mut listed: Vec<(usize, TokenStream, Option<TokenStream>, TokenStream)> = vec![];
+  // Where the next rule is in the list, which names its item for a read: `First`, in as many
+  // `After` as there are items before it.
+  let item = |position: usize| {
+    (0..position).fold(quote!(#root::First), |item, _| quote!(#root::After<#item>))
+  };
   if let Some(size) = &options.size {
     let Expression { ops, steps } = expression(size, Ty::Int, true, &fields, &root)?;
-    listed.push((rules.len(), steps));
+    listed.push((rules.len(), steps, None, quote!(())));
     rules.push(quote!(#rule::Size(#ops)));
   }
   for assert in &options.asserts {
     let Expression { ops, steps } = expression(assert, Ty::Bool, false, &fields, &root)?;
-    listed.push((rules.len(), steps));
+    listed.push((rules.len(), steps, None, quote!(())));
     rules.push(quote!(#rule::Assert(#ops)));
   }
   let mut accessors = vec![];
+  let mut has_aims = false;
+  // The eager aims that have a name, which `AIMS` names: the name, the item, the visibility.
+  let mut named_aims = vec![];
   for (i, field) in fields.iter().enumerate() {
     let last = i + 1 == count;
+    if let Some(pointer) = &field.options.pointer {
+      let pointee = pointer.pointee.to_token_stream();
+      let eager = pointer.eager();
+      let start = pointer.start(&field.member);
+      let (aim, start, extent) =
+        aim_rule(&pointee, (Some(&start), &pointer.size), eager, &fields, &root)?;
+      let index = rules.len();
+      let read_item = item(listed.len());
+      listed.push((index, start, Some(pointee.clone()), extent));
+      rules.push(aim);
+      has_aims = true;
+      if let Some(name) = &pointer.name {
+        let read = if eager { Read::Eager } else { Read::Stored };
+        if eager {
+          named_aims.push((name, read_item.clone(), field.vis));
+        }
+        accessors.push(read_aim((name, &pointee, &read_item), read, field.vis, &root));
+      }
+    }
     if let Some(len) = &field.options.len {
       if !last {
         return Err(Error::new(len.span(), "`len` is an option of the last field"));
       }
       let Expression { ops, steps } = expression(len, Ty::Int, true, &fields, &root)?;
-      listed.push((rules.len(), steps));
+      listed.push((rules.len(), steps, None, quote!(())));
       rules.push(quote!(#rule::Len(#ops)));
     }
     if let Some(regions) = &field.options.regions {
       if !last {
         return Err(Error::new(field.member.span(), "`regions` is an option of the last field"));
       }
-      let vis = field.vis;
       for (index, region) in regions.iter().enumerate() {
-        let name = &region.name;
-        rules.push(match &region.size {
-          Some(size) => {
-            let Expression { ops, steps } = expression(size, Ty::Int, false, &fields, &root)?;
-            listed.push((rules.len(), steps));
-            quote!(#rule::Region(::core::option::Option::Some(#ops)))
-          }
-          None if index + 1 == regions.len() => quote!(#rule::Region(::core::option::Option::None)),
-          None => return Err(Error::new(name.span(), "only the last region can be unsized")),
-        });
-        accessors.push(region.ty.as_ref().map_or_else(
-          || {
-            let doc = format!(
-              "Returns the bytes of the `{name}` region of the tail, truncated if the fields that \
-               size the regions give more bytes than the tail holds. The region takes the rest of \
-               the tail if its expression fails.\n\n# Compile-time errors\n\n\
-               A call compiles only if every byte of the struct, up to the end of its tail, is \
-               initialized and, without the `unstable` feature of `puns`, this does not depend on \
-               a layout that Rust leaves to the compiler."
-            );
-            quote! {
-              #[doc = #doc]
-              #[inline]
-              #vis const fn #name(&self) -> &[::core::primitive::u8] {
-                #root::region(self, #index)
-              }
-            }
-          },
-          |ty| {
-            let doc = format!(
-              "Returns the `{name}` region of the tail as the type it is said to hold, read with \
-               `puns::from_bytes`. The region is truncated if the fields that size the regions \
-               give more bytes than the tail holds, and takes the rest of the tail if its \
-               expression fails.\n\n# Errors\n\nReturns the error of \
-               `puns::from_bytes` if the bytes of the region are not a value of that type.\n\n\
-               # Compile-time errors\n\nA call compiles only if every byte of the struct, up \
-               to the end of its tail, is initialized and, without the `unstable` feature of \
-               `puns`, this does not depend on a layout that Rust leaves to the compiler. It also \
-               compiles only under the compile-time conditions of `puns::from_bytes` for the type \
-               of the region."
-            );
-            quote! {
-              #[doc = #doc]
-              #[inline]
-              #vis const fn #name(&self) -> ::core::result::Result<&#ty, #root::Error> {
-                #root::from_bytes::<#ty>(#root::region(self, #index))
-              }
-            }
-          },
-        ));
+        // A region without a type is its bytes.
+        let pointee = region
+          .ty
+          .as_ref()
+          .map_or_else(|| quote!([::core::primitive::u8]), ToTokens::to_token_stream);
+        // A region is as many bytes as its expression says, what its type stores without one, or,
+        // the last without one, the rest of the tail.
+        let size = match &region.size {
+          Some(size) => AimSize::Bytes(size.clone()),
+          None if index + 1 == regions.len() => AimSize::Rest,
+          None => AimSize::Pointee,
+        };
+        let eager = region.eager();
+        let (aim, start, extent) = aim_rule(&pointee, (None, &size), eager, &fields, &root)?;
+        let read_item = item(listed.len());
+        listed.push((rules.len(), start, Some(pointee.clone()), extent));
+        rules.push(aim);
+        has_aims = true;
+        if eager {
+          named_aims.push((&region.name, read_item.clone(), field.vis));
+        }
+        let read = match (eager, &region.ty) {
+          (true, _) => Read::Eager,
+          (false, Some(_)) => Read::Region,
+          (false, None) => Read::Bytes,
+        };
+        accessors.push(read_aim((&region.name, &pointee, &read_item), read, field.vis, &root));
       }
     }
   }
+
+  let aims_pin = has_aims.then(|| pin_aims(&root));
+  let aims_constant = aims_constant(input, &named_aims, &root);
 
   // Getters.
   for getter in &options.getters {
@@ -1927,9 +2425,10 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       // SAFETY: `FIELD` is the field of the layout of the struct whose declaration index is `#i`:
       // `layouts` holds the fields in the order of their declarations, each with the layout of
       // its type or a restriction of it, and `Layout::sort_fields` gives each its index. Its type
-      // is `#ty`. `Next` is the field declared after it, or `()` after the last, and `Last` is the
-      // last. So the list from the first marker is the fields of the layout, in the order of
-      // their declarations, as the `# Safety` of `Fields` requires.
+      // is `#ty`, the `T` of the `InPlace<T>` of an eager aim. `Next` is the field declared after
+      // it, or `()` after the last, and `Last` is the last. So the list from the first marker is
+      // the fields of the layout, in the order of their declarations, as the `# Safety` of
+      // `Fields` requires.
       unsafe impl #impl_generics #root::Fields for #marker #ty_generics #where_clause {
         type Type = #ty;
         type Next = #next;
@@ -1941,11 +2440,23 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     }
   });
 
-  // The list of the rules that have an expression, at the type level, with their operations.
-  let rule_list = listed
-    .iter()
-    .rev()
-    .fold(quote!(()), |next, (index, steps)| quote!(#root::RuleAt<#index, #steps, #next>));
+  // The metadata of a pointer to the struct is that of its last field, as in Rust.
+  let metadata = fields.last().map_or_else(
+    || quote!(()),
+    |last| {
+      let ty = &last.home;
+      quote!(<#ty as #root::Pun>::Metadata)
+    },
+  );
+
+  // The list of the rules that have an expression or are aims, at the type level, with their
+  // operations and the pointees of the aims.
+  let rule_list = listed.iter().rev().fold(quote!(()), |next, (index, steps, pointee, extent)| {
+    pointee.as_ref().map_or_else(
+      || quote!(#root::RuleAt<#index, #steps, #next>),
+      |pointee| quote!(#root::RuleAt<#index, #steps, #next, #pointee, #extent>),
+    )
+  });
 
   let accessors = (!accessors.is_empty()).then(|| {
     quote! {
@@ -1970,16 +2481,31 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     quote!(const NULL_OPTIMIZED: bool = false #(|| <#types as #root::Pun>::NULL_OPTIMIZED)*;)
   });
 
-  // The home of the type of each field, and what ties the fields to the struct.
-  let named = fields
+  // The home of the type of each field, and of the `T` of the `InPlace<T>` of an eager aim, and
+  // what ties the fields to the struct.
+  let mut named = declared
     .iter()
     .enumerate()
-    .map(|(i, field)| (format_ident!("F{}", i), field.ty))
+    .map(|(i, field)| (format_ident!("F{}", i), &field.ty))
     .collect::<Vec<_>>();
+  let aims = fields.iter().enumerate().filter(|(_, field)| in_place_field(&field.options));
+  named.extend(aims.map(|(i, field)| (format_ident!("I{}", i), field.ty)));
   let members = fields.iter().map(|field| &field.member).collect::<Vec<_>>();
-  let same = fields.iter().map(|field| {
+  let same = declared.iter().zip(&fields).enumerate().map(|(i, (declared, field))| {
     let member = &field.member;
-    same_type(&quote!((*p).#member), &field.home, field.ty)
+    let written = home(&this, &format_ident!("F{}", i), &declared.ty);
+    let same = same_type(&quote!((*p).#member), &written, &declared.ty);
+    // The field of an eager aim is the `InPlace<T>` of `puns`, which no safe code makes, where `T`
+    // is its type in the layout, tied by a function of `Layout`, which the type of `LAYOUT` fixes,
+    // and not by a path, which could name another type `InPlace<T>` for some `T`.
+    let home = &field.home;
+    let in_place = in_place_field(&field.options).then(|| {
+      located(
+        quote!(#root::layout::Layout::in_place::<#home>(&mut (&raw mut (*p).#member));),
+        declared.ty.span(),
+      )
+    });
+    quote!(#same #in_place)
   });
   let homes = homes(
     input,
@@ -2014,12 +2540,19 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   field. Each field has the layout of its type (`Pun`, section Safety), or a restriction
       //   of it (`Layout::restricted`), which guarantees the same values and accepts fewer. A
       //   struct is valid if each of its fields is valid [1], and a byte that no field covers is
-      //   padding.
+      //   padding. The field of an eager aim is an `InPlace<T>`, which `item` requires too, and
+      //   which is `repr(transparent)` over its `T` and has no other invariant, so its layout is
+      //   that of `T`.
       //   Rules are requirements of `puns`, never of the language.
+      // - An eager aim says that every value holds a valid pointee where its expression says. No
+      //   code makes an `InPlace`, so no safe code makes a value of the struct, which exists only
+      //   where `puns` checked its pointee, or where unsafe code put it.
       // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules that
-      //   have an expression, which `validate::check_rules` asserts against the layout. The other
-      //   lists are `()`. `NULL_OPTIMIZED` changes only what the analysis takes to be the same in
-      //   every layout that Rust allows.
+      //   have an expression or are aims (the regions, whose pointee is `[u8]`, and the eager
+      //   aims), which `validate::check_rules` asserts against the layout. `Metadata` is that of
+      //   the last field, which holds the tail of the struct, or `()` without fields, as in Rust.
+      //   The other lists are `()`. `NULL_OPTIMIZED` changes only what the analysis takes to be the
+      //   same in every layout that Rust allows.
       // - Each field is `Pun`, so no byte is inside an `UnsafeCell`.
       // The functions called are those of the types that `Layout::PIN` fixes, which no path can
       // replace. A struct whose private fields keep an invariant must not derive `Pun` (crate
@@ -2035,6 +2568,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         type Fields = #first;
         type Variants = ();
         type Rules = #rule_list;
+        type Metadata = #metadata;
         const PROBE: *const Self = #probe;
         // SAFETY: `Layout::structure` requires nothing of a `Sized` struct. An unsized struct has
         // an unsized last field, whose `Pun` type is a slice, `str`, or a struct whose last field
@@ -2051,12 +2585,15 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
           )
         }
         #rust
-        .identified(Self::ID);
+        .identified(Self::ID)
+        .measured::<Self>();
         const ID: #root::layout::Id = #id;
         #null_optimized
       }
 
       #accessors
+      #aims_constant
+      #aims_pin
 
       #(#tags)*
     };
@@ -2103,7 +2640,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     let (homes, _) = variant_homes(input, data);
     // No value: nothing is ever made of one, and nothing is valid for it.
     return Ok(quote! {
-      const _: () = {
+    const _: () = {
         #homes
       };
 
@@ -2121,6 +2658,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         type Fields = ();
         type Variants = ();
         type Rules = ();
+        type Metadata = ();
         const PROBE: *const Self = ::core::ptr::null();
         const LAYOUT: #root::layout::Layout =
           #root::layout::Layout::uninhabited::<Self>().identified(Self::ID);
@@ -2423,12 +2961,13 @@ fn derive_tagged(
     return derive_discovered(input, data, root, bounds);
   }
   let (ident, vis) = (&input.ident, &input.vis);
-  let (impl_generics, ty_generics, _) = input.generics.split_for_impl();
+  let (_, ty_generics, _) = input.generics.split_for_impl();
   let this = quote!(#ident #ty_generics);
   let types = data.variants.iter().flat_map(|variant| &variant.fields).map(|field| &field.ty);
-  let generics = bounded(input, types, bounds, root);
+  let generics = bounded(input, (types, core::iter::empty()), bounds, root);
   let id = identity(input, &generics, root);
-  let where_clause = &generics.where_clause;
+  // The bounds of the implementations, which `bounded` puts on the parameters where it can.
+  let (impl_generics, _, where_clause) = generics.split_for_impl();
 
   // The tag: an enum without fields of the same variants and discriminants, with `Self` replaced
   // by the enum (`Discriminant`). It evaluates the discriminants again, here, so
@@ -2484,9 +3023,9 @@ fn derive_tagged(
       let layouts = quote!(&[#(&<#types as #root::Pun>::LAYOUT),*]);
       (
         quote! {
-          if #layout::sampled_all(#layouts) {
+          if #layout::inhabited_all(#layouts) {
             #option::Some(#layout::wrap(Self::#name {
-              // SAFETY (of the generated code): Each field type has a sample, which is checked
+              // SAFETY (of the generated code): Each field type has values, which is checked
               // above, so `Layout::sample` makes a valid value of it, as `assume_init` requires.
               #(#members: unsafe { #layout::sample::<#types>().assume_init() }),*
             }))
@@ -2821,6 +3360,7 @@ fn derive_tagged(
         type Fields = ();
         type Variants = #first #ty_generics;
         type Rules = ();
+        type Metadata = ();
         const PROBE: *const Self = ::core::ptr::null();
         const LAYOUT: #root::layout::Layout = #root::layout::Layout::enumeration::<Self>(
           const {
@@ -2857,12 +3397,13 @@ fn derive_discovered(
   bounds: Option<&Bounds>,
 ) -> Result<TokenStream> {
   let (ident, vis) = (&input.ident, &input.vis);
-  let (impl_generics, ty_generics, _) = input.generics.split_for_impl();
+  let (_, ty_generics, _) = input.generics.split_for_impl();
   let this = quote!(#ident #ty_generics);
   let types = data.variants.iter().flat_map(|variant| &variant.fields).map(|field| &field.ty);
-  let generics = bounded(input, types, bounds, root);
+  let generics = bounded(input, (types, core::iter::empty()), bounds, root);
   let id = identity(input, &generics, root);
-  let where_clause = &generics.where_clause;
+  // The bounds of the implementations, which `bounded` puts on the parameters where it can.
+  let (impl_generics, _, where_clause) = generics.split_for_impl();
   let count = data.variants.len();
   let usize = quote!(::core::primitive::usize);
   let layout = quote!(#root::layout::Layout);
@@ -3087,6 +3628,7 @@ fn derive_discovered(
         type Fields = ();
         type Variants = #first #ty_generics;
         type Rules = ();
+        type Metadata = ();
         const PROBE: *const Self = ::core::ptr::null();
         // Rust specifies nothing of it: the layout that `puns` assumes where it applies, checked
         // against what the experiments found, and otherwise opaque without the `unstable` feature.
@@ -3125,12 +3667,13 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
   let options = parse_options(&input.attrs, "a union", &["crate", "bound"])?;
   let root = options.root.clone().unwrap_or_else(|| quote!(::puns));
   let (ident, vis) = (&input.ident, &input.vis);
-  let (impl_generics, ty_generics, _) = input.generics.split_for_impl();
+  let (_, ty_generics, _) = input.generics.split_for_impl();
   let this = quote!(#ident #ty_generics);
   let types = data.fields.named.iter().map(|field| &field.ty);
-  let generics = bounded(input, types, options.bounds.as_ref(), &root);
+  let generics = bounded(input, (types, core::iter::empty()), options.bounds.as_ref(), &root);
   let id = identity(input, &generics, &root);
-  let where_clause = &generics.where_clause;
+  // The bounds of the implementations, which `bounded` puts on the parameters where it can.
+  let (impl_generics, _, where_clause) = generics.split_for_impl();
   let count = data.fields.named.len();
   let shadows = (0..count).map(|i| format_ident!("__PunVariant{}", i)).collect::<Vec<_>>();
   let (mut items, mut variants, mut named, mut same) = (vec![], vec![], vec![], vec![]);
@@ -3258,6 +3801,7 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
         type Fields = ();
         type Variants = #first;
         type Rules = ();
+        type Metadata = ();
         const PROBE: *const Self = ::core::ptr::null();
         const LAYOUT: #root::layout::Layout = #root::layout::Layout::union::<Self>(
           const { &#root::layout::Enum::union(const { &[#(#variants),*] }) },

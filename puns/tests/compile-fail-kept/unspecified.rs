@@ -28,6 +28,4 @@ fn main() {
   let _ = puns::as_bytes(&(1u8, 2u16, 3u8));
   // What a `&mut` lets be written.
   let _ = puns::pun_mut::<(bool, u8), [u8; 2]>(&mut (true, 1));
-  // What a check of every part reads.
-  let _ = puns::validate_but_never::<Mixed>(&[1, 1]);
 }

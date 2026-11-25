@@ -14,9 +14,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - The documentation of `#[derive(Pun)]` (on `pub use puns_derive::Pun` in
   [`src/lib.rs`](src/lib.rs)) says what a rule means, what it reads, and what the derive trusts
   ("What the derive trusts").
-- [`Scalar`](src/lib.rs) states the contract of a scalar declared by hand, a scalar that a pun
-  never makes (`Spec::never`) included, and the crate documentation ("Scalars that a pun never
-  makes") what `puns` guarantees its crate in return.
+- [`Scalar`](src/lib.rs) states the contract of a scalar declared by hand, and the crate
+  documentation ("Aims") what `puns` guarantees a type that holds an eager aim, such as a
+  self-relative pointer, which derives `Pun` with `#[pun(pointer(..))]`.
 
 ## How it works
 
@@ -62,7 +62,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   returns the layout that the experiments found, never the predicted one, so a false declaration
   only fails the build.
 - A requirement (`valid(..)`, a rule) never proves a guarantee of another type. Two layouts are
-  equal only if they require and guarantee the same values.
+  equal only if they require and guarantee the same values. Each rule of a struct is a leaf of its
+  own (`Layout::rule_leaf`), proven by the same rule of a struct of the same extent at the same
+  place, after the same aims at the cursor if it is one, and checked on its own otherwise.
 - An identity (`layout::Id`, `Pun::ID`) names a type by its declaration and by every parameter but
   its lifetimes, so two types with one identity are one type. It has two uses only: proving a part
   that is not `fixed` by the same type at the same place, and naming a type without its layout.
@@ -70,19 +72,14 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   identities of the parameters, never of their layouts, so that a type that holds itself through a
   generic type has a layout. The derive gives a generic type one only where each type parameter is
   bounded by `Pun` (`identity` in `puns-derive`).
-- No function makes a value that holds a scalar that a pun never makes (`Spec::never`), and no
-  function gives a `&mut` to one. As a target, such a scalar is disjoint from every source
-  (`atom_relation`), and a part of a target that holds one is proven by nothing, not even by
-  itself (`Layout::holds_never`). Only `validate_but_never` accepts one, unread, and makes no value.
-  `Option` of one is one of the same size (`std_enums::never_option`), found without a sample, which
-  `puns` has none of: its size and the bytes of `None` are checked in const evaluation.
 - The validation of the `try_` and `from_` functions compares the rules of what the derive or a
   hand-written `Pun` lists with the layout (`validate::listed`) and the place of each field
   (`F::Path`), and relies on the `# Safety` section of `Pun` for the other lists.
 - What a layout is made of depends on no path that the deriving crate can redefine, though the
   generated code names `::core` and the root of `puns` ("What the derive trusts" in the
   documentation of `#[derive(Pun)]`). `Layout::PIN` fixes the types whose functions make a
-  layout, so a new type whose functions the derive calls goes there. `fakecore` in `puns-model`
+  layout, and `Layout::PIN_AIMS` those of the rule of an aim, so a new type whose functions the
+  derive calls goes there. `fakecore` in `puns-model`
   tests that the derive meets it for `::core`, and the cases `crate_path_*` of
   `tests/compile-fail` for the root of `puns`.
 - The derive writes the type of each field once, in a trait of its generated code (`homes` in
@@ -90,9 +87,88 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   compiled has those fields and variants, of those types. The offsets of the fields are measured
   on the item as compiled (`Layout::offsets`, the samples of the variants), except where
   "What the derive trusts" says that the `repr` that the derive read gives them.
-- Every scalar that a pun never makes in the repository is declared through the public API only,
-  as another crate would declare it, with `Scalar` and `Spec::never`. Most of them share
-  [`tests/support/never.rs`](tests/support/never.rs).
+- The self-relative pointer of the tests (`Near`, in
+  [`tests/support/aims.rs`](tests/support/aims.rs)) derives `Pun` with an eager aim, as another
+  crate would declare it.
+- An aim (`layout::Aim`) is where its pointee is (`Start`: stored, or the cursor of the tail),
+  how large it is (`Extent`: what the pointee stores, a length, a size in bytes, or the rest of the
+  tail of the struct), and when it is checked (`Check`), and every combination is checked and read.
+  The size of a pointee is the size of its value with its metadata, as `size_of_val` gives. An
+  eager aim is checked with the struct that holds it, its pointee within the bytes that the check
+  reads (`validate::Input`), and code reads the pointee without a check, through a safe method.
+  So no function makes a value that holds one (`Plan::eager`), gives a `&mut` to or from one
+  (`Plan::eager_mut`), or checks one from a source whose bytes may be padding, only the same aim at
+  the same place proves one (`Aim::equals`, with a known identity of the pointee), and a union does
+  not hold one (`Layout::union`). The derive gives an eager aim only to a struct whose field of the
+  aim (the offset of a pointer, or the bytes of eager regions) is an `InPlace<T>`, which no code
+  makes and which is not `Pun`, and checks that the field is the `InPlace<T>` of `puns` for its
+  own `T` through `Layout::in_place` (`item` in `homes`), which no crate path replaces, so that no
+  safe code makes a value of the struct, nor a reference to one but through `puns`: the
+  documentation of `InPlace` states this argument, and the obligation of unsafe code that makes
+  such values, as `nearest` does, and the `# Safety` of `Pun` the property that the reads rely
+  on. An `InPlace<T>` is a `T` in the layout. A lazy aim at the cursor requires of the struct only
+  that its pointee fits, and a lazy aim at a stored place nothing, so its type counts in a proof
+  only where the pointee stores its length.
+- Both kinds of start are one rule (`Rule::Aim`), checked in one place (`validate::check_aim`),
+  which places the pointee by one step of the cursor (`validate::cursor_step`) or at a stored place
+  (`validate::stored_at`), written by the derive in one place (`aim_rule` in `puns-derive`), which
+  `pointer(..)` and `regions(..)` enter. What reads a pointee finds it as the check does: the same
+  steps of the cursor, which truncate where the check fails (`validate::region_at`), or the same
+  expression (`validate::pointer_at`, `validate::value_of`, whose arithmetic is checked). A struct
+  may have both, and the pointee of a region may hold eager aims, which its read looks for in the
+  bytes of the struct (`tests/aims.rs`).
+- The read of the pointee of an eager aim (`name`, from `&self`) is safe: the derive writes a call
+  of `aim_of`, a safe function of `puns`, with no `unsafe` block, so a crate path that names
+  another function there calls safe code. `aim_of` relies on the `# Safety` of `Pun`, which the
+  `InPlace` of the aim meets, and on the reference having the provenance of the bytes of the
+  pointee, which tree borrows gives and stacked borrows does not. `aim` and `aim_mut` take a
+  pointer, so that a caller under stacked borrows gives the provenance of the checked bytes, as the
+  tests that Miri runs with stacked borrows do (`tests/aims.rs`); the tests of the reads of
+  pointees outside the value through a reference (`tests/aim_reads.rs`) run under tree borrows
+  only. They name an aim by its name, a field of the constant `AIMS` that the derive writes
+  (`AimOf`). The derive writes no method that writes a pointee: such a method would be `unsafe`,
+  and would call a function that the crate path names. The length of a pointee that stores it is
+  read from its sized fields or before its value only, by the check and by the read
+  (`Layout::stores_length`, `validate::own_length`), so the read never meets a length that the
+  check accepted and it cannot read.
+- A layout cannot hold itself, so an aim holds the size, the alignment and the identity of its
+  pointee, and the pointee is reached through `Pun::Rules` (`Rules::Pointee`), so that the type of
+  a pointee is written in one place of the derive. A read names the item of its aim by where it is
+  in the list of its struct (`Item`: `First`, `After`, hidden, which the derive counts for
+  `AimOf`), never by the item, so the pointee that it reads is the one that the check of the struct
+  found, whatever its identity. `Aim::new` reads no layout of the pointee for this reason; what it
+  cannot assert, `validate::pointee_checked` asserts where the aim is checked or read. The identity
+  of a type is `Pun::ID`, made of the identities of its parameters and never of a layout, which its
+  layout holds too. The pointee is a `Pointee`, a
+  sealed trait: a `Pun` type, or a `Thin<T, M>`, the metadata of a pointer to `T` stored before it
+  as an `M` that ends with the length, at which the pointer points, and nothing for a sized `T`
+  (`Metadata::Stored`). `Pun::Metadata` is a sealed `Metadata`, `()` exactly when the layout is
+  sized (`Layout::measured` asserts it of every struct).
+- The functions that check in place (`from_head` and the others) check a pointee within the check
+  of the struct whose aim leads to it, a recursion that the parts of the layouts of the pointees
+  bound (`AIM_PARTS`, `Layout::parts`), so that their stack does not depend on the bytes, and stays
+  within what an embedded target has: `AIM_PARTS` holds the one statement of the measured figures
+  and how they were measured. Each part nests a few calls of the validation, and `tests/aims.rs`
+  runs the deepest checks of the shapes that nest the most on a thread of 64 KiB. A change of the
+  validation that makes its frames larger is measured again. The functions on that path hold no
+  copy of a layout, a field or a rule, and what reads one, or computes before the recursion, is a
+  function of its own in a build without optimizations (`cfg_attr(not(debug_assertions),
+  inline(always))`: "The stack of a check in place" in the documentation of `validate`), so that
+  the frames that wait hold little. Optimized, all of it is inlined, as `examples/codegen.rs`
+  checks.
+- `check` and `check_compact` check with `validate::Work`: every pointee of an eager aim waits in
+  the worklist (`Pending`, a stage and where it applies), and `validate::drive`, one function for
+  every type (its steps are function pointers, the worklist a trait object), runs them depth
+  first, reversing those that each step adds, so that the parts of each value are checked before
+  its pointees, in the order that `nearest` 0.8 checked an image. Once an element of a slice put a
+  pointee in the worklist, the rest of the slice waits in one entry (`validate_elems`), so the
+  worklist grows with the depth of the data. Before a step, the driver grows the worklist to the
+  most entries that the step may add (`Layout::defers`), so no step is made twice, and a worklist
+  that cannot grow stops the check where an entry does not fit. Where the check fails is recorded
+  as it runs (`Input::fail`). A compact check claims each pointee where `check_stored` checks it
+  (`Input::claim`), so in the order of a copy. Alignment is by offset from a base alignment there
+  (`Input::aligned`), since the bytes are checked before they are copied. `Worklist` is an
+  `unsafe` trait: the driver keeps its entries in the memory that it gives.
 
 ## Not done yet
 
@@ -115,9 +191,9 @@ section lists changes that could lift some of them, and what each would cost.
   count it as imprecise.
 - **A rule that two variants of a view share, where neither variant accepts every value of the
   other.** The later variants that have a rule that failed, over the same extent at the same place
-  (`Layout::same_rules`), could be skipped at once, and the validation would then report which rule
-  failed. But every check would carry that report, where it is now a `bool` that the optimizer
-  folds.
+  (`Layout::same_extent`, `Layout::has_rule`), could be skipped at once, and the validation would
+  then report which rule failed. But every check would carry that report, where it is now a `bool`
+  that the optimizer folds.
 - **Precise checks of an enum whose source is another type.** Only what was not proven could be
   checked, rather than the whole enum.
 - **A checked pun from an enum to a type that is not an enum.** Relating the target to each variant

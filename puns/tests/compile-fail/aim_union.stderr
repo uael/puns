@@ -1,0 +1,27 @@
+error[E0080]: evaluation panicked: a field of a union holds an eager aim, whose pointee is checked after the value that holds it, too late to choose the field
+  --> tests/compile-fail/aim_union.rs:15:10
+   |
+15 | #[derive(Pun)]
+   |          ^^^ evaluation of `_::<impl puns::Pun for Either>::LAYOUT` failed inside this call
+   |
+note: inside `puns::layout::Layout::union::<Either>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   | /         assert!(
+   | |           !field.layout.holds_eager(false),
+   | |           "a field of a union holds an eager aim, whose pointee is checked after the value that \
+   | |            holds it, too late to choose the field"
+   | |         );
+   | |_________- in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/aim_union.rs:15:10
+   |
+15 | #[derive(Pun)]
+   |          ^^^
+   |
+   = note: this note originates in the derive macro `Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

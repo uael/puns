@@ -1,0 +1,41 @@
+error[E0080]: evaluation panicked:
+              cannot pun: the target holds an eager aim, whose check reads its pointee in the bytes of the source, and some of them may be padding.
+              Check the bytes of the source instead, with `from_bytes` or `from_head`.
+
+    --> src/lib.rs
+     |
+     |   const TRY_REF: () = Self::require(Self::check(Need::TRY_REF));
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<Padded, [aims::Near<u32>; 2]>::TRY_REF` failed inside this call
+     |
+note: inside `puns::Plan::<Padded, [Near<u32>; 2]>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY_REF };
+  |           ^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::TRY_REF };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn try_pun_ref::<Padded, [Near<u32>; 2]>`
+  --> tests/compile-fail/aim_padded_source.rs:16:11
+   |
+16 |   let _ = puns::try_pun_ref::<Padded, [aims::Near<u32>; 2]>(&padded);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

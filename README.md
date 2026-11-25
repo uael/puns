@@ -113,7 +113,9 @@ assert_eq!(buffer[1], 63);
 `u16be` and `u32be` are big-endian integers with an alignment of 1, which is why `Packet` has no
 padding and can be at any address in a buffer. Rules can also compute other checksums, read
 variable-length integers and `walk` a chain of headers. Other attributes cover bit fields,
-restricted values and regions, and the [derive's documentation][derive] lists them all.
+restricted values and regions, and the [derive's documentation][derive] lists them all. A struct
+can also point at another place of the bytes it was read from, as the self-relative pointers of
+`nearest` do, and `puns` checks the value there when it checks the struct.
 
 A rule describes the format, and Rust knows nothing of it. It's checked when the bytes are read, and
 nothing keeps it true afterwards. If the router had set `length` to 10, the payload would still have
@@ -204,6 +206,10 @@ only on nightly.
   extra level of nesting multiplies it again. Limit the size of untrusted input for such types
   ([details][costs]).
 - An [`Error`][error-type] doesn't tell you which field or rule failed.
+- `from_bytes` and the other functions that follow the pointers of a struct check what they point
+  at on the stack, a few levels of a type that points at itself, and return `Error::Limit` past
+  them. Check deeper data with [`check`][check], which keeps the pointers still to follow in a list
+  that you give.
 
 ## Performance
 
@@ -284,6 +290,7 @@ additional terms or conditions.
 [Limitations]: https://docs.rs/puns/0.2.4/puns/#limitations
 [num]: https://docs.rs/puns/0.2.4/puns/num/index.html
 [error-type]: https://docs.rs/puns/0.2.4/puns/enum.Error.html
+[check]: https://docs.rs/puns/0.2.4/puns/fn.check.html
 [derive]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
 [Soundness]: https://docs.rs/puns/0.2.4/puns/#soundness
 [deriving]: https://docs.rs/puns/0.2.4/puns/#what-deriving-pun-means

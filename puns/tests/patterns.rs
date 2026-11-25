@@ -111,6 +111,7 @@ unsafe impl Pun for Bits {
   type Fields = ();
   type Variants = ();
   type Rules = ();
+  type Metadata = usize;
   const PROBE: *const Self = <[u8] as Pun>::PROBE as *const Self;
   // SAFETY: `Bits` is a struct whose last field is a slice. `Self::PROBE` is `<[u8] as Pun>::PROBE`
   // cast with an `as` cast, and its 3 bytes fit in an `isize`. These are the requirements of
@@ -151,6 +152,7 @@ unsafe impl Pun for AnyBytes {
   type Fields = ();
   type Variants = ();
   type Rules = ();
+  type Metadata = usize;
   const PROBE: *const Self = <[u8] as Pun>::PROBE as *const Self;
   // SAFETY: `AnyBytes` is a struct whose last field is a slice. `Self::PROBE` is
   // `<[u8] as Pun>::PROBE` cast with an `as` cast, and its 3 bytes fit in an `isize`. These are the
