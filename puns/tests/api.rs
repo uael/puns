@@ -456,6 +456,57 @@ fn signed_non_zero() {
   assert_eq!(pun::<NonZero<i32>, NonZero<u32>>(minus).get(), u32::MAX);
 }
 
+/// Checks, for each integer of a fixed byte order of `puns::num` that has a `NonZero`, that its
+/// `NonZero` has its bytes and accepts every bit pattern but zeros, that an `Option` of it has its
+/// size, `None` being zeros, without the `unstable` feature, and that the integer proves it only
+/// where it is not zero.
+#[test]
+fn non_zero_of_a_fixed_byte_order() {
+  macro_rules! each {
+    ($($name:ident: $raw:ident;)+) => {$({
+      use puns::num::{NonZero, $name};
+      const N: usize = size_of::<$raw>();
+      let value = $name::new($raw::MAX);
+      let non_zero = NonZero::new(value).unwrap();
+      assert_eq!((size_of::<NonZero<$name>>(), align_of::<NonZero<$name>>()), (N, 1));
+      assert_eq!(size_of::<Option<NonZero<$name>>>(), N);
+      assert_eq!((non_zero.get(), $name::from(non_zero)), (value, value));
+      assert_eq!(NonZero::new($name::new(0)), None);
+      // Its bytes are those of the integer, in its byte order.
+      assert_eq!(pun::<NonZero<$name>, [u8; N]>(non_zero), value.to_bytes());
+      assert_eq!(pun::<Option<NonZero<$name>>, [u8; N]>(None), [0; N]);
+      assert_eq!(try_pun::<[u8; N], Option<NonZero<$name>>>([0; N]), Ok(None));
+      let one = $name::new(1);
+      assert_eq!(try_pun::<[u8; N], NonZero<$name>>(one.to_bytes()).map(NonZero::get), Ok(one));
+      assert_eq!(try_pun::<[u8; N], Option<NonZero<$name>>>(one.to_bytes()), Ok(NonZero::new(one)));
+      assert_eq!(try_pun::<[u8; N], NonZero<$name>>([0; N]), Err(Error::Validity));
+      assert_eq!(try_pun::<$name, NonZero<$name>>($name::new(0)), Err(Error::Validity));
+      // Every `NonZero` of it is the integer: proven.
+      assert_eq!(pun::<NonZero<$name>, $name>(non_zero), value);
+      assert_eq!(pun::<Option<NonZero<$name>>, $name>(Some(non_zero)), value);
+      assert!(NonZero::new($name::new(1)).unwrap() < non_zero);
+    })+};
+  }
+  each! {
+    u16le: u16;
+    u16be: u16;
+    u32le: u32;
+    u32be: u32;
+    u64le: u64;
+    u64be: u64;
+    u128le: u128;
+    u128be: u128;
+    i16le: i16;
+    i16be: i16;
+    i32le: i32;
+    i32be: i32;
+    i64le: i64;
+    i64be: i64;
+    i128le: i128;
+    i128be: i128;
+  }
+}
+
 /// Checks that `ManuallyDrop` of an unsized type is reinterpreted as that type: the layout of
 /// `ManuallyDrop<[u8]>` checks that a pointer to it is represented as a pointer to a slice.
 #[test]
