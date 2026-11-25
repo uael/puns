@@ -59,12 +59,15 @@ seconds of each job go to the checkout and the toolchain before anything runs, a
 slower and vary by a third from one run to the next, so aim at 45 seconds and read the times of the
 jobs after a change of the workflow. The first run after a change of a cache key has nothing cached.
 With the caches, a job takes 15 to 20 seconds before its work starts, so the work is at most about
-20 seconds. Building the model's `miri_sample` tests, or its `parts` tests, already takes that long.
+20 seconds. Building a test file of the model of a hundred pairs, or the cases of `compile-fail`,
+already takes that long.
 
-This is why `cargo test --all` is fourteen jobs there: the tests of `puns` in six, four without the
-`unstable` feature and two with it, and the sample of the model check in eight, four each way. It is
-also why each Miri run of the tests of `puns` is five jobs. Without the feature, there are three
-parts of about the same time: two name their files, and the third takes all the remaining files.
+This is why `cargo test --all` is twenty jobs there: the tests of `puns` in eight, five without the
+`unstable` feature and three with it (the cases of `compile-fail` in two halves each way), and the
+sample of the model check in twelve, six each way (the native samples of pairs and of parts are in
+two files each, `sample_by_size_*` and `parts_by_size_*`). It is also why each Miri run of the
+tests of `puns` is six jobs. Without the feature, there are four parts of about the same time:
+three name their files, and the fourth takes all the remaining files.
 With the feature, the files that test it are split in two. Split a job again rather than let it pass
 45 seconds. These jobs have a cache of the standard library that Miri builds and of the sources it
 builds it from, and Miri builds it again when the modification time of a source changes, which a
