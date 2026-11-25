@@ -230,10 +230,70 @@ fn parse_repr(attrs: &[Attribute]) -> Result<Repr> {
   Ok(repr)
 }
 
+/// When the pointee of an aim is checked, and whether a method reads it to write: what an aim of
+/// either option starts with, `eager` or `lazy`, then `mut`, before its name.
+///
+/// An aim without `eager` or `lazy` is checked as its option says: a `pointer` with the struct, and
+/// a region when it is read ([`Prefix::eager`]). `mut` adds a method that reads an eager pointee to
+/// write, and is refused on a lazy one, whose read checks bytes that it is given, or on one without
+/// a name, since it names that method.
+struct Prefix {
+  /// `Some(true)` for `eager`, `Some(false)` for `lazy`, `None` for neither.
+  check: Option<bool>,
+  mutable: Option<Token![mut]>,
+}
+
+impl Parse for Prefix {
+  fn parse(input: ParseStream) -> Result<Self> {
+    let check = if keyword(input, "eager") {
+      Some(true)
+    } else if keyword(input, "lazy") {
+      Some(false)
+    } else {
+      None
+    };
+    if check.is_some() {
+      input.parse::<Ident>()?;
+    }
+    let mutable = input.parse()?;
+    Ok(Self { check, mutable })
+  }
+}
+
+impl Prefix {
+  /// Returns whether the aim is eager: as it says, or as `by_default` says for its option.
+  const fn is_eager(&self, by_default: bool) -> bool {
+    match self.check {
+      Some(eager) => eager,
+      None => by_default,
+    }
+  }
+
+  /// Returns whether the aim is eager ([`Prefix::is_eager`]), and checks that `mut` is on an eager
+  /// aim with a name.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error at `mut` if the aim is lazy or has no name.
+  fn eager(&self, by_default: bool, named: bool) -> Result<bool> {
+    let eager = self.is_eager(by_default);
+    match &self.mutable {
+      Some(mutable) if !eager => Err(Error::new_spanned(
+        mutable,
+        "a lazy aim is read by a check of bytes: write it without `mut`",
+      )),
+      Some(mutable) if !named => {
+        Err(Error::new_spanned(mutable, "`mut` names the method that it adds"))
+      }
+      _ => Ok(eager),
+    }
+  }
+}
+
 /// A region of `#[pun(regions(..))]`: `name`, `name: Type`, `name = EXPR` or
-/// `name: Type = EXPR`, after `eager` for a region that the check of the struct checks.
+/// `name: Type = EXPR`, after the [`Prefix`] of its aim.
 struct Region {
-  eager: bool,
+  prefix: Prefix,
   name: Ident,
   ty: Option<Type>,
   size: Option<Expr>,
@@ -241,11 +301,7 @@ struct Region {
 
 impl Parse for Region {
   fn parse(input: ParseStream) -> Result<Self> {
-    // The name of the region follows `eager`, which is otherwise the name.
-    let eager = keyword(input, "eager") && input.peek2(Ident);
-    if eager {
-      input.parse::<Ident>()?;
-    }
+    let prefix = input.parse()?;
     let name = input.parse()?;
     let ty = if input.peek(Token![:]) {
       input.parse::<Token![:]>()?;
@@ -259,7 +315,24 @@ impl Parse for Region {
     } else {
       None
     };
-    Ok(Self { eager, name, ty, size })
+    Ok(Self { prefix, name, ty, size })
+  }
+}
+
+/// Whether a region is eager unless it says `lazy` or `eager`: no, it is checked when it is read.
+const REGION_EAGER: bool = false;
+
+/// Whether a pointer is eager unless it says `lazy` or `eager`: yes, it is checked with the struct.
+const POINTER_EAGER: bool = true;
+
+impl Region {
+  /// Returns whether the region is eager ([`REGION_EAGER`]).
+  ///
+  /// # Errors
+  ///
+  /// As [`Prefix::eager`].
+  fn eager(&self) -> Result<bool> {
+    self.prefix.eager(REGION_EAGER, true)
   }
 }
 
@@ -278,17 +351,35 @@ impl Parse for TagOption {
 }
 
 /// The aim of `#[pun(pointer(..))]`: `name: Type = EXPR` or `Type = EXPR`, the name of the methods
-/// that read the pointee, if any, its type and where it is, after `lazy` for an aim that is checked
-/// when it is read, or `mut` for one whose pointee is also read to write, then `, len = EXPR` for
-/// an unsized pointee of a given length, `, size = EXPR` for a pointee of a given size in bytes, or
-/// `, size = ..` for one that takes the rest of the tail of the struct.
+/// that read the pointee, if any, its type and where it is, after the [`Prefix`] of its aim, then
+/// `, len = EXPR` for an unsized pointee of a given length, `, size = EXPR` for a pointee of a
+/// given size in bytes, or `, size = ..` for one that takes the rest of the tail of the struct.
+/// Without `= EXPR`, the pointee is as far from the start of the struct as the integer of the field
+/// says, as its layout says (`start`).
 struct AimOption {
-  lazy: bool,
-  mutable: bool,
+  prefix: Prefix,
   name: Option<Ident>,
   target: Type,
-  start: Expr,
+  start: Option<Expr>,
   size: AimSize,
+}
+
+impl AimOption {
+  /// Returns whether the aim is eager ([`POINTER_EAGER`]).
+  ///
+  /// # Errors
+  ///
+  /// As [`Prefix::eager`].
+  fn eager(&self) -> Result<bool> {
+    self.prefix.eager(POINTER_EAGER, self.name.is_some())
+  }
+
+  /// Returns where the pointee is from the start of the struct whose field `member` has the aim:
+  /// its expression, or the integer of the field, as its layout says, under a cast that
+  /// sign-extends a signed one.
+  fn start(&self, member: &Member) -> Expr {
+    self.start.clone().unwrap_or_else(|| parse_quote!(self.#member as u128))
+  }
 }
 
 /// How large the pointee of an aim is, as `layout::Extent` says.
@@ -303,27 +394,27 @@ enum AimSize {
   Rest,
 }
 
+/// Returns whether `expr` is `self`, the value whose fields an expression reads as `self.field`.
+fn is_self(expr: &Expr) -> bool {
+  matches!(expr, Expr::Path(path) if path.path.is_ident("self"))
+}
+
 /// Returns whether the identifier that `input` starts with is the keyword `word` before what
-/// follows it, rather than a name, which a `:` or a `=` follows, or the start of a path, which a
-/// `::` follows: `lazy [u8] = ..` and `lazy <T as X>::P = ..` start with a keyword, `lazy: u8 = ..`
-/// with a name.
+/// follows it, rather than a name, which a `:`, a `=`, a `,` or nothing follows, or the start of a
+/// path, which a `::` follows: `lazy [u8] = ..`, `eager mut name: u8` and `lazy <T as X>::P = ..`
+/// start with a keyword, `lazy: u8 = ..` and `regions(eager, rest)` with a name.
 fn keyword(input: ParseStream, word: &str) -> bool {
-  input.fork().parse::<Ident>().is_ok_and(|ident| ident == word)
-    && !input.peek2(Token![:])
-    && !input.peek2(Token![::])
-    && !input.peek2(Token![=])
+  let after = input.fork();
+  after.parse::<Ident>().is_ok_and(|ident| ident == word)
+    && !after.is_empty()
+    && !after.peek(Token![:])
+    && !after.peek(Token![=])
+    && !after.peek(Token![,])
 }
 
 impl Parse for AimOption {
   fn parse(input: ParseStream) -> Result<Self> {
-    let lazy = keyword(input, "lazy");
-    if lazy {
-      input.parse::<Ident>()?;
-    }
-    let mutable = input.peek(Token![mut]);
-    if mutable {
-      input.parse::<Token![mut]>()?;
-    }
+    let prefix = input.parse()?;
     // A name is an identifier then one colon, where a type may start with an identifier then two.
     let name = if input.peek(Ident) && input.peek2(Token![:]) && !input.peek2(Token![::]) {
       let name = input.parse()?;
@@ -333,8 +424,12 @@ impl Parse for AimOption {
       None
     };
     let target = input.parse()?;
-    input.parse::<Token![=]>()?;
-    let start = input.parse()?;
+    let start = if input.peek(Token![=]) {
+      input.parse::<Token![=]>()?;
+      Some(input.parse()?)
+    } else {
+      None
+    };
     let size = if input.peek(Token![,]) {
       input.parse::<Token![,]>()?;
       let key: Ident = input.parse()?;
@@ -356,7 +451,7 @@ impl Parse for AimOption {
     } else {
       AimSize::Pointee
     };
-    Ok(Self { lazy, mutable, name, target, start, size })
+    Ok(Self { prefix, name, target, start, size })
   }
 }
 
@@ -859,7 +954,7 @@ fn compile(
     {
       Ty::Int
     }
-    Expr::Field(field) if matches!(&*field.base, Expr::Path(path) if path.path.is_ident("self")) => {
+    Expr::Field(field) if is_self(&field.base) => {
       load(&field.member, field.span(), ops)
         .ok_or_else(|| Error::new(field.member.span(), "no such field"))?;
       Ty::Int
@@ -921,7 +1016,7 @@ fn compile(
       if call.args.len() == 1
         && matches!(&*call.func, Expr::Path(path)
           if path.path.segments.last().is_some_and(|segment| segment.ident == "size_of_val"))
-        && matches!(&call.args[0], Expr::Path(path) if path.path.is_ident("self")) =>
+        && is_self(&call.args[0]) =>
     {
       if scope.sizing {
         return Err(Error::new_spanned(
@@ -1039,7 +1134,7 @@ fn named_field<'f, 'a>(
       let member = Member::Named(ident.clone());
       fields.iter().find(|field| field.member == member).map(|field| (field, ident.span()))
     }
-    Expr::Field(field) if matches!(&*field.base, Expr::Path(path) if path.path.is_ident("self")) => {
+    Expr::Field(field) if is_self(&field.base) => {
       fields.iter().find(|found| found.member == field.member).map(|found| (found, field.span()))
     }
     _ => None,
@@ -1378,9 +1473,7 @@ impl VisitMut for Fielder<'_> {
         .get_ident()
         .filter(|ident| !self.shadowed.contains(ident))
         .and_then(|ident| self.value(&Member::Named(ident.clone()), ident.span())),
-      Expr::Field(access) if matches!(&*access.base, Expr::Path(path) if path.path.is_ident("self")) => {
-        self.value(&access.member, access.span())
-      }
+      Expr::Field(access) if is_self(&access.base) => self.value(&access.member, access.span()),
       Expr::Closure(closure) => {
         let visible = self.shadowed.len();
         let mut names = vec![];
@@ -1576,25 +1669,66 @@ fn has_pun(generics: &syn::Generics, name: &str) -> bool {
 }
 
 /// Returns the generics of `input`, with the bounds of its implementation of `Pun`: `bounds` if
-/// `#[pun(bound(..))]` gives them, as they are written, and otherwise `ty: Pun` for each of the
-/// `types` of its fields that needs it ([`needs_bound`]).
+/// `#[pun(bound(..))]` gives them, and otherwise, for each type that needs it ([`needs_bound`]),
+/// `ty: Pun` for the types of its fields, and `ty: Pointee` for the pointees of its aims.
 ///
-/// A bound that the type has already, as `struct Near<T: ?Sized + Pun>` with
-/// `#[pun(bound(T: Pun))]`, is written twice, which clippy reports at the span that the user wrote
-/// (`trait_duplication_in_bounds`, `type_repetition_in_bounds`). The derive allows both lints on
-/// the constant that holds what it generates, rather than rewrite the bounds of the user.
+/// A bound of a type parameter joins the bounds that the parameter has, as `<T: ?Sized + Pun>` for
+/// `struct Relaxed<T: ?Sized>` with `#[pun(bound(T: Pun))]` ([`join_bounds`]), so that no type is
+/// bounded twice.
 fn bounded<'a>(
   input: &DeriveInput,
-  types: impl Iterator<Item = &'a Type>,
+  (types, pointees): (impl Iterator<Item = &'a Type>, impl Iterator<Item = &'a Type>),
   bounds: Option<&Bounds>,
   root: &TokenStream,
 ) -> syn::Generics {
   let mut generics = input.generics.clone();
-  match bounds {
-    Some(bounds) => generics.make_where_clause().predicates.extend(bounds.iter().cloned()),
-    None => types.filter(|ty| needs_bound(ty, input)).for_each(|ty| bound(&mut generics, ty, root)),
+  if let Some(bounds) = bounds {
+    generics.make_where_clause().predicates.extend(bounds.iter().cloned());
+  } else {
+    types.filter(|ty| needs_bound(ty, input)).for_each(|ty| bound(&mut generics, ty, root));
+    for ty in pointees.filter(|ty| needs_bound(ty, input)) {
+      generics.make_where_clause().predicates.push(parse_quote!(#ty: #root::Pointee));
+    }
   }
+  join_bounds(&mut generics);
   generics
+}
+
+/// Moves each predicate of the `where` clause of `generics` that bounds a type parameter, written
+/// as the parameter alone, without `for<..>`, into the bounds of the parameter, which a path of
+/// one name without arguments names in the scope of the generics.
+fn join_bounds(generics: &mut syn::Generics) {
+  let Some(clause) = generics.where_clause.take() else { return };
+  let mut kept = Punctuated::<syn::WherePredicate, Token![,]>::new();
+  for predicate in clause.predicates {
+    let param = match &predicate {
+      syn::WherePredicate::Type(predicate) if predicate.lifetimes.is_none() => {
+        match &predicate.bounded_ty {
+          Type::Path(path) if path.qself.is_none() => path.path.get_ident().and_then(|ident| {
+            generics
+              .params
+              .iter()
+              .position(|param| matches!(param, GenericParam::Type(param) if param.ident == *ident))
+          }),
+          _ => None,
+        }
+      }
+      _ => None,
+    };
+    match (param, predicate) {
+      (Some(i), syn::WherePredicate::Type(predicate)) => {
+        if let GenericParam::Type(param) = &mut generics.params[i] {
+          param.colon_token.get_or_insert_default();
+          param.bounds.extend(predicate.bounds);
+        }
+      }
+      (_, predicate) => kept.push(predicate),
+    }
+  }
+  if !kept.is_empty() {
+    generics.where_clause =
+      Some(syn::WhereClause { where_token: clause.where_token, predicates: kept });
+  }
 }
 
 /// Returns the constant that pins the types whose functions the generated code calls to make a
@@ -1742,8 +1876,8 @@ fn in_place(ty: &Type, root: &TokenStream) -> Type {
 /// Returns whether a field with `options` holds an eager aim, and is then an `InPlace<T>`: the
 /// field of an eager `pointer`, or the field of regions of which one is eager.
 fn in_place_field(options: &Options) -> bool {
-  options.pointer.as_ref().is_some_and(|pointer| !pointer.lazy)
-    || options.regions.iter().flatten().any(|region| region.eager)
+  options.pointer.as_ref().is_some_and(|pointer| pointer.prefix.is_eager(POINTER_EAGER))
+    || options.regions.iter().flatten().any(|region| region.prefix.is_eager(REGION_EAGER))
 }
 
 /// Returns the rule of an aim at a `target` that a struct declares, at the place that `start` gives
@@ -1815,8 +1949,9 @@ enum Read {
   Bytes,
 }
 
-/// Returns the methods that read the pointee of an aim, a `target` whose rule is `item` in the list
-/// of the rules of `Self`, named `name` and as visible as `vis`, as `read` says.
+/// Returns the methods that read the pointee of an aim, a `target` whose rule `item` names in the
+/// list of the rules of `Self` (`puns::Item`), named `name` and as visible as `vis`, as `read`
+/// says.
 fn read_aim(
   (name, target, item): (&Ident, &TokenStream, &TokenStream),
   read: Read,
@@ -1825,9 +1960,9 @@ fn read_aim(
 ) -> TokenStream {
   // The value of the pointee, which a read returns: the pointee itself, or the `T` of a `Thin`.
   let target = quote!(<#target as #root::Pointee>::Value);
-  let check = "\n\n# Compile-time errors\n\nA call compiles only if every byte of the struct, up to \
-               the end of its tail, is initialized and, without the `unstable` feature of `puns`, \
-               this does not depend on a layout that Rust leaves to the compiler.";
+  let check = "\n\n# Compile-time errors\n\nA call compiles only if every byte of the struct, up \
+               to the end of its tail, is initialized and, without the `unstable` feature of \
+               `puns`, this does not depend on a layout that Rust leaves to the compiler.";
   match read {
     Read::Bytes => {
       let doc = format!(
@@ -2062,19 +2197,15 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
 
   // Only the layout of `repr(C)` and `repr(transparent)` is known without the size of the fields.
   let sized = !(repr.c || repr.transparent);
-  // The types of the fields, and of the pointees of the aims, which are `Pun` as these are.
-  let mut generics =
-    bounded(input, fields.iter().map(|field| field.ty), options.bounds.as_ref(), &root);
-  // The pointees that depend on a type parameter are `Pointee`s, which every aim requires
-  // (`Aim::new`), whatever the bounds that `#[pun(bound(..))]` gives: a `Thin` is one, and no
-  // `Pun` type.
-  for field in &fields {
+  // The types of the fields, which are `Pun`, and the pointees that depend on a type parameter,
+  // which are `Pointee`s, as every aim requires (`Aim::new`): a `Thin` is one, and every `Pun`
+  // type. `#[pun(bound(..))]` gives all of them instead.
+  let pointees = fields.iter().flat_map(|field| {
     let pointer = field.options.pointer.iter().map(|aim| &aim.target);
-    let regions = field.options.regions.iter().flatten().filter_map(|region| region.ty.as_ref());
-    for ty in pointer.chain(regions).filter(|ty| needs_bound(ty, input)) {
-      generics.make_where_clause().predicates.push(parse_quote!(#ty: #root::Pointee));
-    }
-  }
+    pointer.chain(field.options.regions.iter().flatten().filter_map(|region| region.ty.as_ref()))
+  });
+  let types = (fields.iter().map(|field| field.ty), pointees);
+  let mut generics = bounded(input, types, options.bounds.as_ref(), &root);
   if sized {
     generics.make_where_clause().predicates.push(parse_quote!(#this: ::core::marker::Sized));
   }
@@ -2164,11 +2295,10 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   // The rules that have an expression or are aims: their index, the operations of each of their
   // expressions as a type, and the type of the pointee of an aim.
   let mut listed: Vec<(usize, TokenStream, Option<TokenStream>, TokenStream)> = vec![];
-  // The item of the next rule in the list, `Pun::Rules` then `Next` as many times as there are
-  // items before it.
+  // Where the next rule is in the list, which names its item for a read: `First`, in as many
+  // `After` as there are items before it.
   let item = |position: usize| {
-    (0..position)
-      .fold(quote!(<Self as #root::Pun>::Rules), |item, _| quote!(<#item as #root::Rules>::Next))
+    (0..position).fold(quote!(#root::First), |item, _| quote!(#root::After<#item>))
   };
   if let Some(size) = &options.size {
     let Expression { ops, steps } = expression(size, Ty::Int, true, &fields, &root)?;
@@ -2186,26 +2316,19 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     let last = i + 1 == count;
     if let Some(pointer) = &field.options.pointer {
       let target = pointer.target.to_token_stream();
-      let place = (Some(&pointer.start), &pointer.size);
-      let (aim, start, extent) = aim_rule(&target, place, !pointer.lazy, &fields, &root)?;
+      let eager = pointer.eager()?;
+      let start = pointer.start(&field.member);
+      let (aim, start, extent) =
+        aim_rule(&target, (Some(&start), &pointer.size), eager, &fields, &root)?;
       let index = rules.len();
       let read_item = item(listed.len());
       listed.push((index, start, Some(target.clone()), extent));
       rules.push(aim);
       has_aims = true;
-      if pointer.lazy && pointer.mutable {
-        return Err(Error::new_spanned(
-          &pointer.target,
-          "a lazy `pointer` is read by a check of the bytes that it is given: write it without \
-           `mut`",
-        ));
-      }
       if let Some(name) = &pointer.name {
-        let read =
-          if pointer.lazy { Read::Stored } else { Read::Eager { mutable: pointer.mutable } };
+        let mutable = pointer.prefix.mutable.is_some();
+        let read = if eager { Read::Eager { mutable } } else { Read::Stored };
         accessors.push(read_aim((name, &target, &read_item), read, field.vis, &root));
-      } else if pointer.mutable {
-        return Err(Error::new_spanned(&pointer.target, "`mut` names the method that it adds"));
       }
     }
     if let Some(len) = &field.options.len {
@@ -2233,13 +2356,14 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
           None if index + 1 == regions.len() => AimSize::Rest,
           None => AimSize::Pointee,
         };
-        let (aim, start, extent) = aim_rule(&target, (None, &size), region.eager, &fields, &root)?;
+        let eager = region.eager()?;
+        let (aim, start, extent) = aim_rule(&target, (None, &size), eager, &fields, &root)?;
         let read_item = item(listed.len());
         listed.push((rules.len(), start, Some(target.clone()), extent));
         rules.push(aim);
         has_aims = true;
-        let read = match (region.eager, &region.ty) {
-          (true, _) => Read::Eager { mutable: false },
+        let read = match (eager, &region.ty) {
+          (true, _) => Read::Eager { mutable: region.prefix.mutable.is_some() },
           (false, Some(_)) => Read::Region,
           (false, None) => Read::Bytes,
         };
@@ -2394,7 +2518,6 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   );
   let pin = pin(&root);
   Ok(quote! {
-    #[allow(clippy::trait_duplication_in_bounds, clippy::type_repetition_in_bounds)]
     const _: () = {
       #pin
 
@@ -2517,7 +2640,6 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     let (homes, _) = variant_homes(input, data);
     // No value: nothing is ever made of one, and nothing is valid for it.
     return Ok(quote! {
-      #[allow(clippy::trait_duplication_in_bounds, clippy::type_repetition_in_bounds)]
     const _: () = {
         #homes
       };
@@ -2694,7 +2816,6 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
   // No variant but those of `SPEC`.
   let (homes, _) = variant_homes(input, data);
   Ok(quote! {
-    #[allow(clippy::trait_duplication_in_bounds, clippy::type_repetition_in_bounds)]
     const _: () = {
       #homes
     };
@@ -2843,7 +2964,7 @@ fn derive_tagged(
   let (_, ty_generics, _) = input.generics.split_for_impl();
   let this = quote!(#ident #ty_generics);
   let types = data.variants.iter().flat_map(|variant| &variant.fields).map(|field| &field.ty);
-  let generics = bounded(input, types, bounds, root);
+  let generics = bounded(input, (types, core::iter::empty()), bounds, root);
   let id = identity(input, &generics, root);
   // The bounds of the implementations, which `bounded` puts on the parameters where it can.
   let (impl_generics, _, where_clause) = generics.split_for_impl();
@@ -3075,7 +3196,6 @@ fn derive_tagged(
   let variant_indices = 0..count;
 
   Ok(quote! {
-    #[allow(clippy::trait_duplication_in_bounds, clippy::type_repetition_in_bounds)]
     const _: () = {
       #pin
 
@@ -3280,7 +3400,7 @@ fn derive_discovered(
   let (_, ty_generics, _) = input.generics.split_for_impl();
   let this = quote!(#ident #ty_generics);
   let types = data.variants.iter().flat_map(|variant| &variant.fields).map(|field| &field.ty);
-  let generics = bounded(input, types, bounds, root);
+  let generics = bounded(input, (types, core::iter::empty()), bounds, root);
   let id = identity(input, &generics, root);
   // The bounds of the implementations, which `bounded` puts on the parameters where it can.
   let (impl_generics, _, where_clause) = generics.split_for_impl();
@@ -3454,7 +3574,6 @@ fn derive_discovered(
   });
 
   Ok(quote! {
-    #[allow(clippy::trait_duplication_in_bounds, clippy::type_repetition_in_bounds)]
     const _: () = {
       #pin
 
@@ -3551,7 +3670,7 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
   let (_, ty_generics, _) = input.generics.split_for_impl();
   let this = quote!(#ident #ty_generics);
   let types = data.fields.named.iter().map(|field| &field.ty);
-  let generics = bounded(input, types, options.bounds.as_ref(), &root);
+  let generics = bounded(input, (types, core::iter::empty()), options.bounds.as_ref(), &root);
   let id = identity(input, &generics, &root);
   // The bounds of the implementations, which `bounded` puts on the parameters where it can.
   let (impl_generics, _, where_clause) = generics.split_for_impl();
@@ -3643,7 +3762,6 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
   let homes = homes(input, &named, &quote!(#(#same)*));
   let pin = pin(&root);
   Ok(quote! {
-    #[allow(clippy::trait_duplication_in_bounds, clippy::type_repetition_in_bounds)]
     const _: () = {
       #pin
 

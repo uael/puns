@@ -9,11 +9,16 @@ help: the trait `puns::sealed::Sealed` is not implemented for `Anywhere`
   |
 2 | struct Anywhere;
   | ^^^^^^^^^^^^^^^
-help: the trait `puns::sealed::Sealed` is implemented for `()`
+help: the following other types implement trait `puns::sealed::Sealed`
  --> src/lib.rs
   |
   |   impl Sealed for () {}
-  |   ^^^^^^^^^^^^^^^^^^
+  |   ^^^^^^^^^^^^^^^^^^ `()`
+...
+  |   impl Sealed for super::First {}
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `First`
+  |   impl<K> Sealed for super::After<K> {}
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `After<K>`
 note: required by a bound in `puns::Path`
  --> src/lib.rs
   |
@@ -26,7 +31,7 @@ note: required by a bound in `puns::Path`
             puns::steps::Two<A, B>
             puns::steps::Walk<I, C, N>
             puns::RuleAt<R, E, N, P, X>
+            puns::First
+            puns::After<K>
             puns::steps::InRule<T, R, WHICH>
-            puns::steps::InWalk<X, W, NEXT>
-            puns::Root
-            puns::At<P, F>
+          and $N others

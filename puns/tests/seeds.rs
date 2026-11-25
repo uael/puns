@@ -125,8 +125,8 @@ enum Kept {
 }
 
 /// A `repr(C)` struct whose first byte is an eager aim at a `bool`, that many bytes after it: 0 at
-/// the aim itself, 1 at `flag`. `puns` reads it from bytes once it checked the pointee, and makes no
-/// value of it.
+/// the aim itself, 1 at `flag`. `puns` reads it from bytes once it checked the pointee, and makes
+/// no value of it.
 #[derive(Pun)]
 #[repr(C)]
 struct Aimed {

@@ -1,0 +1,17 @@
+error: a lazy aim is read by a check of bytes: write it without `mut`
+ --> tests/compile-fail/aim_mut.rs:8:22
+  |
+8 |   #[pun(pointer(lazy mut target: u8))]
+  |                      ^^^
+
+error: `mut` names the method that it adds
+  --> tests/compile-fail/aim_mut.rs:15:17
+   |
+15 |   #[pun(pointer(mut u8))]
+   |                 ^^^
+
+error: a lazy aim is read by a check of bytes: write it without `mut`
+  --> tests/compile-fail/aim_mut.rs:22:17
+   |
+22 |   #[pun(regions(mut first: u8, rest))]
+   |                 ^^^

@@ -22,7 +22,7 @@ use puns::{InPlace, Pun, Thin};
 pub struct Near<T: ?Sized> {
   /// The distance to the pointee, from the address of the `Near`, which reads it (`target`), as
   /// visible as the field.
-  #[pun(pointer(target: Thin<T, i32> = off as u128))]
+  #[pun(pointer(target: Thin<T, i32>))]
   pub off: InPlace<NonZero<i32>>,
   _t: PhantomData<T>,
   _pin: PhantomPinned,
@@ -46,7 +46,7 @@ impl<T: ?Sized + Pun> Near<T> {
     // both (the caller's contract), so `this` has the provenance of the bytes of both, which are
     // not written while `image` is borrowed. The aim of a `Near` is its one rule, the first item
     // of its list of rules.
-    unsafe { puns::aim::<Self, <Self as Pun>::Rules>(this) }
+    unsafe { puns::aim::<Self, puns::First>(this) }
   }
 }
 

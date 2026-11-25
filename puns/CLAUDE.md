@@ -62,7 +62,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   returns the layout that the experiments found, never the predicted one, so a false declaration
   only fails the build.
 - A requirement (`valid(..)`, a rule) never proves a guarantee of another type. Two layouts are
-  equal only if they require and guarantee the same values.
+  equal only if they require and guarantee the same values. Each rule of a struct is a leaf of its
+  own (`Layout::rule_leaf`), proven by the same rule of a struct of the same extent at the same
+  place, after the same aims at the cursor if it is one, and checked on its own otherwise.
 - An identity (`layout::Id`, `Pun::ID`) names a type by its declaration and by every parameter but
   its lifetimes, so two types with one identity are one type. It has two uses only: proving a part
   that is not `fixed` by the same type at the same place, and naming a type without its layout.
@@ -123,8 +125,10 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   read (`Layout::stores_length`, `validate::own_length`), so the read never meets a length that the
   check accepted and it cannot read.
 - A layout cannot hold itself, so an aim holds the size, the alignment and the identity of its
-  pointee, and the pointee is reached through `Pun::Rules` (`Rules::Pointee`), whose item a read
-  names, so that the type of a pointee is written in one place of the derive. `Aim::new` reads no
+  pointee, and the pointee is reached through `Pun::Rules` (`Rules::Pointee`), so that the type of
+  a pointee is written in one place of the derive. A read names the item of its aim by where it is
+  in the list of its struct (`Item`: `First`, `After`), never by the item, so the pointee that it
+  reads is the one that the check of the struct found, whatever its identity. `Aim::new` reads no
   layout of the pointee for this reason; what it cannot assert, `validate::pointee_checked` asserts
   where the aim is checked or read. The identity of a type is `Pun::ID`, made of the identities of
   its parameters and never of a layout, which its layout holds too. The pointee is a `Pointee`, a
@@ -175,7 +179,7 @@ section lists changes that could lift some of them, and what each would cost.
   count it as imprecise.
 - **A rule that two variants of a view share, where neither variant accepts every value of the
   other.** The later variants that have a rule that failed, over the same extent at the same place
-  (`Layout::same_rules`), could be skipped at once, and the validation would then report which rule
+  (`Layout::same_extent`, `Layout::has_rule`), could be skipped at once, and the validation would then report which rule
   failed. But every check would carry that report, where it is now a `bool` that the optimizer
   folds.
 - **Precise checks of an enum whose source is another type.** Only what was not proven could be

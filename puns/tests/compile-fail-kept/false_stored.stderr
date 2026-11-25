@@ -76,14 +76,20 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |   !T::LAYOUT.rules().is_empty() && C::MARKS.any(P::LEAF + T::LAYOUT.leaves - 1, 1)
-  |    ^^^^^^^^^
+  |   C::MARKS.any(P::LEAF + T::LAYOUT.rule_leaf(0), T::LAYOUT.rules().len())
+  |   ^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |   if const { C::WORK && !matches!(T::LAYOUT.kind, Kind::Pattern(_) | Kind::Array(..) | Kind::Slice(_)) }
-  |                                   ^^^^^^^^^
+  |     const { matches!(T::LAYOUT.kind, Kind::Pattern(_) | Kind::Array(..) | Kind::Slice(_)) };
+  |                      ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     const { matches!(T::LAYOUT.kind, Kind::Pattern(_) | Kind::Array(..) | Kind::Slice(_)) };
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
@@ -118,14 +124,8 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |           && (const { !rules_marked::<C, P, T>() } || check_rules::<C, T>(ptr, input))
+  |           && (const { !rules_marked::<C, P, T>() } || check_rules::<C, P, T>(ptr, input))
   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-note: erroneous constant encountered
- --> src/validate.rs
-  |
-  |   if const { C::WORK && !matches!(T::LAYOUT.kind, Kind::Pattern(_) | Kind::Array(..) | Kind::Slice(_)) }
-  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
@@ -142,8 +142,14 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |   !T::LAYOUT.rules().is_empty() && C::MARKS.any(P::LEAF + T::LAYOUT.leaves - 1, 1)
-  |                                    ^^^^^^^^
+  |   r < T::LAYOUT.rules().len() && C::MARKS.any(P::LEAF + T::LAYOUT.rule_leaf(r), 1)
+  |                                  ^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let cursor = if const { !rule_marked::<C, P, T>(L::RULE) } {
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/ptr.rs
@@ -220,6 +226,42 @@ note: erroneous constant encountered
   | |       Some(rule) => rule,
   | |       None => Rule::Assert(&[]),
   | |     }
+  | |   };
+  | |___^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   r < T::LAYOUT.rules().len() && C::MARKS.any(P::LEAF + T::LAYOUT.rule_leaf(r), 1)
+  |       ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   let rules = T::LAYOUT.rules();
+  |               ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     if const { !step_needed::<C, P, T>(L::RULE) } {
+  |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     match T::LAYOUT.rule(L::RULE) {
+  |           ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let (extent, align, before) = const {
+  |  _________________________________^
+  | |     let before = size_of::<<L::Pointee as Pointee>::Prefix>();
+  | |     match T::LAYOUT.rule(L::RULE) {
+  | |       Some(Rule::Aim(Aim { start: Start::Next, extent, align, .. })) => (extent, align, before),
+... |
   | |   };
   | |___^
 
@@ -435,24 +477,6 @@ note: erroneous constant encountered
   | |___^
 
 note: erroneous constant encountered
- --> src/validate.rs
-  |
-  |     match T::LAYOUT.rule(L::RULE) {
-  |           ^^^^^^^^^
-
-note: erroneous constant encountered
- --> src/validate.rs
-  |
-  |     let (extent, align, before) = const {
-  |  _________________________________^
-  | |     let before = size_of::<<L::Pointee as Pointee>::Prefix>();
-  | |     match T::LAYOUT.rule(L::RULE) {
-  | |       Some(Rule::Aim(Aim { start: Start::Next, extent, align, .. })) => (extent, align, before),
-... |
-  | |   };
-  | |___^
-
-note: erroneous constant encountered
  --> src/std_enums.rs
   |
   |   E::LAYOUT.variant_tag(index)
@@ -539,14 +563,20 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |   !T::LAYOUT.rules().is_empty() && C::MARKS.any(P::LEAF + T::LAYOUT.leaves - 1, 1)
-  |                                                 ^^^^^^^
+  |   C::MARKS.any(P::LEAF + T::LAYOUT.rule_leaf(0), T::LAYOUT.rules().len())
+  |                ^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
   |       Some(field) => P::LEAF + field.leaf(),
   |                      ^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   r < T::LAYOUT.rules().len() && C::MARKS.any(P::LEAF + T::LAYOUT.rule_leaf(r), 1)
+  |                                               ^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs

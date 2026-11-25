@@ -1,31 +1,71 @@
-error[E0080]: evaluation panicked: the rule is not an eager aim at this type
- --> $RUST/core/src/panic.rs
-  |
-  = note: evaluation of `puns::pointee::<Next, puns::RuleAt<0, puns::steps::One<0>, (), u32>>::{constant#0}` failed here
-  |
- ::: src/lib.rs
-  |
-  | /     assert!(
-  | |       matches!(aim.check, layout::Check::Eager) && is_pointee::<L::Pointee>(&aim),
-  | |       "the rule is not an eager aim at this type"
-  | |     );
-  | |_____- in this macro invocation
+error[E0277]: the trait bound `puns::RuleAt<0, puns::steps::One<0>, (), u32>: puns::Item<puns::RuleAt<0, puns::steps::One<0>, (), u16>>` is not satisfied
+  --> tests/compile-fail/aim_read_type.rs:45:38
+   |
+45 |   let _ = unsafe { puns::aim::<Next, puns::RuleAt<0, puns::steps::One<0>, (), u32>>(next) };
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `puns::Item<puns::RuleAt<0, puns::steps::One<0>, (), u16>>` is not implemented for `puns::RuleAt<0, puns::steps::One<0>, (), u32>`
+   |
+help: the following other types implement trait `puns::Item<L>`
+  --> src/lib.rs
+   |
+   | impl<L: Rules> Item<L> for First {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `First`
+...
+   | impl<L: Rules, K: Item<L::Next>> Item<L> for After<K> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `After<K>`
+note: required by a bound in `aim`
+  --> src/lib.rs
+   |
+   | pub const unsafe fn aim<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
+   |                                                 ^^^^^^^^^^^^^^ required by this bound in `aim`
 
-note: erroneous constant encountered
- --> src/lib.rs
-  |
-  |     let (head, start, extent) = const {
-  |  _______________________________^
-  | |     let Some(layout::Rule::Aim(aim)) = S::LAYOUT.rule(L::RULE) else {
-  | |       panic!("the rule is not an eager aim at this type")
-  | |     };
-... |
-  | |     (S::LAYOUT.tail_shape().start, aim.start, aim.extent)
-  | |   };
-  | |___^
+error[E0277]: the trait bound `puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, puns::Thin<U, u64>>: puns::Item<puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, G<u8>>>` is not satisfied
+  --> tests/compile-fail/aim_read_type.rs:48:38
+   |
+48 |   let _ = puns::region_as::<Regions, Fake>(regions);
+   |                                      ^^^^ unsatisfied trait bound
+   |
+   = help: the trait `puns::Item<puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, G<u8>>>` is not implemented for `puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, puns::Thin<U, u64>>`
+help: the following other types implement trait `puns::Item<L>`
+  --> src/lib.rs
+   |
+   | impl<L: Rules> Item<L> for First {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `First`
+...
+   | impl<L: Rules, K: Item<L::Next>> Item<L> for After<K> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `After<K>`
+note: required by a bound in `puns::region_as`
+  --> src/lib.rs
+   |
+   | pub const fn region_as<S: ?Sized + Pun, K: Item<S::Rules>>(
+   |                                            ^^^^^^^^^^^^^^ required by this bound in `region_as`
 
-note: the above error was encountered while instantiating `fn puns::pointee::<Next, puns::RuleAt<0, puns::steps::One<0>, (), u32>>`
- --> src/lib.rs
-  |
-  |   unsafe { &*pointee::<S, L>(holder) }
-  |              ^^^^^^^^^^^^^^^^^^^^^^^
+error[E0277]: the trait bound `puns::RuleAt<0, puns::steps::One<0>, (), u32>: puns::Item<puns::RuleAt<0, puns::steps::One<0>, (), u16>>` is not satisfied
+  --> tests/compile-fail/aim_read_type.rs:45:20
+   |
+45 |   let _ = unsafe { puns::aim::<Next, puns::RuleAt<0, puns::steps::One<0>, (), u32>>(next) };
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `puns::Item<puns::RuleAt<0, puns::steps::One<0>, (), u16>>` is not implemented for `puns::RuleAt<0, puns::steps::One<0>, (), u32>`
+   |
+help: the following other types implement trait `puns::Item<L>`
+  --> src/lib.rs
+   |
+   | impl<L: Rules> Item<L> for First {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `First`
+...
+   | impl<L: Rules, K: Item<L::Next>> Item<L> for After<K> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `After<K>`
+
+error[E0277]: the trait bound `puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, puns::Thin<U, u64>>: puns::Item<puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, G<u8>>>` is not satisfied
+  --> tests/compile-fail/aim_read_type.rs:48:11
+   |
+48 |   let _ = puns::region_as::<Regions, Fake>(regions);
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+   = help: the trait `puns::Item<puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, G<u8>>>` is not implemented for `puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, puns::Thin<U, u64>>`
+help: the following other types implement trait `puns::Item<L>`
+  --> src/lib.rs
+   |
+   | impl<L: Rules> Item<L> for First {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `First`
+...
+   | impl<L: Rules, K: Item<L::Next>> Item<L> for After<K> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `After<K>`

@@ -93,7 +93,7 @@
 //! rules over other fields, another rule, and another extent. They put these rules in a struct, an
 //! enum of a primitive representation and of the `Rust` representation, an array, a union, and a
 //! struct with a byte that may be uninitialized. The model reports a rule proven by another (a
-//! `same_rules` that compares nothing) and a `&mut` part over a rule that the target does not have
+//! `has_rule` that compares nothing) and a `&mut` part over a rule that the target does not have
 //! (a `cut` without its test). Both faults were tried.
 //!
 //! The types include enums of the `Rust` representation: a niche in a `bool`, in a `NonZero` and in

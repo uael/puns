@@ -1886,7 +1886,8 @@ pub struct Layout {
   pub(crate) unsized_: bool,
   /// The number of leaves, the parts that the validation may have to check: scalars that accept
   /// only some values (or none), patterns, enums with fields, unions, types without values, and
-  /// structs with rules. The element of an array or a slice counts once.
+  /// each rule of a struct, which are the last leaves of the struct, in order
+  /// ([`Layout::rule_leaf`]). The element of an array or a slice counts once.
   pub(crate) leaves: usize,
   /// What every byte is, if every byte is the same thing.
   pub(crate) uniform: Uniform,
@@ -2756,7 +2757,7 @@ impl Layout {
     fields: &'static [Field],
     rules: &'static [Rule],
   ) -> Self {
-    let (mut i, mut end, mut leaves) = (0, 0, (!rules.is_empty()) as usize);
+    let (mut i, mut end, mut leaves) = (0, 0, rules.len());
     let mut has_rules = !rules.is_empty();
     let (mut all_any, mut all_pad) = (true, true);
     let mut tail: Option<&Field> = None;
@@ -4083,10 +4084,8 @@ impl Layout {
   /// The padding of the struct, if any, is then read when the rule is checked.
   pub(crate) const fn rules_read_bytes(&self) -> bool {
     let (rules, mut i) = (self.rules(), 0);
-    while i < 2 * rules.len() {
-      if let Some(ops) = rules[i / 2].expression(i % 2)
-        && ops_read_bytes(ops)
-      {
+    while i < rules.len() {
+      if rules[i].reads_bytes() {
         return true;
       }
       i += 1;
@@ -4171,6 +4170,12 @@ impl Layout {
       Kind::Struct(_, rules) => rules,
       _ => &[],
     }
+  }
+
+  /// Returns the leaf of the rule `r` of a struct, from its first leaf: its rules are its last
+  /// leaves, one each, in order, so that each is proven or checked on its own.
+  pub(crate) const fn rule_leaf(&self, r: usize) -> usize {
+    self.leaves - self.rules().len() + r
   }
 
   /// Returns the fields of a struct sorted by offset, or none if the layout is not a struct.
@@ -4353,11 +4358,11 @@ impl Layout {
   }
 
   /// Returns whether a value of the layout tells the length of its tail from its sized fields: it
-  /// is sized, or its `size` or `len` rule reads only its sized fields
-  /// ([`LengthRule::in_head`]). The pointee of an aim whose extent is what it stores
-  /// ([`Extent::Pointee`]) is such a value, or a [`Thin`](crate::Thin), and both the check of the
-  /// aim and the read of its pointee evaluate the rule over the sized fields, so that a pointee that
-  /// the check accepts is one that the read reads.
+  /// is sized, or its `size` or `len` rule reads only its sized fields ([`LengthRule::in_head`]).
+  /// The pointee of an aim whose extent is what it stores ([`Extent::Pointee`]) is such a value, or
+  /// a [`Thin`](crate::Thin), and both the check of the aim and the read of its pointee evaluate
+  /// the rule over the sized fields, so that a pointee that the check accepts is one that the read
+  /// reads.
   pub(crate) const fn stores_length(&self) -> bool {
     match self.length_rule() {
       _ if !self.unsized_ => true,
@@ -4584,39 +4589,61 @@ impl Layout {
     }
   }
 
-  /// Returns whether two structs have rules that are the same function of the bytes of each.
+  /// Returns whether two structs compute their rules over the same extent, so that a rule of one is
+  /// the same function of the bytes of each as the same rule of the other ([`Layout::has_rule`]).
   ///
   /// A rule is a function of the bytes of its struct, of its size (`size_of_val(self)`, a `size`
   /// rule), of the length of its tail (a `len` rule), and of the bytes of its tail (regions). So
-  /// two structs compute the same rules over the same bytes, whatever their fields, if they have at
-  /// least one rule, the same rules in the same order ([`Rule::equals`]), the same sized part, and
-  /// the same tail (where it starts, the size of an element, and, for a sized struct, the size of
-  /// the tail and the length of the array it ends with).
-  pub(crate) const fn same_rules(&self, other: &Layout) -> bool {
-    let (Kind::Struct(_, mine), Kind::Struct(_, theirs)) = (self.kind, other.kind) else {
+  /// two structs compute the same rule over the same bytes, whatever their fields, if they have the
+  /// same sized part and the same tail (where it starts, the size of an element, and, for a sized
+  /// struct, the size of the tail and the length of the array it ends with).
+  pub(crate) const fn same_extent(&self, other: &Layout) -> bool {
+    let (Kind::Struct(..), Kind::Struct(..)) = (self.kind, other.kind) else {
       return false;
     };
     let (tail, other_tail) = (self.tail_shape(), other.tail_shape());
-    if mine.is_empty()
-      || mine.len() != theirs.len()
-      || self.size != other.size
-      || self.tail != other.tail
-      || self.unsized_ != other.unsized_
-      || tail.start != other_tail.start
-      || tail.bytes != other_tail.bytes
-      || tail.len != other_tail.len
-      || tail.array != other_tail.array
-    {
+    self.size == other.size
+      && self.tail == other.tail
+      && self.unsized_ == other.unsized_
+      && tail.start == other_tail.start
+      && tail.bytes == other_tail.bytes
+      && tail.len == other_tail.len
+      && tail.array == other_tail.array
+  }
+
+  /// Returns whether the struct `self` has the rule `r` of the struct `other`, of the same extent
+  /// ([`Layout::same_extent`]), as the same function of its bytes: the same rule
+  /// ([`Rule::equals`]), and, for an aim at the cursor, after the same aims at the cursor, which
+  /// place it. A rule of any other kind does not depend on the other rules.
+  pub(crate) const fn has_rule(&self, other: &Layout, r: usize) -> bool {
+    let (mine, theirs) = (self.rules(), other.rules());
+    let mut i = 0;
+    if !theirs[r].at_cursor() {
+      while i < mine.len() {
+        if mine[i].equals(&theirs[r]) {
+          return true;
+        }
+        i += 1;
+      }
       return false;
     }
-    let mut i = 0;
-    while i < mine.len() {
-      if !mine[i].equals(&theirs[i]) {
+    // The aims at the cursor of each, in order, up to the rule.
+    let mut j = 0;
+    loop {
+      while !theirs[j].at_cursor() {
+        j += 1;
+      }
+      while i < mine.len() && !mine[i].at_cursor() {
+        i += 1;
+      }
+      if i == mine.len() || !mine[i].equals(&theirs[j]) {
         return false;
       }
-      i += 1;
+      if j == r {
+        return true;
+      }
+      (i, j) = (i + 1, j + 1);
     }
-    true
   }
 
   /// Returns whether two layouts are the same. They are the same if they require the same values,
@@ -6114,9 +6141,9 @@ pub(crate) const fn same_ops(a: &[Op], b: &[Op]) -> bool {
 /// write the fields of a value so that its rules do not hold, and unsafe code must not rely on a
 /// rule of a value that it did not check.
 ///
-/// `#[derive(Pun)]` makes the rules of `#[pun(size = ..)]` and `#[pun(assert(..))]` on a struct,
-/// of `#[pun(len = ..)]` and `#[pun(regions(..))]` on its last field, and of `#[pun(pointer(..))]` on a
-/// field of type [`InPlace<T>`](crate::InPlace).
+/// `#[derive(Pun)]` makes the rules of `#[pun(size = ..)]` and `#[pun(assert(..))]` on a struct, of
+/// `#[pun(len = ..)]` and `#[pun(regions(..))]` on its last field, and of `#[pun(pointer(..))]` on
+/// a field of type [`InPlace<T>`](crate::InPlace).
 ///
 /// # Examples
 ///
@@ -6450,6 +6477,27 @@ impl Rule {
   /// whose item names its pointee.
   pub(crate) const fn listed(&self) -> bool {
     matches!(self, Rule::Aim(_)) || self.ops().is_some()
+  }
+
+  /// Returns whether the rule is an aim at the cursor, which the aims at the cursor before it
+  /// place.
+  pub(crate) const fn at_cursor(&self) -> bool {
+    matches!(self, Rule::Aim(Aim { start: Start::Next, .. }))
+  }
+
+  /// Returns whether an expression of the rule reads the bytes of its struct by offset, rather than
+  /// its fields ([`Layout::rules_read_bytes`]).
+  pub(crate) const fn reads_bytes(&self) -> bool {
+    let mut i = 0;
+    while i < 2 {
+      if let Some(ops) = self.expression(i)
+        && ops_read_bytes(ops)
+      {
+        return true;
+      }
+      i += 1;
+    }
+    false
   }
 
   /// Returns whether two rules are of the same kind, with the same expressions, and for aims the

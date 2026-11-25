@@ -1,5 +1,5 @@
-//! What an aim points at, its pointee ([`Pointee`]): a value of a [`Pun`] type, or a [`Thin<T, M>`],
-//! a `T` after the metadata that a pointer to it stores there, as an `M`.
+//! What an aim points at, its pointee ([`Pointee`]): a value of a [`Pun`] type, or a
+//! [`Thin<T, M>`], a `T` after the metadata that a pointer to it stores there, as an `M`.
 //!
 //! The metadata of a pointer to a `Pun` type is [`Pun::Metadata`], which [`Metadata`] seals: what a
 //! `Thin<T, M>` stores before its value is a function of it, nothing for a sized `T`.
@@ -74,7 +74,8 @@ impl Metadata for usize {
 ///   size_of::<P::Prefix>()
 /// }
 ///
-/// assert_eq!((stored::<Thin<[u8], u16>>(), stored::<Thin<u32, u16>>(), stored::<u32>()), (2, 0, 0));
+/// let sizes = (stored::<Thin<[u8], u16>>(), stored::<Thin<u32, u16>>(), stored::<u32>());
+/// assert_eq!(sizes, (2, 0, 0));
 /// ```
 pub trait Pointee: seal::Pointee {
   /// The value: what a check checks and a read returns.
@@ -121,11 +122,11 @@ impl<T: ?Sized + Pun> Pointee for T {
 ///
 /// The `M` is the length alone, an integer of the sign and the byte order of its type, or a struct
 /// that ends with it, such as the capacity then the length of a list, which is checked with the
-/// value, its rules and the valid values of its fields included, before the length is read. No padding is between the length and the value, as there would be in
-/// a `repr(C)` struct of the two where the value is more aligned than the length: the value is
-/// aligned for `T`, for `M`, and to the size of the length, rounded up to a power of two, so that
-/// where it is does not depend on the byte order of the length (an `i32le` has an alignment of 1).
-/// Any padding is before `M`.
+/// value, its rules and the valid values of its fields included, before the length is read. No
+/// padding is between the length and the value, as there would be in a `repr(C)` struct of the two
+/// where the value is more aligned than the length: the value is aligned for `T`, for `M`, and to
+/// the size of the length, rounded up to a power of two, so that where it is does not depend on the
+/// byte order of the length (an `i32le` has an alignment of 1). Any padding is before `M`.
 ///
 /// A value of type `Thin` is never made: the type names the pointee of an aim ([`Pointee`]),
 /// whose read returns a `&T`, as [`Thin::get`] reads it.
@@ -211,14 +212,19 @@ impl<T: ?Sized + Pun, M: Pun> Pointee for Thin<T, M> {
     Some(spec) => spec.size,
     None => 0,
   };
-  // Where the length is in `M` must not depend on a layout that Rust leaves to the compiler. A
-  // sized `T` has none.
+  // What is stored is a function of the metadata of `T`, which is `()` exactly when `T` is sized,
+  // as the `# Safety` of `Pun` requires: a pointer to `T` is then thin. Where the length is in `M`
+  // must not depend on a layout that Rust leaves to the compiler. A sized `T` has none.
   const LENGTH: Option<Spec> = match <Self::Prefix as Pun>::LAYOUT.last_integer() {
+    _ if (size_of::<T::Metadata>() == 0) != (size_of::<*const T>() == size_of::<*const u8>()) => {
+      panic!("the metadata of a type (`Pun::Metadata`) is `()` exactly when the type is sized")
+    }
     _ if size_of::<Self::Prefix>() == 0 => None,
     Some(spec) if UNSTABLE || M::LAYOUT.is_specified() => Some(spec),
     Some(_) => panic!(
-      "the `M` of a `Thin<T, M>` ends with the length of the `T` that follows in a layout that Rust \
-       leaves to the compiler.\nAdd `#[repr(C)]` to `M`, or enable the `unstable` feature of `puns`"
+      "the `M` of a `Thin<T, M>` ends with the length of the `T` that follows in a layout that \
+       Rust leaves to the compiler.\nAdd `#[repr(C)]` to `M`, or enable the `unstable` feature of \
+       `puns`"
     ),
     None => panic!(
       "the `M` of a `Thin<T, M>` is an integer, or a sized struct that ends with one, with no \

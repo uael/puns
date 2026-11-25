@@ -281,6 +281,83 @@ fn the_same_aim_at_the_same_place_proves_it() {
   assert_eq!(puns::as_bytes(root).len(), size_of::<Pair>());
 }
 
+/// A pointer to a `u32`, then a number.
+#[derive(Pun)]
+#[repr(C)]
+struct Counted {
+  #[pun(pointer(u32 = off as u128))]
+  off: InPlace<i32>,
+  count: u32,
+}
+
+/// The same, with a rule over the number, before the aim or after it.
+#[derive(Pun)]
+#[repr(C)]
+#[pun(assert(count < 5))]
+struct CountedBelow {
+  #[pun(pointer(u32 = off as u128))]
+  off: InPlace<i32>,
+  count: u32,
+}
+
+#[derive(Pun)]
+#[repr(C)]
+struct CountedAbove {
+  #[pun(pointer(u32 = off as u128))]
+  off: InPlace<i32>,
+  #[pun(valid(1..))]
+  count: u32,
+}
+
+/// Regions, then the same regions with a rule over their sizes.
+#[derive(Pun)]
+#[repr(C)]
+struct Sized2 {
+  size: u8,
+  #[pun(regions(first: u8 = size as u128, rest))]
+  tail: [u8],
+}
+
+#[derive(Pun)]
+#[repr(C)]
+#[pun(assert(size == 1))]
+struct SizedOne {
+  size: u8,
+  #[pun(regions(first: u8 = size as u128, rest))]
+  tail: [u8],
+}
+
+#[test]
+fn each_rule_is_proven_or_checked_on_its_own() {
+  // A `Counted` at 0, whose pointee, 7, is at 8, outside its 8 bytes.
+  let words = [8u32, 1, 7];
+  let bytes = puns::as_bytes(&words);
+  let counted = puns::from_head::<Counted>(bytes).unwrap().0;
+  // The aim of the target is the same aim at the same place of the source: proven, and not looked
+  // for again within the bytes of the source, which do not hold its pointee. Only the assertion
+  // is checked.
+  let below = puns::try_pun_ref::<Counted, CountedBelow>(counted).unwrap();
+  // SAFETY: `puns` checked the value in `bytes`, which hold its pointee and are not written, and
+  // the pointer has their provenance.
+  let pointee =
+    unsafe { puns::aim::<CountedBelow, puns::After<puns::First>>(within(below, bytes)) };
+  assert_eq!((below.count, *pointee), (1, 7));
+  let words = [8u32, 5, 7];
+  let counted = puns::from_head::<Counted>(puns::as_bytes(&words)).unwrap().0;
+  assert_eq!(puns::try_pun_ref::<Counted, CountedBelow>(counted).err(), Some(Error::Validity));
+  // A field that is checked next to a proven aim.
+  let words = [8u32, 0, 7];
+  let counted = puns::from_head::<Counted>(puns::as_bytes(&words)).unwrap().0;
+  assert_eq!(puns::try_pun_ref::<Counted, CountedAbove>(counted).err(), Some(Error::Validity));
+  // A region at the cursor, proven, and the assertion after it, checked.
+  let bytes = [1, 9, 3];
+  let regions = puns::from_bytes::<Sized2>(&bytes).unwrap();
+  let one = puns::try_pun_ref::<Sized2, SizedOne>(regions).unwrap();
+  assert_eq!((one.first(), one.rest()), (Ok(&9), &[3][..]));
+  let regions = puns::from_bytes::<Sized2>(&[2, 9, 3]).unwrap();
+  assert_eq!(puns::try_pun_ref::<Sized2, SizedOne>(regions).err(), Some(Error::Validity));
+}
+
 /// A list of values of a generic type, whose parameter is bounded by `Pun`.
 #[derive(Pun)]
 #[repr(C)]
@@ -398,7 +475,7 @@ macro_rules! first {
   ($ty:ty, $value:expr, $bytes:expr) => {
     // SAFETY: `puns` checked the value in `$bytes`, which hold its pointee and are not written,
     // and the pointer has their provenance.
-    unsafe { puns::aim::<$ty, <$ty as Pun>::Rules>(within($value, $bytes)) }
+    unsafe { puns::aim::<$ty, puns::First>(within($value, $bytes)) }
   };
 }
 
@@ -519,7 +596,7 @@ fn an_unsized_target_is_read_with_its_length() {
   let to = words.as_mut_ptr().cast::<ToText>();
   // SAFETY: `puns` checked the `ToText` at `to` with its pointee, and neither changed. The bytes
   // are accessed only through `text` while it lives, and an uppercase ASCII text is still one.
-  let text = unsafe { puns::aim_mut::<ToText, <ToText as Pun>::Rules>(to) };
+  let text = unsafe { puns::aim_mut::<ToText, puns::First>(to) };
   text.data.make_ascii_uppercase();
   assert_eq!(&puns::as_bytes(&words)[4..7], b"ABC");
 }
@@ -737,7 +814,7 @@ fn eager_pointers_of_a_given_size_and_of_the_rest() {
   // to it, has the same metadata, and the provenance of the bytes.
   let holder = core::ptr::slice_from_raw_parts(bytes.as_ptr(), spans.tail.len()) as *const Spans;
   // SAFETY: `puns` checked `spans` with its pointees, in `bytes`, which are not written.
-  let all = unsafe { puns::aim::<Spans, <Spans as Pun>::Rules>(holder) };
+  let all = unsafe { puns::aim::<Spans, puns::First>(holder) };
   assert_eq!(all, &[5][..]);
   // A size of 3 bytes is no size of a `[u16]`, and an eager pointee is checked with the struct.
   let mut odd = words;
@@ -810,6 +887,37 @@ fn a_region_stores_its_length() {
   // The first, lazy, when it is read.
   let strings = puns::from_bytes::<Strings>(&[2, 1, 0xff, 0]).unwrap();
   assert_eq!((strings.first().err(), strings.second()), (Some(Error::Validity), ""));
+}
+
+/// A pointee without an identity: its parameter is not bounded by `Pun`.
+#[derive(Pun)]
+#[repr(C)]
+struct Unnamed<T> {
+  a: u64,
+  _p: PhantomData<T>,
+}
+
+/// Regions whose pointee has no identity, or stores its length before its value.
+#[derive(Pun)]
+#[repr(C)]
+struct Unnamed2 {
+  #[pun(regions(unnamed: Unnamed<u8>, words: Thin<[u64], u64>, rest))]
+  tail: [u8],
+}
+
+#[test]
+fn a_region_is_read_as_the_pointee_of_its_struct() {
+  // A read names the region by where its rule is in the list of the struct, so it reads the
+  // pointee that the struct declares, where the check finds it, whatever its identity: what the
+  // `Thin` stores is in the tail, before its value, which Miri checks.
+  let words = [5u64, 1, 7, 9];
+  let regions = puns::from_bytes::<Unnamed2>(puns::as_bytes(&words)).unwrap();
+  assert_eq!(regions.unnamed().map(|unnamed| unnamed.a), Ok(5));
+  assert_eq!(regions.words(), Ok(&[7][..]));
+  assert_eq!(regions.rest(), puns::as_bytes(&[9u64]));
+  // The same through the read of a region, named by where it is.
+  let words = puns::region_as::<Unnamed2, puns::After<puns::First>>(regions);
+  assert_eq!(words, Ok(&[7][..]));
 }
 
 /// A list behind a header: its capacity then its length, which a rule requires to be equal.

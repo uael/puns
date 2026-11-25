@@ -200,7 +200,7 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
       Shape::Slice => validate_elems::<C, P, T::Elem, true>(ptr.cast(), ptr::metadata(ptr), input),
       Shape::Struct => {
         validate_fields::<C, P, T, T::Fields>(ptr, input)
-          && (const { !rules_marked::<C, P, T>() } || check_rules::<C, T>(ptr, input))
+          && (const { !rules_marked::<C, P, T>() } || check_rules::<C, P, T>(ptr, input))
       }
       // `str::from_utf8` checks the bytes where the automaton is that of UTF-8, by its states,
       // since an `id` proves nothing. This is decided at compile time.
@@ -214,9 +214,9 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
   };
   // A scalar, an enum, a union or a struct whose own check fails is where the check fails, unless
   // a part of it is. A pattern is checked as a whole, as is the pointee that ends with it.
-  if const { C::WORK && !matches!(T::LAYOUT.kind, Kind::Pattern(_) | Kind::Array(..) | Kind::Slice(_)) }
-    && !valid
-  {
+  let whole =
+    const { matches!(T::LAYOUT.kind, Kind::Pattern(_) | Kind::Array(..) | Kind::Slice(_)) };
+  if const { C::WORK } && !whole && !valid {
     input.fail::<C>(ptr.cast());
   }
   valid
@@ -485,15 +485,40 @@ const unsafe fn validate_fields<C: Checks, P: Path, T: ?Sized + Pun, F: Fields>(
   }
 }
 
-/// Returns whether `C` marks the rules of the struct `T` at the place `P`.
+/// Returns whether `C` marks a rule of the struct `T` at the place `P`.
 ///
-/// The rules of a struct are its last leaf.
+/// The rules of a struct are its last leaves, one each ([`Layout::rule_leaf`]).
+///
+/// [`Layout::rule_leaf`]: layout::Layout::rule_leaf
 const fn rules_marked<C: Checks, P: Path, T: ?Sized + Pun>() -> bool {
-  !T::LAYOUT.rules().is_empty() && C::MARKS.any(P::LEAF + T::LAYOUT.leaves - 1, 1)
+  C::MARKS.any(P::LEAF + T::LAYOUT.rule_leaf(0), T::LAYOUT.rules().len())
 }
 
-/// Returns whether the struct at `ptr` meets the rules of the layout of `T`, and the pointees of
-/// its eager aims are valid within the bytes of `input`.
+/// Returns whether `C` marks the rule `r` of the struct `T` at the place `P`. The end of the list
+/// of the rules is not marked.
+const fn rule_marked<C: Checks, P: Path, T: ?Sized + Pun>(r: usize) -> bool {
+  r < T::LAYOUT.rules().len() && C::MARKS.any(P::LEAF + T::LAYOUT.rule_leaf(r), 1)
+}
+
+/// Returns whether the rule `r` of the struct `T` is an aim at the cursor whose step a marked aim
+/// at the cursor after it needs: it starts where that step ends.
+const fn step_needed<C: Checks, P: Path, T: ?Sized + Pun>(r: usize) -> bool {
+  let rules = T::LAYOUT.rules();
+  if r >= rules.len() || !rules[r].at_cursor() {
+    return false;
+  }
+  let mut i = r + 1;
+  while i < rules.len() {
+    if rules[i].at_cursor() && rule_marked::<C, P, T>(i) {
+      return true;
+    }
+    i += 1;
+  }
+  false
+}
+
+/// Returns whether the struct at `ptr` meets the rules of the layout of `T` that `C` marks at the
+/// place `P`, and the pointees of those of its eager aims are valid within the bytes of `input`.
 ///
 /// # Safety
 ///
@@ -513,7 +538,7 @@ const fn rules_marked<C: Checks, P: Path, T: ?Sized + Pun>() -> bool {
 ///
 /// [`Layout::rules_read_bytes`]: layout::Layout::rules_read_bytes
 #[inline(always)]
-pub const unsafe fn check_rules<C: Checks, T: ?Sized + Pun>(
+pub const unsafe fn check_rules<C: Checks, P: Path, T: ?Sized + Pun>(
   ptr: *const T,
   input: &mut Input,
 ) -> bool {
@@ -524,14 +549,17 @@ pub const unsafe fn check_rules<C: Checks, T: ?Sized + Pun>(
   // starts at `head`, so `head + tail <= size`. That `T` is valid for reads, the bytes that its
   // rules read are initialized, and it is within `input` if it has an aim at a stored place, by
   // contract on the caller, as `check_listed` requires.
-  unsafe { check_listed::<C, T, T::Rules>(ptr.cast(), size, (head, tail), len, 0, input) }
+  unsafe { check_listed::<C, P, T, T::Rules>(ptr.cast(), size, (head, tail), len, 0, input) }
 }
 
-/// Returns whether the struct at `base` meets the rule `L` of `T` and the ones after it.
+/// Returns whether the struct at `base` meets the rule `L` of `T` and the ones after it, those that
+/// `C` marks at the place `P`.
 ///
 /// The struct is `size` bytes, and its tail is the `tail` bytes from `head`, of `len` elements.
 /// The aims before `L` at the cursor end at `cursor` in the tail. A `size` rule must be `size`, a
-/// `len` rule `len`, and an assertion not 0. An aim requires what [`check_aim`] checks.
+/// `len` rule `len`, and an assertion not 0. An aim requires what [`check_aim`] checks. A rule
+/// that is not marked is proven, and not checked, but the step of an aim at the cursor is still
+/// taken where a marked aim at the cursor follows it, which starts where the step ends.
 ///
 /// # Safety
 ///
@@ -542,7 +570,7 @@ pub const unsafe fn check_rules<C: Checks, T: ?Sized + Pun>(
 /// - The bytes of that `T` that its rules read are initialized, as [`check_rules`] requires, and
 ///   so are the bytes of `input`, within which the `T` is if it has an aim at a stored place.
 #[cfg_attr(not(debug_assertions), inline(always))]
-const unsafe fn check_listed<C: Checks, T: ?Sized + Pun, L: Rules>(
+const unsafe fn check_listed<C: Checks, P: Path, T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   size: usize,
   (head, tail): (usize, usize),
@@ -560,7 +588,17 @@ const unsafe fn check_listed<C: Checks, T: ?Sized + Pun, L: Rules>(
       None => Rule::Assert(&[]),
     }
   };
-  let cursor = if let Rule::Aim(_) = rule {
+  let cursor = if const { !rule_marked::<C, P, T>(L::RULE) } {
+    if const { !step_needed::<C, P, T>(L::RULE) } {
+      cursor
+    } else {
+      // SAFETY: The requirements of `cursor_step` are those of this call.
+      match unsafe { cursor_step::<T, L, true>(base, size, (head, tail), cursor) } {
+        Some(Step { end, .. }) => end,
+        None => return false,
+      }
+    }
+  } else if let Rule::Aim(_) = rule {
     // SAFETY: The requirements of `check_aim` are those of this call.
     match unsafe { check_aim::<C, T, L>(base, size, (head, tail), cursor, input) } {
       Some(cursor) => cursor,
@@ -585,7 +623,7 @@ const unsafe fn check_listed<C: Checks, T: ?Sized + Pun, L: Rules>(
   };
   // SAFETY: `cursor <= tail`: an aim at the cursor moves it to at most `tail`. The other
   // requirements of the call for the next rules are those of this call.
-  unsafe { check_listed::<C, T, L::Next>(base, size, (head, tail), len, cursor, input) }
+  unsafe { check_listed::<C, P, T, L::Next>(base, size, (head, tail), len, cursor, input) }
 }
 
 /// Returns where the cursor of the tail of the struct `T` at `base` is after the aim `L`, if the
@@ -1301,12 +1339,12 @@ pub const AIM_PARTS: usize = 512;
 
 /// The bytes that a check reads, and what the check of eager aims may still spend in them.
 ///
-/// The pointee of an aim at a stored place must lie within these bytes ([`stored_at`]). Each pointee
-/// that is checked takes its size from a budget of twice the length of the bytes, at least 1 each.
-/// The pointees of a tree, which share no byte, take at most that: their sizes add up to at most
-/// the length, and each pointee of size 0 is reached by an aim of at least one byte, and at most as
-/// many. So the time of a check grows with the bytes, though pointees may be shared, and a cycle
-/// ends.
+/// The pointee of an aim at a stored place must lie within these bytes ([`stored_at`]). Each
+/// pointee that is checked takes its size from a budget of twice the length of the bytes, at least
+/// 1 each. The pointees of a tree, which share no byte, take at most that: their sizes add up to at
+/// most the length, and each pointee of size 0 is reached by an aim of at least one byte, and at
+/// most as many. So the time of a check grows with the bytes, though pointees may be shared, and a
+/// cycle ends.
 ///
 /// The check of [`check`](crate::check) also says where the bytes will be ([`Input::aligned`]),
 /// whether each pointee must start where the one before it ends ([`Input::claim`]), and where the
@@ -1523,8 +1561,8 @@ impl core::fmt::Debug for Pending {
 ///
 /// # Safety
 ///
-/// The caller must ensure that `addr` is valid for reads of `len` consecutive `T`s, within the bytes
-/// of `input`, each as [`validate`] requires.
+/// The caller must ensure that `addr` is valid for reads of `len` consecutive `T`s, within the
+/// bytes of `input`, each as [`validate`] requires.
 const unsafe fn elements_of<C: Checks, T: Pun>(
   addr: *const u8,
   len: usize,
