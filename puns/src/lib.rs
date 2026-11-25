@@ -5681,6 +5681,28 @@ pub const unsafe fn aim<'a, S: ?Sized + Pun, L: Rules>(
 /// # Compile-time errors
 ///
 /// As for [`aim`].
+///
+/// # Examples
+///
+/// ```
+/// use puns::{InPlace, Pun};
+///
+/// #[derive(Pun)]
+/// #[repr(transparent)]
+/// struct Next {
+///   #[pun(pointer(next: u8 = off as u128))]
+///   off: InPlace<u8>,
+/// }
+///
+/// let mut bytes = [1, 9];
+/// assert!(puns::from_head::<Next>(&bytes).is_ok());
+/// let holder = bytes.as_mut_ptr().cast::<Next>();
+/// // SAFETY: `puns` checked the `Next` at the start of `bytes` with its pointee. The pointer has
+/// // the provenance of both, the pointee is accessed only through the result while it is used,
+/// // and a `u8` stays one.
+/// unsafe { *puns::aim_mut::<Next, <Next as Pun>::Rules>(holder) += 1 };
+/// assert_eq!(bytes, [1, 10]);
+/// ```
 #[inline(always)]
 #[must_use]
 pub const unsafe fn aim_mut<'a, S: ?Sized + Pun, L: Rules>(
