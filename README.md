@@ -206,6 +206,10 @@ only on nightly.
   extra level of nesting multiplies it again. Limit the size of untrusted input for such types
   ([details][costs]).
 - An [`Error`][error-type] doesn't tell you which field or rule failed.
+- `from_bytes` and the other functions that follow the pointers of a struct check what they point
+  at on the stack, a few levels of a type that points at itself, and return `Error::Limit` past
+  them. Check deeper data with [`check`][check], which keeps the pointers still to follow in a list
+  that you give.
 
 ## Performance
 
@@ -286,6 +290,7 @@ additional terms or conditions.
 [Limitations]: https://docs.rs/puns/0.2.4/puns/#limitations
 [num]: https://docs.rs/puns/0.2.4/puns/num/index.html
 [error-type]: https://docs.rs/puns/0.2.4/puns/enum.Error.html
+[check]: https://docs.rs/puns/0.2.4/puns/fn.check.html
 [derive]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
 [Soundness]: https://docs.rs/puns/0.2.4/puns/#soundness
 [deriving]: https://docs.rs/puns/0.2.4/puns/#what-deriving-pun-means
