@@ -1,4 +1,4 @@
-error[E0080]: reading memory at alloc13[0x2..0x3], but memory is uninitialized at [0x2..0x3], and this operation requires initialized memory
+error[E0080]: reading memory at alloc17[0x2..0x3], but memory is uninitialized at [0x2..0x3], and this operation requires initialized memory
   --> tests/compile-fail/discover_reads_padding.rs:17:30
    |
 17 | const PADDING: u8 = unsafe { *SAMPLE.as_ptr().cast::<u8>().add(2) };

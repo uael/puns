@@ -26,13 +26,13 @@ error[E0573]: expected type, found module `varint::layout::Varint`
    --> tests/compile-fail/crate_path_types.rs:111:10
     |
 111 | #[derive(puns::Pun, Clone, Copy)]
-    |          ^^^^^^^^^ not a type
+    |          ^^^^^^^^^
     |
-note: similarly named struct `Variant` defined here
-   --> src/layout.rs
+   ::: src/layout.rs
     |
     | pub struct Variant {
-    | ^^^^^^^^^^^^^^^^^^
+    | ------------------ similarly named struct `Variant` defined here
+    |
     = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0573]: expected type, found module `checksum::layout::Checksum`

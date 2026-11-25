@@ -20,7 +20,6 @@ error[E0277]: `String` is not a `Pun` type: `puns` does not know its layout and 
 note: required by a bound in `puns::Fields::Type`
  --> src/lib.rs
   |
-  | pub unsafe trait Fields {
   |   type Type: ?Sized + Pun;
   |                       ^^^ required by this bound in `Fields::Type`
 

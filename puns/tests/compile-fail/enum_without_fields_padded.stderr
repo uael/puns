@@ -1,4 +1,4 @@
-error[E0080]: reading memory at alloc27[0x0..0x10], but memory is uninitialized at [0x1..0x4], and this operation requires initialized memory
+error[E0080]: reading memory at alloc31[0x0..0x10], but memory is uninitialized at [0x1..0x4], and this operation requires initialized memory
  --> tests/compile-fail/enum_without_fields_padded.rs:5:10
   |
 5 | #[derive(Pun, Clone, Copy)]
