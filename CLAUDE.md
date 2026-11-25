@@ -67,8 +67,8 @@ This is why `cargo test --all` is twenty jobs there: the tests of `puns` in eigh
 `unstable` feature and three with it (the cases of `compile-fail` in two halves each way), and the
 sample of the model check in twelve, six each way (the native samples of pairs and of parts are in
 two files each, `sample_by_size_*` and `parts_by_size_*`). It is also why each Miri run of the
-tests of `puns` is six jobs. Without the feature, there are four parts of about the same time:
-three name their files, and the fourth takes all the remaining files.
+tests of `puns` is seven jobs. Without the feature, there are five parts of about the same time:
+four name their files, and the fifth takes all the remaining files.
 With the feature, the files that test it are split in two. Split a job again rather than let it pass
 45 seconds. These jobs have a cache of the standard library that Miri builds and of the sources it
 builds it from, and Miri builds it again when the modification time of a source changes, which a
