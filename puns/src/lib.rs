@@ -635,9 +635,10 @@
 //!   of it is checked, what it stores before its value first, its own eager aims included, one
 //!   level deeper. A pointee may be before the struct, and may be shared by several aims. These
 //!   functions check the pointees in place, one within another, and stop with [`Error::Limit`] past
-//!   [`AIM_PARTS`] parts of their layouts, which bounds their stack whatever the types, or past
-//!   pointees of twice as many bytes as they read, so that a check of a cycle ends. They allocate
-//!   nothing.
+//!   [`AIM_PARTS`] parts of their layouts, a few levels of a type that points at itself, which
+//!   bounds their stack whatever the bytes, small enough for an embedded target ([`AIM_PARTS`] says
+//!   how much), or past pointees of twice as many bytes as they read, so that a check of a cycle
+//!   ends. They allocate nothing. Deeper data is for [`check`].
 //! - [`check`] and [`check_compact`] check bytes for a value at any depth, with a stack that does
 //!   not grow with the data: the pointees wait in a [`Worklist`] that the caller gives, each value
 //!   before its pointees, depth first. They make no reference, so the bytes may be at any address,
@@ -1101,8 +1102,9 @@
 //!   is refused past them.
 //! - A packed struct whose unsized field has trailing padding of its own is refused.
 //! - The check of eager [aims](#aims) of a reference follows pointees one within another up to
-//!   [`AIM_PARTS`] parts of their layouts ([`check`] has no such bound), and pointees of at most
-//!   twice the bytes that it reads, and returns [`Error::Limit`] past either.
+//!   [`AIM_PARTS`] parts of their layouts, a few levels of a type that points at itself, and
+//!   pointees of at most twice the bytes that it reads, and returns [`Error::Limit`] past either.
+//!   [`check`] has no such bound: its stack does not grow with the data.
 //! - A union does not hold an eager aim.
 //! - The build time of a view enum whose variants overlap grows with the square of the number of
 //!   variants, or faster.

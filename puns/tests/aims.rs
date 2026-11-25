@@ -106,13 +106,18 @@ fn chain(n: usize) -> Image {
   image
 }
 
+/// The stack of the thread of a check in place: the 32 KiB that the deepest checks of the shapes
+/// of `AIM_PARTS` take, and room for the test.
+const SMALL_STACK: usize = 64 << 10;
+
 #[test]
 fn a_chain_is_followed_as_deep_as_the_stack_allows() {
   // The check of `from_head` recurses once for each pair, and stops where the parts of the pairs
-  // that it nests reach `AIM_PARTS`, which bounds its stack whatever the types: however long the
-  // chain, it stops within 1 MiB, in a build without optimizations too. `check` goes on.
-  let (short, long) = if cfg!(miri) { (4, 40) } else { (10, 4_000) };
-  let small = std::thread::Builder::new().stack_size(1 << 20);
+  // that it nests reach `AIM_PARTS`, which bounds its stack whatever the types: four pairs, one
+  // within another, and however long the chain, it stops within its small stack, in a build
+  // without optimizations too. `check` goes on.
+  let (short, long) = if cfg!(miri) { (4, 40) } else { (4, 4_000) };
+  let small = std::thread::Builder::new().stack_size(SMALL_STACK);
   let results = small
     .spawn(move || {
       let read = |n: usize| {
@@ -125,9 +130,7 @@ fn a_chain_is_followed_as_deep_as_the_stack_allows() {
     .join()
     .unwrap();
   assert_eq!(results.0, Ok(short));
-  if !cfg!(miri) {
-    assert_eq!(results.1, Err(Error::Limit));
-  }
+  assert_eq!(results.1, Err(Error::Limit));
   let image = chain(long);
   let words = image.words8(0);
   let bytes = &puns::as_bytes(&words[..])[..image.bytes.len()];
@@ -179,33 +182,37 @@ struct Wide {
 
 #[test]
 fn the_stack_of_a_check_is_bounded_whatever_the_types() {
-  // A chain of each, as long as it can be, on a stack of 1 MiB: the check stops at its parts,
-  // before the stack ends.
-  let n = if cfg!(miri) { 8 } else { 4_000 };
-  let small = std::thread::Builder::new().stack_size(1 << 20);
-  let (deep, wide) = small
+  // A chain of each, as deep as the check follows it, then longer, on a small stack: the check
+  // stops at its parts, before the stack ends. A `Deep` has 14 parts, and a `Wide` 28.
+  let long = if cfg!(miri) { 8 } else { 4_000 };
+  let small = std::thread::Builder::new().stack_size(SMALL_STACK);
+  let results = small
     .spawn(move || {
-      let mut image = Image::new();
-      let at = (0..n).map(|_| image.reserve(size_of::<Deep>(), 4)).collect::<Vec<_>>();
-      for i in 0..n - 1 {
-        image.aim(at[i] + 4, at[i + 1]);
-      }
-      let image = image.aligned();
-      let deep = puns::from_head::<Deep>(image.bytes()).map(|_| ());
-      let mut image = Image::new();
-      let at = (0..n).map(|_| image.reserve(size_of::<Wide>(), 4)).collect::<Vec<_>>();
-      for i in 0..n - 1 {
-        image.aim(at[i] + 40, at[i + 1]);
-      }
-      let image = image.aligned();
-      let wide = puns::from_head::<Wide>(image.bytes()).map(|_| ());
-      (deep, wide)
+      let deep = |n: usize| {
+        let mut image = Image::new();
+        let at = (0..n).map(|_| image.reserve(size_of::<Deep>(), 4)).collect::<Vec<_>>();
+        for i in 0..n - 1 {
+          image.aim(at[i] + 4, at[i + 1]);
+        }
+        let image = image.aligned();
+        puns::from_head::<Deep>(image.bytes()).map(|_| ())
+      };
+      let wide = |n: usize| {
+        let mut image = Image::new();
+        let at = (0..n).map(|_| image.reserve(size_of::<Wide>(), 4)).collect::<Vec<_>>();
+        for i in 0..n - 1 {
+          image.aim(at[i] + 40, at[i + 1]);
+        }
+        let image = image.aligned();
+        puns::from_head::<Wide>(image.bytes()).map(|_| ())
+      };
+      [deep(5), deep(6), deep(long), wide(3), wide(4), wide(long)]
     })
     .unwrap()
     .join()
     .unwrap();
-  let expected = if cfg!(miri) { Ok(()) } else { Err(Error::Limit) };
-  assert_eq!((deep, wide), (expected, expected));
+  let limit = Err(Error::Limit);
+  assert_eq!(results, [Ok(()), limit, limit, Ok(()), limit, limit]);
 }
 
 /// The value of an expression, in `image`.

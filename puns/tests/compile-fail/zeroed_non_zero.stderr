@@ -16,7 +16,7 @@ note: erroneous constant encountered
   | |   };
   | |___^
 
-note: the above error was encountered while instantiating `fn puns::zeroed::<NonZero<u8>>`
+note: the above error was encountered while instantiating `fn puns::zeroed::<std::num::NonZero<u8>>`
  --> tests/compile-fail/zeroed_non_zero.rs:3:11
   |
 3 |   let _ = puns::zeroed::<core::num::NonZero<u8>>();

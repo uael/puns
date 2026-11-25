@@ -144,12 +144,16 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   sized (`Layout::measured` asserts it of every struct).
 - The functions that check in place (`from_head` and the others) check a pointee within the check
   of the struct whose aim leads to it, a recursion that the parts of the layouts of the pointees
-  bound (`AIM_PARTS`, `Layout::parts`), so that their stack does not depend on the types. Each part
-  nests a few calls of the validation, whose frames are measured in `AIM_PARTS`, and
-  `tests/aims.rs` runs the deepest checks of the shapes that nest the most on a thread of 1 MiB. A
-  change of the validation that makes its frames larger is measured again. What a function on that
-  path computes before it recurses is in a function of its own in a build without optimizations
-  (`check_next`, `find_stored`), so that the frames that wait hold little.
+  bound (`AIM_PARTS`, `Layout::parts`), so that their stack does not depend on the bytes, and stays
+  within what an embedded target has: `AIM_PARTS` holds the one statement of the measured figures
+  and how they were measured. Each part nests a few calls of the validation, and `tests/aims.rs`
+  runs the deepest checks of the shapes that nest the most on a thread of 64 KiB. A change of the
+  validation that makes its frames larger is measured again. The functions on that path hold no
+  copy of a layout, a field or a rule, and what reads one, or computes before the recursion, is a
+  function of its own in a build without optimizations (`cfg_attr(not(debug_assertions),
+  inline(always))`: "The stack of a check in place" in the documentation of `validate`), so that
+  the frames that wait hold little. Optimized, all of it is inlined, as `examples/codegen.rs`
+  checks.
 - `check` and `check_compact` check with `validate::Work`: every pointee of an eager aim waits in
   the worklist (`Pending`, a stage and where it applies), and `validate::drive`, one function for
   every type (its steps are function pointers, the worklist a trait object), runs them depth

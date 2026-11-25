@@ -32,6 +32,20 @@
 //! order ends ([`Input::claim`]). Where a check with a worklist fails is recorded as it runs
 //! ([`Input::fail`]).
 //!
+//! # The stack of a check in place
+//!
+//! A check in place nests the frames of the validation of each pointee in those of the value that
+//! points at it, so its stack grows with the parts of the layouts of the pointees that it nests,
+//! which [`AIM_PARTS`] bounds, and with the size of those frames. In a build without
+//! optimizations, a frame holds every local of its function, and of each function inlined into it,
+//! while the functions that it calls run. So the functions on the path of that recursion
+//! ([`validate`], [`validate_fields`], [`validate_variants`], [`check_listed`] and the check of an
+//! aim) hold no copy of a layout, a field or a rule: they take what they need from constants, and
+//! the checks that read a layout ([`validate_scalar`], [`validate_pattern`], [`tag_of`],
+//! [`validate_restricted`], [`has_tag`]) and every function that they inline are functions of their
+//! own without optimizations (`cfg_attr(not(debug_assertions), inline(always))`), whose frames are
+//! on the stack only while they run. With optimizations, they are all inlined, as before.
+//!
 //! What reads a pointee finds it as the check does: [`region_at`] takes the same steps of the
 //! cursor ([`cursor_step`]), which truncate rather than fail, [`pointer_at`] and [`value_of`]
 //! evaluate where a pointee at a stored place is, and [`own_length`] reads the length that a
@@ -91,8 +105,7 @@ use crate::{
   Fields, Path, Pointee, Pun, Root, Rules, Steps, Variants,
   analysis::Marks,
   layout::{
-    self, Aim, Check, Dfa, Enum, Extent, Kind, Machine, Op, Rule, Shape, Start, load, op_at,
-    walk_limit,
+    self, Aim, Check, Dfa, Extent, Kind, Machine, Op, Rule, Shape, Start, load, op_at, walk_limit,
   },
   narrow::{Planned, fit},
   ptr,
@@ -134,7 +147,7 @@ impl Checks for Work {
 /// # Safety
 ///
 /// The caller must ensure the requirements of [`validate`], with every part marked.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 const unsafe fn validate_whole<C: Checks, T: ?Sized + Pun>(
   ptr: *const T,
   input: &mut Input,
@@ -171,7 +184,7 @@ const unsafe fn validate_whole<C: Checks, T: ?Sized + Pun>(
 /// and that call of its own made the check of a tree of pointers about 13% slower.
 ///
 /// [`Layout::rules_read_bytes`]: layout::Layout::rules_read_bytes
-#[inline]
+#[cfg_attr(not(debug_assertions), inline)]
 pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
   ptr: *const T,
   input: &mut Input,
@@ -197,23 +210,23 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
   //   are initialized, by contract on the caller. These are the requirements of `validate_enum`,
   //   with `layout` the layout of `T`, and of `validate_union`, with `T::Variants` the list of
   //   its variants.
+  //
+  // The shapes whose checks hold the layout, a scalar, a pattern and an enum, are checked in
+  // functions of their own, which take it from `T`: a value of it would be a local of this
+  // function, which is on the stack while a field or a pointee is checked, in a build without
+  // optimizations ("The stack of a check in place" in the module documentation).
   let valid = unsafe {
     match const { T::LAYOUT.shape() } {
-      Shape::Scalar(spec) => spec.matches(ptr.cast()),
+      Shape::Scalar(_) => validate_scalar::<T>(ptr),
       Shape::Array(len) => validate_elems::<C, P, T::Elem, false>(ptr.cast(), len, input),
       Shape::Slice => validate_elems::<C, P, T::Elem, true>(ptr.cast(), ptr::metadata(ptr), input),
       Shape::Struct => {
         validate_fields::<C, P, T, T::Fields>(ptr, input)
           && (const { !rules_marked::<C, P, T>() } || check_rules::<C, P, T>(ptr, input))
       }
-      // `str::from_utf8` checks the bytes where the automaton is that of UTF-8, by its states,
-      // since an `id` proves nothing. This is decided at compile time.
-      Shape::Pattern(_) if const { matches!(T::LAYOUT.kind, Kind::Pattern(dfa) if dfa.is_utf8()) } => {
-        Dfa::matches_utf8(ptr.cast(), ptr::metadata(ptr))
-      }
-      Shape::Pattern(dfa) => dfa.matches(ptr.cast(), ptr::metadata(ptr)),
+      Shape::Pattern(_) => validate_pattern::<T>(ptr),
       Shape::Enum(layout) if layout.union => validate_union::<C, T, T::Variants>(ptr, input),
-      Shape::Enum(layout) => validate_enum::<C, T>(ptr, layout, input),
+      Shape::Enum(_) => validate_enum::<C, T>(ptr, input),
     }
   };
   // A scalar, an enum, a union or a struct whose own check fails is where the check fails, unless
@@ -224,6 +237,59 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
     input.fail::<C>(ptr.cast());
   }
   valid
+}
+
+/// Returns whether the scalar `T` at `ptr` has one of its values.
+///
+/// # Safety
+///
+/// The caller must ensure that `T` is a scalar, and that `ptr` is valid for reads of a `T`, whose
+/// bytes are initialized. It need not be aligned.
+#[cfg_attr(not(debug_assertions), inline(always))]
+const unsafe fn validate_scalar<T: ?Sized + Pun>(ptr: *const T) -> bool {
+  // `None` for another shape, of which this function is never called, though `validate`, which
+  // calls it, compiles it for every shape.
+  let Some(spec) = (const {
+    match T::LAYOUT.shape() {
+      Shape::Scalar(spec) => Some(spec),
+      _ => None,
+    }
+  }) else {
+    return false;
+  };
+  // SAFETY: `spec` is the scalar of `T`, of `spec.size` bytes, which are initialized and valid for
+  // reads, by contract on the caller, as `Spec::matches` requires.
+  unsafe { spec.matches(ptr.cast()) }
+}
+
+/// Returns whether the pattern `T` at `ptr` matches its automaton.
+///
+/// # Safety
+///
+/// The caller must ensure that `T` is a pattern, and that `ptr` is valid for reads of a `T`, whose
+/// tail of `ptr::metadata(ptr)` bytes is initialized.
+#[cfg_attr(not(debug_assertions), inline(always))]
+const unsafe fn validate_pattern<T: ?Sized + Pun>(ptr: *const T) -> bool {
+  // `None` for another shape, as in `validate_scalar`.
+  let Some((dfa, utf8)) = (const {
+    match T::LAYOUT.shape() {
+      Shape::Pattern(dfa) => Some((dfa, dfa.is_utf8())),
+      _ => None,
+    }
+  }) else {
+    return false;
+  };
+  // SAFETY: The tail of `ptr::metadata(ptr)` bytes is initialized and valid for reads, by contract
+  // on the caller, as `Dfa::matches_utf8` and `Dfa::matches` require. `str::from_utf8` checks the
+  // bytes where the automaton is that of UTF-8, by its states, since an `id` proves nothing. This
+  // is decided at compile time.
+  unsafe {
+    if utf8 {
+      Dfa::matches_utf8(ptr.cast(), ptr::metadata(ptr))
+    } else {
+      dfa.matches(ptr.cast(), ptr::metadata(ptr))
+    }
+  }
 }
 
 /// Returns whether the enum at `ptr` has the tag of one of its variants, and the fields of that
@@ -240,26 +306,51 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
 /// The caller must ensure that:
 ///
 /// - `ptr` is valid for reads of a `T`. It need not be aligned.
-/// - `layout` is the layout of `T`.
+/// - `T` is an enum.
 /// - The tag of the enum is initialized, and so is every byte that the checks of the fields of that
 ///   tag's variant read, which check every part.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(
   ptr: *const T,
-  layout: &Enum,
   input: &mut Input,
 ) -> bool {
-  let Kind::Scalar(spec) = layout.tag.layout.kind else { panic!() };
-  // SAFETY: `Layout::enumeration` asserts that the tag is a scalar that `Spec::is_integer`
-  // accepts, so of at most 16 bytes, at `layout.tag.offset` within the size of `T`. So `add`
-  // stays within the `T` at `ptr`, and the tag is valid for reads. The tag is initialized, and so
-  // is what the checks of the fields of its variant read, by contract on the caller. These are
-  // the requirements of `load` and of `validate_variants`, with `T::Variants` the list of the
+  // SAFETY: `T` is an enum, by contract on the caller, and its tag is initialized, as `tag_of`
+  // requires. What the checks of the fields of the variant of that tag read is initialized, by
+  // contract on the caller, as `validate_variants` requires, with `T::Variants` the list of the
   // variants of `T`.
-  unsafe {
-    let tag = load(ptr.cast::<u8>().add(layout.tag.offset), spec.size, spec.endian);
-    validate_variants::<C, T, T::Variants>(ptr, tag, input)
-  }
+  unsafe { validate_variants::<C, T, T::Variants>(ptr, tag_of::<T>(ptr), input) }
+}
+
+/// Returns the tag of the enum `T` at `ptr`.
+///
+/// # Panics
+///
+/// Panics if the tag of the layout of `T` is not a scalar. No layout made by this crate has such
+/// a tag.
+///
+/// # Safety
+///
+/// The caller must ensure that `T` is an enum, and that `ptr` is valid for reads of a `T` whose tag
+/// is initialized. It need not be aligned.
+#[cfg_attr(not(debug_assertions), inline(always))]
+const unsafe fn tag_of<T: ?Sized + Pun>(ptr: *const T) -> u128 {
+  // `None` for another shape, as in `validate_scalar`.
+  let Some((offset, size, endian)) = (const {
+    match T::LAYOUT.shape() {
+      Shape::Enum(layout) => {
+        let Kind::Scalar(spec) = layout.tag.layout.kind else { panic!("the tag is not a scalar") };
+        Some((layout.tag.offset, spec.size, spec.endian))
+      }
+      _ => None,
+    }
+  }) else {
+    return 0;
+  };
+  // SAFETY: `Layout::enumeration` asserts that the tag is a scalar that `Spec::is_integer`
+  // accepts, so of at most 16 bytes, at `offset` within the size of `T`. So `add` stays within the
+  // `T` at `ptr`, and the tag is valid for reads, and initialized, by contract on the caller. These
+  // are the requirements of `load`.
+  unsafe { load(ptr.cast::<u8>().add(offset), size, endian) }
 }
 
 /// Returns whether the variant of tag `tag`, among `V` and the ones after it, has valid fields
@@ -282,12 +373,10 @@ const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
   tag: u128,
   input: &mut Input,
 ) -> bool {
-  let Some(expected) = (const { V::TAG }) else { return false };
-  let this = match const { V::RANGES } {
-    None => tag == expected,
-    // The variant of a niche, or one that no value is (no range).
-    Some(ranges) => layout::contains(ranges, tag),
-  };
+  if const { V::TAG.is_none() } {
+    return false;
+  }
+  let this = has_tag::<V>(tag);
   // SAFETY: `ptr` is valid for reads of a `T`, and `V` is in the list of the variants of `T`, by
   // contract on the caller. If `this`, `V` has the tag `tag`, and `V::Fields` are its fields
   // (`Variants`, section Safety). What their checks read is initialized, by contract on the caller,
@@ -304,13 +393,26 @@ const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
   }
 }
 
+/// Returns whether the variant `V` has the tag `tag`: its `TAG`, or, for the variant of a niche or
+/// one that no value is, one of its `RANGES`. In a function of its own, so that the ranges are no
+/// local of [`validate_variants`] while the fields of a variant are checked, in a build without
+/// optimizations.
+#[cfg_attr(not(debug_assertions), inline(always))]
+const fn has_tag<V: Variants>(tag: u128) -> bool {
+  match (const { V::TAG }, const { V::RANGES }) {
+    (Some(expected), None) => tag == expected,
+    (Some(_), Some(ranges)) => layout::contains(ranges, tag),
+    (None, _) => false,
+  }
+}
+
 /// Returns whether every part of the fields `F` of a variant of the enum at `ptr` is valid:
 /// [`validate_fields`] with [`All`], or with [`Work`] in a check with a worklist.
 ///
 /// # Safety
 ///
 /// The caller must ensure the requirements of [`validate_fields`], with every part marked.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 const unsafe fn validate_variant<C: Checks, T: ?Sized + Pun, F: Fields>(
   ptr: *const T,
   input: &mut Input,
@@ -449,7 +551,18 @@ const unsafe fn validate_fields<C: Checks, P: Path, T: ?Sized + Pun, F: Fields>(
   ptr: *const T,
   input: &mut Input,
 ) -> bool {
-  let Some(field) = (const { F::FIELD }) else { return true };
+  if const { F::FIELD.is_none() } {
+    return true;
+  }
+  // The field as constants: its offset, and whether it is restricted. A copy of `F::FIELD` would be
+  // a local of this function, which is on the stack while the field is checked, in a build without
+  // optimizations.
+  let (offset, restricted) = const {
+    match F::FIELD {
+      Some(field) => (field.offset(), field.restriction().is_some()),
+      None => (0, false),
+    }
+  };
   // Where the list says that the field is must be where its layout says it is: the list is made
   // by the derive with paths it is told (`#[pun(crate = ..)]`), which could name another `At`.
   const {
@@ -459,33 +572,60 @@ const unsafe fn validate_fields<C: Checks, P: Path, T: ?Sized + Pun, F: Fields>(
     };
     assert!(<F::Path<P> as Path>::LEAF == leaf, "not where the field is");
   };
-  // SAFETY: `F` is a field of `T`, by contract on the caller, and `field` is its place in the
-  // layout of `T`, `F::FIELD` (`Fields`, section Safety). `ptr` points to the start of a `T` that
-  // is valid for reads, by the requirements of `validate`, so in one allocation, and `T` has a
-  // field of type `F::Type` at `field.offset()`. These are the requirements of `ptr::field` and
-  // `add`, and that field is valid for reads.
-  // - A restricted field is a scalar leaf. It is read only if it is marked, so its bytes are
-  //   initialized, as `Spec::matches` requires.
+  // SAFETY: `F` is a field of `T`, by contract on the caller, and `F::FIELD` is its place in the
+  // layout of `T` (`Fields`, section Safety). `ptr` points to the start of a `T` that is valid for
+  // reads, by the requirements of `validate`, so in one allocation, and `T` has a field of type
+  // `F::Type` at `offset`. These are the requirements of `ptr::field`, and that field is valid for
+  // reads.
+  // - A restricted field meets the requirements of `validate_restricted`.
   // - Any other field is a `F::Type` at the place `F::Path<P>`, which the assertion above shows
   //   is the leaf of the field. What `C` marks there is what it marks of the field in `T`. So the
   //   field meets the requirements of `validate`.
   // The requirements of the call for the next fields are those of this call.
   unsafe {
-    let valid = match field.restriction() {
-      // A scalar that accepts less than its type does: there is no type to recurse into.
-      Some(spec) => {
-        let at = ptr.cast::<u8>().add(field.offset());
-        let valid = (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || spec.matches(at);
-        if !valid {
-          input.fail::<C>(at);
-        }
-        valid
-      }
-      None => {
-        validate::<C, F::Path<P>, F::Type>(ptr::field::<T, F::Type>(ptr, field.offset()), input)
-      }
+    let valid = if restricted {
+      validate_restricted::<C, P, T, F>(ptr, input)
+    } else {
+      validate::<C, F::Path<P>, F::Type>(ptr::field::<T, F::Type>(ptr, offset), input)
     };
     valid && validate_fields::<C, P, T, F::Next>(ptr, input)
+  }
+}
+
+/// Returns whether the restricted field `F` of the struct at `ptr`, a scalar that accepts less
+/// than its type does, has one of its values, if `C` marks it.
+///
+/// # Safety
+///
+/// The caller must ensure the requirements of [`validate_fields`], with `F` a restricted field.
+#[cfg_attr(not(debug_assertions), inline(always))]
+const unsafe fn validate_restricted<C: Checks, P: Path, T: ?Sized + Pun, F: Fields>(
+  ptr: *const T,
+  input: &mut Input,
+) -> bool {
+  // `None` for a field that is not restricted, of which this function is never called, though
+  // `validate_fields`, which calls it, compiles it for every field.
+  let Some((offset, spec)) = (const {
+    match F::FIELD {
+      Some(field) => match field.restriction() {
+        Some(spec) => Some((field.offset(), spec)),
+        None => None,
+      },
+      None => None,
+    }
+  }) else {
+    return true;
+  };
+  // SAFETY: `ptr` points to the start of a `T` that is valid for reads, which has the field at
+  // `offset`, by contract on the caller, so `add` stays within it. A restricted field is a scalar
+  // leaf, read only if it is marked, so its bytes are initialized, as `Spec::matches` requires.
+  unsafe {
+    let at = ptr.cast::<u8>().add(offset);
+    let valid = (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || spec.matches(at);
+    if !valid {
+      input.fail::<C>(at);
+    }
+    valid
   }
 }
 
@@ -541,7 +681,7 @@ const fn step_needed<C: Checks, P: Path, T: ?Sized + Pun>(r: usize) -> bool {
 /// aim, once, in order, with every operation of each, and the pointee of each aim ([`listed`]).
 ///
 /// [`Layout::rules_read_bytes`]: layout::Layout::rules_read_bytes
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 pub const unsafe fn check_rules<C: Checks, P: Path, T: ?Sized + Pun>(
   ptr: *const T,
   input: &mut Input,
@@ -585,11 +725,16 @@ const unsafe fn check_listed<C: Checks, P: Path, T: ?Sized + Pun, L: Rules>(
   if const { L::RULE == usize::MAX } {
     return true;
   }
-  // The end of the list, which is not reached here, has no rule.
-  let rule = const {
+  // What the rule is, as constants, which a copy of the rule would be a local of this function,
+  // on the stack while a pointee is checked, in a build without optimizations: whether it is an
+  // aim, and what the value of its expression must be. The end of the list, which is not reached
+  // here, has no rule.
+  let (aim, wanted) = const {
     match T::LAYOUT.rule(L::RULE) {
-      Some(rule) => rule,
-      None => Rule::Assert(&[]),
+      Some(Rule::Aim(_)) => (true, Wanted::NotZero),
+      Some(Rule::Size(_)) => (false, Wanted::Size),
+      Some(Rule::Len(_)) => (false, Wanted::Len),
+      Some(Rule::Assert(_)) | None => (false, Wanted::NotZero),
     }
   };
   let cursor = if const { !rule_marked::<C, P, T>(L::RULE) } {
@@ -602,7 +747,7 @@ const unsafe fn check_listed<C: Checks, P: Path, T: ?Sized + Pun, L: Rules>(
         None => return false,
       }
     }
-  } else if let Rule::Aim(_) = rule {
+  } else if aim {
     // SAFETY: The requirements of `check_aim` are those of this call.
     match unsafe { check_aim::<C, T, L>(base, size, (head, tail), cursor, input) } {
       Some(cursor) => cursor,
@@ -617,17 +762,31 @@ const unsafe fn check_listed<C: Checks, P: Path, T: ?Sized + Pun, L: Rules>(
       let Some(value) = (unsafe { eval::<InRule<T, L>, L::Expr>(base, size) }) else {
         return false;
       };
-      match rule {
-        Rule::Size(_) if value == size as u128 => cursor,
-        Rule::Len(_) if value == len as u128 => cursor,
-        Rule::Assert(_) if value != 0 => cursor,
-        _ => return false,
+      let holds = match wanted {
+        Wanted::Size => value == size as u128,
+        Wanted::Len => value == len as u128,
+        Wanted::NotZero => value != 0,
+      };
+      if !holds {
+        return false;
       }
+      cursor
     }
   };
   // SAFETY: `cursor <= tail`: an aim at the cursor moves it to at most `tail`. The other
   // requirements of the call for the next rules are those of this call.
   unsafe { check_listed::<C, P, T, L::Next>(base, size, (head, tail), len, cursor, input) }
+}
+
+/// What the value of the expression of a rule must be ([`check_listed`]).
+#[derive(Clone, Copy)]
+enum Wanted {
+  /// The size of the value (`size`).
+  Size,
+  /// The length of its tail (`len`).
+  Len,
+  /// Not zero (`assert`).
+  NotZero,
 }
 
 /// Returns where the cursor of the tail of the struct `T` at `base` is after the aim `L`, if the
@@ -989,7 +1148,7 @@ pub struct Step {
 /// - `head + tail <= size`, and `cursor <= tail`.
 ///
 /// The function is named for every rule of a struct, and called for an aim at the cursor only.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 pub const unsafe fn cursor_step<T: ?Sized + Pun, L: Rules, const STRICT: bool>(
   base: *const u8,
   size: usize,
@@ -1091,7 +1250,7 @@ pub enum Size {
 ///
 /// The caller must ensure that `addr` is valid for reads of `room` initialized bytes, and, if `P`
 /// stores its length before its value, that its prefix, before `addr`, is.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 pub const unsafe fn measure<P: ?Sized + Pointee>(
   size: Size,
   addr: *const u8,
@@ -1150,7 +1309,7 @@ pub const unsafe fn measure<P: ?Sized + Pointee>(
 ///
 /// The caller must ensure that the bytes of the prefix of `P`, before `addr`, are valid for reads
 /// and initialized.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 const unsafe fn stored_length<P: ?Sized + Pointee>(addr: *const u8) -> Option<u128> {
   let Some(spec) = (const { P::LENGTH }) else { return None };
   // SAFETY: The length is the last `spec.size` bytes of the prefix, right before `addr`, which are
@@ -1172,7 +1331,7 @@ const unsafe fn stored_length<P: ?Sized + Pointee>(addr: *const u8) -> Option<u1
 /// a valid value of `P`, aligned, is at `addr`, after the prefix of `P`, and that the length that
 /// it stores is the length of its tail. A pointee whose extent is what it stores, which
 /// [`check_stored`] or [`check_next`] checked, is one.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 pub const unsafe fn own_length<P: ?Sized + Pointee>(addr: *const u8) -> usize {
   let (unsized_, head, thin) = const {
     let layout = <P::Value as Pun>::LAYOUT;
@@ -1209,7 +1368,7 @@ pub const unsafe fn own_length<P: ?Sized + Pointee>(addr: *const u8) -> usize {
 /// Returns the length of the tail of a `P` of `size` bytes, if `size` is the size of a `P`: the
 /// size of a sized one, or of an unsized one with as many elements as fit in `size`, trailing
 /// padding included, as `from_bytes` finds them.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 pub const fn sized_as<P: ?Sized + Pun>(size: usize) -> Option<usize> {
   let layout = const { P::LAYOUT };
   if !layout.is_unsized() {
@@ -1238,7 +1397,7 @@ pub const fn sized_as<P: ?Sized + Pun>(size: usize) -> Option<usize> {
 ///
 /// The caller must ensure that `base` is valid for reads of the `size` bytes of a `T`, which are
 /// within the bytes of `input`, and that the bytes that its rules read are initialized.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 pub const unsafe fn stored_at<T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   size: usize,
@@ -1303,7 +1462,7 @@ pub const unsafe fn stored_at<T: ?Sized + Pun, L: Rules>(
 /// # Safety
 ///
 /// The caller must ensure the requirements of [`pointer_at`].
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 pub const unsafe fn value_of<T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   size: usize,
@@ -1331,15 +1490,19 @@ pub const unsafe fn value_of<T: ?Sized + Pun, L: Rules>(
 /// leads to it, and the check of each part nests a few calls of the validation, whose frames depend
 /// on the code of `puns` and on how it is compiled, not on the type. So the check counts the parts
 /// of the layouts of the pointees that it checks, one within another (`Layout::parts`), and returns
-/// [`Error::Limit`](crate::Error::Limit) past this many: its stack is at most this many parts of
-/// frames, whatever the types. A part takes at most 1.4 KiB of stack in a build without
-/// optimizations (Rust 1.100 on aarch64, a struct whose one field is a struct, at any depth, the
-/// most frames for each part), so the deepest check takes at most about 700 KiB, which
-/// `tests/aims.rs` checks on a thread of 1 MiB for the shapes that nest the most. An optimized
-/// build takes much less. [`check`](crate::check) has no such bound: it keeps the pointees that are
-/// still to be checked in a [`Worklist`](crate::Worklist), and its stack does not grow with the
-/// data.
-pub const AIM_PARTS: usize = 512;
+/// [`Error::Limit`](crate::Error::Limit) past this many, whatever the bytes. Deeper data is checked
+/// with [`check`](crate::check), whose stack does not grow with it: it keeps the pointees that are
+/// still to be checked in a [`Worklist`](crate::Worklist).
+///
+/// The pointees that the bytes lead to add at most 25 KiB to the stack of the check of the value
+/// itself, and the deepest checks take at most 31 KiB in all, in a build without optimizations
+/// (Rust 1.100 on aarch64: the stack of a thread filled with a pattern, then the deepest byte that
+/// a check changed, on chains of the shapes of `tests/aims.rs`, of a list, a tree and an enum,
+/// about 300 bytes of stack for each part). The same frames are about 0.9 times as large on x86-64,
+/// and 0.6 times on `thumbv7em-none-eabihf`, in the assembly of each target, so about 28 KiB and 19
+/// KiB. An optimized build takes at most 4 KiB, in the same measure. `tests/aims.rs` runs the
+/// deepest checks of its shapes on a thread of 64 KiB.
+pub const AIM_PARTS: usize = 64;
 
 /// The bytes that a check reads, and what the check of eager aims may still spend in them.
 ///
@@ -1670,7 +1833,7 @@ pub unsafe fn drive(
 /// ([`length`]) gives `value`, which fits a `usize`: the value of a `len` rule, or the elements
 /// that make the size that a `size` rule gives, if they make exactly that size. A `D` without such
 /// a rule has no length to read, and this function is not called for one.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 const fn elements<D: ?Sized + Pun>(value: usize) -> Option<usize> {
   let (stride, before, count) = const {
     let layout = D::LAYOUT;
@@ -1763,7 +1926,7 @@ const fn covers<X: Ops, S: Steps>() -> bool {
 ///
 /// An instance compiles only if, where the rule is not that of `T`, the last field of
 /// `T::Fields` is the last field of the layout, and has that rule.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 pub const unsafe fn length<T: ?Sized + Pun>(base: *const u8, n: usize) -> Option<u128> {
   // The rule is the struct's own, or of its last field: the one that `length_rule` finds.
   let (own, offset) = const {
@@ -1827,7 +1990,7 @@ const fn sizing<T: ?Sized + Pun, L: Rules>() -> usize {
 /// # Compile-time errors
 ///
 /// An instance compiles only if `T::Rules` lists the rules of `T` ([`listed`]).
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 const unsafe fn length_listed<T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   n: usize,
@@ -1869,7 +2032,7 @@ const unsafe fn length_listed<T: ?Sized + Pun, L: Rules>(
 ///
 /// An instance compiles only if `T::Rules` lists the rules of `T` ([`listed`]), and the rule
 /// `rule` is an aim at the cursor.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 pub const unsafe fn region_at<T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   size: usize,
@@ -1910,7 +2073,7 @@ pub const unsafe fn region_at<T: ?Sized + Pun, L: Rules>(
 ///
 /// An instance compiles only if `T::Rules` lists the rules of `T` ([`listed`]). It returns `None`
 /// where `L` is not an aim at a stored place.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 pub const unsafe fn pointer_at<T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   size: usize,
@@ -1944,7 +2107,7 @@ pub const unsafe fn pointer_at<T: ?Sized + Pun, L: Rules>(
 ///
 /// An instance compiles only if `T::Rules` lists the rules of `T` ([`listed`]). It returns `None`
 /// where `L` is not an aim whose size is given.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 pub const unsafe fn given<T: ?Sized + Pun, L: Rules>(base: *const u8, size: usize) -> Option<u128> {
   let given = const {
     assert!(listed::<T, T::Rules>(0), "not the rules of the struct");
@@ -1988,7 +2151,7 @@ pub const unsafe fn given<T: ?Sized + Pun, L: Rules>(base: *const u8, size: usiz
 ///   bytes by offset ([`Layout::rules_read_bytes`]), all `size` bytes.
 ///
 /// [`Layout::rules_read_bytes`]: layout::Layout::rules_read_bytes
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 const unsafe fn eval<X: Ops, S: Steps>(base: *const u8, size: usize) -> Option<u128> {
   let mut machine = Machine::NEW;
   // SAFETY: The requirements of `steps` are those of this call.
@@ -2128,7 +2291,7 @@ const unsafe fn walk<X: Ops, W: Steps>(
 /// The tail of a `Sized` struct is its last field, and its extent is its size. The extent of an
 /// unsized struct ends with its slice, without the padding that may follow it, which
 /// `size_of_val` counts.
-#[inline(always)]
+#[cfg_attr(not(debug_assertions), inline(always))]
 pub const fn tail_of<T: ?Sized + Pun>(ptr: *const T) -> (usize, usize, usize) {
   let (layout, shape) = const { (T::LAYOUT, T::LAYOUT.tail_shape()) };
   if const { T::LAYOUT.is_unsized() } {
