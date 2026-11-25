@@ -38,6 +38,12 @@
 //! The IPv6 packet packs the state of its walk at bit 64 (see [`Ipv6`]). Behind 12 extension
 //! headers, its check is then 210 instructions against 322 for the same check by hand.
 //!
+//! The cases named `aims` check the pointees of eager aims, which `from_head` checks with the value
+//! that holds them: 1 M items, each with a name and tags, wide data whose pointees hold no pointer,
+//! then trees of a type that points at itself, wide, small, and a chain of 100,000 nodes, which
+//! the check follows past `AIM_PARTS` with a loop. Their sides by hand follow the offsets with a
+//! list of what is still to check.
+//!
 //! The second table is of the checks of the `AnyFrame` view enum (6 variants). The column "a call"
 //! is `from_bytes` behind a function that is not inlined, as the check by hand is. Where the bench
 //! calls the view directly, the optimizer inlines it, and its checksums stay calls.
@@ -57,6 +63,11 @@
 
 use std::{hint::black_box, time::Instant};
 
+#[path = "../tests/support/aims.rs"]
+#[expect(dead_code, reason = "of the types of the tests, the bench reads lists and trees")]
+mod aims;
+
+use aims::{Near, Tree};
 use puns::{
   Pun, Tag, from_bytes, from_head,
   layout::Crc,
@@ -234,6 +245,22 @@ pub enum Kind {
   D = 7,
 }
 
+/// Items, each with a name and tags: pointees whose values hold no pointer.
+#[derive(Pun)]
+#[repr(C)]
+pub struct Item {
+  pub id: u32,
+  pub name: Near<str>,
+  pub tags: Near<[u16]>,
+}
+
+/// A list of items, the root of an image.
+#[derive(Pun)]
+#[repr(transparent)]
+pub struct Items {
+  pub items: Near<[Item]>,
+}
+
 static CASTAGNOLI: Crc = Crc::new(32, 0x1edc_6f41, 0xffff_ffff, true, 0xffff_ffff);
 static MODBUS: Crc = Crc::new(16, 0x8005, 0xffff, true, 0);
 static XMODEM: Crc = Crc::new(16, 0x1021, 0, false, 0);
@@ -352,6 +379,44 @@ mod hand {
       return Some(4);
     }
     (ether_type >= 0x0600).then_some(5)
+  }
+
+  /// Returns where the value of the `Thin<T, i32>` that the `Near` at `at` points at starts, and
+  /// its length, if the offset is not 0, the length is in `b`, at an address aligned to 4, not
+  /// negative, and `len` elements of `size` bytes follow it in `b`.
+  #[inline(always)]
+  fn near(b: &[u8], at: usize, size: usize) -> Option<(usize, usize)> {
+    let word =
+      |at: usize| Some(i32::from_ne_bytes(b.get(at..at.checked_add(4)?)?.try_into().ok()?));
+    let offset = word(at)?;
+    let to = at.checked_add_signed(isize::try_from(offset).ok()?).filter(|_| offset != 0)?;
+    if !(b.as_ptr().addr() + to).is_multiple_of(4) {
+      return None;
+    }
+    let len = usize::try_from(word(to)?).ok()?;
+    let value = to + 4;
+    (value.checked_add(len.checked_mul(size)?)? <= b.len()).then_some((value, len))
+  }
+
+  /// Returns whether `b` starts with a list of items, each with a name of UTF-8 and tags.
+  pub fn items(b: &[u8]) -> bool {
+    let Some((list, n)) = near(b, 0, 12) else { return false };
+    (0..n).all(|i| {
+      let at = list + 12 * i;
+      near(b, at + 4, 1).is_some_and(|(text, len)| str::from_utf8(&b[text..text + len]).is_ok())
+        && near(b, at + 8, 2).is_some()
+    })
+  }
+
+  /// Returns whether `b` starts with a tree, each node with a list of children, depth first with
+  /// a list of the lists still to check.
+  pub fn tree(b: &[u8]) -> bool {
+    let mut lists = vec![0];
+    while let Some(at) = lists.pop() {
+      let Some((kids, n)) = near(b, at + 4, 8) else { return false };
+      lists.extend((0..n).map(|i| kids + 8 * i));
+    }
+    true
   }
 
   /// Returns the table of the CRC of each byte, for the reflected polynomial `poly`.
@@ -524,6 +589,82 @@ fn frame(ether_type: u16, payload: &[u8]) -> Vec<u8> {
   frame.extend(ether_type.to_be_bytes());
   frame.extend(payload);
   frame
+}
+
+/// An image under construction, as a writer of pointers makes it: each value at the next place
+/// aligned for it, depth first, each value before its pointees.
+struct Image(Vec<u8>);
+
+impl Image {
+  /// Reserves `size` bytes aligned to 4, and returns where they are.
+  fn reserve(&mut self, size: usize) -> usize {
+    let at = self.0.len().next_multiple_of(4);
+    self.0.resize(at + size, 0);
+    at
+  }
+
+  /// Writes the `i32` `value` at `at`.
+  fn put(&mut self, at: usize, value: i32) {
+    self.0[at..at + 4].copy_from_slice(&value.to_ne_bytes());
+  }
+
+  /// Reserves a list of `n` elements of `size` bytes after its length, points the `Near` at `at`
+  /// to it, and returns where its first element is.
+  fn list(&mut self, at: usize, n: usize, size: usize) -> usize {
+    let list = self.reserve(4 + n * size);
+    self.put(list, i32::try_from(n).unwrap());
+    self.put(at, i32::try_from(list - at).unwrap());
+    list + 4
+  }
+
+  /// `n` items, each with a name and 4 tags.
+  fn items(n: usize) -> Self {
+    let mut image = Self(vec![]);
+    let root = image.reserve(4);
+    let list = image.list(root, n, 12);
+    for i in 0..n {
+      let at = list + 12 * i;
+      image.put(at, i32::try_from(i).unwrap());
+      let name = format!("item-{i}");
+      let text = image.list(at + 4, name.len(), 1);
+      image.0[text..text + name.len()].copy_from_slice(name.as_bytes());
+      image.list(at + 8, 4, 2);
+    }
+    image
+  }
+
+  /// A tree of `levels` levels below the root, each node with `fan` children.
+  fn tree(levels: usize, fan: usize) -> Self {
+    fn kids(image: &mut Image, at: usize, levels: usize, fan: usize) {
+      let n = if levels == 0 { 0 } else { fan };
+      let list = image.list(at + 4, n, 8);
+      for i in 0..n {
+        kids(image, list + 8 * i, levels - 1, fan);
+      }
+    }
+    let mut image = Self(vec![]);
+    let root = image.reserve(8);
+    kids(&mut image, root, levels, fan);
+    image
+  }
+
+  /// A chain of `n` nodes below the root, each the one child of the node before it.
+  fn chain(n: usize) -> Self {
+    let mut image = Self(vec![]);
+    let mut at = image.reserve(8);
+    for _ in 0..n {
+      at = image.list(at + 4, 1, 8);
+    }
+    image.list(at + 4, 0, 8);
+    image
+  }
+
+  /// The bytes at an address aligned to 8.
+  fn aligned(&self) -> Vec<u64> {
+    let mut words = vec![0u64; self.0.len().div_ceil(8)];
+    puns::pun_mut::<[u64], [u8]>(&mut words[..])[..self.0.len()].copy_from_slice(&self.0);
+    words
+  }
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -719,6 +860,24 @@ fn main() {
     |w: &[u32]| try_pun_ref::<[u32], [char]>(w).is_ok(),
     |w: &[u32]| w.iter().all(|&w| char::from_u32(w).is_some()),
   );
+
+  // Pointers: the pointees of eager aims, checked with the value that holds them. Wide data, whose
+  // pointees hold no pointer, then a tree of a type that points at itself, wide, small, and as deep
+  // as a chain, past `AIM_PARTS`.
+  for (name, image, n) in [
+    ("aims, 1 M items (a name, 4 tags)", Image::items(1 << 20), 1 << 20),
+    ("aims, a tree of 1,000 x 1,000", Image::tree(2, 1000), 0),
+    ("aims, a tree of 3 levels of 4", Image::tree(3, 4), 0),
+    ("aims, a chain of 100,000", Image::chain(100_000), 0),
+  ] {
+    let words = image.aligned();
+    let bytes = &puns::as_bytes(&words[..])[..image.0.len()];
+    if n > 0 {
+      case(&filter, name, bytes, |b: &[u8]| from_head::<Items>(b).is_ok(), hand::items);
+    } else {
+      case(&filter, name, bytes, |b: &[u8]| from_head::<Tree>(b).is_ok(), hand::tree);
+    }
+  }
 
   // Checksums, as functions.
   for len in [64, 1518] {

@@ -4,6 +4,11 @@
 //! The pointees are read with the provenance of the bytes that hold them (`Near::get`,
 //! `puns::aim`), as the stacked borrows model of Miri requires; `aim_reads.rs` reads them through
 //! the safe methods, from a reference, as tree borrows allows.
+//!
+//! The limit of recursion is raised for the list that a constant checks (`LIST`): evaluated when
+//! compiling, the check in place of that list nests more than 140 frames of the evaluation before
+//! it starts again with loops, past the 128 that Rust allows by default.
+#![recursion_limit = "160"]
 
 use core::marker::PhantomData;
 
@@ -13,7 +18,7 @@ mod aims;
 use aims::{Expr, Near, Pair, Tree};
 use puns::{
   Error, Failure, InPlace, Pending, Pointee, Pun, Thin, Worklist,
-  num::{i32be, u8c},
+  num::{i32be, i32le, u8c},
 };
 
 /// The pointee of `near`, in `image`, the bytes in which `puns` checked it.
@@ -106,32 +111,32 @@ fn chain(n: usize) -> Image {
   image
 }
 
-/// The stack of the thread of a check in place: the 32 KiB that the deepest checks of the shapes
-/// of `AIM_PARTS` take, and room for the test.
+/// The stack of the thread of a check: the 30 KiB at most that a check takes (`AIM_PARTS`), and
+/// room for the test.
 const SMALL_STACK: usize = 64 << 10;
 
+/// Runs `f` on a thread of `SMALL_STACK` bytes of stack, in a build without optimizations too.
+fn on_a_small_stack<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
+  std::thread::Builder::new().stack_size(SMALL_STACK).spawn(f).unwrap().join().unwrap()
+}
+
+/// How deep the chains of the tests of depth are: far past `AIM_PARTS` natively, and past it under
+/// Miri, which runs each unsafe path, not each value.
+const LONG: usize = if cfg!(miri) { 40 } else { 100_000 };
+
 #[test]
-fn a_chain_is_followed_as_deep_as_the_stack_allows() {
-  // The check of `from_head` recurses once for each pair, and stops where the parts of the pairs
-  // that it nests reach `AIM_PARTS`, which bounds its stack whatever the types: four pairs, one
-  // within another, and however long the chain, it stops within its small stack, in a build
-  // without optimizations too. `check` goes on.
-  let (short, long) = if cfg!(miri) { (4, 40) } else { (4, 4_000) };
-  let small = std::thread::Builder::new().stack_size(SMALL_STACK);
-  let results = small
-    .spawn(move || {
-      let read = |n: usize| {
-        let image = chain(n).aligned();
-        puns::from_head::<Pair>(image.bytes()).map(|(root, _)| rows(root, image.bytes()).len())
-      };
-      (read(short), read(long))
-    })
-    .unwrap()
-    .join()
-    .unwrap();
-  assert_eq!(results.0, Ok(short));
-  assert_eq!(results.1, Err(Error::Limit));
-  let image = chain(long);
+fn a_chain_is_followed_at_any_depth_on_a_small_stack() {
+  // The check of `from_head` checks four pairs in place, one within another, then starts again,
+  // and its loop of pairs takes the next pair of each, so its stack does not grow with the chain.
+  let results = on_a_small_stack(|| {
+    let read = |n: usize| {
+      let image = chain(n).aligned();
+      puns::from_head::<Pair>(image.bytes()).map(|(root, _)| rows(root, image.bytes()).len())
+    };
+    (read(4), read(5), read(LONG))
+  });
+  assert_eq!(results, (Ok(4), Ok(5), Ok(LONG)));
+  let image = chain(LONG);
   let words = image.words8(0);
   let bytes = &puns::as_bytes(&words[..])[..image.bytes.len()];
   assert_eq!(puns::check::<Pair, 8, _>(bytes, &mut Grows(Vec::new())), Ok(()));
@@ -182,37 +187,329 @@ struct Wide {
 
 #[test]
 fn the_stack_of_a_check_is_bounded_whatever_the_types() {
-  // A chain of each, as deep as the check follows it, then longer, on a small stack: the check
-  // stops at its parts, before the stack ends. A `Deep` has 14 parts, and a `Wide` 28.
-  let long = if cfg!(miri) { 8 } else { 4_000 };
-  let small = std::thread::Builder::new().stack_size(SMALL_STACK);
-  let results = small
-    .spawn(move || {
-      let deep = |n: usize| {
-        let mut image = Image::new();
-        let at = (0..n).map(|_| image.reserve(size_of::<Deep>(), 4)).collect::<Vec<_>>();
-        for i in 0..n - 1 {
-          image.aim(at[i] + 4, at[i + 1]);
-        }
-        let image = image.aligned();
-        puns::from_head::<Deep>(image.bytes()).map(|_| ())
-      };
-      let wide = |n: usize| {
-        let mut image = Image::new();
-        let at = (0..n).map(|_| image.reserve(size_of::<Wide>(), 4)).collect::<Vec<_>>();
-        for i in 0..n - 1 {
-          image.aim(at[i] + 40, at[i + 1]);
-        }
-        let image = image.aligned();
-        puns::from_head::<Wide>(image.bytes()).map(|_| ())
-      };
-      [deep(5), deep(6), deep(long), wide(3), wide(4), wide(long)]
-    })
-    .unwrap()
-    .join()
-    .unwrap();
-  let limit = Err(Error::Limit);
-  assert_eq!(results, [Ok(()), limit, limit, Ok(()), limit, limit]);
+  // A chain of each, as deep as the check in place follows it (a `Deep` has 14 parts, and a `Wide`
+  // 28), then deeper, which the check with loops follows, on a small stack.
+  let results = on_a_small_stack(|| {
+    let deep = |n: usize| {
+      let mut image = Image::new();
+      let at = (0..n).map(|_| image.reserve(size_of::<Deep>(), 4)).collect::<Vec<_>>();
+      for i in 0..n - 1 {
+        image.aim(at[i] + 4, at[i + 1]);
+      }
+      let image = image.aligned();
+      puns::from_head::<Deep>(image.bytes()).map(|_| ())
+    };
+    let wide = |n: usize| {
+      let mut image = Image::new();
+      let at = (0..n).map(|_| image.reserve(size_of::<Wide>(), 4)).collect::<Vec<_>>();
+      for i in 0..n - 1 {
+        image.aim(at[i] + 40, at[i + 1]);
+      }
+      let image = image.aligned();
+      puns::from_head::<Wide>(image.bytes()).map(|_| ())
+    };
+    [deep(5), deep(6), deep(LONG), wide(3), wide(4), wide(LONG)]
+  });
+  assert_eq!(results, [Ok(()); 6]);
+}
+
+/// A chain of `n` trees, each the one child of the one before.
+fn trees(n: usize) -> Image {
+  let mut image = Image::new();
+  let mut at = image.reserve(8, 4);
+  for _ in 1..n {
+    let list = image.list(1);
+    image.aim(at + 4, list);
+    at = list + 4;
+  }
+  let empty = image.list(0);
+  image.aim(at + 4, empty);
+  image
+}
+
+/// A balanced tree of `levels` levels of `Tree`s below the root, two children each.
+fn balanced_trees(levels: usize) -> Image {
+  fn kids(image: &mut Image, at: usize, levels: usize) {
+    let list = image.list(if levels > 0 { 2 } else { 0 });
+    image.aim(at + 4, list);
+    if levels > 0 {
+      kids(image, list + 4, levels - 1);
+      kids(image, list + 12, levels - 1);
+    }
+  }
+  let mut image = Image::new();
+  let root = image.reserve(8, 4);
+  kids(&mut image, root, levels);
+  image
+}
+
+/// Reserves an expression and returns where it is: a `Lit` of 1, until `add` makes it an `Add`.
+fn expr(image: &mut Image) -> usize {
+  let at = image.reserve(size_of::<Expr>(), align_of::<Expr>());
+  image.put(at + align_of::<i64>(), &1i64.to_ne_bytes());
+  at
+}
+
+/// Makes the expression at `at` the `Add` of those at `left` and `right`. `repr(u8)` lays the
+/// variant out as a `repr(C)` struct of the tag and the fields: the pointers at 4 and 8.
+fn add(image: &mut Image, at: usize, left: usize, right: usize) {
+  image.bytes[at] = 1;
+  image.aim(at + 4, left);
+  image.aim(at + 8, right);
+}
+
+/// Writes a balanced expression of `levels` levels of `Add`s, each before its operands, as a copy
+/// writes it, and returns where it is.
+fn balanced(image: &mut Image, levels: usize) -> usize {
+  let at = expr(image);
+  if levels > 0 {
+    let (left, right) = (balanced(image, levels - 1), balanced(image, levels - 1));
+    add(image, at, left, right);
+  }
+  at
+}
+
+/// An expression of `n` `Add`s, each of the next and a `Lit`, deep on the left or on the right,
+/// the first at 0.
+fn sided(n: usize, left: bool) -> Image {
+  let mut image = Image::new();
+  let at = (0..=n).map(|_| expr(&mut image)).collect::<Vec<_>>();
+  for i in 0..n {
+    let one = expr(&mut image);
+    if left {
+      add(&mut image, at[i], at[i + 1], one);
+    } else {
+      add(&mut image, at[i], one, at[i + 1]);
+    }
+  }
+  image
+}
+
+/// A sum of `n` terms built to the left, the first at 0: each `Add` holds the next on its left and
+/// a term on its right, a balanced expression of `levels` levels, which waits while the check goes
+/// down the left.
+fn comb(n: usize, levels: usize) -> Image {
+  let mut image = Image::new();
+  let at = (0..=n).map(|_| expr(&mut image)).collect::<Vec<_>>();
+  for i in 0..n {
+    let term = balanced(&mut image, levels);
+    add(&mut image, at[i], at[i + 1], term);
+  }
+  image
+}
+
+/// Values like those of JSON: null, an array of values, or an object of fields, each a key and a
+/// value.
+#[derive(Pun)]
+#[repr(u8)]
+enum Json {
+  Null,
+  Array(Near<[Json]>),
+  Object(Near<[Field]>),
+}
+
+#[derive(Pun)]
+#[repr(C)]
+struct Field {
+  key: Near<str>,
+  value: Json,
+}
+
+/// Makes the value at `at` an array (`1`) or an object (`2`) of `n` elements, and returns where
+/// the first is.
+fn json_list(image: &mut Image, at: usize, kind: u8, n: usize) -> usize {
+  let size = if kind == 1 { size_of::<Json>() } else { size_of::<Field>() };
+  let list = image.reserve(4 + n * size, 4);
+  image.put_i32(list, i32::try_from(n).unwrap());
+  image.bytes[at] = kind;
+  image.aim(at + 4, list);
+  list + 4
+}
+
+/// `[{"k": {"k": null}, "k": {"k": null}, "k": [..]}]`, `n` levels of arrays and objects in turn,
+/// the first at 0. In the check with loops, the array of each object waits for the loop of arrays,
+/// below the loop of objects, after the second object waits above it.
+fn json(n: usize) -> Image {
+  let mut image = Image::new();
+  let mut at = image.reserve(size_of::<Json>(), 4);
+  let key = image.text("k");
+  for level in 0..n {
+    if level % 2 == 0 {
+      at = json_list(&mut image, at, 1, 1);
+      continue;
+    }
+    let fields = json_list(&mut image, at, 2, 3);
+    for i in 0..3 {
+      let field = fields + i * size_of::<Field>();
+      image.aim(field, key);
+      if i < 2 {
+        let inner = json_list(&mut image, field + 4, 2, 1);
+        image.aim(inner, key);
+      }
+    }
+    at = fields + 2 * size_of::<Field>() + 4;
+  }
+  image
+}
+
+/// Three types that point at each other in turn.
+#[derive(Pun)]
+#[repr(C)]
+struct One {
+  value: u32,
+  next: Option<Near<Two>>,
+}
+
+#[derive(Pun)]
+#[repr(C)]
+struct Two {
+  value: u32,
+  next: Option<Near<Three>>,
+}
+
+#[derive(Pun)]
+#[repr(C)]
+struct Three {
+  value: u32,
+  next: Option<Near<One>>,
+}
+
+/// A chain of `n` values of `One`, `Two` and `Three` in turn, or of any type of 8 bytes whose
+/// pointer is its second word, the first at 0.
+fn in_turn(n: usize) -> Image {
+  let mut image = Image::new();
+  let at = (0..n).map(|_| image.reserve(8, 4)).collect::<Vec<_>>();
+  for i in 0..n - 1 {
+    image.aim(at[i] + 4, at[i + 1]);
+  }
+  image
+}
+
+/// `from_head` of a `T` at the start of the bytes of `image`, without the value.
+fn head<T: Pun>(image: &Image) -> Result<(), Error> {
+  puns::from_head::<T>(image.aligned().bytes()).map(|_| ())
+}
+
+#[test]
+fn deep_data_is_checked_on_a_small_stack() {
+  // Past the depth that the check in place reaches, the check starts again with a loop for each
+  // type on the path: deep on either side, balanced, of types that point at each other, its stack
+  // does not grow with the data.
+  let (levels, json_levels) = if cfg!(miri) { (6, 20) } else { (20, 10_000) };
+  let results = on_a_small_stack(move || {
+    let mut image = Image::new();
+    balanced(&mut image, levels);
+    [
+      head::<Expr>(&image),
+      head::<Tree>(&balanced_trees(levels)),
+      head::<Expr>(&sided(LONG, true)),
+      head::<Expr>(&sided(LONG, false)),
+      head::<Tree>(&trees(LONG)),
+      head::<Json>(&json(json_levels)),
+      head::<One>(&in_turn(LONG)),
+    ]
+  });
+  assert_eq!(results, [Ok(()); 7]);
+}
+
+#[test]
+fn more_deep_values_than_the_loops_hold_at_once_stop_at_the_limit() {
+  // The terms of a sum built to the left wait while the check goes down the left, 64 at most. Past
+  // them, each is checked in place, nested in the check of the value that holds it, which the parts
+  // of the loops bound: a term of 2 levels fits, one of 3 does not. Under Miri, which is there for
+  // the unsafe paths, the entries fill up, and two small terms are past them.
+  if cfg!(miri) {
+    assert_eq!(on_a_small_stack(|| head::<Expr>(&comb(66, 1))), Ok(()));
+    return;
+  }
+  let results = on_a_small_stack(|| [head::<Expr>(&comb(100, 2)), head::<Expr>(&comb(70, 3))]);
+  assert_eq!(results, [Ok(()), Err(Error::Limit)]);
+}
+
+/// A chain of a type without an identity: its parameter is not bounded by `Pun`.
+#[derive(Pun)]
+#[repr(C)]
+struct Anonymous<T> {
+  value: u32,
+  next: Option<Near<Anonymous<T>>>,
+  _p: PhantomData<T>,
+}
+
+#[test]
+fn a_pointee_without_an_identity_is_checked_in_place() {
+  // No loop can tell that a pointee is of its type without an identity, so each is checked in
+  // place, nested in the check of the one before, as deep as the parts allow.
+  let results = on_a_small_stack(|| {
+    [head::<Anonymous<u8>>(&in_turn(3)), head::<Anonymous<u8>>(&in_turn(LONG))]
+  });
+  assert_eq!(results, [Ok(()), Err(Error::Limit)]);
+}
+
+/// A list of bytes, of alignment 1: a check evaluated when compiling knows no address, so only a
+/// pointee of alignment 1 is aligned there (`puns::ptr::address`).
+#[derive(Pun)]
+#[repr(u8)]
+enum Chain {
+  End,
+  Link(u8, Next),
+}
+
+/// The next value of a `Chain`, at the distance that a little-endian `i32` gives, from its own
+/// address.
+#[derive(Pun)]
+#[repr(transparent)]
+struct Next {
+  #[pun(pointer(next: Chain))]
+  off: InPlace<i32le>,
+}
+
+/// 1,000 links of 6 bytes, each a tag, a byte, and the distance to the next from the pointer, then
+/// the end.
+const LINKS: [u8; 6_006] = {
+  let mut bytes = [0; 6_006];
+  let mut i = 0;
+  while i < 1_000 {
+    bytes[6 * i] = 1;
+    bytes[6 * i + 1] = i as u8;
+    let next = 4i32.to_le_bytes();
+    let mut j = 0;
+    while j < 4 {
+      bytes[6 * i + 2 + j] = next[j];
+      j += 1;
+    }
+    i += 1;
+  }
+  bytes
+};
+
+/// Returns what `from_head` finds of a `Chain` at the start of `bytes`: how many bytes follow it.
+const fn chain_rest(bytes: &[u8]) -> Result<usize, Error> {
+  match puns::from_head::<Chain>(bytes) {
+    Ok((_, rest)) => Ok(rest.len()),
+    Err(error) => Err(error),
+  }
+}
+
+/// The check of the list when compiling: `from_head` is a `const fn`, and so is its check with
+/// loops.
+const LIST: Result<usize, Error> = chain_rest(&LINKS);
+
+/// The same list, whose last link points back at the first: a cycle.
+const CYCLE: Result<usize, Error> = {
+  let mut bytes = LINKS;
+  let back = (-6_000i32 + 6 - 2).to_le_bytes();
+  let mut j = 0;
+  while j < 4 {
+    bytes[6 * 999 + 2 + j] = back[j];
+    j += 1;
+  }
+  chain_rest(&bytes)
+};
+
+#[test]
+fn a_deep_list_is_checked_when_compiling() {
+  assert_eq!(LIST, Ok(6_006 - size_of::<Chain>()));
+  assert_eq!(CYCLE, Err(Error::Limit));
 }
 
 /// The value of an expression, in `image`.
@@ -994,17 +1291,16 @@ fn image_of(bytes: &[u8], compact: bool) -> Result<(), Failure> {
 }
 
 #[test]
-fn a_worklist_goes_deeper_than_the_recursion() {
-  // A chain of pairs deeper than the recursion goes, each with a name and values.
+fn a_worklist_goes_as_deep_as_the_loops() {
+  // A chain of pairs deeper than the check in place goes, each with a name and values, which
+  // `from_head` follows with loops, and `check` with a worklist.
   let n = if cfg!(miri) { 20 } else { 2_000 };
   let names = (0..n).map(|i| format!("{i}")).collect::<Vec<_>>();
   let rows = names.iter().map(|name| (name.as_str(), &[1, 2][..])).collect::<Vec<_>>();
   let image = Image::compact(&rows);
   let words = image.words8(0);
   let bytes = &puns::as_bytes(&words[..])[..image.bytes.len()];
-  if !cfg!(miri) {
-    assert_eq!(puns::from_head::<Pair>(bytes).err(), Some(Error::Limit));
-  }
+  assert_eq!(puns::from_head::<Pair>(bytes).err(), None);
   assert_eq!(image_of(bytes, true), Ok(()));
   assert_eq!(image_of(bytes, false), Ok(()));
   // A worklist that cannot grow. The check of a pair puts its name, its values and the next pair

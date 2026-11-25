@@ -1,8 +1,8 @@
 error[E0080]: evaluation panicked: the pointee of an aim whose extent is what it stores is sized, a `Thin`, or stores its length in its sized fields: a `size` or `len` rule that reads no byte by offset
  --> src/validate.rs
   |
-  |     pointee_checked::<T, L>();
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::validate::check_aim::<puns::Plan<[u8], UnsizedRegionFirst>, UnsizedRegionFirst, puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8], puns::steps::One<0>>, [u8]>>::{constant#0}` failed inside this call
+  |   const CHECKED: () = pointee_checked::<T, L>();
+  |                       ^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::validate::AimOf::<UnsizedRegionFirst, puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8], puns::steps::One<0>>, [u8]>>::CHECKED` failed inside this call
   |
 note: inside `puns::validate::pointee_checked::<UnsizedRegionFirst, puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8], puns::steps::One<0>>, [u8]>>`
  --> $RUST/core/src/panic.rs
@@ -23,9 +23,15 @@ note: inside `puns::validate::pointee_checked::<UnsizedRegionFirst, puns::RuleAt
 note: erroneous constant encountered
  --> src/validate.rs
   |
+  |     let () = AimOf::<T, L>::CHECKED;
+  |              ^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
   |     let (eager, next) = const {
   |  _______________________^
-  | |     pointee_checked::<T, L>();
+  | |     let () = AimOf::<T, L>::CHECKED;
   | |     match T::LAYOUT.rule(L::RULE) {
   | |       Some(Rule::Aim(Aim { check, start, .. })) => {
 ... |

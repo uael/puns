@@ -1097,6 +1097,34 @@ impl Id {
     self.unwrapped().same(other.unwrapped())
   }
 
+  /// Returns a hash of the identity, the same for two identities that [`Id::equals`] finds equal:
+  /// of the identity without the `ManuallyDrop`s that wrap the whole, as `equals` compares it.
+  ///
+  /// A check compares it before `equals`, which it does not replace: two identities of one hash
+  /// may still be of two types (`validate::PointeeType`).
+  pub(crate) const fn key(&self) -> u64 {
+    self.unwrapped().hash(0xcbf2_9ce4_8422_2325)
+  }
+
+  /// Returns the FNV-1a hash of the name, the length and the parameters of the identity, from `h`,
+  /// the hash of what comes before it.
+  const fn hash(&self, mut h: u64) -> u64 {
+    const PRIME: u64 = 0x0100_0000_01b3;
+    let name = self.name.as_bytes();
+    let mut i = 0;
+    while i < name.len() {
+      h = (h ^ name[i] as u64).wrapping_mul(PRIME);
+      i += 1;
+    }
+    h = (h ^ self.len as u64).wrapping_mul(PRIME);
+    let mut i = 0;
+    while i < self.args.len() {
+      h = self.args[i].hash(h);
+      i += 1;
+    }
+    h
+  }
+
   /// Returns whether `self` and `other` are the identity of the same type (both are known, with the
   /// same name, length and parameters).
   const fn same(&self, other: &Id) -> bool {
