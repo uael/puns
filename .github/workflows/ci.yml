@@ -541,8 +541,9 @@ jobs:
       # runs without the feature, so that a new file runs. A named file that is not there fails the
       # job. Stacked borrows skips the module `reads` of `aims`, the reads of pointees through
       # references, which follow tree borrows, and the fourth part of a target with stacked borrows
-      # runs it with tree borrows, in the step after. The files about the feature run with it, every other one each. Under Miri,
-      # the unit tests run without the feature only: with it, fourteen seconds more.
+      # runs it with tree borrows, in the step after. The files about the feature run with it,
+      # every other one each. Under Miri, the unit tests run without the feature only: with it,
+      # fourteen seconds more.
       - name: Select the tests that Miri runs
         if: matrix.part
         env:
