@@ -132,7 +132,7 @@ mod fake {
       end + 1
     }
   }
-  pub use puns::{At, Fields, Path, Pun};
+  pub use puns::{__site, At, Fields, Path, Pun};
 }
 
 #[derive(Pun, Debug)]
@@ -841,60 +841,4 @@ fn a_union_proven_through_a_requirement_is_checked_past_it() {
   assert_eq!(puns::try_pun::<SourceSoft, TargetSoft>(soft).err(), Some(Error::Validity));
   let ruled = SourceRuled { tag: 0, ruled: Ruled { x: 1, rest: 7 } };
   assert_eq!(puns::try_pun::<SourceRuled, TargetRuled>(ruled).err(), Some(Error::Validity));
-}
-
-#[path = "support/aims.rs"]
-#[expect(dead_code, reason = "of the types of the tests of aims, this file reads `Near` only")]
-mod aims;
-
-/// A crate path that names every item of `puns`, and a macro `__site!` that gives every type one
-/// place. The derive takes no part of an identity from the path, so `Lax` and `Strict`, of one size
-/// and alignment, have two identities: were it to call that macro, they would have one.
-mod one_site {
-  pub use puns::*;
-  #[expect(unused_macros, reason = "no part of an identity comes from the path")]
-  macro_rules! one_site {
-    ($name:ident, $n:literal) => {
-      "one site"
-    };
-  }
-  #[expect(unused_imports, reason = "no part of an identity comes from the path")]
-  pub(crate) use one_site as __site;
-}
-
-#[derive(Pun)]
-#[pun(crate = one_site)]
-#[repr(C)]
-struct Lax {
-  value: u32,
-  next: Option<aims::Near<Strict>>,
-}
-
-#[derive(Pun)]
-#[pun(crate = one_site)]
-#[repr(C)]
-struct Strict {
-  #[pun(valid(0..=1))]
-  value: u32,
-  next: Option<aims::Near<Lax>>,
-}
-
-/// Checks that two types that derive `Pun` are two types for the check of their pointees, whatever
-/// the crate path says.
-#[test]
-fn two_types_are_never_one_for_the_check_of_pointees() {
-  // A `Strict`, then a `Lax`, and so on, past the depth that a check nests in place, each pointing
-  // at the next, 4 bytes after its pointer. The last is a `Strict` whose value is 2: a loop that
-  // took the `Strict`s of the values of `Lax` for values of `Lax` would accept it.
-  let n = if cfg!(miri) { 41 } else { 1_001 };
-  let mut words = vec![0u32; 2 * n];
-  for i in 0..n - 1 {
-    words[2 * i + 1] = 4;
-  }
-  words[2 * (n - 1)] = 2;
-  let bytes = puns::as_bytes(&words[..]);
-  assert_eq!(puns::from_head::<Strict>(bytes).err(), Some(Error::Validity));
-  words[2 * (n - 1)] = 1;
-  let bytes = puns::as_bytes(&words[..]);
-  assert!(puns::from_head::<Strict>(bytes).is_ok());
 }

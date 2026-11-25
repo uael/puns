@@ -131,17 +131,9 @@ fn find_reserved(tokens: TokenStream) -> Option<Ident> {
 // -------------------------------------------------------------------------------------------------
 // Attributes
 
-/// Returns the identity of the type of `input` (`puns::layout::Id`): the crate being compiled, the
-/// name of the type, the number of this derive in that compilation, and the identity of each of
-/// its type and const parameters, in order. `generics` are the generics of its implementation of
-/// `Pun`.
-///
-/// The name is a literal that the derive writes, passed to `Id::new`, an associated function of
-/// the type that `Layout::PIN` fixes: no path chooses it, so no crate can give a type the identity
-/// of another, and a check may take two types of one identity for one (`validate::PointeeType`).
-/// The crate is named by its package, the version of the package and the name of the crate, which
-/// Cargo sets for the compiler, whose process runs the derive: Cargo builds no two packages of one
-/// name and one version in a build. Each derive in a compilation takes the next number.
+/// Returns the identity of the type of `input` (`puns::layout::Id`): where it is declared, its
+/// name, and the identity of each of its type and const parameters, in order. `generics` are the
+/// generics of its implementation of `Pun`.
 ///
 /// Two instances of a generic type are other types, which `rustc` may lay out differently, so the
 /// identity of an instance has those of its parameters. The identity of a type parameter is the
@@ -171,22 +163,15 @@ fn identity(input: &DeriveInput, generics: &syn::Generics, root: &TokenStream) -
       }
     }
   }
-  let n = DERIVES.fetch_add(1, Ordering::Relaxed);
-  let cargo = |name: &str| std::env::var(name).unwrap_or_default();
-  let name = proc_macro2::Literal::string(&format!(
-    "{}@{}/{}::{}#{n}",
-    cargo("CARGO_PKG_NAME"),
-    cargo("CARGO_PKG_VERSION"),
-    cargo("CARGO_CRATE_NAME"),
-    input.ident,
-  ));
+  let ident = &input.ident;
+  let n = proc_macro2::Literal::usize_unsuffixed(DERIVES.fetch_add(1, Ordering::Relaxed));
   // The identities of the parameters are values of the instance, which a `const` block makes
   // `'static`.
   let args = if args.is_empty() { quote!(&[]) } else { quote!(const { &[#(#args),*] }) };
   // Of the type that `Layout::PIN` fixes, and that `Layout::identified`, `Pun::ID` and `Scalar::ID`
-  // take, whatever type the path names, so `Id::new` is its function.
+  // take, whatever type the path names.
   quote!({
-    let id: #root::layout::Id = #root::layout::Id::new(#name, #args);
+    let id: #root::layout::Id = #root::layout::Id::new(#root::__site!(#ident, #n), #args);
     id
   })
 }

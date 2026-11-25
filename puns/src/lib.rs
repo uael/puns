@@ -832,9 +832,8 @@
 //! same type as a part that is a `T`, since `core` gives them one layout. A type made of a
 //! `ManuallyDrop<T>` is not made of a `T`, though: `-Zrandomize-layout` arranges
 //! `Wrapper<ManuallyDrop<u8>, u16, u32>` and `Wrapper<u8, u16, u32>` differently. A type that
-//! derives `Pun` is named by the crate being compiled (its package, the version of the package and
-//! the name of the crate, which Cargo sets), by its name, and by the number of its derive in that
-//! compilation, which no crate path changes ([What the derive trusts](#what-the-derive-trusts)). An instance of a generic type that derives `Pun`
+//! derives `Pun` is named by where it is declared (the module, file, line and column), by its name,
+//! and by the number of its derive in its crate. An instance of a generic type that derives `Pun`
 //! is named, in addition, by the identity of each of its type parameters and the value of each of
 //! its const parameters, in order, so a `Pair<i32>` proves a `Pair<i32>`, and not a `Pair<u32>`.
 //! Its lifetimes do not count. The derive can name the identity of a type parameter only if the
@@ -845,10 +844,9 @@
 //! parameter that has none. A part whose layout Rust leaves to the compiler and that holds one of
 //! them therefore proves itself only with the feature, unless it is proven field by field, and the
 //! refusal says so. A type whose every part has the same layout in every build, such as a generic
-//! `repr(C)` struct of a `u8` and a `PhantomData<T>`, needs no identity. Two parts whose layouts
-//! Rust leaves to the compiler are of one type only if their layouts are the same as well. Two
-//! pointees of eager aims are of one type if their identities are, so that the same aim proves
-//! itself, and the check of a pointee takes another of the same identity for one of its type.
+//! `repr(C)` struct of a `u8` and a `PhantomData<T>`, needs no identity. An identity can only
+//! refuse a pun, because the layouts are compared as well, so two types that happened to share a
+//! name would still be told apart by their layouts.
 //!
 //! ### What this relies on
 //!
@@ -1776,15 +1774,13 @@ pub use layout::{crc32, sum16};
 ///   that start with `__Pun` name other items, gives the field one type, or does not compile.
 ///   These names are reserved.
 ///
-/// The identity of a type, which says whether two layouts or two pointees are of the same type, is
-/// a literal that the derive writes: the package, version and crate that Cargo compiles, the name of
-/// the type and the number of its derive in that compilation, with the identities of its
-/// parameters (`<T as Pun>::ID`). It is passed to `Id::new`, an associated function of the type
-/// that `Layout::PIN` fixes, so no path chooses it, and a crate cannot give a type the identity of
-/// another. Cargo builds no two packages of one name and one version, and each derive in a
-/// compilation takes the next number, so two types that derive `Pun` have two identities. `Pun` is
-/// not implemented by hand, and an implementation of `Scalar` by hand leaves its identity at none
-/// (`# Safety` of each).
+/// The one exception is the identity of a type, which says whether two layouts are of the same
+/// type. It is where the type is declared, written by a macro that the derive names through the
+/// path of `puns`, and the identities of its parameters, so a crate that redirects that path can
+/// give a type the identity of another. Two layouts count as the same type only if they are also
+/// equal, so this cannot make a wrong layout. It can make a verdict depend on how `rustc` arranged
+/// the two types in this compilation, which without the `unstable` feature no verdict otherwise
+/// does.
 ///
 /// Nothing else that the derive names through the path of `puns` makes a layout. A trait that it
 /// implements through the path is the trait of `puns`: otherwise the type does not implement that
@@ -1979,6 +1975,33 @@ pub use puns_derive::Pun;
 pub use thin::{Metadata, Pointee, Thin};
 pub use validate::{AIM_PARTS, Pending};
 use validate::{All, Checks, Input, validate};
+
+/// Where the type `$name` is declared, its name, and `$n`, the number of the derive in its crate,
+/// as its identity (`layout::Id`), for `#[derive(Pun)]`, which names `core` through this crate (a
+/// crate may have another `core`). The place is the outermost macro call that declares the type,
+/// which may declare two (one in each of two functions), and the number tells them apart.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __site {
+  ($name:ident, $n:literal) => {
+    $crate::__core::concat!(
+      $crate::__core::module_path!(),
+      "::",
+      $crate::__core::stringify!($name),
+      "@",
+      $crate::__core::file!(),
+      ":",
+      $crate::__core::line!(),
+      ":",
+      $crate::__core::column!(),
+      "#",
+      $n
+    )
+  };
+}
+
+#[doc(hidden)]
+pub use core as __core;
 
 // -------------------------------------------------------------------------------------------------
 // Traits

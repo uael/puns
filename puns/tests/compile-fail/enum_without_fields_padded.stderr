@@ -22,7 +22,7 @@ note: inside `layout::load`
   |
   |         u128::from_le_bytes(buf)
   |         ^^^^^^^^^^^^^^^^^^^^^^^^
-note: inside `core::num::<impl u128>::from_le_bytes`
+note: inside `puns::core::num::<impl u128>::from_le_bytes`
  --> $RUST/core/src/num/uint_macros.rs
  --> $RUST/core/src/num/mod.rs
  ::: $RUST/core/src/num/mod.rs
