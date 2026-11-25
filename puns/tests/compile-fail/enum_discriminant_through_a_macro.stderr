@@ -4,7 +4,7 @@ error[E0080]: evaluation panicked: a discriminant has another value where the de
 31 | #[derive(Pun)]
    |          ^^^ evaluation of `<F as _::__PunShapes>::TAGS` failed inside this call
    |
-note: inside `Variant::declared_tags::<F, _::__PunTag, 2>`
+note: inside `puns::layout::Variant::declared_tags::<F, _::__PunTag, 2>`
   --> $RUST/core/src/panic.rs
    |
    = note: the failure occurred here

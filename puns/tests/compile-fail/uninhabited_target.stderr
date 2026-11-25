@@ -5,9 +5,9 @@ error[E0080]: evaluation panicked:
     --> src/lib.rs
      |
      |   const TRY: () = Self::require(Self::check(Need::TRY));
-     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<(), !>::TRY` failed inside this call
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<(), std::convert::Infallible>::TRY` failed inside this call
      |
-note: inside `puns::Plan::<(), !>::require`
+note: inside `puns::Plan::<(), Infallible>::require`
  --> src/lib.rs
   |
   |       message.panic();
@@ -34,7 +34,7 @@ note: erroneous constant encountered
   |   const { Plan::<S, D>::TRY };
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-note: the above error was encountered while instantiating `fn try_pun::<(), !>`
+note: the above error was encountered while instantiating `fn try_pun::<(), Infallible>`
  --> tests/compile-fail/uninhabited_target.rs:3:11
   |
 3 |   let _ = puns::try_pun::<(), core::convert::Infallible>(());
