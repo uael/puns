@@ -1449,9 +1449,10 @@ pub use layout::{crc32, sum16};
 ///
 /// - eager: `fn name(&self) -> &Type`, safe, which reads through the reference to the value, which
 ///   has the provenance of the bytes of the pointee under the tree borrows model of Miri. The
-///   struct also has a constant `AIMS`, whose field `name`, as visible as the field of the aim,
-///   names the aim for [`aim`] and [`aim_mut`], which read the pointee from a pointer, to read or
-///   to write ([`AimOf`]).
+///   struct also has a constant `AIMS`, as visible as the struct and hidden from its
+///   documentation, whose field `name`, as visible as the field of the aim, names the aim for
+///   [`aim`] and [`aim_mut`], which read the pointee from a pointer, to read or to write
+///   ([`AimOf`]).
 /// - lazy, at a pointer: `fn name(&self, bytes: &[u8]) -> Result<&Type, Error>`, which finds the
 ///   value in the `bytes` that hold it, and checks the pointee there as [`from_bytes`] checks
 ///   bytes.
@@ -2497,8 +2498,8 @@ impl<L: Rules, K: Item<L::Next>> Item<L> for After<K> {
 /// An eager [aim](crate#aims) of the struct `S`, by its name, for [`aim`] and [`aim_mut`].
 ///
 /// A struct that derives [`Pun`](macro@Pun) with an eager aim that has a name has a constant
-/// `AIMS`, which holds one `AimOf` for each such aim, a field of that name, as visible as the
-/// field of the aim. So `Next::AIMS.next` is the aim `next` of `Next`, whatever the other rules of
+/// `AIMS`, as visible as the struct and hidden from its documentation, which holds one `AimOf` for
+/// each such aim, a field of that name, as visible as the field of the aim. So `Next::AIMS.next` is the aim `next` of `Next`, whatever the other rules of
 /// the struct, and names no aim of another type. `K` is where the aim is among the rules of `S`,
 /// which the derive counts.
 ///

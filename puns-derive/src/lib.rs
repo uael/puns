@@ -2033,6 +2033,10 @@ fn read_aim(
 /// each in the list of the rules of the struct, and the visibility of its field: a value whose
 /// fields, named as the aims, are their `puns::AimOf`, for `puns::aim` and `puns::aim_mut`. Nothing
 /// without such an aim.
+///
+/// The constant is as visible as the struct, whatever the visibilities of its fields, and hidden
+/// from the documentation, since its type has no name there: the documentation of the derive
+/// describes it.
 fn aims_constant(
   input: &DeriveInput,
   aims: &[(&Ident, TokenStream, &Visibility)],
@@ -2060,7 +2064,7 @@ fn aims_constant(
     }
 
     impl #impl_generics #this #where_clause {
-      #[doc = #doc]
+      #[doc(hidden)]
       #vis const AIMS: __PunAims #ty_generics = __PunAims { #(#names: #root::AimOf::NEW),* };
     }
   })
