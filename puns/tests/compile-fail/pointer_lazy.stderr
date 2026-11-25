@@ -1,0 +1,5 @@
+error: a `pointer` is eager: its pointee is checked with the struct, since nothing but the bytes that hold the struct bounds where it is. A region at the cursor may be `lazy`
+ --> tests/compile-fail/pointer_lazy.rs:8:17
+  |
+8 |   #[pun(pointer(lazy next: u8 = at as u128))]
+  |                 ^^^^

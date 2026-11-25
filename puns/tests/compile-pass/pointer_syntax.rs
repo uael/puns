@@ -39,7 +39,8 @@ struct Names {
 }
 
 fn main() {
-  let bytes = [0, 0, 0, 3, 2, 0, 1, 2, 3, 4];
+  // Pointees small enough for the budget of a check, twice the bytes.
+  let bytes = [0, 0, 0, 9, 9, 0, 1, 2, 3, 4];
   let forms = puns::from_bytes::<Forms>(&bytes).unwrap();
   let _ = (forms.lazy(), forms.first(), forms.second(), forms.third());
   let _ = (forms.eager(), forms.last(), forms.rest());

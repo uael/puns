@@ -278,7 +278,7 @@ note: erroneous constant encountered
   |  _________________________________^
   | |     let before = size_of::<<L::Pointee as Pointee>::Prefix>();
   | |     match T::LAYOUT.rule(L::RULE) {
-  | |       Some(Rule::Aim(Aim { start: Start::Next, extent, align, .. })) => (extent, align, before),
+  | |       Some(Rule::Aim(Aim { start: Start::Next(_), extent, align, .. })) => (extent, align, before),
 ... |
   | |   };
   | |___^
@@ -393,12 +393,10 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let (eager, next) = const {
-  |  _______________________^
+  |     let next = const {
+  |  ______________^
   | |     let () = AimOf::<T, L>::CHECKED;
-  | |     match T::LAYOUT.rule(L::RULE) {
-  | |       Some(Rule::Aim(Aim { check, start, .. })) => {
-... |
+  | |     matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Next(_), .. })))
   | |   };
   | |___^
 
@@ -414,7 +412,7 @@ note: erroneous constant encountered
   |     let (eager, align) = const {
   |  ________________________^
   | |     match T::LAYOUT.rule(L::RULE) {
-  | |       Some(Rule::Aim(Aim { check, align, .. })) => (matches!(check, Check::Eager), align),
+  | |       Some(Rule::Aim(aim)) => (matches!(aim.check(), Check::Eager), aim.align),
   | |       _ => (false, 1),
   | |     }
   | |   };
