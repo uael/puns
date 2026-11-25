@@ -241,10 +241,11 @@ or the back.
 | a typed value, checking          | [`try_pun`][try_pun], [`try_pun_ref`][try_pun_ref], [`try_pun_mut`][try_pun_mut] | | |
 | bytes, checking                  | [`from_bytes`][from_bytes], [`from_bytes_mut`][from_bytes_mut] | [`from_head`][from_head], [`from_head_mut`][from_head_mut] | [`from_tail`][from_tail], [`from_tail_mut`][from_tail_mut] |
 
-Three functions make no pun. [`zeroed`][zeroed] returns a value whose fields and elements are all
+Five functions make no pun. [`zeroed`][zeroed] returns a value whose fields and elements are all
 zero bytes. [`check`][check] and [`check_compact`][check_compact] check bytes for a value whose
 pointers lead deeper than `from_bytes` follows, and make no reference: they keep the pointers still
-to follow in a list that you give.
+to follow in a list that you give. [`aim`][aim] and [`aim_mut`][aim_mut] read and write the pointee
+of an eager aim from a pointer to the bytes that hold both ([Aims][aims]).
 
 - [`Pun`][trait-pun] is the trait of the types that `puns` works with: numbers and other scalars,
   arrays, slices, `str`, tuples and other types of `core`, and the types that derive it. Its page
@@ -254,7 +255,8 @@ to follow in a list that you give.
 - [`Scalar`][Scalar] is the trait of a type that is one scalar value, such as a number whose
   constructor checks it. [`Tag`][Tag] is the trait of a type carried next to a tag, such as the
   payload of a message, and gives the values of the tag that select it.
-- [`Error`][error-type] says which check failed: the alignment, the size, or the values.
+- [`Error`][error-type] says which check failed: the alignment, the size, the values, or the limit
+  of the check of pointees.
 - [`num`][num] has numbers of a fixed byte order, and integers restricted to some values.
 - [`layout`][layout] has the types that describe a layout, and the checksums.
 - The [reference] explains how `puns` decides, teaches the attributes and the rules from examples,
@@ -430,6 +432,8 @@ additional terms or conditions.
 [from_tail]: https://docs.rs/puns/0.2.4/puns/fn.from_tail.html
 [from_tail_mut]: https://docs.rs/puns/0.2.4/puns/fn.from_tail_mut.html
 [zeroed]: https://docs.rs/puns/0.2.4/puns/fn.zeroed.html
+[aim]: https://docs.rs/puns/0.2.4/puns/fn.aim.html
+[aim_mut]: https://docs.rs/puns/0.2.4/puns/fn.aim_mut.html
 [changelog]: https://github.com/uael/puns/blob/v0.2.4/CHANGELOG.md
 [examples]: https://github.com/uael/puns/tree/v0.2.4/puns/examples
 [media]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/media.rs

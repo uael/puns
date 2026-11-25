@@ -3426,8 +3426,6 @@ impl Layout {
     }
   }
 
-  /// Returns whether no part of the layout, at any depth, has an [unspecified layout].
-  ///
   /// Returns whether no part of the layout, at any depth, has an [unspecified layout] that `puns`
   /// does not assume.
   ///

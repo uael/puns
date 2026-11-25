@@ -21,6 +21,7 @@
 //! [`try_pun_mut`]: try_pun_mut
 //! [`try_pun_ref`]: try_pun_ref
 //! [`try_pun`]: try_pun
+//! [`Worklist`]: Worklist
 //! [aims]: super::aims
 //! [concepts#layouts-and-rules]: super::concepts#layouts-and-rules
 //! [concepts#proven-checked-and-refused]: super::concepts#proven-checked-and-refused

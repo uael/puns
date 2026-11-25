@@ -158,10 +158,12 @@ assert_eq!((note.urgent, &note.text), (true, b"ABC"));
 
 ## In a constant
 
-Every function of `puns` is a `const fn`, and so is every function that the derive generates, so you
-can check bytes in a constant while the program compiles. Only the implementations of standard
-traits, such as `From` and `Display`, are not ([Limits of Rust][limits#limits-of-rust]). `unwrap` is
-not `const` either: match on the result instead.
+Every function of `puns` is a `const fn` except [`check`] and [`check_compact`], which call the
+methods of a [`Worklist`]. So is every function that the derive generates, except the method that
+reads the pointee of a lazy aim at a stored place from the bytes that you give it ([Aims][aims]). You
+can therefore check bytes in a constant while the program compiles. The implementations of standard
+traits, such as `From` and `Display`, are not `const` either
+([Limits of Rust][limits#limits-of-rust]). `unwrap` is not `const`: match on the result instead.
 
 A check of an address does not compile in a constant, because `core` calls reading an address as an
 integer undefined behavior in const evaluation, and says that using the integer stops the evaluation
@@ -331,6 +333,7 @@ check looks for its pointee in the bytes of the source.
 [`try_pun_mut`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_mut.html
 [`try_pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_ref.html
 [`try_pun`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
+[`Worklist`]: https://docs.rs/puns/0.2.4/puns/trait.Worklist.html
 [aims]: aims.md
 [concepts#layouts-and-rules]: concepts.md#layouts-and-rules
 [concepts#proven-checked-and-refused]: concepts.md#proven-checked-and-refused
