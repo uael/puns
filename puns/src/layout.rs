@@ -993,10 +993,9 @@ impl Stable {
 ///
 /// Stable Rust cannot compare types in `const`, so an identity is a name, together with the
 /// identities of the parameters that make up the type. The derive names a type by the crate being
-/// compiled, as `rustc` tells it apart from the other crates of a program (its name, whether it is
-/// an executable, and its `-C metadata`), its name and the number of its derive in that
-/// compilation, in a literal that no crate path changes, and this crate names the types of `core`
-/// that it supports. The identity of an instance
+/// compiled (its package, the version of the package and the name of the crate, which Cargo sets),
+/// its name and the number of its derive in that compilation, in a literal that no crate path
+/// changes, and this crate names the types of `core` that it supports. The identity of an instance
 /// of a generic type that derives `Pun` has the identity of each of its type parameters (their
 /// `Pun::ID`, which needs no layout), and the value of each of its const parameters
 /// ([`Id::value`]), in order. Two identities are equal only if both are known, with the same name,

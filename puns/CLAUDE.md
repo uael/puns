@@ -67,11 +67,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   place, after the same aims at the cursor if it is one, and checked on its own otherwise.
 - An identity (`layout::Id`, `Pun::ID`) names a type by its declaration and by every parameter but
   its lifetimes, so two types with one identity are one type. The derive writes it as a literal
-  (the crate by its name, whether it is an executable and its `-C metadata`, from the arguments of
-  `rustc`, which refuses two crates of these in a program; the name; the number of the derive)
-  passed to the pinned `Id::new`, never through the crate path, so no crate gives a type the
-  identity of another (`tests/soundness.rs`, `compile-fail/aim_identity_of_another.rs`, and the
-  tests of `compiled_crate` in `puns-derive`). It has three uses only:
+  (package, version and crate that Cargo compiles, name, number of the derive) passed to the pinned
+  `Id::new`, never through the crate path, so no crate gives a type the identity of another
+  (`tests/soundness.rs`, `compile-fail/aim_identity_of_another.rs`). It has three uses only:
   proving a part that is not `fixed` by the same type at the same place, proving an eager aim by the
   same aim (`Aim::equals`), and naming a type without its layout, which the loops of a check use
   to take two pointees for one type (`validate::PointeeType`).

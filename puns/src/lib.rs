@@ -832,24 +832,23 @@
 //! same type as a part that is a `T`, since `core` gives them one layout. A type made of a
 //! `ManuallyDrop<T>` is not made of a `T`, though: `-Zrandomize-layout` arranges
 //! `Wrapper<ManuallyDrop<u8>, u16, u32>` and `Wrapper<u8, u16, u32>` differently. A type that
-//! derives `Pun` is named by the crate being compiled, as `rustc` tells it apart from the other
-//! crates of a program, by its name, and by the number of its derive in that compilation, which no
-//! crate path changes ([What the derive trusts](#what-the-derive-trusts)). An instance of a generic
-//! type that derives `Pun` is named, in addition, by the identity of each of its type parameters
-//! and the value of each of its const parameters, in order, so a `Pair<i32>` proves a `Pair<i32>`,
-//! and not a `Pair<u32>`. Its lifetimes do not count. The derive can name the identity of a type
-//! parameter only if the parameter is bounded by `Pun` where it sees it: in its bounds
-//! (`<T: Pun>`), in the `where` clause, in `#[pun(bound(..))]`, or by the bound that it adds for a
-//! field of type `T`. A generic type with a type parameter that is not, such as one that is only in a
-//! `PhantomData<T>`, has no identity, nor have a `PhantomData` and a [`Scalar`] implemented by
-//! hand, nor a type with a parameter that has none. A part whose layout Rust leaves to the compiler
-//! and that holds one of them therefore proves itself only with the feature, unless it is proven
-//! field by field, and the refusal says so. A type whose every part has the same layout in every
-//! build, such as a generic `repr(C)` struct of a `u8` and a `PhantomData<T>`, needs no identity.
-//! Two parts whose layouts Rust leaves to the compiler are of one type only if their layouts are
-//! the same as well. Two pointees of eager aims are of one type if their identities are, so that
-//! the same aim proves itself, and the check of a pointee takes another of the same identity for
-//! one of its type.
+//! derives `Pun` is named by the crate being compiled (its package, the version of the package and
+//! the name of the crate, which Cargo sets), by its name, and by the number of its derive in that
+//! compilation, which no crate path changes ([What the derive trusts](#what-the-derive-trusts)). An instance of a generic type that derives `Pun`
+//! is named, in addition, by the identity of each of its type parameters and the value of each of
+//! its const parameters, in order, so a `Pair<i32>` proves a `Pair<i32>`, and not a `Pair<u32>`.
+//! Its lifetimes do not count. The derive can name the identity of a type parameter only if the
+//! parameter is bounded by `Pun` where it sees it: in its bounds (`<T: Pun>`), in the `where`
+//! clause, in `#[pun(bound(..))]`, or by the bound that it adds for a field of type `T`. A generic
+//! type with a type parameter that is not, such as one that is only in a `PhantomData<T>`, has no
+//! identity, nor have a `PhantomData` and a [`Scalar`] implemented by hand, nor a type with a
+//! parameter that has none. A part whose layout Rust leaves to the compiler and that holds one of
+//! them therefore proves itself only with the feature, unless it is proven field by field, and the
+//! refusal says so. A type whose every part has the same layout in every build, such as a generic
+//! `repr(C)` struct of a `u8` and a `PhantomData<T>`, needs no identity. Two parts whose layouts
+//! Rust leaves to the compiler are of one type only if their layouts are the same as well. Two
+//! pointees of eager aims are of one type if their identities are, so that the same aim proves
+//! itself, and the check of a pointee takes another of the same identity for one of its type.
 //!
 //! ### What this relies on
 //!
@@ -1778,21 +1777,14 @@ pub use layout::{crc32, sum16};
 ///   These names are reserved.
 ///
 /// The identity of a type, which says whether two layouts or two pointees are of the same type, is
-/// a literal that the derive writes: the crate being compiled, the name of the type and the number
-/// of its derive in that compilation, with the identities of its parameters (`<T as Pun>::ID`). It
-/// is passed to `Id::new`, an associated function of the type that `Layout::PIN` fixes, so no path
-/// chooses it, and a crate cannot give a type the identity of another. The derive names the crate
-/// by what makes its `StableCrateId`, from the arguments of `rustc`: its name, whether it is an
-/// executable, and its `-C metadata`. `rustc` refuses two crates of one `StableCrateId` in a
-/// program, and an executable is the root of its program, so no two crates of a program have one
-/// name: not the library and the executable of a package, which Cargo names alike, nor two
-/// packages of one name and one version from two sources. Each derive in a compilation takes the
-/// next number, so two types that derive `Pun` have two identities. A crate compiled without
-/// `--crate-type` nor `--test` is taken for an executable, which `rustc` makes of it unless a
-/// `#![crate_type]` says otherwise; Cargo gives every library its `--crate-type`. Where the
-/// arguments do not name the crate (without `--crate-name`), a type that derives `Pun` has no
-/// identity. `Pun` is not implemented by hand, and an implementation of `Scalar` by hand leaves its
-/// identity at none (`# Safety` of each).
+/// a literal that the derive writes: the package, version and crate that Cargo compiles, the name of
+/// the type and the number of its derive in that compilation, with the identities of its
+/// parameters (`<T as Pun>::ID`). It is passed to `Id::new`, an associated function of the type
+/// that `Layout::PIN` fixes, so no path chooses it, and a crate cannot give a type the identity of
+/// another. Cargo builds no two packages of one name and one version, and each derive in a
+/// compilation takes the next number, so two types that derive `Pun` have two identities. `Pun` is
+/// not implemented by hand, and an implementation of `Scalar` by hand leaves its identity at none
+/// (`# Safety` of each).
 ///
 /// Nothing else that the derive names through the path of `puns` makes a layout. A trait that it
 /// implements through the path is the trait of `puns`: otherwise the type does not implement that
