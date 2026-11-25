@@ -4,25 +4,26 @@ This chapter says how `puns` checks and reads an [aim][how_puns_decides#aims] an
 aim ([`layout::Aim`]) says three things, and every combination of them is an aim that `puns` checks
 and reads:
 
-- Where the pointee is ([`layout::Start`]): at the address of the struct plus an offset that an
-  expression over the struct gives, an `i128` in two's complement, as for the self-relative
-  pointers of [`nearest`]; or at the *cursor* of the tail of the struct, where the pointee of the
-  aim at the cursor before it ends, from the start of the tail, as for regions. The value of a
-  pointee at the cursor is aligned for it by its offset from the start of the struct, so that where
-  a pointee is depends on the bytes, not on their address.
-- How large it is ([`layout::Extent`]): its size is the size of its value with its *metadata*, the
-  length of its tail if it is unsized, as `size_of_val` gives. The metadata is what the pointee
-  stores, a length before its value or in its sized fields, nothing if it is sized; or a length
-  that an expression over the struct gives; or the length of the size in bytes that an expression
-  gives, or of what remains of the tail of the struct.
+- Where the pointee is ([`layout::Start`]). It is at the address of the struct plus an offset, or at
+  the *cursor* of the tail of the struct. The offset is an `i128` in two's complement that an
+  expression over the struct gives, as for the self-relative pointers of [`nearest`]. The cursor is
+  where the pointee of the aim at the cursor before it ends, from the start of the tail, as for
+  regions. The value of a pointee at the cursor is aligned for it by its offset from the start of
+  the struct, so that where a pointee is depends on the bytes, not on their address.
+- How large it is ([`layout::Extent`]). Its size is the size of its value with its *metadata*, the
+  length of its tail if it is unsized, as `size_of_val` gives. The metadata is given in one of
+  three ways. The pointee stores it, as a length before its value or in its sized fields, or as
+  nothing if it is sized. An expression over the struct gives the length. Or the length is the one
+  of a size in bytes, which an expression gives, or which is what remains of the tail of the
+  struct.
 - When it is checked ([`layout::Check`]): with the struct (*eager*), or when it is read (*lazy*).
 
-The pointee is a [`Pointee`]: the value of a [`Pun`][trait-pun] type, or a [`Thin<T, M>`][`Thin`],
-which stores the metadata of a pointer to `T` before it, as an `M`: the length of a list or a text,
-nothing for a sized `T`, so that a pointer of one format points at any `T` as a `Thin<T, M>`. Its
-type is named in the hidden list of the rules of the struct, through which a check reaches the
-checks of the pointee, so that a type that points at itself is checked by a recursive call, and
-through which a read names the type that it returns.
+The pointee is a [`Pointee`]: the value of a [`Pun`][trait-pun] type, or a [`Thin<T, M>`][`Thin`].
+A `Thin<T, M>` stores the metadata of a pointer to `T` before it, as an `M`: the length of a list
+or a text, or nothing for a sized `T`. So a pointer of one format points at any `T` as a
+`Thin<T, M>`. The type of the pointee is named in the hidden list of the rules of the struct. A
+check reaches the checks of the pointee through that list, so a type that points at itself is
+checked by a recursive call. A read names the type that it returns through the same list.
 
 ## Checking an aim
 
@@ -43,9 +44,9 @@ through which a read names the type that it returns.
 - So a reference to a struct with an eager aim is a reference to a valid pointee, which code reads
   without a check, through a safe method that the derive writes. No function makes a value that
   holds an eager aim ([`pun`], [`try_pun`], [`zeroed`] and the other functions that return a
-  value do not compile), nor gives a `&mut` to or from one ([`pun_mut`], [`try_pun_mut`],
-  [`from_bytes_mut`] and the `_mut` parts), nor checks one from a source whose bytes may be
-  padding ([`try_pun_ref`] from such a source). Only the same aim, at the same place of the
+  value do not compile). No function gives a `&mut` to or from one ([`pun_mut`], [`try_pun_mut`],
+  [`from_bytes_mut`] and the `_mut` parts). No function checks one from a source whose bytes may
+  be padding ([`try_pun_ref`] from such a source). Only the same aim, at the same place of the
   source, of a pointee of the same identity, proves one, since its pointee was checked where the
   source was made. An instance of a generic type has an identity only if its parameters are
   bounded by `Pun` ([The same type][layouts#the-same-type]), so a `Pair<O: Pun>` that points at a
@@ -53,8 +54,8 @@ through which a read names the type that it returns.
   eager aim: which of its fields its bytes are would depend on pointees that a check checks after
   it.
 - A lazy aim at the cursor requires only that its pointee fits in the tail, since the next one
-  starts where it ends, and a lazy aim at a stored place requires nothing: the type of the pointee
-  plays no part in the value of the struct, nor in a proof, unless the pointee stores its length,
+  starts where it ends. A lazy aim at a stored place requires nothing. The type of the pointee
+  does not affect the value of the struct, nor a proof, unless the pointee stores its length,
   which places the next one. What reads the pointee checks it then. Where safe code wrote the
   fields of the struct so that a region does not fit, the read truncates it to the tail, and a size
   whose expression fails takes what remains.
@@ -62,17 +63,17 @@ through which a read names the type that it returns.
 ## Declaring aims
 
 The derive declares aims through two options ([Aims][macro@Pun#aims]), one for each place where a
-pointee is: `pointer(..)` on a field, whose integer is where the pointee is unless an expression of
-the option says otherwise, and `regions(..)` on the last field, whose tail the regions cut. Both
-write an aim the same way, eager or lazy. They compose: a struct with regions may hold pointers,
-and the pointee of a region may hold pointers too, whose pointees its read looks for within the
-bytes of the struct, so that a pointer in a region may point at another region, but not at a byte
-outside the struct.
+pointee is. `pointer(..)` goes on a field, whose integer is where the pointee is unless an
+expression of the option says otherwise. `regions(..)` goes on the last field, whose tail the
+regions cut. Both write an aim the same way, eager or lazy. They compose: a struct with regions may
+hold pointers, and the pointee of a region may hold pointers too. The read of the region looks for
+their pointees within the bytes of the struct. So a pointer in a region may point at another
+region, but not at a byte outside the struct.
 
 A struct with an eager aim holds its field (the offset of a pointer, or the bytes of eager regions)
-in an [`InPlace<T>`][`InPlace`], which no code makes, so no safe code makes a value of the struct,
-which exists only where `puns` checked its pointee, or where unsafe code put it, which then
-upholds the same. A struct with an eager aim is not `Clone`, `Copy` or `Default`, since an
+in an [`InPlace<T>`][`InPlace`], which no code makes. So no safe code makes a value of the struct.
+Such a value exists only where `puns` checked its pointee, or where unsafe code put it, and that
+code then upholds the same. A struct with an eager aim is not `Clone`, `Copy` or `Default`, since an
 `InPlace` is none of these. [`tests/support/aims.rs`][support] declares a self-relative pointer
 this way, as `nearest` does.
 

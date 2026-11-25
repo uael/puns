@@ -77,7 +77,7 @@ The field of each eager aim has the type [`InPlace<T>`][`InPlace`], where `T` is
 layout, `<F as InPlaceOf>::Inner` for a field of type `F`. A trait is named by a path, which may
 name another trait than the one of `puns`, and a path may name a type `InPlace<T>` that safe code
 makes for some `T`. So the function that ties the fields to the type as compiled, below, gives a
-function of `Layout` a `&mut` to a pointer to the field, which compiles only if the field is the
+function of `Layout` a `&mut` to a pointer to the field. This compiles only if the field is the
 `InPlace<T>` of `puns` for that very `T`, since a `&mut` to a raw pointer admits no coercion. So a
 struct to which the derive gives an eager aim has no value that safe code makes, as the `# Safety`
 of `Pun` requires of a type with an eager aim.
@@ -88,14 +88,14 @@ A list of fields, of rules or of the operations of an expression that is not the
 build, with "not where the field is", "not the rules of the struct" or "not the operations of the
 expression".
 
-The derive writes the type of each field once, as an associated type of a trait that it declares
-and implements for the type, where `Self` is the type, as in its declaration. The rest of the
-generated code names that associated type. A function that is never called compiles only if the
-type as compiled has the fields and variants that the derive read and no other, by an exhaustive
-pattern, and if each field has exactly its associated type, since a `&mut` to a `*mut` to the field
-admits no coercion and no subtype. So a macro in the type of a field, which expands where `Self`
-and the names that start with `__Pun` name other items, gives the field one type, or the type does
-not compile.
+The derive writes the type of each field once, as an associated type of a trait that it declares and
+implements for the type, where `Self` is the type, as in its declaration. The rest of the generated
+code names that associated type. A function that is never called compiles only under two conditions.
+The type as compiled must have the fields and variants that the derive read and no other, which an
+exhaustive pattern checks. And each field must have exactly its associated type, since a `&mut` to a
+`*mut` to the field admits no coercion and no subtype. So a macro in the type of a field, which
+expands where `Self` and the names that start with `__Pun` name other items, gives the field one
+type, or the type does not compile.
 
 ## The identity of a type and the compiler
 
@@ -142,11 +142,10 @@ Where such an attribute changes the order of the fields or the `repr`, the layou
 type as compiled, or the build fails, since the derive measures the offsets and checks the tags and
 the variants on the samples, as above. It also checks the width of the tag of an enum of a primitive
 or `C` representation. In a copy of each sample, the byte after the tag that the derive read is set
-to 0, then to 255, and the variant of the copy, which const evaluation reads from the tag alone
-([The variant read from the tag][what_puns_relies_on#the-variant-read-from-the-tag]), must stay the
-same. So a wider tag fails the build. A narrower one leaves a byte of padding or of a field where
-the derive reads its tag, so the comparison with the samples or the size of the enum fails the
-build.
+to 0, then to 255. The variant of the copy must stay the same. Const evaluation reads it from the
+tag alone ([The variant read from the tag][what_puns_relies_on#the-variant-read-from-the-tag]). So a
+wider tag fails the build. A narrower one leaves a byte of padding or of a field where the derive
+reads its tag, so the comparison with the samples or the size of the enum fails the build.
 
 What such an attribute can still change without failing the build:
 

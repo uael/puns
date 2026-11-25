@@ -30,18 +30,18 @@ the message of each [refused][kinds] pun is in [Compile-time errors][errors].
   with a slice. To make such a value, write its bytes, and read them with [`from_bytes`].
 - **The tag of an enum of the `Rust` representation is found on values.** Stable Rust tells
   neither where the tag is nor its values: `offset_of!` on variants, `mem::variant_count` and
-  `discriminant_value` are unstable. So the derive reads them on a value of each variant, and does
-  not compile the enum where it cannot make one ([conditions][macro@Pun#enums-with-fields]), as
-  where the variant holds a union none of whose fields has values ("a variant holds a union none
-  of whose fields has values: a value of it may exist, but it has no sample to find its tag:
-  unsupported layout").
-- **The recursion limit.** The check of a struct recurses over its fields, and that of an enum
-  over its variants. With the default [`recursion_limit`] of 128, on Rust 1.100.0, [`from_bytes`]
-  of a `repr(C)` struct of 127 `bool`s compiles and of 128 fails ("reached the recursion limit
-  while instantiating"), and of a `repr(u16)` enum of 128 variants that each hold a `bool`
-  compiles and of 129 fails. A struct that holds the struct lowers that number of fields by 1,
-  and by 1 more for each field before it. A larger type needs a higher `#![recursion_limit]` in
-  the crate that calls the function.
+  `discriminant_value` are unstable. So the derive reads them on a value of each variant. It does
+  not compile the enum where it cannot make such a value
+  ([conditions][macro@Pun#enums-with-fields]), as where the variant holds a union none of whose
+  fields has values. The message is then "a variant holds a union none of whose fields has
+  values: a value of it may exist, but it has no sample to find its tag: unsupported layout".
+- **The recursion limit.** The check of a struct recurses over its fields, and that of an enum over
+  its variants. With the default [`recursion_limit`] of 128, on Rust 1.100.0, [`from_bytes`] of a
+  `repr(C)` struct of 127 `bool`s compiles, and of 128 fails ("reached the recursion limit while
+  instantiating"). [`from_bytes`] of a `repr(u16)` enum of 128 variants that each hold a `bool`
+  compiles, and of 129 fails. A struct that holds the struct lowers that number of fields by 1, and
+  by 1 more for each field before it. A larger type needs a higher `#![recursion_limit]` in the
+  crate that calls the function.
 
 ## Bounds of the analysis
 
@@ -63,8 +63,9 @@ evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions].
   source, such as a `u16` over two `u8`s, is proven only if its values are found within 16,384
   combinations of the ranges of values of those fields.
 - **A string over the source.** A `str` of the target, or another type that guarantees what an
-  automaton accepts, is proven by running the automaton over at most 4,096 stretches of the
-  source, each of padding, of bytes of any value, or of a scalar with restricted values. Over a
+  automaton accepts, is proven by running the automaton over the source. The analysis runs it
+  over at most 4,096 stretches of the source, each of padding, of bytes of any value, or of a
+  scalar with restricted values. Over a
   stretch of bytes of any value, the analysis follows the automaton for at most 257 bytes: if the
   states that it may be in still change after them, the string is checked.
 - **The values of a tag.** Where a variant of an enum of the target is related to the source, the
@@ -79,8 +80,8 @@ evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions].
 
 ## Bounds of the checks
 
-- **Pointees within pointees.** The `try_` and `from_` functions check the pointees of eager
-  [aims] in place, one within another, and return [`Error::Limit`] past the bound that it states:
+- **Pointees within pointees.** The `try_` and `from_` functions check the pointees of eager [aims]
+  in place, one within another. They return [`Error::Limit`] past the bound that it states:
   [`AIM_PARTS`] parts of the layouts of the pointees, one within another, or pointees of twice as
   many bytes as the function reads. [`check`] and [`check_compact`] check deeper data, with a stack
   that does not grow with it.
@@ -103,12 +104,13 @@ What is planned, each with what it would allow.
 - **Ranges from conditions.** A comparison that held does not narrow the range of a value
   ([Walks][rules#walks]). So a counter that only a comparison bounds, such as `i` in the walk
   condition `|i| i < count`, is computed on 128 bits, unless the expression also reads the value
-  at that offset (`be(i, 1)`), and so is the state of a walk inside two other walks. The check is
+  at that offset (`be(i, 1)`). So is the state of a walk inside two other walks. The check is
   then longer. Planned: ranges from the conditions.
 - **Rules implied by other rules.** A rule of the target is proven only by the same rule ([Why the
-  pair decides][how_puns_decides#why-the-pair-decides]), and is otherwise checked: `v % 6 == 0` does
-  not prove `v % 3 == 0`, and `a != b` in a struct of 2 bytes does not prove it in a struct of 3,
-  though it does not read the [extent][how_puns_decides#layouts-and-rules]. Nor does the analysis
+  pair decides][how_puns_decides#why-the-pair-decides]), and is otherwise checked. So
+  `v % 6 == 0` does not prove `v % 3 == 0`. Likewise, `a != b` in a struct of 2 bytes does not
+  prove it in a struct of 3, though it does not read the
+  [extent][how_puns_decides#layouts-and-rules]. Nor does the analysis
   reason about the data that describes a walk, a variable-length integer, a CRC or a sum, since a
   checksum only makes a check stricter. Planned: proving a rule from rules that imply it.
 - **A checked pun from an enum to a type that is not an enum.** `puns` knows an enum as a source
@@ -144,10 +146,11 @@ What is planned, each with what it would allow.
 What could be done, where whether to do it is not decided.
 
 - **More enums of the `Rust` representation assumed.** `puns` does not
-  [assume][layouts#what-puns-assumes] the layout of an enum with a variant whose fields have
-  different alignments, since the width of the tag follows the field that `rustc` puts first, nor
-  one with a niche that ties with another, since `rustc` chooses by where they are, nor one with a
-  niche in a part whose fields `rustc` may reorder. Each would need the choice of `rustc` measured
+  [assume][layouts#what-puns-assumes] the layout of an enum in three cases. One is an enum with a
+  variant whose fields have different alignments, since the width of the tag follows the field
+  that `rustc` puts first. Another is an enum with a niche that ties with another, since `rustc`
+  chooses by where they are. The third is an enum with a niche in a part whose fields `rustc` may
+  reorder. Each would need the choice of `rustc` measured
   and stated as part of the assumption.
 - **`Wrapping` and `Saturating`.** They are `repr(transparent)` around their integer, and `puns`
   does not implement `Pun` for them.

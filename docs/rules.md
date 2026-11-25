@@ -49,7 +49,7 @@ or sized structs whose only field with a size is one of these and is as large as
 field is named by its name, or as `self.name` (`self.0` in a tuple struct). A rule does not name
 the fields of a field or the elements of an array, but reads them with `le` and `be`.
 
-A signed integer is named only under a cast, as in `off as u128` or `delta as u16`, which means
+A signed integer is named only under a cast, as in `off as u128` or `delta as u16`. The cast means
 what it means in Rust: the value sign-extended to 128 bits, then truncated to the type of the
 cast, so that `-1 as u128` is `u128::MAX`. Alone, it is refused, since a negative value is not a
 `u128`. A floating-point number, a `bool`, a `char` or an enum is refused, since its bits are not
@@ -134,8 +134,8 @@ Besides its fields, a rule is made of:
 
 ## How a rule fails
 
-Where Rust would panic with overflow checks, the rule fails, which means that it does not hold, in
-every build profile: on an overflow of `+`, `-` or `*`, a difference below zero included, a division
+Where Rust would panic with overflow checks, the rule fails, in every build profile: it does not
+hold. This happens on an overflow of `+`, `-` or `*`, a difference below zero included, a division
 or remainder by zero, a shift by 128 or more, and a read or a range outside the value. `<<` drops
 the bits it shifts out, as in Rust, so `(1 << 127) << 1` is `0`.
 
@@ -210,10 +210,10 @@ all: that of UDP and TCP covers the addresses of the IP header, so it is one of 
 A rule that reads bytes by offset (`le`, `be`, a variable-length integer, a checksum, a CRC,
 `matches`, or a `walk` whose expressions do) may read the padding of its struct too. Such a rule is
 checked when the source does not prove it. A proven one is checked too where its struct shares a
-check with a part that is not proven, in the places that [Not yet][limits#not-yet] lists: in a
-variant of an enum that is checked as a whole, in an element of an array whose other elements are
-checked, past the first 1,024 parts, and where every part of the target is checked. Wherever the
-rule is checked, the pun is refused if its struct has a byte that may be padding in the source.
+check with a part that is not proven, in the places that [Not yet][limits#not-yet] lists. These are
+a variant of an enum that is checked as a whole, an element of an array whose other elements are
+checked, the parts past the first 1,024, and a target whose every part is checked. Wherever the rule
+is checked, the pun is refused if its struct has a byte that may be padding in the source.
 
 ## Functions
 
@@ -251,9 +251,10 @@ rule is checked, the pun is refused if its struct has a byte that may be padding
   means][soundness#what-deriving-pun-means]).
 - `walk(START, |at| COND, |at| NEXT)`: see [Walks](#walks).
 
-A record that gives the length of its data as a VLQ, and ends with the Modbus CRC of what comes
-before it, little-endian, and a header that holds the CRC-32 of its 8 bytes, computed with the
-bytes of the CRC as zeros, then the Fletcher-16 of its first 4 bytes:
+Two examples follow. The first is a record that gives the length of its data as a VLQ, and ends
+with the Modbus CRC of what comes before it, little-endian. The second is a header that holds the
+CRC-32 of its 8 bytes, computed with the bytes of the CRC as zeros, then the Fletcher-16 of its
+first 4 bytes:
 
 ```rust
 use puns::Pun;
@@ -323,12 +324,12 @@ assert_eq!((&name.text, rest), (&b"abc\0"[..], &b"def"[..]));
 assert!(puns::from_head::<Name>(b"abc").is_err());
 ```
 
-The state of a walk is one `u128`. A walk that carries two numbers, such as the kind of a header
-and where it starts, packs them into it. Pack them at bit 64, as `(kind << 64) + start`: on a
-64-bit target the halves are then two registers, and `at >> 64` and `at & 0xffff_ffff_ffff_ffff`
-one each, while `kind + (start << 8)` needs a shift across registers to read `start` and a merge
-to write it, at each step. [`ethernet.rs`] checks the IPv6 checksum behind any chain of
-extension headers this way, and [`codegen.rs`] shows its machine code.
+The state of a walk is one `u128`. A walk that carries two numbers, such as the kind of a header and
+where it starts, packs them into it. Pack them at bit 64, as `(kind << 64) + start`. On a 64-bit
+target, the halves are then two registers, and `at >> 64` and `at & 0xffff_ffff_ffff_ffff` one each.
+By contrast, `kind + (start << 8)` needs a shift across registers to read `start` and a merge to
+write it, at each step. [`ethernet.rs`] checks the IPv6 checksum behind any chain of extension
+headers this way, and [`codegen.rs`] shows its machine code.
 
 Each operation is computed in a register where the range of its values allows, with the result
 it has on a `u128`, and an addition to a low half that cannot carry is computed in that half. A

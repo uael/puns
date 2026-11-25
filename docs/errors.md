@@ -64,11 +64,11 @@ assert_eq!(bytes[..4], [1, 0, 0, 0]);
 ## Messages
 
 The message of a refused pun starts with `cannot pun:` and says why. When the cause is at one byte,
-the message names that byte of the target. A message names only the first cause that `puns` finds,
-in this order: an [eager aim](#eager-aims) that the function cannot keep, the sizes, an
-unspecified layout, padding, no value of the source valid for the target, a check that the
-function cannot make, then the alignment. For a `&mut`, what a write leaves
-comes last. Fixing one cause may therefore reveal the next.
+the message names that byte of the target. A message names only the first cause that `puns` finds.
+It looks for them in this order: an [eager aim](#eager-aims) that the function cannot keep, the
+sizes, an unspecified layout, padding, no value of the source valid for the target, a check that the
+function cannot make, then the alignment. For a `&mut`, what a write leaves comes last. Fixing one
+cause may therefore reveal the next.
 
 ### Sizes
 
@@ -617,8 +617,9 @@ Check the bytes of the source instead, with `from_bytes` or `from_head`.
 
 An eager aim is proven only by the same aim at a pointee of the same
 [identity][layouts#the-same-type]. Where the pointee has none, the message of a check that the
-function cannot make goes on with "The source or the target has an eager aim at a pointee whose type
-has no identity, so that not even the same aim proves it", and says which types have none.
+function cannot make says so, and says which types have none. It goes on with "The source or the
+target has an eager aim at a pointee whose type has no identity, so that not even the same aim
+proves it".
 
 ### Zeros
 

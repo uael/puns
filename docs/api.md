@@ -237,8 +237,8 @@ error[E0080]: evaluation panicked: the built-in save is invalid
 The page of each function lists, under "Compile-time errors", the conditions under which a call
 compiles. These are checked after monomorphization ([Compile-time errors][errors]), and those that
 several functions share are defined here. The *covered bytes* are the bytes of a value of `S` that
-the target takes: all of them for [`pun`] and the other functions of a whole value, and the first or
-last bytes for [`head`], [`tail`] and their `_ref` and `_mut` forms, as each page says.
+the target takes. They are all of them for [`pun`] and the other functions of a whole value, and the
+first or last bytes for [`head`], [`tail`] and their `_ref` and `_mut` forms, as each page says.
 
 ### Sizes
 

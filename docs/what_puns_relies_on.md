@@ -76,14 +76,14 @@ No test checks this assumption. The oracles of the model check take it too
 
 ### The tag of a `repr(C)` enum
 
-Of an enum without fields of `repr(C)` alone, and so of the tag of a `repr(C)` enum with fields,
-the Rust Reference gives the size and the alignment of a C enum of the target
-([`r-layout.repr.c.enum`][c enum]), and does not say that each of its bytes is initialized.
-`rustc` stores it as an integer of that size, which holds the discriminant, so every byte is.
-`puns` relies on this where it reads such a tag: at compile time in the derive, where a byte that
-is not initialized fails the build ([Errors of const evaluation](#errors-of-const-evaluation)), and
-at run time in a pun that reads the tag, such as `pun::<C, u32>` for a `repr(C)` enum `C` without
-fields. Miri, which reports a read of an uninitialized byte, runs the test
+The Rust Reference gives an enum without fields of `repr(C)` alone the size and the alignment of a C
+enum of the target ([`r-layout.repr.c.enum`][c enum]), and the same to the tag of a `repr(C)` enum
+with fields. It does not say that each byte of such an enum or tag is initialized. `rustc` stores it
+as an integer of that size, which holds the discriminant, so every byte is. `puns` relies on this
+where it reads such a tag. It reads one at compile time in the derive, where a byte that is not
+initialized fails the build ([Errors of const evaluation](#errors-of-const-evaluation)). It reads
+one at run time in a pun that reads the tag, such as `pun::<C, u32>` for a `repr(C)` enum `C`
+without fields. Miri, which reports a read of an uninitialized byte, runs the test
 `a_repr_c_tag_made_at_run_time` of `puns/tests/enums.rs`, which reads such a tag.
 
 ### The layout in const evaluation
@@ -137,18 +137,18 @@ be the index of its variant, so another representation fails the build.
 
 ### Errors of const evaluation
 
-Const evaluation reports an error where it would otherwise have undefined behavior, in three cases:
-when it reads an uninitialized byte, when it reads the variant of a value whose tag is not the tag
-of a variant that has values, and when it computes the size of a slice larger than an object can
-be. Code that relies on them runs only at compile time:
+Const evaluation reports an error where it would otherwise have undefined behavior, in three cases.
+The first is a read of an uninitialized byte. The second is a read of the variant of a value whose
+tag is not the tag of a variant that has values. The third is the size of a slice larger than an
+object can be. Code that relies on them runs only at compile time:
 
 - The experiments rely on the first two.
 - Each unsized type relies on the first, where it reads a pointer to it as a pointer to a slice to
   check its representation ([Pointers to unsized types](#pointers-to-unsized-types)). A byte of the
   pointer that is not initialized fails the build.
 - The derive relies on the first to refuse an enum without fields whose `align` gives it padding,
-  since it reads each variant from all of its bytes, and where it reads the bytes of an enum
-  without fields of `repr(C)` alone, which Rust does not say are all initialized.
+  since it reads each variant from all of its bytes. It also relies on it where it reads the bytes
+  of an enum without fields of `repr(C)` alone, which Rust does not say are all initialized.
 - The derive relies on the first where it compares the tags of an enum of a primitive or `C`
   representation with the first bytes of the samples. An attribute macro below the derive that
   narrows the tag leaves padding among these bytes, which fails the build ([Attribute macros below
@@ -199,13 +199,12 @@ run it under Miri with strict provenance ([Miri][testing#miri]).
 
 ### The provenance of a reference to a value with an eager aim
 
-The safe method that reads the pointee of an eager [aim][aims] reads it through the reference to
-the value that holds the aim. The pointee may be outside that value. Under the tree borrows model
-of Miri, the reference has the provenance of the bytes of the pointee there, and under stacked
-borrows it does not, where code reads such a pointee with [`aim`] from a pointer to the bytes that
-hold both, or writes it with [`aim_mut`]. Rust has not decided its aliasing model. `puns` relies on
-tree borrows for these reads, and their tests run under Miri with tree borrows only
-([Miri][testing#miri]).
+The safe method that reads the pointee of an eager [aim][aims] reads it through the reference to the
+value that holds the aim. The pointee may be outside that value. Under the tree borrows model of
+Miri, the reference has the provenance of the bytes of the pointee there. Under stacked borrows it
+does not, and code reads such a pointee with [`aim`] from a pointer to the bytes that hold both, or
+writes it with [`aim_mut`]. Rust has not decided its aliasing model. `puns` relies on tree borrows
+for these reads, and their tests run under Miri with tree borrows only ([Miri][testing#miri]).
 
 ### How `rustc` places fields
 

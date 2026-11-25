@@ -41,14 +41,14 @@ already run under Miri, and it calls `pun_mut` only to fill a buffer.
 Without the `unstable` feature, `tests/seeds.rs` records in `tests/seeds.txt` the verdict of every
 function on every ordered pair of 35 types, whole and in part (by `&mut` and from the end), and
 which byte patterns each type accepts from bytes. The types include structs, tuples and enums of the
-`Rust` representation, a `repr(u8)` enum and a `repr(C)` union that hold them, structs with a rule,
-arrays, `Option<bool>`, `Option<NonZero<u16>>`, `Result<NonZero<u8>, ()>`, a struct with an eager
-pointer and one with eager regions, and structs of the `Rust` representation that hold these two.
-The layout of the enums of the `Rust` representation among them, `Option` and `Result` included, is
-one that `puns` [assumes][layouts#what-puns-assumes]. A rule and an enum checked as a whole each
-have a type there. CI makes the record without `-Zrandomize-layout` and under three seeds of it, and
-each must equal the one in the repository. This checks, for these pairs, that no verdict depends on
-an [unspecified layout][layouts] without the feature.
+`Rust` representation, and a `repr(u8)` enum and a `repr(C)` union that hold them. They also include
+structs with a rule, arrays, `Option<bool>`, `Option<NonZero<u16>>`, `Result<NonZero<u8>, ()>`, a
+struct with an eager pointer and one with eager regions, and structs of the `Rust` representation
+that hold these two. The layout of the enums of the `Rust` representation among them, `Option` and
+`Result` included, is one that `puns` [assumes][layouts#what-puns-assumes]. A rule and an enum
+checked as a whole each have a type there. CI makes the record without `-Zrandomize-layout` and
+under three seeds of it, and each must equal the one in the repository. This checks, for these
+pairs, that no verdict depends on an [unspecified layout][layouts] without the feature.
 
 The layout that `puns` assumes of an enum of the `Rust` representation is checked in every build
 that evaluates the layout of such an enum, the tests included. Without the feature,

@@ -173,11 +173,11 @@ where `-Zrandomize-layout` cannot change its result. `Option`, `Result` and the 
   has no byte if it has one variant or none.
 - A variant is *absent* if its fields have no values and each has size 0 and alignment 1. It
   takes no byte and no value of the tag. If one variant is not absent, the enum is its fields.
-- *A tag* is at offset 0, an unsigned integer as wide as the least alignment of the first field
-  of each variant, among the fields that do not have both size 0 and alignment 1, if an integer
-  of that width has that alignment on the target, and at least wide enough for the index of every
-  variant. Each variant is its index there, and its fields start at the first offset after the
-  tag that their alignment allows. So `Option<u16>` is a `u16` tag, 0 for `None` and 1 for
+- *A tag* is at offset 0. It is an unsigned integer as wide as the least alignment of the first
+  field of each variant, among the fields that do not have both size 0 and alignment 1, if an
+  integer of that width has that alignment on the target. It is at least wide enough for the index
+  of every variant. Each variant is its index there, and its fields start at the first offset after
+  the tag that their alignment allows. So `Option<u16>` is a `u16` tag, 0 for `None` and 1 for
   `Some`, then the value, and `Result<u32, u8>` a `u8` tag with `Ok` at 4 and `Err` at 1.
 - *A niche* is a scalar in the fields of the largest variant (the last one, if several are as
   large), whose values Rust restricts. The other variants from the first to the last take
@@ -194,29 +194,29 @@ where `-Zrandomize-layout` cannot change its result. `Option`, `Result` and the 
 - *Which one*: the niche if it makes the enum smaller than the tag, or as large with more free
   values left, and the tag otherwise.
 
-The assumption applies to an enum whose every variant has at most one field, or fields that all
-have the same alignment and give the same bytes in every order (all bytes of any value without
-rules, or all of the same layout, fixed at any depth), and none of which has values that Rust
-restricts. The niche must be in a scalar whose values for Rust `puns` knows (a `bool`, a `char`, a
-`NonZero`, an enum without fields, or the tag of an enum whose layout Rust specifies or `puns`
-assumes), at the same place in every layout that Rust allows, and no other scalar of its type may
-have as many free values. On stable Rust, only `core` and `std` make niches (`bool`, `char`,
-`NonZero`, references and other pointers that are never null, the tags of enums, and a few types
-of `std`), and any other type has the niches of its fields. So the values that a scalar declared
-by hand ([`Scalar`]) accepts never give a niche: its `Spec` may declare the type that its bytes
-are ([`Spec::stored_as`]), such as the `NonZero` that a `repr(transparent)` struct holds, and the
-niche is then that type's, in its own bytes. Otherwise the enum that would hold it there is not
-assumed. A variant whose fields have no value but a size is not assumed either. Every other enum
-of the `Rust` representation keeps a layout that Rust leaves to the compiler.
+The assumption applies to an enum each of whose variants has at most one field, or several fields
+that meet two conditions. They all have the same alignment and give the same bytes in every order:
+all bytes of any value without rules, or all of the same layout, fixed at any depth. And none of
+them has values that Rust restricts. The niche must be in a scalar whose values for Rust `puns`
+knows: a `bool`, a `char`, a `NonZero`, an enum without fields, or the tag of an enum whose layout
+Rust specifies or `puns` assumes. It must be at the same place in every layout that Rust allows, and
+no other scalar of its type may have as many free values. On stable Rust, only `core` and `std` make
+niches (`bool`, `char`, `NonZero`, references and other pointers that are never null, the tags of
+enums, and a few types of `std`), and any other type has the niches of its fields. So the values
+that a scalar declared by hand ([`Scalar`]) accepts never give a niche. Its `Spec` may declare the
+type that its bytes are ([`Spec::stored_as`]), such as the `NonZero` that a `repr(transparent)`
+struct holds. The niche is then that type's, in its own bytes. Otherwise the enum that would hold it
+there is not assumed. A variant whose fields have no value but a size is not assumed either. Every
+other enum of the `Rust` representation keeps a layout that Rust leaves to the compiler.
 
-Where the assumption applies, the layout of the enum is computed from the layouts of its fields
-and the alignments of the integers of the target, and compared in a `const` with the one that the
+Where the assumption applies, `puns` computes the layout of the enum from the layouts of its fields
+and the alignments of the integers of the target. A `const` compares it with the layout that the
 experiments found (`Layout::assumed`, and for an enum without fields, the `SPECIFIED` of the
-`Scalar` that the derive implements): the size, the alignment, the place and the width of the
-tag, the value of each variant, and where the fields of each variant start. If they differ,
-`Pun::LAYOUT` of the enum fails to compile, with the message "an enum of the `Rust`
-representation is not laid out as `puns` assumes", and the note of `rustc` names the enum. Enable
-the feature then, which uses the layout that `rustc` chose.
+`Scalar` that the derive implements). It compares the size, the alignment, the place and the width
+of the tag, the value of each variant, and where the fields of each variant start. If they differ,
+`Pun::LAYOUT` of the enum fails to compile, with the message "an enum of the `Rust` representation
+is not laid out as `puns` assumes", and the note of `rustc` names the enum. Enable the feature then,
+which uses the layout that `rustc` chose.
 
 The assumption never gives a layout that `puns` then uses. The layout of the enum is always the
 one that the experiments found; the assumption only decides whether that layout counts as the
@@ -241,32 +241,31 @@ the fields of `Wrapper<u8, u8>` and `Wrapper<u8, i8>` alike under some seeds and
 others, depending on the crate and the path of the type as well.
 
 Stable Rust cannot compare types in `const`, where `TypeId` cannot be compared and `type_name`
-cannot be called. So `puns` gives a type an *identity*, a name together with the identities
-of the types it is made of. An identity has two uses, and no other. It tells whether two parts
-with an unspecified layout, proven neither field by field nor by the layout that `puns` assumes,
-are of the same type. And it names a type without its layout, so that the identity of a generic
-type is made of the identities of its parameters, and a type that holds itself through a generic
-type has one. A layout that Rust specifies, or that `puns` assumes, is compared by its parts,
-never by an identity. The primitive types, the types of [`num`], arrays, slices, tuples,
-`Option`, `Result`, `MaybeUninit` and `ManuallyDrop` have identities. A part that is a
-`ManuallyDrop<T>` is of the same type as a part that is a `T`, since `core` gives them one layout,
-but a type made of a `ManuallyDrop<T>` is not made of a `T`: `-Zrandomize-layout` arranges
-`Wrapper<ManuallyDrop<u8>, u16, u32>` and `Wrapper<u8, u16, u32>` differently. A type that derives
-`Pun` is named by its module, file, line and column, its name, and the number of its derive in its
-crate. An instance of a generic type that derives `Pun` is named, in addition, by the identity of
-each of its type parameters and the value of each of its const parameters, in order, so a
-`Pair<i32>` proves a `Pair<i32>`, and not a `Pair<u32>`. Its lifetimes do not count. The derive
-can name the identity of a type parameter only if the parameter is bounded by `Pun` where it sees
-it: in its bounds (`<T: Pun>`), in the `where` clause, in `#[pun(bound(..))]`, or by the bound
-that it adds for a field of type `T`. A generic type with a type parameter that is not, such as
-one that is only in a `PhantomData<T>`, has no identity, nor have a `PhantomData` and a
-[`Scalar`] implemented by hand, nor a type with a parameter that has none. A part with an
-unspecified layout that holds one of them proves itself only with the feature, unless it is proven
-field by field, and the refusal says so. A type whose parts all have the same
-layout in every build, such as a generic `repr(C)` struct of a `u8` and a `PhantomData<T>`,
-needs no identity. A part that holds a scalar of [`Spec::maybe_uninit`] is the same type as
-nothing, itself included. An identity only adds a condition, since the layouts must be the same
-as well ([The identity of a type and the compiler][trust-identity]).
+cannot be called. So `puns` gives a type an *identity*, a name together with the identities of the
+types it is made of. An identity has two uses, and no other. It tells whether two parts with an
+unspecified layout, proven neither field by field nor by the layout that `puns` assumes, are of the
+same type. And it names a type without its layout, so that the identity of a generic type is made of
+the identities of its parameters, and a type that holds itself through a generic type has one. A
+layout that Rust specifies, or that `puns` assumes, is compared by its parts, never by an identity.
+The primitive types, the types of [`num`], arrays, slices, tuples, `Option`, `Result`, `MaybeUninit`
+and `ManuallyDrop` have identities. A part that is a `ManuallyDrop<T>` is of the same type as a part
+that is a `T`, since `core` gives them one layout. But a type made of a `ManuallyDrop<T>` is not
+made of a `T`: `-Zrandomize-layout` arranges `Wrapper<ManuallyDrop<u8>, u16, u32>` and `Wrapper<u8,
+u16, u32>` differently. A type that derives `Pun` is named by its module, file, line and column, its
+name, and the number of its derive in its crate. An instance of a generic type that derives `Pun` is
+named, in addition, by the identity of each of its type parameters and the value of each of its
+const parameters, in order, so a `Pair<i32>` proves a `Pair<i32>`, and not a `Pair<u32>`. Its
+lifetimes do not count. The derive can name the identity of a type parameter only if the parameter
+is bounded by `Pun` where it sees it. It sees the bounds of the parameter (`<T: Pun>`), the `where`
+clause, `#[pun(bound(..))]`, and the bound that it adds for a field of type `T`. A generic type with
+a type parameter that is not, such as one that is only in a `PhantomData<T>`, has no identity, nor
+have a `PhantomData` and a [`Scalar`] implemented by hand, nor a type with a parameter that has
+none. A part with an unspecified layout that holds one of them proves itself only with the feature,
+unless it is proven field by field, and the refusal says so. A type whose parts all have the same
+layout in every build, such as a generic `repr(C)` struct of a `u8` and a `PhantomData<T>`, needs no
+identity. A part that holds a scalar of [`Spec::maybe_uninit`] is the same type as nothing, itself
+included. An identity only adds a condition, since the layouts must be the same as well ([The
+identity of a type and the compiler][trust-identity]).
 
 [`-Zrandomize-layout`]: https://doc.rust-lang.org/nightly/unstable-book/compiler-flags/randomize-layout.html
 [`mem::discriminant`]: https://doc.rust-lang.org/1.99.0/core/mem/fn.discriminant.html

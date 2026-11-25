@@ -92,11 +92,11 @@ time.
 
 A `#[pun(valid(..))]` of the target is proven by any source whose values it accepts, as a `bool`
 proves `#[pun(valid(0..=1))]`. A rule of a struct is proven only by the same rule of the source, at
-the same place, each rule on its own: the two structs must have the same sized part and the same
-trailing slice, and, without the `unstable` feature, either be the same type or both have a layout
-that Rust specifies. Their other rules do not matter, except before an [aim](#aims) at the cursor,
-which the aims at the cursor before it place: the source must have the same ones first. The names
-of their fields do not matter either:
+the same place, each rule on its own. The two structs must have the same sized part and the same
+trailing slice. Without the `unstable` feature, they must also be the same type, or both have a
+layout that Rust specifies. Their other rules do not matter. The exception is an [aim](#aims) at the
+cursor: the aims at the cursor before it place it, so the source must have the same aims at the
+cursor before it. The names of their fields do not matter either:
 
 ```rust
 use puns::Pun;
