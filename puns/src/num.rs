@@ -378,8 +378,8 @@ macro_rules! ints {
     #[doc = concat!("A [`", stringify!($name), "`] whose only valid value is `V`.")]
     ///
     #[doc = narrower!($raw $size, concat!(
-      "# Compile-time errors\n\nA pun of a type that holds it [compiles](crate::reference::errors) ",
-      "only if `V` fits in ", stringify!($size), " bytes:\n\n",
+      "# Compile-time errors\n\nA pun of a type that holds it ",
+      "[compiles](crate::reference::errors) only if `V` fits in ", stringify!($size), " bytes:\n\n",
       "```compile_fail,E0080\nuse puns::num::", stringify!($literal), ";\n\n",
       "// One more than the greatest value of ", stringify!($size), " bytes.\n",
       "let _ = puns::from_bytes::<", stringify!($literal), "<{ 1 << (8 * ", stringify!($size),

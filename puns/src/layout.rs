@@ -487,10 +487,10 @@ impl Spec {
   /// `std`. Another type has the niches of its fields, so the niche of the scalar is the niche of
   /// `T`, in the bytes and the byte order of `T`, whatever the scalar accepts. Without the
   /// `unstable` feature, `puns` assumes the layout of an enum of the `Rust` representation only
-  /// where it knows its niche ([What `puns` assumes](crate::reference::layouts#what-puns-assumes)), so an `Option` of a
-  /// scalar declared by hand is a layout that Rust leaves to the compiler unless its `Spec` says
-  /// what its bytes are. A struct around a `u8` whose constructor keeps it from 1 to 5 is a `u8`,
-  /// which has no niche, and its `Option` has a tag.
+  /// where it knows its niche ([What `puns` assumes](crate::reference::layouts#what-puns-assumes)),
+  /// so an `Option` of a scalar declared by hand is a layout that Rust leaves to the compiler
+  /// unless its `Spec` says what its bytes are. A struct around a `u8` whose constructor keeps it
+  /// from 1 to 5 is a `u8`, which has no niche, and its `Option` has a tag.
   ///
   /// The alignment of `T` does not matter: a niche is a set of values, which `rustc` keeps through
   /// `repr(packed)` and `repr(transparent)`, so a `repr(C, packed)` struct around a `NonZero<i32>`

@@ -161,10 +161,10 @@ assert_eq!((note.urgent, &note.text), (true, b"ABC"));
 
 Every function of `puns` is a `const fn` except [`check`] and [`check_compact`], which call the
 methods of a [`Worklist`]. So is every function that the derive generates, except the method that
-reads the pointee of a lazy aim at a stored place from the bytes that you give it ([Aims][aims]). You
-can therefore check bytes in a constant while the program compiles. The implementations of standard
-traits, such as `From` and `Display`, are not `const` either
-([Limits of Rust][limits#limits-of-rust]). `unwrap` is not `const`: match on the result instead.
+reads the pointee of a lazy aim at a stored place from the bytes that you give it ([Aims][aims]).
+You can therefore check bytes in a constant while the program compiles. The implementations of
+standard traits, such as `From` and `Display`, are not `const` either ([Limits of
+Rust][limits#limits-of-rust]). `unwrap` is not `const`: match on the result instead.
 
 A check of an address does not compile in a constant, because `core` calls reading an address as an
 integer undefined behavior in const evaluation, and says that using the integer stops the evaluation

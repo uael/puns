@@ -688,8 +688,8 @@ pub unsafe trait Scalar {
   /// Whether `puns` knows how values of the type are stored in every layout that Rust allows: Rust
   /// specifies it, or `puns` assumes it and checks it when compiling, as for an enum without fields
   /// of the `Rust` representation, which `#[derive(Pun)]` makes a `Scalar` ([What `puns`
-  /// assumes](crate::reference::layouts#what-puns-assumes)). Otherwise, as with the `unstable` feature, the layout is
-  /// one that Rust leaves to the compiler (see [`layout::UNSTABLE`]).
+  /// assumes](crate::reference::layouts#what-puns-assumes)). Otherwise, as with the `unstable`
+  /// feature, the layout is one that Rust leaves to the compiler (see [`layout::UNSTABLE`]).
   #[doc(hidden)]
   const SPECIFIED: bool = true;
 }
@@ -1984,8 +1984,8 @@ const fn unmet(
     }
     Exact::Never(why) if fit.shrink => {
       return Some(Message::new(why).str(
-        ".\nUse `head` or `tail` (or their `_ref` and `_mut` forms) to take the first or last bytes \
-         of the source",
+        ".\nUse `head` or `tail` (or their `_ref` and `_mut` forms) to take the first or last \
+         bytes of the source",
       ));
     }
     Exact::Never(why) => return Some(Message::new(why)),

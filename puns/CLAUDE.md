@@ -184,8 +184,9 @@ comes with the test that stresses it (an over-aligned type, an integer wider tha
 other byte order).
 
 `Layout::PIN` fixes the types whose functions make a layout, and `Layout::PIN_AIMS` those of the
-rule of an aim, so a new type whose functions the derive calls goes there. The cases `crate_path_*` of `tests/compile-fail` test that no path of
-`#[pun(crate = ..)]` replaces one, and `fakecore` in `puns-model` that `::core` does not.
+rule of an aim, so a new type whose functions the derive calls goes there. The cases `crate_path_*`
+of `tests/compile-fail` test that no path of `#[pun(crate = ..)]` replaces one, and `fakecore` in
+`puns-model` that `::core` does not.
 
 The self-relative pointer of the tests (`Near`, in `tests/support/aims.rs`) derives `Pun` with an
 eager aim through the public API only, as another crate would declare it. The compile-fail cases

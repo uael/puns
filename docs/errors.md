@@ -698,8 +698,9 @@ expression that is not a rule is refused at the part that is not one, with what 
   `puns` ([The generated code][trust#the-generated-code]).
 
 A rule that reads a field that is not an integer, or a signed one without a cast, is refused, and
-[Fields in a rule][rules#fields-in-a-rule] shows its message and its fixes. A getter of `#[pun(get(..))]` that
-reads such a field is refused where it is called, which `cargo check` does not report:
+[Fields in a rule][rules#fields-in-a-rule] shows its message and its fixes. A getter of
+`#[pun(get(..))]` that reads such a field is refused where it is called, which `cargo check` does
+not report:
 
 ```rust,compile_fail,E0080
 #[derive(puns::Pun)]
