@@ -769,7 +769,7 @@ fn rows(root: &Pair) -> Vec<(String, Vec<u32>)> {
   let mut at = Some(root);
   while let Some(pair) = at {
     out.push((pair.name.pointee().to_string(), pair.values.pointee().to_vec()));
-    at = pair.next.as_ref().map(|next| next.pointee());
+    at = pair.next.as_ref().map(Near::pointee);
   }
   out
 }
