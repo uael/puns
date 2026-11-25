@@ -2323,10 +2323,15 @@ impl Layout {
   /// safe code may write any value of the type. [`Field::restricted`] makes the field. The ranges
   /// are as [`Spec::with_ranges`] takes them, and must all be values of the scalar.
   ///
+  /// A struct whose layout Rust specifies, that requires nothing, and that is one integer and
+  /// fields of size 0, such as a `#[repr(transparent)]` struct around an integer, is restricted as
+  /// that integer, since its values are the values of the integer: the result is the scalar,
+  /// restricted, with the identity of the struct.
+  ///
   /// # Panics
   ///
-  /// Panics if `self` is not a scalar, is a scalar that accepts uninitialized bytes
-  /// ([`Spec::uninit`]), or is not 1 to 16 bytes. Also panics if `ranges` are not as
+  /// Panics if `self` is not a scalar or such a struct, is a scalar that accepts uninitialized
+  /// bytes ([`Spec::uninit`]), or is not 1 to 16 bytes. Also panics if `ranges` are not as
   /// [`Spec::with_ranges`] requires, or hold a value that the scalar does not accept.
   ///
   /// # Examples
@@ -2346,8 +2351,37 @@ impl Layout {
   /// let bit = Layout::scalar::<u8>(Spec::ranges::<u8>(Endian::NATIVE, &[(0, 1)]));
   /// let _ = bit.restricted(&[(1, 2)]);
   /// ```
+  ///
+  /// A field whose type is a struct around an integer, restricted as the integer:
+  ///
+  /// ```
+  /// use puns::Pun;
+  ///
+  /// #[derive(Pun, Clone, Copy)]
+  /// #[repr(transparent)]
+  /// struct Count(u16);
+  ///
+  /// #[derive(Pun)]
+  /// #[repr(C)]
+  /// struct Header {
+  ///   #[pun(valid(..=500))]
+  ///   count: Count,
+  /// }
+  ///
+  /// assert!(puns::from_bytes::<Header>(&500u16.to_ne_bytes()).is_ok());
+  /// assert!(puns::from_bytes::<Header>(&501u16.to_ne_bytes()).is_err());
+  /// ```
   #[must_use]
   pub const fn restricted(&self, ranges: &'static [(u128, u128)]) -> Self {
+    if let Kind::Struct(..) = self.kind {
+      let Some(number) = self.number_field() else {
+        panic!(
+          "only scalars, and structs that Rust lays out as one integer and require nothing, can be \
+           restricted"
+        )
+      };
+      return Self { id: self.id, stable: self.stable, ..number.restricted(ranges) };
+    }
     let Kind::Scalar(spec) = self.kind else { panic!("only scalars can be restricted") };
     assert!(!matches!(spec.valid, Valid::Uninit), "only initialized scalars can be restricted");
     // The restriction is not something that the type of the field enforces.
@@ -4345,13 +4379,21 @@ impl Layout {
     }
   }
 
-  /// Returns the scalar that ends a sized layout, if it is one that [`as_bits`](Self::as_bits)
-  /// accepts, with no padding after it: the layout itself, or the last field of a struct, at any
-  /// depth. This is the length that a [`Thin`](crate::Thin) stores at the end of its `M`, right
-  /// before its value.
+  /// Returns the scalar that ends a sized layout, if it is an integer of 1 to 8 bytes, signed or
+  /// not, with no padding after it: the layout itself, or the last field of a struct, at any depth.
+  /// This is the length that a [`Thin`](crate::Thin) stores at the end of its `M`, right before its
+  /// value. Its valid values may be fewer than those of its type (`#[pun(valid(..))]`): what is
+  /// stored before a value is checked before its length is read.
   pub(crate) const fn last_integer(&self) -> Option<Spec> {
     match self.kind {
-      Kind::Scalar(_) => self.as_bits(),
+      Kind::Scalar(spec)
+        if spec.size >= 1
+          && spec.size <= 8
+          && spec.is_integer()
+          && !matches!(spec.number, Number::Not) =>
+      {
+        Some(spec)
+      }
       Kind::Struct(fields, _) if !self.unsized_ && !fields.is_empty() => {
         let last = &fields[fields.len() - 1];
         if last.offset + last.layout.size == self.size { last.layout.last_integer() } else { None }
@@ -4394,6 +4436,35 @@ impl Layout {
     }
   }
 
+  /// Returns the layout of the integer that a struct is, if Rust specifies its layout, it requires
+  /// nothing ([`is_free`](Self::is_free): no rule, no restricted value, no part without values),
+  /// and it is that integer and fields of size 0, the integer at offset 0 with the size of the
+  /// struct, at any depth.
+  const fn number_field(&self) -> Option<&'static Layout> {
+    let Kind::Struct(fields, _) = self.kind else { return None };
+    if self.unsized_ || !self.is_free() || !(self.is_specified() || UNSTABLE) {
+      return None;
+    }
+    let (mut inner, mut i): (Option<&'static Layout>, usize) = (None, 0);
+    while i < fields.len() {
+      let field = &fields[i];
+      if field.layout.size > 0 {
+        if inner.is_some() || field.offset != 0 || field.layout.size != self.size {
+          return None;
+        }
+        inner = Some(field.layout);
+      }
+      i += 1;
+    }
+    match inner {
+      Some(layout) if matches!(layout.kind, Kind::Scalar(_)) && layout.as_number().is_some() => {
+        Some(layout)
+      }
+      Some(layout) => layout.number_field(),
+      None => None,
+    }
+  }
+
   /// Returns whether every byte of every value of the layout, up to the end of its tail, is
   /// initialized: no padding, and no scalar that may be uninitialized. An enum is not taken to be,
   /// though its variants may all be.
@@ -4414,22 +4485,6 @@ impl Layout {
         covered == self.size
       }
       Kind::Enum(_) => false,
-    }
-  }
-
-  /// Returns the scalar that the layout is, if it is an integer of 1 to 8 bytes, signed or not,
-  /// whose values are all initialized bytes.
-  pub(crate) const fn as_bits(&self) -> Option<Spec> {
-    match self.kind {
-      Kind::Scalar(spec)
-        if spec.size >= 1
-          && spec.size <= 8
-          && matches!(spec.valid, Valid::Any)
-          && spec.is_integer() =>
-      {
-        Some(spec)
-      }
-      _ => None,
     }
   }
 

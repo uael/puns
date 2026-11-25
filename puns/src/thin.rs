@@ -121,7 +121,7 @@ impl<T: ?Sized + Pun> Pointee for T {
 ///
 /// The `M` is the length alone, an integer of the sign and the byte order of its type, or a struct
 /// that ends with it, such as the capacity then the length of a list, which is checked with the
-/// value, its rules included. No padding is between the length and the value, as there would be in
+/// value, its rules and the valid values of its fields included, before the length is read. No padding is between the length and the value, as there would be in
 /// a `repr(C)` struct of the two where the value is more aligned than the length: the value is
 /// aligned for `T`, for `M`, and to the size of the length, rounded up to a power of two, so that
 /// where it is does not depend on the byte order of the length (an `i32le` has an alignment of 1).

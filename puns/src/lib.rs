@@ -1415,7 +1415,9 @@ pub use layout::{crc32, sum16};
 ///
 /// - `#[pun(valid(0x45..=0x4f, 0x60, ..))]`: the field must have one of these values. Each item is
 ///   a value or a range of unsigned integer literals or constants. The value of the field is its
-///   bits read as an unsigned integer in its byte order, so `0xff` is `-1i8`.
+///   bits read as an unsigned integer in its byte order, so `0xff` is `-1i8`. The field is a
+///   scalar, or a struct that is one integer and requires nothing, such as a `#[repr(transparent)]`
+///   struct around one ([`Layout::restricted`](layout::Layout::restricted)).
 ///
 /// On the last field of a struct:
 ///
