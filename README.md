@@ -113,7 +113,9 @@ assert_eq!(buffer[1], 63);
 `u16be` and `u32be` are big-endian integers with an alignment of 1, which is why `Packet` has no
 padding and can be at any address in a buffer. Rules can also compute other checksums, read
 variable-length integers and `walk` a chain of headers. Other attributes cover bit fields,
-restricted values and regions, and the [derive's documentation][derive] lists them all.
+restricted values and regions, and the [derive's documentation][derive] lists them all. A struct
+can also point at another place of the bytes it was read from, as the self-relative pointers of
+`nearest` do, and `puns` checks the value there when it checks the struct.
 
 A rule describes the format, and Rust knows nothing of it. It's checked when the bytes are read, and
 nothing keeps it true afterwards. If the router had set `length` to 10, the payload would still have
