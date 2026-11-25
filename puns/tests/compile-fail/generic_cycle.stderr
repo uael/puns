@@ -4,24 +4,17 @@ error[E0275]: overflow evaluating the requirement `Ping<u32>: Pun`
 25 |   puns::as_bytes(ping)
    |   ^^^^^^^^^^^^^^^^^^^^
    |
-note: required for `Ping<u32>` to implement `Aimed`
-  --> tests/compile-fail/../support/aims.rs
-   |
-   | impl<T: Pun> Aimed for T {
-   |         ---  ^^^^^     ^
-   |         |
-   |         unsatisfied trait bound introduced here
 note: required for `Near<Ping<u32>>` to implement `Pun`
   --> tests/compile-fail/../support/aims.rs
    |
-   | #[pun(bound(T: Aimed))]
-   |                ----- unsatisfied trait bound
+   | #[pun(bound(T: Pun))]
+   |                --- unsatisfied trait bound
    | #[repr(transparent)]
    | pub struct Near<T: ?Sized> {
    |            ^^^^^^^^^^^^^^^
    = help: consider manually implementing `Pun` to avoid undesired bounds caused by "imperfect derives"
    = note: to learn more, visit <https://github.com/rust-lang/rust/issues/26925>
-   = note: 4 redundant requirements hidden
+   = note: 3 redundant requirements hidden
    = note: required for `Ping<u32>` to implement `Pun`
 note: required by a bound in `puns::as_bytes`
   --> src/lib.rs

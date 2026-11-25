@@ -241,8 +241,8 @@ struct Region {
 
 impl Parse for Region {
   fn parse(input: ParseStream) -> Result<Self> {
-    let eager =
-      input.peek(Ident) && input.peek2(Ident) && input.fork().parse::<Ident>()? == "eager";
+    // The name of the region follows `eager`, which is otherwise the name.
+    let eager = keyword(input, "eager") && input.peek2(Ident);
     if eager {
       input.parse::<Ident>()?;
     }
@@ -278,10 +278,10 @@ impl Parse for TagOption {
 }
 
 /// The aim of `#[pun(pointer(..))]`: `name: Type = EXPR` or `Type = EXPR`, the name of the methods
-/// that read the pointee, if any, its type and where it starts, after `lazy` for an aim that is
-/// checked when it is read, or `mut` for one whose pointee is also read to write, then
-/// `, size = EXPR` for a pointee of a given size, or `, size = ..` for one that takes the rest of
-/// the bytes.
+/// that read the pointee, if any, its type and where it is, after `lazy` for an aim that is checked
+/// when it is read, or `mut` for one whose pointee is also read to write, then `, len = EXPR` for
+/// an unsized pointee of a given length, `, size = EXPR` for a pointee of a given size in bytes, or
+/// `, size = ..` for one that takes the rest of the tail of the struct.
 struct AimOption {
   lazy: bool,
   mutable: bool,
@@ -291,19 +291,32 @@ struct AimOption {
   size: AimSize,
 }
 
-/// How large the pointee of a `pointer` is.
+/// How large the pointee of an aim is, as `layout::Extent` says.
 enum AimSize {
-  /// The size of its type.
-  Own,
+  /// What the pointee stores: nothing if it is sized, its length otherwise.
+  Pointee,
+  /// The length of its tail, the value of the expression.
+  Length(Expr),
   /// The value of the expression, in bytes.
-  Given(Expr),
-  /// The rest of the bytes, `size = ..`.
+  Bytes(Expr),
+  /// The rest of the tail of the struct.
   Rest,
+}
+
+/// Returns whether the identifier that `input` starts with is the keyword `word` before what
+/// follows it, rather than a name, which a `:` or a `=` follows, or the start of a path, which a
+/// `::` follows: `lazy [u8] = ..` and `lazy <T as X>::P = ..` start with a keyword, `lazy: u8 = ..`
+/// with a name.
+fn keyword(input: ParseStream, word: &str) -> bool {
+  input.fork().parse::<Ident>().is_ok_and(|ident| ident == word)
+    && !input.peek2(Token![:])
+    && !input.peek2(Token![::])
+    && !input.peek2(Token![=])
 }
 
 impl Parse for AimOption {
   fn parse(input: ParseStream) -> Result<Self> {
-    let lazy = input.peek(Ident) && input.peek2(Ident) && input.fork().parse::<Ident>()? == "lazy";
+    let lazy = keyword(input, "lazy");
     if lazy {
       input.parse::<Ident>()?;
     }
@@ -325,21 +338,23 @@ impl Parse for AimOption {
     let size = if input.peek(Token![,]) {
       input.parse::<Token![,]>()?;
       let key: Ident = input.parse()?;
-      if key != "size" {
-        return Err(Error::new(
-          key.span(),
-          "a `pointer` takes `size = EXPR` or `size = ..` after it",
-        ));
-      }
       input.parse::<Token![=]>()?;
-      if input.peek(Token![..]) {
-        input.parse::<Token![..]>()?;
-        AimSize::Rest
-      } else {
-        AimSize::Given(input.parse()?)
+      match key.to_string().as_str() {
+        "len" => AimSize::Length(input.parse()?),
+        "size" if input.peek(Token![..]) => {
+          input.parse::<Token![..]>()?;
+          AimSize::Rest
+        }
+        "size" => AimSize::Bytes(input.parse()?),
+        _ => {
+          return Err(Error::new(
+            key.span(),
+            "a `pointer` takes `len = EXPR`, `size = EXPR` or `size = ..` after it",
+          ));
+        }
       }
     } else {
-      AimSize::Own
+      AimSize::Pointee
     };
     Ok(Self { lazy, mutable, name, target, start, size })
   }
@@ -1534,67 +1549,9 @@ fn valid_ranges(
 }
 
 /// Adds `ty: Pun` to the bounds of `generics`, unless they hold it already.
-///
-/// A bound written twice is one that clippy sees twice, at the span of the one that the user
-/// wrote.
 fn bound(generics: &mut syn::Generics, ty: &Type, root: &TokenStream) {
   if !has_pun(generics, &ty.to_token_stream().to_string()) {
     generics.make_where_clause().predicates.push(parse_quote!(#ty: #root::Pun));
-  }
-}
-
-/// Adds `predicate` to `generics`: if it bounds a type parameter, to the bounds of that parameter
-/// where it is declared, or of the predicate of the `where` clause that bounds it alone, and
-/// otherwise as a predicate of its own.
-///
-/// A type parameter bounded in two places is one that clippy sees twice
-/// (`type_repetition_in_bounds`), at the span of the bounds that the user wrote, as in
-/// `struct Near<T: ?Sized>` with `#[pun(bound(T: Pun))]`. A type parameter is named by its
-/// identifier alone ([`parameter`]).
-fn constrain(generics: &mut syn::Generics, mut predicate: syn::WherePredicate) {
-  if let syn::WherePredicate::Type(predicate) = &mut predicate
-    && predicate.lifetimes.is_none()
-    && let Some(name) = parameter(&predicate.bounded_ty)
-  {
-    // A `Pun` bound that the parameter has already ([`has_pun`]) is not written twice
-    // (`trait_duplication_in_bounds`), as a bound that the derive finds is not ([`bound`]).
-    if has_pun(generics, &name.to_string()) {
-      predicate.bounds =
-        predicate.bounds.iter().filter(|bound| !names_pun(bound)).cloned().collect();
-      if predicate.bounds.is_empty() {
-        return;
-      }
-    }
-    let name = name.clone();
-    let name = &name;
-    let same = generics.where_clause.as_mut().and_then(|clause| {
-      clause.predicates.iter_mut().find_map(|existing| match existing {
-        syn::WherePredicate::Type(existing)
-          if existing.lifetimes.is_none() && parameter(&existing.bounded_ty) == Some(name) =>
-        {
-          Some(&mut existing.bounds)
-        }
-        _ => None,
-      })
-    });
-    if let Some(bounds) = same {
-      bounds.extend(predicate.bounds.iter().cloned());
-      return;
-    }
-    if let Some(param) = generics.type_params_mut().find(|param| param.ident == *name) {
-      param.bounds.extend(predicate.bounds.iter().cloned());
-      return;
-    }
-  }
-  generics.make_where_clause().predicates.push(predicate);
-}
-
-/// Returns the identifier of the type parameter that `ty` names, if it is one identifier alone,
-/// which is how a type parameter is named.
-fn parameter(ty: &Type) -> Option<&Ident> {
-  match ty {
-    Type::Path(path) if path.qself.is_none() => path.path.get_ident(),
-    _ => None,
   }
 }
 
@@ -1603,7 +1560,12 @@ fn parameter(ty: &Type) -> Option<&Ident> {
 ///
 /// The bound is read by its last name, as written: `Pun`, `puns::Pun` or `crate::Pun`.
 fn has_pun(generics: &syn::Generics, name: &str) -> bool {
-  let pun = |bounds: &Punctuated<syn::TypeParamBound, Token![+]>| bounds.iter().any(names_pun);
+  let pun = |bounds: &Punctuated<syn::TypeParamBound, Token![+]>| {
+    bounds.iter().any(|bound| {
+      matches!(bound, syn::TypeParamBound::Trait(bound)
+        if bound.path.segments.last().is_some_and(|segment| segment.ident == "Pun"))
+    })
+  };
   // `<T: Pun>`
   generics.type_params().any(|param| param.ident == name && pun(&param.bounds))
     // `where T: Pun`
@@ -1613,16 +1575,14 @@ fn has_pun(generics: &syn::Generics, name: &str) -> bool {
     })
 }
 
-/// Returns whether `bound` names the trait `Pun`, by the last segment of its path: the derive
-/// sees tokens, not traits, and `Pun` is the name by which a user writes it, through any path.
-fn names_pun(bound: &syn::TypeParamBound) -> bool {
-  matches!(bound, syn::TypeParamBound::Trait(bound)
-    if bound.path.segments.last().is_some_and(|segment| segment.ident == "Pun"))
-}
-
 /// Returns the generics of `input`, with the bounds of its implementation of `Pun`: `bounds` if
-/// `#[pun(bound(..))]` gives them, and otherwise `ty: Pun` for each of the `types` of its fields
-/// that needs it ([`needs_bound`]).
+/// `#[pun(bound(..))]` gives them, as they are written, and otherwise `ty: Pun` for each of the
+/// `types` of its fields that needs it ([`needs_bound`]).
+///
+/// A bound that the type has already, as `struct Near<T: ?Sized + Pun>` with
+/// `#[pun(bound(T: Pun))]`, is written twice, which clippy reports at the span that the user wrote
+/// (`trait_duplication_in_bounds`, `type_repetition_in_bounds`). The derive allows both lints on
+/// the constant that holds what it generates, rather than rewrite the bounds of the user.
 fn bounded<'a>(
   input: &DeriveInput,
   types: impl Iterator<Item = &'a Type>,
@@ -1631,7 +1591,7 @@ fn bounded<'a>(
 ) -> syn::Generics {
   let mut generics = input.generics.clone();
   match bounds {
-    Some(bounds) => bounds.iter().for_each(|bound| constrain(&mut generics, bound.clone())),
+    Some(bounds) => generics.make_where_clause().predicates.extend(bounds.iter().cloned()),
     None => types.filter(|ty| needs_bound(ty, input)).for_each(|ty| bound(&mut generics, ty, root)),
   }
   generics
@@ -1786,22 +1746,11 @@ fn in_place_field(options: &Options) -> bool {
     || options.regions.iter().flatten().any(|region| region.eager)
 }
 
-/// The option through which a struct declares an aim, a value at a place of the checked bytes that
-/// it points at (`layout::Aim`): where its pointee starts. Both are one rule, which [`aim_rule`]
-/// writes, and a struct may have any number of each.
-enum Door<'a> {
-  /// `#[pun(pointer(Type = EXPR))]` on a field: the pointee starts where `EXPR` says, from the
-  /// start of the struct, and is of its own size, of a given size, or the rest of the bytes.
-  Pointer(&'a Expr, &'a AimSize),
-  /// A region of `#[pun(regions(..))]` on the last field: the pointee starts at the cursor of the
-  /// tail, and is as many bytes as `EXPR` says, or, without one, of its own size, or the rest of
-  /// the tail for the last region.
-  Region(Option<&'a Expr>, bool),
-}
-
-/// Returns the rule of an aim at a `target` that a struct declares through `door`, checked with the
-/// struct if `eager`, and the steps of its two expressions, where its pointee starts and how large
-/// it is ([`steps`]).
+/// Returns the rule of an aim at a `target` that a struct declares, at the place that `start` gives
+/// (`Stored(start)`), or at the cursor (`Next`) without one, as large as `size` says, checked with
+/// the struct if `eager`, and the steps of its two expressions, where its pointee is and how large
+/// it is ([`steps`]). `#[pun(pointer(..))]` gives a start, and `#[pun(regions(..))]` none: both are
+/// one rule, written here.
 ///
 /// The type is written in the rule and in the list of the rules (`Pun::Rules`), in the one
 /// implementation, where it names one type, and `validate::listed` compares the two.
@@ -1811,7 +1760,7 @@ enum Door<'a> {
 /// Returns an error if an expression does not compile.
 fn aim_rule(
   target: &TokenStream,
-  door: &Door,
+  (start, size): (Option<&Expr>, &AimSize),
   eager: bool,
   fields: &[FieldInfo],
   root: &TokenStream,
@@ -1823,31 +1772,23 @@ fn aim_rule(
     let Expression { ops, steps } = expression(expr, Ty::Int, false, fields, root)?;
     Ok((quote!(const { #ops }), steps))
   };
-  let ((start, start_steps), size) = match door {
-    Door::Pointer(start, size) => {
+  let (start, start_steps) = match start {
+    Some(start) => {
       let (ops, steps) = expression(start)?;
-      let size = match size {
-        AimSize::Own => None,
-        AimSize::Given(size) => Some(Some(size)),
-        AimSize::Rest => Some(None),
-      };
-      ((quote!(Stored(#ops)), steps), size)
+      (quote!(Stored(#ops)), steps)
     }
-    Door::Region(size, last) => {
-      let size = match (size, last) {
-        (Some(size), _) => Some(Some(*size)),
-        (None, true) => Some(None),
-        (None, false) => None,
-      };
-      ((quote!(Next), quote!(())), size)
-    }
+    None => (quote!(Next), quote!(())),
   };
   let (extent, extent_steps) = match size {
-    None => (quote!(Own), quote!(())),
-    Some(None) => (quote!(Rest), quote!(())),
-    Some(Some(size)) => {
-      let (ops, steps) = expression(size)?;
-      (quote!(Given(#ops)), steps)
+    AimSize::Pointee => (quote!(Pointee), quote!(())),
+    AimSize::Rest => (quote!(Rest), quote!(())),
+    AimSize::Length(length) => {
+      let (ops, steps) = expression(length)?;
+      (quote!(Length(#ops)), steps)
+    }
+    AimSize::Bytes(bytes) => {
+      let (ops, steps) = expression(bytes)?;
+      (quote!(Bytes(#ops)), steps)
     }
   };
   let check = if eager { quote!(Eager) } else { quote!(Lazy) };
@@ -1859,134 +1800,138 @@ fn aim_rule(
   Ok((rule, start_steps, extent_steps))
 }
 
-/// How the pointee of an aim is read, by the methods that the derive writes for it.
-struct Read<'a> {
-  /// The name of the method.
-  name: &'a Ident,
-  /// The type of the pointee.
-  target: &'a TokenStream,
-  /// The item of the rule in the list of the rules of `Self`, which names the pointee.
-  item: TokenStream,
-  /// How the aim is declared.
-  door: &'a Door<'a>,
-  /// Whether the pointee is checked with the struct.
-  eager: bool,
-  /// Whether a method that reads the pointee to write is written too.
-  mutable: bool,
-  /// Whether the pointee is a region without a type, its bytes.
-  bytes: bool,
+/// How the pointee of an aim is read, which follows from where it is, when it is checked, and its
+/// type.
+#[derive(Clone, Copy)]
+enum Read {
+  /// An eager aim: `name(&self)`, safe, and, with `mut`, `name_mut(&mut self)`, unsafe.
+  Eager { mutable: bool },
+  /// A lazy aim at a stored place: `name(&self, bytes)`, which checks the pointee in the bytes
+  /// that it is given, since a reference to the value covers only its own.
+  Stored,
+  /// A lazy region with a type: `name(&self)`, which checks the pointee in the bytes of the value.
+  Region,
+  /// A lazy region without a type: `name(&self)`, its bytes.
+  Bytes,
 }
 
-/// Returns the methods that read the pointee of an aim, as visible as `vis`:
-///
-/// - for an eager aim, `unsafe` ones, which rely on a check of the value: `name` and, on request,
-///   `name_mut`, from a pointer to the value, which gives the provenance of the bytes of a pointee
-///   at a stored place, and the end of those bytes for one that takes the rest of them;
-/// - for a lazy aim at a stored place, `name`, which checks the pointee in the bytes that it is
-///   given, since a reference to the value covers only its own;
-/// - for a lazy region, `name`, which checks the pointee in the bytes of the value, and returns the
-///   bytes of a region without a type.
-fn read_aim(read: &Read, vis: &Visibility, root: &TokenStream) -> TokenStream {
-  let Read { name, target, item, door, eager, mutable, bytes } = read;
+/// Returns the methods that read the pointee of an aim, a `target` whose rule is `item` in the list
+/// of the rules of `Self`, named `name` and as visible as `vis`, as `read` says.
+fn read_aim(
+  (name, target, item): (&Ident, &TokenStream, &TokenStream),
+  read: Read,
+  vis: &Visibility,
+  root: &TokenStream,
+) -> TokenStream {
   // The value of the pointee, which a read returns: the pointee itself, or the `T` of a `Thin`.
   let target = quote!(<#target as #root::Pointee>::Value);
-  let name_mut = format_ident!("{name}_mut");
-  let pointer = matches!(door, Door::Pointer(..));
-  let rest = matches!(door, Door::Pointer(_, AimSize::Rest));
-  if *bytes {
-    let doc = format!(
-      "Returns the bytes of the `{name}` region of the tail, truncated if the fields that size the \
-       regions give more bytes than the tail holds. The region takes the rest of the tail if its \
-       expression fails.\n\n# Compile-time errors\n\nA call compiles only if every byte of the \
-       struct, up to the end of its tail, is initialized and, without the `unstable` feature of \
-       `puns`, this does not depend on a layout that Rust leaves to the compiler."
-    );
-    return quote! {
-      #[doc = #doc]
-      #[inline]
-      #vis const fn #name(&self) -> &[::core::primitive::u8] {
-        #root::region::<Self, #item>(self)
-      }
-    };
-  }
-  if !*eager && !pointer {
-    let doc = format!(
-      "Returns the `{name}` region of the tail as the type it holds, checked as `puns::from_bytes` \
-       checks bytes, with the pointees of its eager aims in the bytes of the value. The region is \
-       truncated if the fields that size the regions give more bytes than the tail holds, and \
-       takes the rest of the tail if its expression fails.\n\n# Errors\n\nReturns the error of \
-       `puns::from_bytes` if the bytes of the region are not a value of that type.\n\n\
-       # Compile-time errors\n\nA call compiles only if every byte of the struct, up to the end of \
-       its tail, is initialized and, without the `unstable` feature of `puns`, this does not \
-       depend on a layout that Rust leaves to the compiler. It also compiles only under the \
-       compile-time conditions of `puns::from_bytes` for the type of the region."
-    );
-    return quote! {
-      #[doc = #doc]
-      #[inline]
-      #vis const fn #name(&self) -> ::core::result::Result<&#target, #root::Error> {
-        #root::region_as::<Self, #item>(self)
-      }
-    };
-  }
-  if !*eager {
-    let doc = format!(
-      "Returns the pointee of the aim `{name}`, where the value points in `bytes`, which hold it, \
-       checked as `puns::from_bytes` checks bytes, with the pointees of its eager aims in \
-       `bytes`.\n\n# Errors\n\nAs for `puns::aim_in`: if the value is not in `bytes`, if the \
-       pointee is not within them, and the errors of `puns::from_bytes` on its bytes.\n\n\
-       # Compile-time errors\n\nA call compiles only under the compile-time conditions of \
-       `puns::from_bytes` for the pointee."
-    );
-    return quote! {
-      #[doc = #doc]
-      #[inline]
-      #vis fn #name<'a>(
-        &self,
-        bytes: &'a [::core::primitive::u8],
-      ) -> ::core::result::Result<&'a #target, #root::Error> {
-        #root::aim_in::<Self, #item>(self, bytes)
-      }
-    };
-  }
-  let safety = "# Compile-time errors\n\nA call compiles only if a pointee of its own size is sized \
-                or stores its length in its sized fields.\n\n# Safety\n\nThe caller must ensure";
-  let end = if rest { "`end` is where the bytes that hold it end, " } else { "" };
-  let doc = format!(
-    "Returns the pointee of the aim `{name}`, where the value at `this` points.\n\n{safety} the \
-     requirements of `puns::aim`: in short, the aim of the value at `this` gives the place of a \
-     valid pointee, as for a value that `puns` checked, {end}`this` has the provenance of the \
-     bytes of the pointee, and these bytes and those of the value are not written for `'a`."
-  );
-  let doc_mut = format!(
-    "Returns the pointee of the aim `{name}`, to write, where the value at `this` points.\n\n\
-     {safety} the requirements of `puns::aim_mut`: in short, those of `{name}`, but that for `'a` \
-     the bytes of the pointee are accessed only through the result."
-  );
-  let (end_param, end_arg) = if rest {
-    (quote!(, end: *const ::core::primitive::u8), quote!(end))
-  } else {
-    (quote!(), quote!(::core::ptr::null()))
-  };
-  let read_mut = mutable.then(|| {
-    quote! {
-      #[doc = #doc_mut]
-      #[inline]
-      #vis const unsafe fn #name_mut<'a>(this: *mut Self #end_param) -> &'a mut #target {
-        // SAFETY: The requirements of `aim_mut` are those of this call, for the item of the aim.
-        unsafe { #root::aim_mut::<Self, #item>(this, #end_arg) }
+  let check = "\n\n# Compile-time errors\n\nA call compiles only if every byte of the struct, up to \
+               the end of its tail, is initialized and, without the `unstable` feature of `puns`, \
+               this does not depend on a layout that Rust leaves to the compiler.";
+  match read {
+    Read::Bytes => {
+      let doc = format!(
+        "Returns the bytes of the `{name}` region of the tail, truncated if the fields that size \
+         the regions give more bytes than the tail holds. The region takes the rest of the tail \
+         if its expression fails.{check}"
+      );
+      quote! {
+        #[doc = #doc]
+        #[inline]
+        #vis const fn #name(&self) -> &[::core::primitive::u8] {
+          #root::region::<Self, #item>(self)
+        }
       }
     }
-  });
-  quote! {
-    #[doc = #doc]
-    #[inline]
-    #vis const unsafe fn #name<'a>(this: *const Self #end_param) -> &'a #target {
-      // SAFETY: The requirements of `aim` are those of this call, for the item of the aim.
-      unsafe { #root::aim::<Self, #item>(this, #end_arg) }
+    Read::Region => {
+      let doc = format!(
+        "Returns the `{name}` region of the tail as the type it holds, checked as \
+         `puns::from_bytes` checks bytes, with the pointees of its eager aims in the bytes of the \
+         value. The region is truncated if the fields that size the regions give more bytes than \
+         the tail holds, and takes the rest of the tail if its expression fails.\n\n# Errors\n\n\
+         Returns the error of `puns::from_bytes` if the bytes of the region are not a value of \
+         that type.{check} It also compiles only under the compile-time conditions of \
+         `puns::from_bytes` for the type of the region."
+      );
+      quote! {
+        #[doc = #doc]
+        #[inline]
+        #vis const fn #name(&self) -> ::core::result::Result<&#target, #root::Error> {
+          #root::region_as::<Self, #item>(self)
+        }
+      }
     }
+    Read::Stored => {
+      let doc = format!(
+        "Returns the pointee of the aim `{name}`, where the value points in `bytes`, which hold \
+         it, checked as `puns::from_bytes` checks bytes, with the pointees of its eager aims in \
+         `bytes`.\n\n# Errors\n\nIf the value is not in `bytes`, if the pointee is not within \
+         them, and the errors of `puns::from_bytes` on its bytes.\n\n# Compile-time errors\n\n\
+         A call compiles only under the compile-time conditions of `puns::from_bytes` for the \
+         pointee."
+      );
+      quote! {
+        #[doc = #doc]
+        #[inline]
+        #vis fn #name<'a>(
+          &self,
+          bytes: &'a [::core::primitive::u8],
+        ) -> ::core::result::Result<&'a #target, #root::Error> {
+          #root::aim_in::<Self, #item>(self, bytes)
+        }
+      }
+    }
+    Read::Eager { mutable } => {
+      let doc = format!(
+        "Returns the pointee of the aim `{name}`, where the value points, which `puns` checked \
+         with the value, or which unsafe code that made the value put there: no safe code makes \
+         a value with an eager aim.\n\nThe pointee is read through the reference to the value, \
+         which has the provenance of its bytes under the tree borrows model of Miri, but not \
+         under stacked borrows, where `puns::aim` reads it from a pointer to the bytes that hold \
+         both.\n\n# Compile-time errors\n\nA call compiles only if the pointee is sized, a \
+         `Thin`, or stores the length of its tail in its sized fields, where its extent is what \
+         it stores."
+      );
+      let doc_mut = format!(
+        "Returns the pointee of the aim `{name}`, to write, where the value points.\n\n# Safety\n\n\
+         The caller must ensure that, for the lifetime of the result, the bytes of the pointee \
+         are accessed only through it: the pointees of a check that is not compact may be shared, \
+         and a reference that `puns` returned is shared. What is written is what later reads of \
+         the pointee rely on, safe ones included, so it is a valid pointee of the aim (see \
+         `puns::aim_mut`).\n\n# Compile-time errors\n\nAs for `{name}`."
+      );
+      let name_mut = format_ident!("{name}_mut");
+      let read_mut = mutable.then(|| {
+        quote! {
+          #[doc = #doc_mut]
+          #[inline]
+          #vis const unsafe fn #name_mut(&mut self) -> &mut #target {
+            // SAFETY: `self` is a value of `Self`, whose aim leads to a valid pointee, as for
+            // `#name`. The caller ensures that the bytes of the pointee are accessed only through
+            // the result while it lives, and `self` is borrowed for as long, so the requirements of
+            // `aim_mut` hold, under tree borrows, where the reference has the provenance of the
+            // bytes that hold both.
+            unsafe { #root::aim_mut::<Self, #item>(self) }
+          }
+        }
+      });
+      quote! {
+        #[doc = #doc]
+        #[inline]
+        #vis const fn #name(&self) -> &#target {
+          // SAFETY: A value of `Self` holds an eager aim, whose field is an `InPlace`, which no
+          // code makes, so a reference to it is one that `puns` gave where it checked its pointee
+          // or proved it by the same aim, or one that unsafe code gave, which upholds the same
+          // ("Values made by unsafe code" in the documentation of `InPlace`): its aim leads to a
+          // valid pointee, which is not written while `self` lives. The reference has the
+          // provenance of the bytes of the pointee under tree borrows. These are the requirements
+          // of `aim`.
+          unsafe { #root::aim::<Self, #item>(self) }
+        }
 
-    #read_mut
+        #read_mut
+      }
+    }
   }
 }
 
@@ -2118,13 +2063,16 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   // Only the layout of `repr(C)` and `repr(transparent)` is known without the size of the fields.
   let sized = !(repr.c || repr.transparent);
   // The types of the fields, and of the pointees of the aims, which are `Pun` as these are.
-  let targets = fields.iter().filter_map(|field| field.options.pointer.as_ref());
-  let types = fields.iter().map(|field| field.ty).chain(targets.map(|aim| &aim.target));
-  let mut generics = bounded(input, types, options.bounds.as_ref(), &root);
-  // The types of the typed regions.
+  let mut generics =
+    bounded(input, fields.iter().map(|field| field.ty), options.bounds.as_ref(), &root);
+  // The pointees that depend on a type parameter are `Pointee`s, which every aim requires
+  // (`Aim::new`), whatever the bounds that `#[pun(bound(..))]` gives: a `Thin` is one, and no
+  // `Pun` type.
   for field in &fields {
-    for ty in field.options.regions.iter().flatten().filter_map(|region| region.ty.as_ref()) {
-      bound(&mut generics, ty, &root);
+    let pointer = field.options.pointer.iter().map(|aim| &aim.target);
+    let regions = field.options.regions.iter().flatten().filter_map(|region| region.ty.as_ref());
+    for ty in pointer.chain(regions).filter(|ty| needs_bound(ty, input)) {
+      generics.make_where_clause().predicates.push(parse_quote!(#ty: #root::Pointee));
     }
   }
   if sized {
@@ -2238,8 +2186,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     let last = i + 1 == count;
     if let Some(pointer) = &field.options.pointer {
       let target = pointer.target.to_token_stream();
-      let door = Door::Pointer(&pointer.start, &pointer.size);
-      let (aim, start, extent) = aim_rule(&target, &door, !pointer.lazy, &fields, &root)?;
+      let place = (Some(&pointer.start), &pointer.size);
+      let (aim, start, extent) = aim_rule(&target, place, !pointer.lazy, &fields, &root)?;
       let index = rules.len();
       let read_item = item(listed.len());
       listed.push((index, start, Some(target.clone()), extent));
@@ -2253,16 +2201,9 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         ));
       }
       if let Some(name) = &pointer.name {
-        let read = Read {
-          name,
-          target: &target,
-          item: read_item,
-          door: &door,
-          eager: !pointer.lazy,
-          mutable: pointer.mutable,
-          bytes: false,
-        };
-        accessors.push(read_aim(&read, field.vis, &root));
+        let read =
+          if pointer.lazy { Read::Stored } else { Read::Eager { mutable: pointer.mutable } };
+        accessors.push(read_aim((name, &target, &read_item), read, field.vis, &root));
       } else if pointer.mutable {
         return Err(Error::new_spanned(&pointer.target, "`mut` names the method that it adds"));
       }
@@ -2285,22 +2226,24 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
           .ty
           .as_ref()
           .map_or_else(|| quote!([::core::primitive::u8]), ToTokens::to_token_stream);
-        let door = Door::Region(region.size.as_ref(), index + 1 == regions.len());
-        let (aim, start, extent) = aim_rule(&target, &door, region.eager, &fields, &root)?;
+        // A region is as many bytes as its expression says, what its type stores without one, or,
+        // the last without one, the rest of the tail.
+        let size = match &region.size {
+          Some(size) => AimSize::Bytes(size.clone()),
+          None if index + 1 == regions.len() => AimSize::Rest,
+          None => AimSize::Pointee,
+        };
+        let (aim, start, extent) = aim_rule(&target, (None, &size), region.eager, &fields, &root)?;
         let read_item = item(listed.len());
         listed.push((rules.len(), start, Some(target.clone()), extent));
         rules.push(aim);
         has_aims = true;
-        let read = Read {
-          name: &region.name,
-          target: &target,
-          item: read_item,
-          door: &door,
-          eager: region.eager,
-          mutable: false,
-          bytes: region.ty.is_none(),
+        let read = match (region.eager, &region.ty) {
+          (true, _) => Read::Eager { mutable: false },
+          (false, Some(_)) => Read::Region,
+          (false, None) => Read::Bytes,
         };
-        accessors.push(read_aim(&read, field.vis, &root));
+        accessors.push(read_aim((&region.name, &target, &read_item), read, field.vis, &root));
       }
     }
   }
@@ -2389,7 +2332,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   );
 
   // The list of the rules that have an expression or are aims, at the type level, with their
-  // operations and the targets of the aims.
+  // operations and the pointees of the aims.
   let rule_list = listed.iter().rev().fold(quote!(()), |next, (index, steps, target, extent)| {
     target.as_ref().map_or_else(
       || quote!(#root::RuleAt<#index, #steps, #next>),
@@ -2451,6 +2394,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   );
   let pin = pin(&root);
   Ok(quote! {
+    #[allow(clippy::trait_duplication_in_bounds, clippy::type_repetition_in_bounds)]
     const _: () = {
       #pin
 
@@ -2478,9 +2422,9 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   which is `repr(transparent)` over its `T` and has no other invariant, so its layout is
       //   that of `T`.
       //   Rules are requirements of `puns`, never of the language.
-      // - An eager aim says that every value holds a valid target where its expression says. No
+      // - An eager aim says that every value holds a valid pointee where its expression says. No
       //   code makes an `InPlace`, so no safe code makes a value of the struct, which exists only
-      //   where `puns` checked its target, or where unsafe code put it.
+      //   where `puns` checked its pointee, or where unsafe code put it.
       // - `Fields` lists the fields in order (see the markers above). `Rules` lists the rules that
       //   have an expression or are aims (the regions, whose target is `[u8]`, and the eager aims),
       //   which `validate::check_rules` asserts against the layout. `Metadata` is that of the last
@@ -2573,7 +2517,8 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     let (homes, _) = variant_homes(input, data);
     // No value: nothing is ever made of one, and nothing is valid for it.
     return Ok(quote! {
-      const _: () = {
+      #[allow(clippy::trait_duplication_in_bounds, clippy::type_repetition_in_bounds)]
+    const _: () = {
         #homes
       };
 
@@ -2749,6 +2694,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
   // No variant but those of `SPEC`.
   let (homes, _) = variant_homes(input, data);
   Ok(quote! {
+    #[allow(clippy::trait_duplication_in_bounds, clippy::type_repetition_in_bounds)]
     const _: () = {
       #homes
     };
@@ -3129,6 +3075,7 @@ fn derive_tagged(
   let variant_indices = 0..count;
 
   Ok(quote! {
+    #[allow(clippy::trait_duplication_in_bounds, clippy::type_repetition_in_bounds)]
     const _: () = {
       #pin
 
@@ -3507,6 +3454,7 @@ fn derive_discovered(
   });
 
   Ok(quote! {
+    #[allow(clippy::trait_duplication_in_bounds, clippy::type_repetition_in_bounds)]
     const _: () = {
       #pin
 
@@ -3695,6 +3643,7 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
   let homes = homes(input, &named, &quote!(#(#same)*));
   let pin = pin(&root);
   Ok(quote! {
+    #[allow(clippy::trait_duplication_in_bounds, clippy::type_repetition_in_bounds)]
     const _: () = {
       #pin
 

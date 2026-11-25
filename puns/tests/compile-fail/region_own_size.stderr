@@ -1,4 +1,4 @@
-error[E0080]: evaluation panicked: the pointee of an aim of its own size is sized, or stores its length in its sized fields: a `size` or `len` rule that reads no byte by offset
+error[E0080]: evaluation panicked: the pointee of an aim whose extent is what it stores is sized, a `Thin`, or stores its length in its sized fields: a `size` or `len` rule that reads no byte by offset
  --> src/validate.rs
   |
   |     pointee_checked::<T, L>();
@@ -11,17 +11,23 @@ note: inside `puns::validate::pointee_checked::<UnsizedRegionFirst, puns::RuleAt
   |
  ::: src/validate.rs
   |
-  |   assert!(!matches!(aim.extent, Extent::Own) || own::<L::Pointee>(), "{}", STORES_LENGTH);
-  |   --------------------------------------------------------------------------------------- in this macro invocation
+  | /   assert!(
+  | |     !matches!(aim.extent, Extent::Pointee)
+  | |       || L::Pointee::LENGTH.is_some()
+  | |       || <<L::Pointee as Pointee>::Value as Pun>::LAYOUT.stores_length(),
+  | |     "{}",
+  | |     STORES_LENGTH
+  | |   );
+  | |___- in this macro invocation
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let (eager, next, reserve) = const {
-  |  ________________________________^
+  |     let (eager, next) = const {
+  |  _______________________^
   | |     pointee_checked::<T, L>();
-  | |     // A pointee that holds no eager aim takes one level, and no more: the last one is kept for it.
-  | |     let leaf = !<<L::Pointee as Pointee>::Value as Pun>::LAYOUT.holds_eager_aims()
+  | |     match T::LAYOUT.rule(L::RULE) {
+  | |       Some(Rule::Aim(Aim { check, start, .. })) => {
 ... |
   | |   };
   | |___^

@@ -18,21 +18,25 @@
 //! item in `Pun::Rules`. [`check_rules`] checks each aim in the order of the rules
 //! ([`check_aim`]): it places the pointee at the cursor of the tail ([`check_next`],
 //! [`cursor_step`]) or within the bytes that the check reads ([`Input`], [`find_stored`],
-//! [`stored_at`]), measures it against its type ([`measure`]), and checks it if the aim is eager
-//! ([`check_pointee`]), with [`validate`], which checks the eager aims of the pointee in turn. A
-//! type that points at itself is checked by a recursive call of the same instance, bounded by the
-//! depth and the bytes that [`Input`] counts.
+//! [`stored_at`]), and, if the aim is eager, checks what the pointee stores before its value,
+//! measures the value with its length ([`measure`]), and checks it ([`check_value`]) with
+//! [`validate`], which checks the eager aims of the pointee in turn. A lazy aim requires that its
+//! pointee fits in the tail if it is at the cursor, and nothing if it is at a stored place.
 //!
-//! Without recursion, an eager pointee at a stored place waits in a worklist instead
-//! ([`Pending`]), which [`drive`] runs depth first. A compact check requires each such pointee to
-//! start where the one before it in that order ends ([`Input::claim`]). Where a check fails is
-//! recorded by the check of [`Locate`], which [`check`](crate::check) makes again after a failure.
+//! The `try_` and `from_` functions check a pointee in place: a type that points at itself is
+//! checked by a recursive call of the same instance, bounded by the bytes and by the parts of the
+//! layouts that [`Input`] counts ([`AIM_PARTS`]), which bound its stack. [`check`](crate::check)
+//! checks with [`Work`], whose pointees wait in a worklist ([`Pending`]) instead, which [`drive`]
+//! runs depth first, each value before its pointees, so that its stack does not grow with the data.
+//! A compact check requires each pointee at a stored place to start where the one before it in that
+//! order ends ([`Input::claim`]). Where a check with a worklist fails is recorded as it runs
+//! ([`Input::fail`]).
 //!
 //! What reads a pointee finds it as the check does: [`region_at`] takes the same steps of the
-//! cursor ([`cursor_step`]), which truncate rather than fail, [`pointer_at`] evaluates where a
-//! pointee at a stored place starts, and [`own_length`] reads the length that a pointee of its own
-//! size stores: a `Thin` before its value, or a value in its sized fields, over which the check and
-//! the read evaluate it alike ([`own`], [`stores_length`]).
+//! cursor ([`cursor_step`]), which truncate rather than fail, [`pointer_at`] and [`value_of`]
+//! evaluate where a pointee at a stored place is, and [`own_length`] reads the length that a
+//! pointee stores: a `Thin` before its value, or a value in its sized fields, over which the check
+//! and the read evaluate it alike (`Layout::stores_length`).
 //!
 //! # No interpreter
 //!
@@ -99,9 +103,10 @@ use crate::{
 pub trait Checks {
   /// The leaves to check (scalars, patterns, enums, unions and rules), by index in the target.
   const MARKS: Marks;
-  /// Whether a check that fails records where ([`Input::fail`]), which only [`Locate`] does: a
-  /// check that fails is made again so, so that the check that succeeds compiles no more code.
-  const LOCATE: bool = false;
+  /// Whether this is the check of [`check`](crate::check), [`Work`]: the pointees of eager aims
+  /// wait in its worklist ([`Input::defer`]) rather than being checked in place, and where the
+  /// check fails is recorded ([`Input::fail`]).
+  const WORK: bool = false;
 }
 
 /// The [`Checks`] that check every part.
@@ -111,19 +116,20 @@ impl Checks for All {
   const MARKS: Marks = Marks::ALL;
 }
 
-/// The [`Checks`] that check every part, and record where the first check that fails is: the
-/// innermost scalar, enum or struct whose own check fails (its valid values, its tag, its rules),
-/// or else the pointee that holds it ([`check_pointee`]), or the struct whose aim does not lead to
-/// its pointee ([`check_aim`]).
-pub struct Locate;
+/// The [`Checks`] of [`check`](crate::check): every part, with the pointees of eager aims in a
+/// worklist, and where the first check that fails is: the innermost scalar, enum or struct whose
+/// own check fails (its valid values, its tag, its rules), or else the pointee that holds it, from
+/// the start of what is stored before its value, or the struct whose aim does not lead to its
+/// pointee.
+pub struct Work;
 
-impl Checks for Locate {
+impl Checks for Work {
   const MARKS: Marks = Marks::ALL;
-  const LOCATE: bool = true;
+  const WORK: bool = true;
 }
 
 /// Returns whether every part of the `T` at `ptr` is valid: [`validate`] with [`All`], or with
-/// [`Locate`] if `C` locates, as the check of an enum, a union and a pointee checks them.
+/// [`Work`] in a check with a worklist, as the check of an enum, a union and a pointee checks them.
 ///
 /// # Safety
 ///
@@ -135,8 +141,8 @@ const unsafe fn validate_whole<C: Checks, T: ?Sized + Pun>(
 ) -> bool {
   // SAFETY: The requirements of `validate` are those of this call.
   unsafe {
-    if const { C::LOCATE } {
-      validate::<Locate, Root, T>(ptr, input)
+    if const { C::WORK } {
+      validate::<Work, Root, T>(ptr, input)
     } else {
       validate::<All, Root, T>(ptr, input)
     }
@@ -190,8 +196,8 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
   let valid = unsafe {
     match const { T::LAYOUT.shape() } {
       Shape::Scalar(spec) => spec.matches(ptr.cast()),
-      Shape::Array(len) => validate_elems::<C, P, T::Elem>(ptr.cast(), len, input),
-      Shape::Slice => validate_elems::<C, P, T::Elem>(ptr.cast(), ptr::metadata(ptr), input),
+      Shape::Array(len) => validate_elems::<C, P, T::Elem, false>(ptr.cast(), len, input),
+      Shape::Slice => validate_elems::<C, P, T::Elem, true>(ptr.cast(), ptr::metadata(ptr), input),
       Shape::Struct => {
         validate_fields::<C, P, T, T::Fields>(ptr, input)
           && (const { !rules_marked::<C, P, T>() } || check_rules::<C, T>(ptr, input))
@@ -208,10 +214,10 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
   };
   // A scalar, an enum, a union or a struct whose own check fails is where the check fails, unless
   // a part of it is. A pattern is checked as a whole, as is the pointee that ends with it.
-  if const { C::LOCATE && !matches!(T::LAYOUT.kind, Kind::Pattern(_) | Kind::Array(..) | Kind::Slice(_)) }
+  if const { C::WORK && !matches!(T::LAYOUT.kind, Kind::Pattern(_) | Kind::Array(..) | Kind::Slice(_)) }
     && !valid
   {
-    input.fail(ptr.cast());
+    input.fail::<C>(ptr.cast());
   }
   valid
 }
@@ -295,7 +301,7 @@ const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
 }
 
 /// Returns whether every part of the fields `F` of a variant of the enum at `ptr` is valid:
-/// [`validate_fields`] with [`All`], or with [`Locate`] if `C` locates.
+/// [`validate_fields`] with [`All`], or with [`Work`] in a check with a worklist.
 ///
 /// # Safety
 ///
@@ -307,8 +313,8 @@ const unsafe fn validate_variant<C: Checks, T: ?Sized + Pun, F: Fields>(
 ) -> bool {
   // SAFETY: The requirements of `validate_fields` are those of this call.
   unsafe {
-    if const { C::LOCATE } {
-      validate_fields::<Locate, Root, T, F>(ptr, input)
+    if const { C::WORK } {
+      validate_fields::<Work, Root, T, F>(ptr, input)
     } else {
       validate_fields::<All, Root, T, F>(ptr, input)
     }
@@ -361,12 +367,17 @@ const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(
 /// Elements whose checks are a few comparisons are checked in blocks of about 64 bytes, without a
 /// branch within a block. The result is the same as one element at a time.
 ///
+/// In a check with a worklist, once an element of a slice (`SLICE`) put a pointee in it, the rest
+/// of the slice waits there in one entry, behind the pointees of that element: the worklist grows
+/// with the depth of the data, not with the length of its slices. The elements of an array, whose
+/// length the type gives, are checked together.
+///
 /// # Safety
 ///
 /// The caller must ensure that:
 ///
 /// - `ptr` is valid for reads of `len` consecutive `T`s, each as [`validate`] requires.
-const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(
+const unsafe fn validate_elems<C: Checks, P: Path, T: Pun, const SLICE: bool>(
   ptr: *const T,
   len: usize,
   input: &mut Input,
@@ -374,8 +385,8 @@ const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(
   let mut i = 0;
   // Without a stop within a block, the optimizer can vectorize the checks, which it cannot do in a
   // loop that may stop at each element.
-  let block = const { T::LAYOUT.block() };
-  if block > 1 {
+  let (block, split) = const { (T::LAYOUT.block(), C::WORK && SLICE && T::LAYOUT.defers() > 0) };
+  if block > 1 && !split {
     while len - i >= block {
       let (mut valid, mut j) = (true, 0);
       while j < block {
@@ -392,6 +403,7 @@ const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(
     }
   }
   while i < len {
+    let pending = input.pending;
     // SAFETY: `i < len`. `ptr` is valid for reads of `len` elements, by contract on the caller,
     // so `add(i)` stays within them and points to an element that meets the requirements of
     // `validate`.
@@ -399,6 +411,14 @@ const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(
       return false;
     }
     i += 1;
+    if split && input.pending > pending && i < len {
+      // SAFETY: `i < len`, so `add(i)` stays within the elements, which are within the bytes of
+      // `input`, at or after their start, in a check with a worklist, as `offset_from_unsigned`
+      // requires.
+      let at = unsafe { ptr.add(i).cast::<u8>().offset_from_unsigned(input.start) };
+      let stage = const { &Stage::new::<[T]>(elements_of::<C, T>) };
+      return input.defer(Pending { at, size: len - i, stage });
+    }
   }
   true
 }
@@ -452,8 +472,8 @@ const unsafe fn validate_fields<C: Checks, P: Path, T: ?Sized + Pun, F: Fields>(
       Some(spec) => {
         let at = ptr.cast::<u8>().add(field.offset());
         let valid = (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || spec.matches(at);
-        if C::LOCATE && !valid {
-          input.fail(at);
+        if !valid {
+          input.fail::<C>(at);
         }
         valid
       }
@@ -511,9 +531,7 @@ pub const unsafe fn check_rules<C: Checks, T: ?Sized + Pun>(
 ///
 /// The struct is `size` bytes, and its tail is the `tail` bytes from `head`, of `len` elements.
 /// The aims before `L` at the cursor end at `cursor` in the tail. A `size` rule must be `size`, a
-/// `len` rule `len`, and an assertion not 0. The pointee of an aim must fit, at the cursor
-/// ([`cursor_step`]) or within the bytes of `input` ([`stored`]), with a size that its type has,
-/// and if the aim is eager, be valid ([`check_pointee`]).
+/// `len` rule `len`, and an assertion not 0. An aim requires what [`check_aim`] checks.
 ///
 /// # Safety
 ///
@@ -571,14 +589,13 @@ const unsafe fn check_listed<C: Checks, T: ?Sized + Pun, L: Rules>(
 }
 
 /// Returns where the cursor of the tail of the struct `T` at `base` is after the aim `L`, if the
-/// pointee of the aim fits, and, if the aim is eager, is aligned for its type, has a size that its
-/// type has, and is valid ([`check_pointee`]).
+/// struct meets what the aim requires of it.
 ///
-/// A pointee at the cursor ([`check_next`]) is within the struct, and is checked here. One at a
-/// stored place ([`check_stored`]) is checked here too, or, if `input` has a worklist
-/// ([`Input::defers`]), later, from a [`Pending`] that the driver of the worklist runs, so that
-/// the depth of the check does not grow with the depth of the pointees. A lazy pointee at a stored
-/// place only fits ([`fits_stored`]).
+/// A pointee at the cursor ([`check_next`]) must fit in the tail, and one at a stored place
+/// requires nothing of the struct if the aim is lazy. The pointee of an eager aim is checked here,
+/// in place ([`check_stored`], [`check_placed`]), or, in a check with a worklist (`C::WORK`),
+/// later, from a [`Pending`] that the driver of the worklist runs, so that the stack of a check
+/// does not grow with the depth of the pointees.
 ///
 /// # Safety
 ///
@@ -591,72 +608,49 @@ const unsafe fn check_aim<C: Checks, T: ?Sized + Pun, L: Rules>(
   cursor: usize,
   input: &mut Input,
 ) -> Option<usize> {
-  let (eager, next, reserve) = const {
+  let (eager, next) = const {
     pointee_checked::<T, L>();
-    // A pointee that holds no eager aim takes one level, and no more: the last one is kept for it.
-    let leaf = !<<L::Pointee as Pointee>::Value as Pun>::LAYOUT.holds_eager_aims()
-      && !<<L::Pointee as Pointee>::Prefix as Pun>::LAYOUT.holds_eager_aims();
-    let reserve = if leaf { 0 } else { 1 };
     match T::LAYOUT.rule(L::RULE) {
       Some(Rule::Aim(Aim { check, start, .. })) => {
-        (matches!(check, Check::Eager), matches!(start, Start::Next), reserve)
+        (matches!(check, Check::Eager), matches!(start, Start::Next))
       }
-      _ => (false, false, reserve),
+      _ => (false, false),
     }
   };
   if next {
     // SAFETY: The requirements of `check_next` are those of this call.
     return unsafe { check_next::<C, T, L>(base, size, (head, tail), cursor, input) };
   }
-  // A pointee is checked in place while the depth allows ([`IN_PLACE`]), unless the step deferred a
-  // pointee before it, which a depth-first walk checks first. Not when the check finds where bytes
-  // fail (`C::LOCATE`): then the parts of a value are checked before its pointees, as a check that
-  // defers them all does.
-  let in_place = !C::LOCATE && input.depth > reserve && input.pending == input.mark;
-  let valid = if eager && input.defers() && !in_place {
+  // A lazy pointee at a stored place is checked when it is read.
+  if !eager {
+    return Some(cursor);
+  }
+  let valid = if const { C::WORK } {
     // SAFETY: The struct is within the bytes of `input`, at or after their start, by contract on
     // the caller, as `offset_from_unsigned` requires.
     let at = unsafe { base.offset_from_unsigned(input.start) };
-    input.defer(Pending { at, size, check: check_stored::<C, T, L> })
-  } else if eager {
+    input.defer(Pending {
+      at,
+      size,
+      stage: const { &Stage::new::<L::Pointee>(check_stored::<C, T, L>) },
+    })
+  } else {
     // SAFETY: The requirements of `check_stored` are those of this call.
     unsafe { check_stored::<C, T, L>(base, size, input) }
-  } else {
-    // SAFETY: The requirements of `fits_stored` are those of this call.
-    unsafe { fits_stored::<T, L>(base, size, input) }
   };
   if valid { Some(cursor) } else { None }
 }
 
-/// Returns whether the pointee of the lazy aim at a stored place `L` of the struct `T` at `base`,
-/// of `size` bytes, fits in the bytes of `input` ([`stored`]), and records where the struct is if
-/// it does not.
-///
-/// It is a function of its own in a build without optimizations, as [`find_stored`] is.
-///
-/// # Safety
-///
-/// The caller must ensure the requirements of [`stored`].
-#[cfg_attr(not(debug_assertions), inline(always))]
-#[cfg_attr(debug_assertions, inline(never))]
-const unsafe fn fits_stored<T: ?Sized + Pun, L: Rules>(
-  base: *const u8,
-  size: usize,
-  input: &mut Input,
-) -> bool {
-  // SAFETY: The requirements of `stored` are those of this call.
-  let fits = unsafe { stored::<T, L>(base, size, input) }.is_some();
-  if !fits {
-    input.fail(base);
-  }
-  fits
-}
-
 /// Returns where the cursor of the tail of the struct `T` at `base` is after the aim at the cursor
-/// `L`, if its pointee fits ([`cursor_step`]), and, if the aim is eager, is aligned for its type,
-/// has a size that its type has, and is valid ([`check_pointee`]).
+/// `L`, if its pointee fits ([`cursor_step`]), and, if the aim is eager, its pointee is aligned for
+/// its type, has a size that its type has, and is valid ([`check_placed`]), now or, in a check
+/// with a worklist, later.
 ///
-/// It is a function of its own in a build without optimizations, as [`find_stored`] is.
+/// Where a pointee does not fit, or is not aligned or of a size of its type, the struct is where
+/// the check fails ([`Input::fail`]).
+///
+/// It is a function of its own in a build without optimizations, so that the frames of the
+/// recursion of eager aims do not hold what it computes.
 ///
 /// # Safety
 ///
@@ -677,40 +671,52 @@ const unsafe fn check_next<C: Checks, T: ?Sized + Pun, L: Rules>(
     }
   };
   // SAFETY: The requirements of `cursor_step` are those of this call.
-  let Some(Step { start, size: n, len }) =
+  let Some(Step { value, end, len, .. }) =
     (unsafe { cursor_step::<T, L, true>(base, size, (head, tail), cursor) })
   else {
-    input.fail(base);
+    input.fail::<C>(base);
     return None;
   };
-  if eager {
-    // SAFETY: `start + n <= tail`, so `head + start` is within the `size` bytes at `base`
-    // (`cursor_step`).
-    let addr = unsafe { base.add(head + start) };
-    // An eager pointee is aligned for its type, which its read relies on, has a size that its
-    // type has, and is valid.
-    let Some(len) = len else {
-      input.fail(base);
-      return None;
-    };
-    if !input.aligned::<L::Pointee>(addr, align) {
-      input.fail(base);
-      return None;
-    }
-    // SAFETY: The pointee is at `addr` with the length `len`, within the bytes of the `T`, which
-    // are valid for reads and initialized, by contract on the caller, and within those of `input`
-    // if the `T` is, as `check_pointee` requires.
-    if !unsafe { check_pointee::<C, L::Pointee>(addr, len, input) } {
-      return None;
-    }
+  if !eager {
+    return Some(end);
   }
-  Some(start + n)
+  // SAFETY: `value <= head + tail <= size` (`cursor_step`), within the bytes of the `T`.
+  let addr = unsafe { base.add(value) };
+  // An eager pointee is aligned for its type, which its read relies on, and has a size that its
+  // type has.
+  let Some(len) = len else {
+    input.fail::<C>(base);
+    return None;
+  };
+  if !input.aligned::<L::Pointee>(addr, align) {
+    input.fail::<C>(base);
+    return None;
+  }
+  let valid = if const { C::WORK } {
+    // SAFETY: The value is within the bytes of the `T`, which are within those of `input`, at or
+    // after their start, by contract on the caller, as `offset_from_unsigned` requires.
+    let at = unsafe { addr.offset_from_unsigned(input.start) };
+    let stage = const { &Stage::new::<L::Pointee>(check_placed::<C, L::Pointee>) };
+    input.defer(Pending { at, size: len, stage })
+  } else {
+    // SAFETY: The value of the pointee is at `addr` with the length `len`, and its prefix before
+    // it, within the bytes of the `T` (`cursor_step`), which are valid for reads and initialized,
+    // by contract on the caller, and within those of `input` if the `T` is, as `check_placed`
+    // requires.
+    unsafe { check_placed::<C, L::Pointee>(addr, len, input) }
+  };
+  if valid { Some(end) } else { None }
 }
 
 /// Returns whether the pointee of the eager aim at a stored place `L` of the struct `T` at `base`,
-/// of `size` bytes, is where it must be ([`find_stored`]), and is valid ([`check_pointee`]).
+/// of `size` bytes, is where it must be ([`find_stored`]), and is valid: what is stored before its
+/// value first ([`Pointee::Prefix`]), then its length ([`measure`]), then its value
+/// ([`check_value`]).
 ///
-/// It is the function of a [`Pending`].
+/// Where the length is not one that the type has, or makes a pointee that does not fit in the
+/// bytes, is where the pointee starts, with what is stored before its value.
+///
+/// It is the function of the [`Pending`] of such an aim.
 ///
 /// # Safety
 ///
@@ -724,26 +730,42 @@ const unsafe fn check_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
   size: usize,
   input: &mut Input,
 ) -> bool {
+  let before = const { size_of::<<L::Pointee as Pointee>::Prefix>() };
   // SAFETY: The requirements of `find_stored` are those of this call.
-  let Some((addr, len)) = (unsafe { find_stored::<T, L>(base, size, input) }) else {
+  let Some((to, wanted)) = (unsafe { find_stored::<C, T, L>(base, size, input) }) else {
     return false;
   };
-  // SAFETY: The pointee is at `addr` with the length `len`, and its prefix before it, within the
-  // bytes of `input` (`find_stored`), which are valid for reads and initialized, as
-  // `check_pointee` requires.
-  unsafe { check_pointee::<C, L::Pointee>(addr, len, input) }
+  // SAFETY: `before <= to <= input.len` (`find_stored`), so `add` stays within the bytes of
+  // `input`, in one allocation, and so does `sub`.
+  let (addr, start) = unsafe { (input.start.add(to), input.start.add(to - before)) };
+  if before > 0
+    // SAFETY: The `before` bytes of the prefix are at `start`, within the bytes of `input`, which
+    // are valid for reads and initialized, as `validate` requires.
+    && !unsafe { validate_whole::<C, <L::Pointee as Pointee>::Prefix>(start.cast(), input) }
+  {
+    input.fail::<C>(start);
+    return false;
+  }
+  // SAFETY: The `input.len - to` bytes at `addr` are the end of the bytes of `input`, which are
+  // valid for reads and initialized, and the prefix of the pointee is before them, as `measure`
+  // requires.
+  let Some((Some(len), n)) = (unsafe { measure::<L::Pointee>(wanted, addr, input.len - to) })
+  else {
+    input.fail::<C>(start);
+    return false;
+  };
+  input.claimed(to + n);
+  // SAFETY: The value is at `addr` with the length `len`, of `n` bytes within those of `input`,
+  // which are valid for reads and initialized, as `check_value` requires.
+  unsafe { check_value::<C, L::Pointee>(addr, len, input) }
 }
 
 /// Returns where the value of the pointee of the eager aim at a stored place `L` of the struct `T`
-/// at `base`, of `size` bytes, is, and the length of its tail, if it is within the bytes of
-/// `input` ([`stored_at`]), aligned for its type, where a compact check expects it
-/// ([`Input::claim`]), and of a size that its type has ([`measure`]).
+/// at `base`, of `size` bytes, is, in bytes from the start of `input`, and how large the aim says
+/// it is, if it is within the bytes of `input` ([`stored_at`]), aligned for its type, where a
+/// compact check expects it ([`Input::claim`]), and the sized part of its value fits in them.
 ///
-/// Where the check fails is recorded ([`Input::fail`]): where the struct is if its aim does not
-/// lead to the pointee (it is not within the bytes, not aligned, not where a compact check expects
-/// it, or what is stored before its value or the sized part of its value does not fit); where the
-/// length of a `Thin` is if it is negative; and where the pointee starts if its size is not one
-/// that its type has, or does not fit.
+/// Where the aim does not lead to the pointee so, the struct is where the check fails.
 ///
 /// It is a function of its own in a build without optimizations, so that the frames of the
 /// recursion of eager aims do not hold what it computes.
@@ -753,22 +775,22 @@ const unsafe fn check_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
 /// The caller must ensure the requirements of [`check_stored`].
 #[cfg_attr(not(debug_assertions), inline(always))]
 #[cfg_attr(debug_assertions, inline(never))]
-const unsafe fn find_stored<T: ?Sized + Pun, L: Rules>(
+const unsafe fn find_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   size: usize,
   input: &mut Input,
-) -> Option<(*const u8, usize)> {
-  let (align, before, head, length) = const {
+) -> Option<(usize, Size)> {
+  let (align, before, head) = const {
     let align = match T::LAYOUT.rule(L::RULE) {
       Some(Rule::Aim(aim)) => aim.align,
       _ => 1,
     };
     let head = <<L::Pointee as Pointee>::Value as Pun>::LAYOUT.head();
-    (align, size_of::<<L::Pointee as Pointee>::Prefix>(), head, L::Pointee::LENGTH)
+    (align, size_of::<<L::Pointee as Pointee>::Prefix>(), head)
   };
   // SAFETY: The requirements of `stored_at` are those of this call.
   let Some((to, wanted)) = (unsafe { stored_at::<T, L>(base, size, input) }) else {
-    input.fail(base);
+    input.fail::<C>(base);
     return None;
   };
   // SAFETY: `before <= to <= input.len` (`stored_at`), so `add` stays within the bytes of `input`,
@@ -778,35 +800,96 @@ const unsafe fn find_stored<T: ?Sized + Pun, L: Rules>(
     || !input.claim(to, before, align)
     || input.len - to < head
   {
-    input.fail(base);
+    input.fail::<C>(base);
     return None;
   }
-  if let Some(spec) = length {
-    // SAFETY: The length of a `Thin` is the end of what is stored before its value, which
-    // `stored_at` found within the bytes of `input`, valid for reads and initialized.
-    if unsafe { stored_length::<L::Pointee>(addr) }.is_none() {
-      input.fail(addr.wrapping_sub(spec.size));
-      return None;
-    }
-  }
-  // SAFETY: The `input.len - to` bytes at `addr` are the end of the bytes of `input`, which are
-  // valid for reads and initialized, and the prefix of the pointee is before them, by contract on
-  // the caller, as `measure` requires.
-  let Some((Some(len), n)) = (unsafe { measure::<L::Pointee>(wanted, addr, input.len - to) })
-  else {
-    input.fail(addr.wrapping_sub(before));
-    return None;
-  };
-  input.claimed(to + n);
-  Some((addr, len))
+  Some((to, wanted))
 }
 
-/// What the pointee of the aim `L` of `T` must be, asserted where it is checked or read: one of
-/// its own size stores its length ([`stores_length`]), and one that is checked with the struct
-/// depends on no layout that Rust leaves to the compiler, without the `unstable` feature.
+/// Returns whether the pointee `P` whose value is at `addr`, the length of whose tail is `len`, is
+/// valid: what is stored before its value, then its value ([`check_value`]). The pointee of an
+/// eager aim at the cursor is checked so, and is the function of its [`Pending`].
+///
+/// # Safety
+///
+/// The caller must ensure that the `P` at `addr` with that length, and its prefix before it, are
+/// within the bytes of `input` or of a value within them, which are in one allocation, valid for
+/// reads and initialized.
+const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
+  addr: *const u8,
+  len: usize,
+  input: &mut Input,
+) -> bool {
+  let before = const { size_of::<P::Prefix>() };
+  let start = addr.wrapping_sub(before);
+  // SAFETY: The `before` bytes of the prefix are at `start`, within the bytes of `input` or of a
+  // value within them, which are valid for reads and initialized, as `validate` requires.
+  if before > 0 && !unsafe { validate_whole::<C, P::Prefix>(start.cast(), input) } {
+    input.fail::<C>(start);
+    return false;
+  }
+  // SAFETY: The requirements of `check_value` are those of this call.
+  unsafe { check_value::<C, P>(addr, len, input) }
+}
+
+/// Returns whether the value of the pointee `P` at `addr`, the length of whose tail is `len`, is
+/// valid, every part of it checked, its own eager aims at the next level, and records where the
+/// pointee starts, with what is stored before its value, if it is not, unless a part of it
+/// recorded where it fails.
+///
+/// The check of a value in place nests the calls of the check of its parts, so it takes its parts
+/// from the budget of [`AIM_PARTS`] while it runs, and its size from the budget of bytes
+/// ([`Input::enter`]).
+///
+/// # Safety
+///
+/// The caller must ensure that the value of `P` at `addr` with that length is within the bytes of
+/// `input` or of a value within them, which are in one allocation, valid for reads and initialized.
+const unsafe fn check_value<C: Checks, P: ?Sized + Pointee>(
+  addr: *const u8,
+  len: usize,
+  input: &mut Input,
+) -> bool {
+  let (before, parts) = const {
+    let parts =
+      <P::Value as Pun>::LAYOUT.parts().saturating_add(<P::Prefix as Pun>::LAYOUT.parts());
+    (size_of::<P::Prefix>(), parts)
+  };
+  let start = addr.wrapping_sub(before);
+  let value = ptr::from_raw_parts::<P::Value>(addr, len);
+  // The value exists in the bytes: its size does not overflow.
+  let Some(size) = const { <P::Value as Pun>::LAYOUT }.size_of_val(len) else {
+    input.fail::<C>(start);
+    return false;
+  };
+  if !input.enter(size.saturating_add(before), parts) {
+    return false;
+  }
+  // SAFETY: The value of `P` at `addr` is within the bytes of `input` or of a value within them,
+  // which are valid for reads and initialized, by contract on the caller, so every byte that a
+  // check reads is. These are the requirements of `validate`, and the pointees of its aims are
+  // within `input` too.
+  let valid = unsafe { validate_whole::<C, P::Value>(value, input) };
+  input.leave(parts);
+  if !valid {
+    input.fail::<C>(start);
+  }
+  valid
+}
+
+/// What the pointee of the aim `L` of `T` must be, asserted where it is checked or read: one whose
+/// extent is what it stores stores its length (`Layout::stores_length`), as [`Aim::new`] cannot
+/// assert, since the layout of the pointee may hold the aim, and one that is checked with the
+/// struct has no layout that Rust leaves to the compiler, without the `unstable` feature.
 pub const fn pointee_checked<T: ?Sized + Pun, L: Rules>() {
   let Some(Rule::Aim(aim)) = T::LAYOUT.rule(L::RULE) else { return };
-  assert!(!matches!(aim.extent, Extent::Own) || own::<L::Pointee>(), "{}", STORES_LENGTH);
+  assert!(
+    !matches!(aim.extent, Extent::Pointee)
+      || L::Pointee::LENGTH.is_some()
+      || <<L::Pointee as Pointee>::Value as Pun>::LAYOUT.stores_length(),
+    "{}",
+    STORES_LENGTH
+  );
   assert!(
     matches!(aim.check, Check::Lazy)
       || <<L::Pointee as Pointee>::Value as Pun>::LAYOUT.checks_kept()
@@ -817,32 +900,21 @@ pub const fn pointee_checked<T: ?Sized + Pun, L: Rules>() {
   );
 }
 
-/// Returns whether a `D` stores the length of its tail in its sized fields, as the pointee of an
-/// aim of its own size does: it is sized, or its `size` or `len` rule reads only its sized fields
-/// ([`LengthRule::in_head`](layout::LengthRule::in_head)). The check of an aim ([`measure`]) and
-/// the read of its pointee ([`own_length`]) both evaluate the rule over the sized fields, so that a
-/// pointee that the check accepts is one that the read reads.
-const fn stores_length<D: ?Sized + Pun>() -> bool {
-  let layout = D::LAYOUT;
-  match layout.length_rule() {
-    _ if !layout.is_unsized() => true,
-    Some(rule) => rule.in_head(),
-    None => false,
-  }
-}
-
-/// Why the pointee of an aim of its own size does not compile, if [`stores_length`] is false.
-const STORES_LENGTH: &str = "the pointee of an aim of its own size is sized, or stores its length \
-                             in its sized fields: a `size` or `len` rule that reads no byte by \
-                             offset";
+/// Why the pointee of an aim whose extent is what it stores does not compile, if it does not store
+/// its length.
+const STORES_LENGTH: &str = "the pointee of an aim whose extent is what it stores is sized, a \
+                             `Thin`, or stores its length in its sized fields: a `size` or `len` \
+                             rule that reads no byte by offset";
 
 /// Where the pointee of an aim at the cursor is, and how large ([`cursor_step`]).
 #[derive(Copy, Clone)]
 pub struct Step {
-  /// Where it starts, in bytes from the start of the tail.
-  pub start: usize,
-  /// Its size, in bytes.
+  /// Where its value starts, in bytes from the start of the struct.
+  pub value: usize,
+  /// The size of its value, in bytes.
   pub size: usize,
+  /// Where the cursor is after it, in bytes from the start of the tail.
+  pub end: usize,
   /// The length of its tail, if its size is one that its type has ([`measure`]).
   pub len: Option<usize>,
 }
@@ -852,17 +924,19 @@ pub struct Step {
 /// cursor, which the check of the struct ([`check_listed`]) and the reads of its pointees
 /// ([`region_at`]) take alike.
 ///
-/// The struct is `size` bytes, and its tail is the `tail` bytes from `head`. The pointee starts at
-/// the cursor, rounded up to the alignment of its type by its offset from the start of the struct,
-/// so that where it is depends on the bytes, not on their address. Its size is that of its type, the
-/// value of its expression, or the rest of the tail ([`Extent`]), measured against its type
+/// The struct is `size` bytes, and its tail is the `tail` bytes from `head`. The value of the
+/// pointee starts at the cursor, after what the pointee stores before it, rounded up to the
+/// alignment of the pointee by its offset from the start of the struct, so that where it is depends
+/// on the bytes, not on their address. Its size is what it stores, the size of its length or the
+/// size that its expression gives, or the rest of the tail ([`Extent`]), measured against its type
 /// ([`measure`]).
 ///
-/// With `STRICT`, the step fails where the pointee does not fit in the tail, or its size fails.
-/// Otherwise it never fails: a pointee that would start past the tail starts at its end, and one
-/// whose size fails, or does not fit, takes the rest of the tail, since safe code may have written
-/// the fields that give it after the struct was checked. Either way, the length is `None` where the
-/// size is not one that the type of the pointee has, which the check of an eager aim refuses.
+/// With `STRICT`, the step fails where the pointee does not fit in the tail, or its expression
+/// fails. Otherwise it never fails: a pointee that would start past the tail is empty at its end,
+/// and one whose expression fails, or that does not fit, takes the rest of the tail, since safe
+/// code may have written the fields that give it after the struct was checked. Either way, the
+/// length is `None` where the size is not one that the type of the pointee has, which the check of
+/// an eager aim refuses.
 ///
 /// # Safety
 ///
@@ -881,41 +955,72 @@ pub const unsafe fn cursor_step<T: ?Sized + Pun, L: Rules, const STRICT: bool>(
   cursor: usize,
 ) -> Option<Step> {
   // Named for every rule of a struct, and called for an aim at the cursor only.
-  let (extent, align) = const {
+  let (extent, align, before) = const {
+    let before = size_of::<<L::Pointee as Pointee>::Prefix>();
     match T::LAYOUT.rule(L::RULE) {
-      Some(Rule::Aim(Aim { start: Start::Next, extent, align, .. })) => (extent, align),
-      _ => (Extent::Rest, 1),
+      Some(Rule::Aim(Aim { start: Start::Next, extent, align, .. })) => (extent, align, before),
+      _ => (Extent::Rest, 1, before),
     }
   };
-  // The offset of the cursor from the start of the struct, rounded up: `head + tail <= size`, so
-  // no overflow below `size` (an `align` larger than the struct moves past the tail).
-  let start = match (head + cursor).checked_next_multiple_of(align) {
-    Some(at) if at - head <= tail => at - head,
-    _ if STRICT => return None,
-    _ => tail,
+  // SAFETY: `head + tail <= size` and `cursor <= tail`, and `size <= isize::MAX`, the size of the
+  // bytes of a `T`, which `base` is valid for reads of, by contract on the caller. Said to the
+  // compiler, these remove the checks of overflow that a read of a region would otherwise make.
+  unsafe {
+    core::hint::assert_unchecked(
+      size <= isize::MAX as usize && head <= size && tail <= size - head && cursor <= tail,
+    );
   };
-  let rest = tail - start;
+  let (end, room) = (head + tail, tail - cursor);
+  // The bytes before the value, from the cursor: its prefix, then up to its alignment by its offset
+  // from the start of the struct. They are 0 for a pointee of alignment 1 that stores nothing,
+  // which the compiler then checks not at all. `head + cursor <= size`, so the sums do not
+  // overflow below `isize::MAX`, and an alignment past the end of the tail gives no room.
+  let at = head + cursor;
+  let pad = match (at + before).checked_next_multiple_of(align) {
+    Some(value) => value - at,
+    None => usize::MAX,
+  };
+  if pad > room {
+    if STRICT {
+      return None;
+    }
+    // Empty, at the end of the tail, with no room for what it stores before its value.
+    return Some(Step { value: end, size: 0, end: tail, len: None });
+  }
+  let (value, rest) = (at + pad, room - pad);
+  let fallback = if STRICT { None } else { Some(Size::Bytes(rest as u128)) };
   let wanted = match extent {
-    Extent::Own => Size::Own,
-    // SAFETY: `InRule<T, L, 1>` is the size of the pointee, the second expression of the rule,
-    // whose operations are `L::Extent`. `base` is valid for reads of the `size` bytes of a `T`,
-    // which cover its sized fields, and the bytes that the rule reads are initialized, by contract
-    // on the caller. This is what `eval` requires.
-    Extent::Given(_) => match unsafe { eval::<InRule<T, L, 1>, L::Extent>(base, size) } {
-      Some(n) => Size::Bytes(n),
-      None if STRICT => return None,
-      None => Size::Rest,
+    Extent::Pointee => Some(Size::Pointee),
+    // SAFETY: `InRule<T, L, 1>` is the length or the size of the pointee, the second expression of
+    // the rule, whose operations are `L::Extent`. `base` is valid for reads of the `size` bytes of
+    // a `T`, which cover its sized fields, and the bytes that the rule reads are initialized, by
+    // contract on the caller. This is what `eval` requires.
+    Extent::Length(_) => match unsafe { eval::<InRule<T, L, 1>, L::Extent>(base, size) } {
+      Some(n) => Some(Size::Length(n)),
+      None => fallback,
     },
-    Extent::Rest => Size::Rest,
+    // SAFETY: As above.
+    Extent::Bytes(_) => match unsafe { eval::<InRule<T, L, 1>, L::Extent>(base, size) } {
+      Some(n) => Some(Size::Bytes(n)),
+      None => fallback,
+    },
+    Extent::Rest => Some(Size::Bytes(rest as u128)),
   };
-  // SAFETY: `head + start <= head + tail <= size`, and the `rest` bytes from there are the end of
-  // the tail, valid for reads and initialized, by contract on the caller, as `measure` requires.
-  let measured = unsafe { measure::<L::Pointee>(wanted, base.add(head + start), rest) };
+  let Some(wanted) = wanted else { return None };
+  // SAFETY: `value <= end <= size`, and the `rest` bytes from there are the end of the tail, valid
+  // for reads and initialized, by contract on the caller, with the prefix of the pointee before
+  // them, after the cursor, in the tail, as `measure` requires.
+  let measured = unsafe { measure::<L::Pointee>(wanted, base.add(value), rest) };
   match measured {
-    Some((len, size)) => Some(Step { start, size, len }),
+    Some((len, n)) => Some(Step { value, size: n, end: value + n - head, len }),
     None if STRICT => None,
     // What remains, which may not be a size of the type, for what reads it to refuse.
-    None => Some(Step { start, size: rest, len: sized_as::<<L::Pointee as Pointee>::Value>(rest) }),
+    None => Some(Step {
+      value,
+      size: rest,
+      end: tail,
+      len: sized_as::<<L::Pointee as Pointee>::Value>(rest),
+    }),
   }
 }
 
@@ -923,37 +1028,40 @@ pub const unsafe fn cursor_step<T: ?Sized + Pun, L: Rules, const STRICT: bool>(
 /// ([`measure`]).
 #[derive(Copy, Clone)]
 pub enum Size {
-  /// The size of its type ([`Extent::Own`]).
-  Own,
-  /// This many bytes, the value of an expression ([`Extent::Given`]).
+  /// What the pointee stores ([`Extent::Pointee`]).
+  Pointee,
+  /// The length of its tail, the value of an expression ([`Extent::Length`]).
+  Length(u128),
+  /// This many bytes ([`Extent::Bytes`], [`Extent::Rest`]).
   Bytes(u128),
-  /// What remains of the bytes ([`Extent::Rest`]).
-  Rest,
 }
 
-/// Returns the size of the pointee `P` at `addr`, of which `room` bytes can be read, as large as
-/// `size` says, if it fits in them, and the length of its tail if the size is one that `P` has: the
-/// size of its type, with the length that it stores in its sized fields if it is unsized, or the
-/// bytes that are given or remain, which are a size of `P` if they are the size of a sized `P`, or
-/// of an unsized one with as many elements as make it ([`sized_as`]). The check of a lazy aim
-/// requires only that the pointee fits, so that its type plays no part in the value of the struct,
-/// and that of an eager one that its size is one of its type too.
+/// Returns the size of the value of the pointee `P` at `addr`, of which `room` bytes can be read,
+/// as large as `size` says, if it fits in them, and the length of its tail if the size is one that
+/// `P` has: the size of its type, with the length that it stores if it is unsized, or with the
+/// length that is given, or the bytes that are given, which are a size of `P` if they are the size
+/// of a sized `P`, or of an unsized one with as many elements as make it ([`sized_as`]). The check
+/// of a lazy aim at the cursor requires only that the pointee fits, so that its type plays no part
+/// in the value of the struct but for where it is and what it stores, and that of an eager one that
+/// its size is one of its type too.
 ///
 /// # Safety
 ///
-/// The caller must ensure that `addr` is valid for reads of `room` initialized bytes.
+/// The caller must ensure that `addr` is valid for reads of `room` initialized bytes, and, if `P`
+/// stores its length before its value, that its prefix, before `addr`, is.
 #[inline(always)]
 pub const unsafe fn measure<P: ?Sized + Pointee>(
   size: Size,
   addr: *const u8,
   room: usize,
 ) -> Option<(Option<usize>, usize)> {
-  let (layout, measured, thin) =
-    const { (<P::Value as Pun>::LAYOUT, stores_length::<P::Value>(), P::LENGTH.is_some()) };
-  let n = match size {
-    Size::Own if !layout.is_unsized() => layout.size(),
-    Size::Own if !thin && (!measured || room < layout.head()) => return None,
-    Size::Own => {
+  let (layout, thin) = const { (<P::Value as Pun>::LAYOUT, P::LENGTH.is_some()) };
+  let len = match size {
+    Size::Pointee if !layout.is_unsized() => {
+      return if layout.size() <= room { Some((Some(0), layout.size())) } else { None };
+    }
+    Size::Pointee if !thin && room < layout.head() => return None,
+    Size::Pointee => {
       let value = if thin {
         // SAFETY: The length that a `Thin` stores is right before `addr`, in initialized bytes, by
         // contract on the caller, as `stored_length` requires.
@@ -961,36 +1069,35 @@ pub const unsafe fn measure<P: ?Sized + Pointee>(
       } else {
         // SAFETY: `addr` is valid for reads of `room` initialized bytes, by contract on the
         // caller, which cover the `head` bytes of the sized fields of the value, and of the struct
-        // in it that has the rule, which `stores_length` found. These are the requirements of
-        // `length`.
+        // in it that has the rule, which stores the length (`Aim::new`). These are the
+        // requirements of `length`.
         unsafe { length::<P::Value>(addr, layout.head()) }
       };
-      let len = match value {
-        Some(value) if value <= usize::MAX as u128 && thin => Some(value as usize),
-        Some(value) if value <= usize::MAX as u128 => elements::<P::Value>(value as usize),
-        _ => None,
-      };
-      return match len {
-        Some(len)
-          if room >= layout.head()
-            && (layout.stride() == 0 || len <= (room - layout.head()) / layout.stride()) =>
-        {
-          match layout.size_of_val(len) {
-            Some(size) if size <= room => Some((Some(len), size)),
-            _ => None,
-          }
-        }
-        _ => None,
-      };
+      match value {
+        Some(value) if value <= usize::MAX as u128 && thin => value as usize,
+        Some(value) if value <= usize::MAX as u128 => match elements::<P::Value>(value as usize) {
+          Some(len) => len,
+          None => return None,
+        },
+        _ => return None,
+      }
     }
-    Size::Bytes(n) if n <= room as u128 => n as usize,
-    Size::Bytes(_) => return None,
-    Size::Rest => room,
+    Size::Length(len) if len <= usize::MAX as u128 => len as usize,
+    Size::Bytes(n) if n <= room as u128 => {
+      let n = n as usize;
+      return Some((sized_as::<P::Value>(n), n));
+    }
+    Size::Length(_) | Size::Bytes(_) => return None,
   };
-  if n > room {
+  // A length: its value fits only if its elements do.
+  if room < layout.head() || layout.stride() != 0 && len > (room - layout.head()) / layout.stride()
+  {
     return None;
   }
-  Some((sized_as::<P::Value>(n), n))
+  match layout.size_of_val(len) {
+    Some(size) if size <= room => Some((Some(len), size)),
+    _ => None,
+  }
 }
 
 /// Returns the length that the `Thin` pointee `P` whose value is at `addr` stores right before it,
@@ -1013,22 +1120,23 @@ const unsafe fn stored_length<P: ?Sized + Pointee>(addr: *const u8) -> Option<u1
   Some(value)
 }
 
-/// Returns the length of the tail of the pointee `P` of its own size whose value is at `addr`: what
-/// [`measure`] finds, from the length that a `Thin` stores before it, or from the `size` or `len`
-/// rule of the value, evaluated over its sized fields.
+/// Returns the length of the tail of the pointee `P` whose value is at `addr`, where `P` stores it:
+/// what [`measure`] finds, from the length that a `Thin` stores before it, or from the `size` or
+/// `len` rule of the value, evaluated over its sized fields, and 0 for a sized value.
 ///
 /// # Safety
 ///
-/// The caller must ensure that `P` stores its length ([`own`]), that a valid value of `P`, aligned,
-/// is at `addr`, after the prefix of `P`, and that the length that it stores is the length of its
-/// tail. A pointee of its own size that [`check_pointee`] checked is one.
+/// The caller must ensure that `P` stores its length (`Layout::stores_length`, or a `Thin`), that
+/// a valid value of `P`, aligned, is at `addr`, after the prefix of `P`, and that the length that
+/// it stores is the length of its tail. A pointee whose extent is what it stores, which
+/// [`check_stored`] or [`check_next`] checked, is one.
 #[inline(always)]
 pub const unsafe fn own_length<P: ?Sized + Pointee>(addr: *const u8) -> usize {
-  let (unsized_, stride, head, thin) = const {
+  let (unsized_, head, thin) = const {
     let layout = <P::Value as Pun>::LAYOUT;
-    (layout.is_unsized(), layout.stride(), layout.head(), P::LENGTH.is_some())
+    (layout.is_unsized(), layout.head(), P::LENGTH.is_some())
   };
-  if !unsized_ || stride == 0 {
+  if !unsized_ {
     return 0;
   }
   let len = if thin {
@@ -1041,7 +1149,7 @@ pub const unsafe fn own_length<P: ?Sized + Pointee>(addr: *const u8) -> usize {
   } else {
     // SAFETY: The `head` bytes at `addr` are the sized fields of the valid value there, valid for
     // reads and initialized, by contract on the caller. They cover the sized fields of the struct
-    // in it that has the rule, which `own` found. These are the requirements of `length`.
+    // in it that has the rule, which stores the length. These are the requirements of `length`.
     match unsafe { length::<P::Value>(addr, head) } {
       Some(value) if value <= usize::MAX as u128 => elements::<P::Value>(value as usize),
       _ => None,
@@ -1054,13 +1162,6 @@ pub const unsafe fn own_length<P: ?Sized + Pointee>(addr: *const u8) -> usize {
     unsafe { core::hint::unreachable_unchecked() }
   };
   len
-}
-
-/// Returns whether a pointee `P` stores the length of its value, as the pointee of an aim of its
-/// own size does: a `Thin`, before the value, or a value that stores it in its sized fields
-/// ([`stores_length`]).
-pub const fn own<P: ?Sized + Pointee>() -> bool {
-  P::LENGTH.is_some() || stores_length::<P::Value>()
 }
 
 /// Returns the length of the tail of a `P` of `size` bytes, if `size` is the size of a `P`: the
@@ -1085,103 +1186,122 @@ pub const fn sized_as<P: ?Sized + Pun>(size: usize) -> Option<usize> {
 }
 
 /// Returns where the value of the pointee of the aim at a stored place `L` of the struct `T` at
-/// `base` is, in bytes from the start of `input`, and the size that the aim gives it: at the address
+/// `base` is, in bytes from the start of `input`, and how large the aim says it is: at the address
 /// of the struct plus the value of the expression of the aim, an `i128` in two's complement, plus
 /// what is before the value where the aim points (`Pointee::VALUE_AT`). The value must be within
-/// the bytes of `input`, after what is stored before it (`Pointee::Prefix`).
+/// the bytes of `input`, after what is stored before it (`Pointee::Prefix`). For a pointee that
+/// takes the rest of the tail of the struct, its value starts at or before the end of that tail.
 ///
 /// # Safety
 ///
 /// The caller must ensure that `base` is valid for reads of the `size` bytes of a `T`, which are
 /// within the bytes of `input`, and that the bytes that its rules read are initialized.
 #[inline(always)]
-const unsafe fn stored_at<T: ?Sized + Pun, L: Rules>(
+pub const unsafe fn stored_at<T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   size: usize,
   input: &Input,
 ) -> Option<(usize, Size)> {
   // Named for every rule of a struct, and called for an aim at a stored place only.
-  let extent = const {
+  let (extent, before, value_at) = const {
+    let (before, at) = (size_of::<<L::Pointee as Pointee>::Prefix>(), L::Pointee::VALUE_AT);
     match T::LAYOUT.rule(L::RULE) {
-      Some(Rule::Aim(Aim { start: Start::Stored(_), extent, .. })) => extent,
-      _ => Extent::Rest,
+      Some(Rule::Aim(Aim { start: Start::Stored(_), extent, .. })) => (extent, before, at),
+      _ => (Extent::Rest, before, at),
     }
   };
-  // SAFETY: `InRule<T, L>` is where the pointee starts, the first expression of the rule, whose
-  // operations are `L::Expr`. `base` is valid for reads of the `size` bytes of a `T`, which cover
-  // its sized fields, and the bytes that the rule reads are initialized, by contract on the caller.
-  // This is what `eval` requires.
-  let Some(at) = (unsafe { eval::<InRule<T, L>, L::Expr>(base, size) }) else { return None };
   // SAFETY: `base` is within the bytes of `input`, at or after their start, in one allocation, by
   // contract on the caller, as `offset_from_unsigned` requires.
   let from = unsafe { base.offset_from_unsigned(input.start) };
-  #[expect(clippy::cast_possible_wrap, reason = "two's complement, as the aim says")]
-  let at = at as i128;
-  let before = const { size_of::<<L::Pointee as Pointee>::Prefix>() };
-  let to = match (from as i128).checked_add(at + const { L::Pointee::VALUE_AT } as i128) {
-    Some(to) if to >= before as i128 && to <= input.len as i128 => to.cast_unsigned() as usize,
-    _ => return None,
-  };
+  // SAFETY: As for `pointer_at`, whose requirements are those of this call.
+  let Some(to) = (unsafe { value_of::<T, L>(base, size, from, value_at) }) else { return None };
+  if to < before || to > input.len {
+    return None;
+  }
   let wanted = match extent {
-    Extent::Own => Size::Own,
-    // SAFETY: As above, with `InRule<T, L, 1>`, the size of the pointee, the second expression.
-    Extent::Given(_) => match unsafe { eval::<InRule<T, L, 1>, L::Extent>(base, size) } {
+    Extent::Pointee => Size::Pointee,
+    // SAFETY: `InRule<T, L, 1>` is the length or the size of the pointee, the second expression,
+    // and the requirements of `eval` are those of this call, as above.
+    Extent::Length(_) => match unsafe { eval::<InRule<T, L, 1>, L::Extent>(base, size) } {
+      Some(n) => Size::Length(n),
+      None => return None,
+    },
+    // SAFETY: As above.
+    Extent::Bytes(_) => match unsafe { eval::<InRule<T, L, 1>, L::Extent>(base, size) } {
       Some(n) => Size::Bytes(n),
       None => return None,
     },
-    Extent::Rest => Size::Rest,
+    // To the end of the tail of the struct, which is within its `size` bytes.
+    Extent::Rest => {
+      // An unsized struct ends with its tail, and the tail of a sized one is its last field.
+      let end = from
+        + if const { T::LAYOUT.is_unsized() } {
+          size
+        } else {
+          const {
+            let tail = T::LAYOUT.tail_shape();
+            tail.start + tail.bytes
+          }
+        };
+      if to > end {
+        return None;
+      }
+      Size::Bytes((end - to) as u128)
+    }
   };
   Some((to, wanted))
 }
 
-/// Returns where the pointee of the aim at a stored place `L` of the struct `T` at `base` is
-/// ([`stored_at`]), and the length of its tail if its size is one that its type has, if there is
-/// room for it in the bytes of `input` ([`measure`]).
+/// Returns where the value of the pointee of the aim at a stored place `L` of the struct `T` at
+/// `base` is, in bytes from where `from` counts, the struct being `from` bytes from there: the
+/// value of the expression of the aim, an `i128` in two's complement, plus `value_at`, if it is not
+/// negative and fits a `usize`, the arithmetic checked, so that no value of the expression
+/// overflows.
 ///
 /// # Safety
 ///
-/// The caller must ensure that:
-///
-/// - `base` is valid for reads of the `size` bytes of a `T`, which are within the bytes of
-///   `input`, and the bytes that its rules read are initialized.
-/// - The bytes of `input` are in one allocation, valid for reads and initialized.
+/// The caller must ensure the requirements of [`pointer_at`].
 #[inline(always)]
-const unsafe fn stored<T: ?Sized + Pun, L: Rules>(
+pub const unsafe fn value_of<T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   size: usize,
-  input: &Input,
-) -> Option<(*const u8, Option<usize>)> {
-  // SAFETY: The requirements of `stored_at` are those of this call.
-  let Some((to, wanted)) = (unsafe { stored_at::<T, L>(base, size, input) }) else { return None };
-  // SAFETY: `to <= input.len` (`stored_at`), so `add` stays within the bytes of `input`, in one
-  // allocation.
-  let addr = unsafe { input.start.add(to) };
-  // SAFETY: The `input.len - to` bytes at `addr` are the end of the bytes of `input`, which are
-  // valid for reads and initialized, and the prefix of the pointee is before them, by contract on
-  // the caller, as `measure` requires.
-  match unsafe { measure::<L::Pointee>(wanted, addr, input.len - to) } {
-    Some((len, _)) => Some((addr, len)),
+  from: usize,
+  value_at: usize,
+) -> Option<usize> {
+  // SAFETY: The requirements of `pointer_at` are those of this call.
+  let Some(at) = (unsafe { pointer_at::<T, L>(base, size) }) else { return None };
+  let to = match at.checked_add(value_at as i128) {
+    Some(at) => (from as i128).checked_add(at),
     None => None,
+  };
+  match to {
+    #[expect(clippy::cast_sign_loss, reason = "not negative, as the guard finds")]
+    Some(to) if to >= 0 && to <= usize::MAX as i128 => Some(to as usize),
+    _ => None,
   }
 }
 
-/// How deep the check of eager aims goes: the pointee of an aim that holds an aim, and so on, this
-/// many times.
+/// How many parts of the layouts of pointees the check of eager aims in place nests, one within
+/// another, at most: the bound of the stack of [`from_head`](crate::from_head) and the other
+/// functions that check bytes in place.
 ///
-/// The check recurses once for each level, and returns [`Error::Limit`](crate::Error::Limit)
-/// deeper. [`check`](crate::check) has no such bound: it keeps the pointees that are still to be
-/// checked in a [`Worklist`](crate::Worklist).
-///
-/// The bound is set by the stack that the check takes. For the pairs, the trees and the
-/// expressions of `tests/support/aims.rs`, a level takes about 10 KiB in a build without
-/// optimizations, and at most 96 bytes in an optimized build (Rust 1.100 on aarch64; the frames of
-/// x86-64 are smaller), so their deepest check fits in 1 MiB, which `tests/aims.rs` checks. A type
-/// whose eager aims are nested deeper in each of its values takes more for each level.
-pub const AIM_DEPTH: usize = 64;
+/// The check of a pointee in place nests the check of its parts in the one of the struct whose aim
+/// leads to it, and the check of each part nests a few calls of the validation, whose frames depend
+/// on the code of `puns` and on how it is compiled, not on the type. So the check counts the parts
+/// of the layouts of the pointees that it checks, one within another (`Layout::parts`), and returns
+/// [`Error::Limit`](crate::Error::Limit) past this many: its stack is at most this many parts of
+/// frames, whatever the types. A part takes at most 1.4 KiB of stack in a build without
+/// optimizations (Rust 1.100 on aarch64, a struct whose one field is a struct, at any depth, the
+/// most frames for each part), so the deepest check takes at most about 700 KiB, which
+/// `tests/aims.rs` checks on a thread of 1 MiB for the shapes that nest the most. An optimized
+/// build takes much less. [`check`](crate::check) has no such bound: it keeps the pointees that are
+/// still to be checked in a [`Worklist`](crate::Worklist), and its stack does not grow with the
+/// data.
+pub const AIM_PARTS: usize = 512;
 
 /// The bytes that a check reads, and what the check of eager aims may still spend in them.
 ///
-/// The pointee of an aim at a stored place must lie within these bytes ([`stored`]). Each pointee
+/// The pointee of an aim at a stored place must lie within these bytes ([`stored_at`]). Each pointee
 /// that is checked takes its size from a budget of twice the length of the bytes, at least 1 each.
 /// The pointees of a tree, which share no byte, take at most that: their sizes add up to at most
 /// the length, and each pointee of size 0 is reached by an aim of at least one byte, and at most as
@@ -1200,10 +1320,9 @@ pub struct Input {
   len: usize,
   /// What the pointees that are still to be checked may take, in bytes.
   budget: usize,
-  /// How many more aims may be followed from here, one within the pointee of another.
-  depth: usize,
-  /// Whether the check stopped at the depth, at the budget or at a full worklist, rather than at an
-  /// invalid value.
+  /// How many more parts of the layouts of pointees the check in place may nest ([`AIM_PARTS`]).
+  parts: usize,
+  /// Whether the check stopped at a budget or at a full worklist, rather than at an invalid value.
   pub(crate) limit: bool,
   /// The alignment that the first byte will have, if the bytes are checked at another address,
   /// and 0 if they are checked where they are.
@@ -1217,12 +1336,6 @@ pub struct Input {
   room: usize,
   /// The number of entries of the worklist that are in use.
   pending: usize,
-  /// The number of entries of the worklist that were in use when the step of the check began
-  /// ([`drive`]): while the step adds none, a pointee is checked in place in the order of a
-  /// depth-first walk, which a compact check requires.
-  mark: usize,
-  /// Whether the worklist was full when a pointee was to wait in it.
-  full: bool,
   /// Where the check failed, in bytes from `start`, if it recorded it.
   failed: Option<usize>,
 }
@@ -1235,34 +1348,32 @@ impl Input {
       start,
       len,
       budget: len.saturating_mul(2),
-      depth: AIM_DEPTH,
+      parts: AIM_PARTS,
       limit: false,
       align: 0,
       next: None,
       work: core::ptr::null_mut(),
       room: 0,
       pending: 0,
-      mark: 0,
-      full: false,
       failed: None,
     }
   }
 
-  /// Takes a pointee of `size` bytes, and one level of depth, if there are enough left.
-  const fn enter(&mut self, size: usize) -> bool {
+  /// Takes a pointee of `size` bytes and of `parts` parts, if there are enough left.
+  const fn enter(&mut self, size: usize, parts: usize) -> bool {
     let cost = if size == 0 { 1 } else { size };
-    if self.depth == 0 || self.budget < cost {
+    if self.parts < parts || self.budget < cost {
       self.limit = true;
       return false;
     }
-    self.depth -= 1;
+    self.parts -= parts;
     self.budget -= cost;
     true
   }
 
-  /// Gives back the level of depth that [`Input::enter`] took.
-  const fn leave(&mut self) {
-    self.depth += 1;
+  /// Gives back the `parts` that [`Input::enter`] took.
+  const fn leave(&mut self, parts: usize) {
+    self.parts += parts;
   }
 
   /// Returns whether the pointee `P` at `addr`, within the bytes, is aligned to `align`, the
@@ -1300,19 +1411,14 @@ impl Input {
     }
   }
 
-  /// Returns whether the pointees of eager aims at a stored place wait in a worklist.
-  const fn defers(&self) -> bool {
-    !self.work.is_null()
-  }
-
   /// Puts `pending` in the worklist, if it has room. Otherwise the check stops at its limit.
   const fn defer(&mut self, pending: Pending) -> bool {
-    if self.pending == self.room {
-      (self.full, self.limit) = (true, true);
+    if self.pending >= self.room {
+      self.limit = true;
       return false;
     }
-    // SAFETY: `self.pending < self.room`, and `work` is valid for writes of `room` entries
-    // (`Input::with`).
+    // SAFETY: `self.pending < self.room`, and `work` is valid for writes of `room` entries, the
+    // entries of the worklist (`drive`), which nothing else uses while the check runs.
     unsafe { self.work.add(self.pending).write(pending) };
     self.pending += 1;
     true
@@ -1328,9 +1434,10 @@ impl Input {
   }
 
   /// Records that the check failed at `addr`, within the bytes, unless it recorded a place
-  /// already: the innermost part that fails records first.
-  const fn fail(&mut self, addr: *const u8) {
-    if self.failed.is_none() {
+  /// already: the innermost part that fails records first. Only the check of
+  /// [`check`](crate::check) records it ([`Checks::WORK`]), so the others make no write for it.
+  const fn fail<C: Checks>(&mut self, addr: *const u8) {
+    if C::WORK && self.failed.is_none() {
       self.failed = Some(ptr::address(addr).wrapping_sub(ptr::address(self.start)));
     }
   }
@@ -1344,35 +1451,61 @@ const fn types_align<P: ?Sized + Pointee>() -> usize {
   if value > prefix { value } else { prefix }
 }
 
-/// A step of a check with a worklist ([`drive`]): the check of the root, or of the struct whose eager
-/// aim leads to a pointee, at an address, of a size, with the input of the check.
-pub type Stage = unsafe fn(*const u8, usize, &mut Input) -> bool;
+/// A step of a check with a worklist ([`drive`]): what it checks, and the most entries that it puts
+/// in the worklist, which the driver makes room for before it runs it.
+pub struct Stage {
+  /// The check: of the root, of the struct whose eager aim leads to a pointee, of the pointee of an
+  /// aim at the cursor, or of the rest of a slice, at an address, of a size or a length, with the
+  /// input of the check.
+  run: unsafe fn(*const u8, usize, &mut Input) -> bool,
+  /// The most entries that a run puts in the worklist (`Layout::defers`).
+  defers: usize,
+}
+
+impl Stage {
+  /// The step `run`, which checks a pointee `P`: its prefix and its value.
+  const fn new<P: ?Sized + Pointee>(run: unsafe fn(*const u8, usize, &mut Input) -> bool) -> Self {
+    let defers =
+      <P::Value as Pun>::LAYOUT.defers().saturating_add(<P::Prefix as Pun>::LAYOUT.defers());
+    Self { run, defers }
+  }
+}
+
+/// What an entry that is never read checks.
+static NOTHING: Stage = Stage { run: nothing, defers: 0 };
+
+/// The check of [`NOTHING`].
+const unsafe fn nothing(_: *const u8, _: usize, _: &mut Input) -> bool {
+  true
+}
 
 /// A pointee that is still to be checked, in a [`Worklist`](crate::Worklist) of
-/// [`check`](crate::check): the struct whose eager aim leads to it, and the check of that aim.
+/// [`check`](crate::check).
 ///
-/// It is three words, 24 bytes on a 64-bit target. Each entry waits for a struct of its own, which
-/// holds an aim at a stored place, so a compact check of `n` bytes never needs more entries than
-/// such structs fit in them: `n / 4` for pointers of 4 bytes. Most need far fewer, since a check
-/// follows a few pointees in place before any waits.
+/// It is the struct whose eager aim at a stored place leads to it, the value of a pointee of an aim
+/// at the cursor, or the elements of a slice after one whose pointees came first, and the check of
+/// it.
+///
+/// It is three words, 24 bytes on a 64-bit target. A check of bytes puts one entry in the worklist
+/// for each eager aim of a value that it checks, and one for the rest of a slice whose element
+/// holds one, and runs each entry once, the last first. So a check that requires each pointee to
+/// start where the one before it ends never needs more entries than such aims and slices fit in
+/// the bytes: `n / 4` for pointers of 4 bytes in `n` bytes, and usually as many as wait at once
+/// while the check goes down its deepest path.
 #[derive(Clone, Copy)]
 pub struct Pending {
-  /// Where the struct is, in bytes from the start of the bytes.
+  /// Where it is, in bytes from the start of the bytes.
   at: usize,
-  /// The size of the struct.
+  /// The size of the struct, the length of the pointee, or the number of elements.
   size: usize,
-  /// The check of its aim ([`check_stored`]).
-  check: Stage,
+  /// Its check.
+  stage: &'static Stage,
 }
 
 impl Default for Pending {
   /// An entry to be written over.
   fn default() -> Self {
-    /// What an entry that is never read checks.
-    const unsafe fn nothing(_: *const u8, _: usize, _: &mut Input) -> bool {
-      true
-    }
-    Self { at: 0, size: 0, check: nothing }
+    Self { at: 0, size: 0, stage: &NOTHING }
   }
 }
 
@@ -1385,121 +1518,93 @@ impl core::fmt::Debug for Pending {
   }
 }
 
-/// Returns whether the pointee `P` whose value is at `addr`, the length of whose tail is `len`, is
-/// valid, every part of it checked, its prefix and its value, its own eager aims one level deeper.
-///
-/// If it is not, it records where the pointee starts, unless a part of it recorded where it
-/// fails.
+/// The step of [`drive`] for the rest of a slice of `T`s, from the first that is left: as many as
+/// `len` says, checked as [`validate_elems`] checks a slice.
 ///
 /// # Safety
 ///
-/// The caller must ensure that the `P` at `addr` with that length, and its prefix before it, are
-/// within the bytes of `input` or of a value within them, which are in one allocation, valid for
-/// reads and initialized.
-const unsafe fn check_pointee<C: Checks, P: ?Sized + Pointee>(
+/// The caller must ensure that `addr` is valid for reads of `len` consecutive `T`s, within the bytes
+/// of `input`, each as [`validate`] requires.
+const unsafe fn elements_of<C: Checks, T: Pun>(
   addr: *const u8,
   len: usize,
   input: &mut Input,
 ) -> bool {
-  let before = const { size_of::<P::Prefix>() };
-  let start = addr.wrapping_sub(before);
-  let value = ptr::from_raw_parts::<P::Value>(addr, len);
-  // The value exists in the bytes: its size does not overflow.
-  let Some(size) = const { <P::Value as Pun>::LAYOUT }.size_of_val(len) else {
-    input.fail(start);
-    return false;
-  };
-  if !input.enter(size + before) {
-    return false;
-  }
-  // SAFETY: The prefix of `P`, `before` bytes before `addr`, and its value at `addr`, are within
-  // the bytes of `input`, which are valid for reads and initialized, by contract on the caller, so
-  // every byte that a check reads is. These are the requirements of `validate`, and the pointees
-  // of their aims are within `input` too.
-  let valid = unsafe {
-    (before == 0 || validate_whole::<C, P::Prefix>(start.cast(), input))
-      && validate_whole::<C, P::Value>(value, input)
-  };
-  input.leave();
-  if !valid {
-    input.fail(start);
-  }
-  valid
+  // SAFETY: The requirements of `validate_elems` are those of this call, every part being marked.
+  unsafe { validate_elems::<C, Root, T, true>(addr.cast(), len, input) }
 }
 
-/// How deep a check with a worklist ([`drive`]) checks pointees in place, one within another, before
-/// it defers the next ones: four pointees that hold eager aims, then one that holds none. Deep
-/// enough that most pointees of a balanced tree never wait, and a bound on the stack that does not
-/// grow with the data, in a build without optimizations too, whose frames are the largest.
-const IN_PLACE: usize = 5;
-
-/// The first step of a check of bytes ([`drive`]): the `D` at their start, with the checks of `C`.
+/// The first step of a check of bytes ([`drive`]): the `D` at their start.
 ///
 /// # Safety
 ///
 /// The caller must ensure that `addr` and `input` meet the requirements of [`validate`] for a `D`.
-pub const unsafe fn root<C: Checks, D: Pun>(addr: *const u8, _: usize, input: &mut Input) -> bool {
+pub const unsafe fn root<D: Pun>(addr: *const u8, _: usize, input: &mut Input) -> bool {
   // SAFETY: The requirements of `validate` are those of this call.
-  unsafe { validate::<C, Root, D>(addr.cast(), input) }
+  unsafe { validate::<Work, Root, D>(addr.cast(), input) }
+}
+
+/// The step of the root `D` of a check with a worklist.
+pub const fn root_stage<D: Pun>() -> &'static Stage {
+  const { &Stage::new::<D>(root::<D>) }
 }
 
 /// Checks that `n` bytes at `addr` start with the value of `size` bytes that `root` checks, with
-/// the pointees of its eager aims, which wait in `work` ([`check`](crate::check)), and records
-/// where the check fails in `input`.
+/// the pointees of its eager aims, which wait in `work` ([`check`](crate::check)), and says where
+/// the check fails.
 ///
-/// The value is checked first, then each pointee, the last that waits first, after the pointees
-/// that its check adds to the worklist are reversed: the order is that of a depth-first walk, which
-/// a compact check requires. A worklist that is full is grown and the step is made again from where
-/// it started, or the check stops at its limit.
+/// The value is checked first, then each entry that waits, the last first, after the entries that
+/// the check of a step added are reversed: the order is that of a depth-first walk, which a compact
+/// check requires, in which the parts of a value come before its pointees. Before a step, the
+/// driver grows the worklist until it has room for the entries that the step may add, if it can,
+/// so that no step is made twice.
 ///
-/// It is not generic: each step is a function pointer (`root`, then those of [`Pending`]), and
-/// the worklist is a trait object, so one copy of it serves every type and every worklist.
+/// It is not generic: each step is a function pointer (`root`, then those of [`Pending`]), and the
+/// worklist is a trait object, so one copy of it serves every type and every worklist.
 ///
 /// # Safety
 ///
 /// The caller must ensure that `addr` is valid for reads of `n` initialized bytes, `n` at least
-/// `size`, and that `root` is [`root`] for a `D` of `size` bytes.
+/// `size`, and that `root` is [`root_stage`] for a `D` of `size` bytes.
 pub unsafe fn drive(
   addr: *const u8,
   n: usize,
-  align: usize,
-  compact: bool,
-  (size, root): (usize, Stage),
+  (align, compact): (usize, bool),
+  (size, root): (usize, &'static Stage),
   work: &mut dyn crate::Worklist,
 ) -> Result<(), crate::Failure> {
   let mut input = Input::new(addr, n);
-  (input.align, input.depth) = (align, IN_PLACE);
+  input.align = align;
   input.next = if compact { Some(size) } else { None };
   let items = work.items();
   (input.work, input.room) = (items.as_mut_ptr(), items.len());
-  // The first step checks the root, and the next ones a pointee each.
-  let mut step = Pending { at: 0, size, check: root };
+  // The first step checks the root, and the next ones what waits.
+  let mut step = Pending { at: 0, size, stage: root };
   loop {
-    // What a step changes, but for what it restores itself (the depth), and for what stops the
-    // check (`failed`, `limit`): enough to make it again.
-    let (budget, next, mark) = (input.budget, input.next, input.pending);
-    input.mark = mark;
-    // SAFETY: The root at `addr` is within the `n` bytes, valid for reads and initialized, by
-    // contract on the caller, as `root` requires. A pending entry is the struct of an aim that a
-    // check of these bytes found, within them, and the requirements of its check are those of
-    // `check_stored` for it, which that check met.
-    let valid = unsafe { (step.check)(addr.add(step.at), step.size, &mut input) };
-    if input.full {
-      // Made again from where it started, with more room, or the check stops.
-      if work.grow() {
-        (input.budget, input.next, input.pending) = (budget, next, mark);
-        (input.full, input.limit, input.failed) = (false, false, None);
-        let items = work.items();
-        (input.work, input.room) = (items.as_mut_ptr(), items.len());
-        continue;
+    // Room for what the step may add, as far as the worklist grows. One that does not grow, a
+    // slice, stops the check when it is full, at the entry that does not fit.
+    while input.room.saturating_sub(input.pending) < step.stage.defers {
+      let grew = work.grow();
+      // `grow` borrows the whole worklist, after which a pointer taken before it may no longer
+      // write the entries: they are taken again, which `grow` kept.
+      let items = work.items();
+      (input.work, input.room) = (items.as_mut_ptr(), items.len());
+      if !grew {
+        break;
       }
-      return Err(input.failure());
     }
+    let mark = input.pending;
+    // SAFETY: The root at `addr` is within the `n` bytes, valid for reads and initialized, by
+    // contract on the caller, as `root` requires. An entry is a struct, a pointee or a rest of a
+    // slice that a check of these bytes found, within them, and the requirements of its check are
+    // those that this check met for it.
+    let valid = unsafe { (step.stage.run)(addr.add(step.at), step.size, &mut input) };
     if !valid {
       return Err(input.failure());
     }
-    // SAFETY: `work` holds `room` entries at `input.work` (`items`, which nothing used since), of
-    // which the step wrote those from `mark` to `pending` (`Input::defer`).
+    // SAFETY: `work` holds `room` entries at `input.work`, which kept those that the steps wrote
+    // (`Worklist`, section Safety), of which the step wrote those from `mark` to `pending`
+    // (`Input::defer`).
     let added =
       unsafe { core::slice::from_raw_parts_mut(input.work.add(mark), input.pending - mark) };
     // The entries that the step added, first to last in the order of the aims, are checked first
@@ -1534,6 +1639,14 @@ const fn elements<D: ?Sized + Pun>(value: usize) -> Option<usize> {
   };
   match () {
     () if count => Some(value),
+    // Elements of size 0 make no size: a size tells no length but 0.
+    () if stride == 0 => {
+      if value == before {
+        Some(0)
+      } else {
+        None
+      }
+    }
     () if value >= before && (value - before).is_multiple_of(stride) => {
       Some((value - before) / stride)
     }
@@ -1691,9 +1804,10 @@ const unsafe fn length_listed<T: ?Sized + Pun, L: Rules>(
   unsafe { length_listed::<T, L::Next>(base, n) }
 }
 
-/// Returns where the pointee of the aim at the cursor that the rule `rule` of the struct `T` at
-/// `base` is starts, in bytes from `base`, and how many bytes it has: what the steps of the cursor
-/// of the check of the struct find ([`cursor_step`]), for what reads the pointee.
+/// Returns the step of the cursor ([`cursor_step`]) to the pointee of the aim at the cursor that
+/// the rule `rule` of the struct `T` at `base` is: where its value starts, in bytes from `base`,
+/// how many bytes it has, and its length, as the check of the struct finds them, for what reads
+/// the pointee.
 ///
 /// The struct is `size` bytes. Its tail starts at `head` and is `tail` bytes long. The search
 /// starts at the rule `L`, after the pointees of aims at the cursor that end at `cursor` in the
@@ -1720,7 +1834,7 @@ pub const unsafe fn region_at<T: ?Sized + Pun, L: Rules>(
   (head, tail): (usize, usize),
   rule: usize,
   cursor: usize,
-) -> (usize, usize) {
+) -> Step {
   const { assert!(listed::<T, T::Rules>(0), "not the rules of the struct") };
   let next =
     const { matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Next, .. }))) };
@@ -1728,11 +1842,11 @@ pub const unsafe fn region_at<T: ?Sized + Pun, L: Rules>(
   let cursor = if next {
     // SAFETY: The requirements of `cursor_step` are those of this call.
     let step = unsafe { cursor_step::<T, L, false>(base, size, (head, tail), cursor) };
-    let Some(Step { start, size: n, .. }) = step else { unreachable!() };
+    let Some(step) = step else { unreachable!() };
     if L::RULE == rule {
-      return (head + start, n);
+      return step;
     }
-    start + n
+    step.end
   } else {
     cursor
   };
@@ -1743,7 +1857,7 @@ pub const unsafe fn region_at<T: ?Sized + Pun, L: Rules>(
 
 /// Returns where the pointee of the aim at a stored place `L` of the struct `T` at `base` starts,
 /// in bytes from `base`: the value of its expression, an `i128` in two's complement, or `None` if
-/// the expression fails. A check of the struct found the same ([`stored`]).
+/// the expression fails. A check of the struct found the same ([`stored_at`]).
 ///
 /// # Safety
 ///
@@ -1776,8 +1890,8 @@ pub const unsafe fn pointer_at<T: ?Sized + Pun, L: Rules>(
   }
 }
 
-/// Returns the size in bytes that the aim `L` of the struct `T` at `base` gives its pointee, the
-/// value of its second expression, or `None` if it fails.
+/// Returns the length or the size in bytes that the aim `L` of the struct `T` at `base` gives its
+/// pointee, the value of its second expression, or `None` if it fails.
 ///
 /// # Safety
 ///
@@ -1792,7 +1906,10 @@ pub const unsafe fn pointer_at<T: ?Sized + Pun, L: Rules>(
 pub const unsafe fn given<T: ?Sized + Pun, L: Rules>(base: *const u8, size: usize) -> Option<u128> {
   let given = const {
     assert!(listed::<T, T::Rules>(0), "not the rules of the struct");
-    matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { extent: Extent::Given(_), .. })))
+    matches!(
+      T::LAYOUT.rule(L::RULE),
+      Some(Rule::Aim(Aim { extent: Extent::Length(_) | Extent::Bytes(_), .. }))
+    )
   };
   if !given {
     return None;

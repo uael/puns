@@ -20,6 +20,48 @@ note: the above error was encountered while instantiating `fn puns::validate::ch
   |           && (const { !rules_marked::<C, P, T>() } || check_rules::<C, T>(ptr, input))
   |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+error[E0080]: evaluation panicked: not the rules of the struct
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `puns::validate::pointer_at::<Fewer, puns::RuleAt<0, puns::steps::Two<puns::steps::One<0>, puns::steps::Two<puns::steps::One<1>, puns::steps::One<2>>>, ()>>::{constant#0}` failed here
+  |
+ ::: src/validate.rs
+  |
+  |     assert!(listed::<T, T::Rules>(0), "not the rules of the struct");
+  |     ---------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let stored = const {
+  |  ________________^
+  | |     assert!(listed::<T, T::Rules>(0), "not the rules of the struct");
+  | |     matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Stored(_), .. })))
+  | |   };
+  | |___^
+
+note: the above error was encountered while instantiating `fn puns::validate::pointer_at::<Fewer, puns::RuleAt<0, puns::steps::Two<puns::steps::One<0>, puns::steps::Two<puns::steps::One<1>, puns::steps::One<2>>>, ()>>`
+ --> src/validate.rs
+  |
+  |   let Some(at) = (unsafe { pointer_at::<T, L>(base, size) }) else { return None };
+  |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: not the rules of the struct
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `puns::validate::pointer_at::<Fewer, ()>::{constant#0}` failed here
+  |
+ ::: src/validate.rs
+  |
+  |     assert!(listed::<T, T::Rules>(0), "not the rules of the struct");
+  |     ---------------------------------------------------------------- in this macro invocation
+
+note: the above error was encountered while instantiating `fn puns::validate::pointer_at::<Fewer, ()>`
+ --> src/validate.rs
+  |
+  |   let Some(at) = (unsafe { pointer_at::<T, L>(base, size) }) else { return None };
+  |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 error[E0080]: evaluation panicked: not the operations of the expression
  --> $RUST/core/src/panic.rs
   |

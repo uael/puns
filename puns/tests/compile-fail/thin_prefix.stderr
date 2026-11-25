@@ -15,7 +15,7 @@ error[E0080]: evaluation panicked: the `M` of a `Thin<T, M>` is an integer, or a
 note: erroneous constant encountered
  --> src/layout.rs
   |
-  |       T::LENGTH.is_none() || matches!((start, extent), (Start::Stored(_), Extent::Own)),
+  |       T::LENGTH.is_none() || matches!(extent, Extent::Pointee),
   |       ^^^^^^^^^
 
 note: erroneous constant encountered

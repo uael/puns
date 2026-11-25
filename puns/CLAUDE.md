@@ -87,59 +87,72 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - The self-relative pointer of the tests (`Near`, in
   [`tests/support/aims.rs`](tests/support/aims.rs)) derives `Pun` with an eager aim, as another
   crate would declare it.
-- An aim (`layout::Aim`) is where its pointee starts (`Start`: stored, or the cursor of the
-  tail), how large it is (`Extent`: its own size, a given size, or the rest), and when it is
-  checked (`Check`), and every combination is checked and read. An eager aim is checked with the
-  struct that holds it, its pointee within the bytes that the check reads (`validate::Input`), and
-  code reads the pointee without a check. So no function makes a value that holds one
-  (`Plan::eager`), gives a `&mut` to or from one (`Plan::eager_mut`), or checks one from a source
-  whose bytes may be padding, and only the same aim at the same place proves one (`Aim::equals`,
-  with a known identity of the pointee). The derive gives an eager aim only to a struct whose field
-  of the aim (the offset of a pointer, or the bytes of eager regions) is an `InPlace<T>`, which no
-  code makes and which is not `Pun`, and checks that the field has this type (`item` in `homes`),
-  so that no safe code makes a value of the struct either. An `InPlace<T>` is a `T` in the layout.
-  A lazy aim requires of the struct only that its pointee fits, so its type counts in a proof only
-  where the size is its own.
+- An aim (`layout::Aim`) is where its pointee is (`Start`: stored, or the cursor of the tail),
+  how large it is (`Extent`: what the pointee stores, a length, a size in bytes, or the rest of the
+  tail of the struct), and when it is checked (`Check`), and every combination is checked and read.
+  The size of a pointee is the size of its value with its metadata, as `size_of_val` gives. An
+  eager aim is checked with the struct that holds it, its pointee within the bytes that the check
+  reads (`validate::Input`), and code reads the pointee without a check, through a safe method.
+  So no function makes a value that holds one (`Plan::eager`), gives a `&mut` to or from one
+  (`Plan::eager_mut`), or checks one from a source whose bytes may be padding, only the same aim at
+  the same place proves one (`Aim::equals`, with a known identity of the pointee), and a union does
+  not hold one (`Layout::union`). The derive gives an eager aim only to a struct whose field of the
+  aim (the offset of a pointer, or the bytes of eager regions) is an `InPlace<T>`, which no code
+  makes and which is not `Pun`, and checks that the field has this type (`item` in `homes`), so
+  that no safe code makes a value of the struct, nor a reference to one but through `puns`: the
+  documentation of `InPlace` states this argument, and the obligation of unsafe code that makes
+  such values, as `nearest` does. An `InPlace<T>` is a `T` in the layout. A lazy aim at the cursor
+  requires of the struct only that its pointee fits, and a lazy aim at a stored place nothing, so
+  its type counts in a proof only where the pointee stores its length.
 - Both kinds of start are one rule (`Rule::Aim`), checked in one place (`validate::check_aim`),
   which places the pointee by one step of the cursor (`validate::cursor_step`) or at a stored place
-  (`validate::stored`), written by the derive in one place (`aim_rule` in `puns-derive`), which
+  (`validate::stored_at`), written by the derive in one place (`aim_rule` in `puns-derive`), which
   `pointer(..)` and `regions(..)` enter. What reads a pointee finds it as the check does: the same
   steps of the cursor, which truncate where the check fails (`validate::region_at`), or the same
-  expression (`validate::pointer_at`). A struct may have both, and the pointee of a region may hold
-  eager aims, which its read looks for in the bytes of the struct (`tests/aims.rs`).
-- The read of the pointee of an eager aim (`aim`, `aim_mut`, the methods of
-  `pointer(name: ..)` and of eager regions) is `unsafe` and stays so: the derive is safe, so the
-  type of a value does not tell that `puns` checked it. Its `# Safety` is the contract of a writer
-  such as `nearest`. The read of a pointer takes a pointer, not a reference, so that a caller under
-  stacked borrows can give the provenance of the checked bytes. The length of a pointee of its own
-  size is read from its sized fields only, by the check and by the read (`validate::stores_length`,
-  `validate::thin`), so the read never meets a length that the check accepted and it cannot read.
+  expression (`validate::pointer_at`, `validate::value_of`, whose arithmetic is checked). A struct
+  may have both, and the pointee of a region may hold eager aims, which its read looks for in the
+  bytes of the struct (`tests/aims.rs`).
+- The read of the pointee of an eager aim (`name`, from `&self`) is safe: it relies on the argument
+  of `InPlace`, and on the reference having the provenance of the bytes of the pointee, which tree
+  borrows gives and stacked borrows does not. `aim` and `aim_mut` take a pointer, so that a caller
+  under stacked borrows gives the provenance of the checked bytes, as the tests that Miri runs with
+  stacked borrows do (`tests/aims.rs`); the tests of the safe reads of pointees outside the value
+  (`tests/aim_reads.rs`) run under tree borrows only. `name_mut` is `unsafe`: a `&mut` to the
+  value does not make the pointee exclusive, since pointees may be shared. The length of a pointee
+  that stores it is read from its sized fields or before its value only, by the check and by the
+  read (`Layout::stores_length`, `validate::own_length`), so the read never meets a length that the
+  check accepted and it cannot read.
 - A layout cannot hold itself, so an aim holds the size, the alignment and the identity of its
   pointee, and the pointee is reached through `Pun::Rules` (`Rules::Pointee`), whose item a read
-  names, so that the type of a pointee is written in one place of the derive. The identity of a
-  type is `Pun::ID`, made of the identities of its parameters and never of a layout, which its
-  layout holds too. The pointee is a `Pointee`, a sealed trait: a `Pun` type, or a `Thin<T, M>`,
-  the format of `nearest` for a list or a text, a `T` right after an `M` that ends with its
-  length, at which the pointer points. `Pun::Metadata` is a sealed `Metadata`, `()` exactly when
-  the layout is sized (`Layout::measured` asserts it of every struct).
-- The check of eager aims recurses once for each level, up to `AIM_DEPTH`, which is set so that
-  the deepest check of the types of `tests/support/aims.rs` fits in 1 MiB of stack in a build
-  without optimizations (`tests/aims.rs` runs it on a thread of 1 MiB). A change of the validation
-  that makes its frames larger is measured again, and the bound lowered if it no longer fits. What
-  a function on that path computes before it recurses is in a function of its own in such a build
-  (`check_next`, `find_stored`, `fits_stored`), so that the frames that wait hold little.
-- `check` goes deeper with the same code: `Input` has a worklist. `check_aim` checks a pointee in
-  place while the depth allows (`IN_PLACE`: four pointees that hold eager aims, then one that
-  holds none) and its step deferred nothing yet (`Input::mark`), and otherwise puts a `Pending`
-  (the struct and `check_stored` for its aim) in the worklist. `validate::drive`, one function for
-  every type (its root is a function pointer, the worklist a trait object), runs the entries depth
-  first, reversing those that each step adds. A step that fills the worklist is made again, from
-  what it changed in `Input`, once `Worklist::grow` made room. A compact check claims each pointee
-  where `check_stored` checks it (`Input::claim`), so in the order of a copy. Where a check fails
-  is recorded only by `validate::Locate`, a `Checks` whose `LOCATE` is true, which defers every
-  pointee, so that the parts of a value are checked before its pointees; `check` makes the check
-  again with it after a failure, so the check that succeeds compiles as before. Alignment is by offset from a base alignment there
-  (`Input::aligned`), since the bytes are checked before they are copied.
+  names, so that the type of a pointee is written in one place of the derive. `Aim::new` reads no
+  layout of the pointee for this reason; what it cannot assert, `validate::pointee_checked` asserts
+  where the aim is checked or read. The identity of a type is `Pun::ID`, made of the identities of
+  its parameters and never of a layout, which its layout holds too. The pointee is a `Pointee`, a
+  sealed trait: a `Pun` type, or a `Thin<T, M>`, the metadata of a pointer to `T` stored before it
+  as an `M` that ends with the length, at which the pointer points, and nothing for a sized `T`
+  (`Metadata::Stored`). `Pun::Metadata` is a sealed `Metadata`, `()` exactly when the layout is
+  sized (`Layout::measured` asserts it of every struct).
+- The functions that check in place (`from_head` and the others) check a pointee within the check
+  of the struct whose aim leads to it, a recursion that the parts of the layouts of the pointees
+  bound (`AIM_PARTS`, `Layout::parts`), so that their stack does not depend on the types. Each part
+  nests a few calls of the validation, whose frames are measured in `AIM_PARTS`, and
+  `tests/aims.rs` runs the deepest checks of the shapes that nest the most on a thread of 1 MiB. A
+  change of the validation that makes its frames larger is measured again. What a function on that
+  path computes before it recurses is in a function of its own in a build without optimizations
+  (`check_next`, `find_stored`), so that the frames that wait hold little.
+- `check` and `check_compact` check with `validate::Work`: every pointee of an eager aim waits in
+  the worklist (`Pending`, a stage and where it applies), and `validate::drive`, one function for
+  every type (its steps are function pointers, the worklist a trait object), runs them depth
+  first, reversing those that each step adds, so that the parts of each value are checked before
+  its pointees, in the order that `nearest` 0.8 checked an image. Once an element of a slice put a
+  pointee in the worklist, the rest of the slice waits in one entry (`validate_elems`), so the
+  worklist grows with the depth of the data. Before a step, the driver grows the worklist to the
+  most entries that the step may add (`Layout::defers`), so no step is made twice, and a worklist
+  that cannot grow stops the check where an entry does not fit. Where the check fails is recorded
+  as it runs (`Input::fail`). A compact check claims each pointee where `check_stored` checks it
+  (`Input::claim`), so in the order of a copy. Alignment is by offset from a base alignment there
+  (`Input::aligned`), since the bytes are checked before they are copied. `Worklist` is an
+  `unsafe` trait: the driver keeps its entries in the memory that it gives.
 
 ## Not done yet
 
@@ -193,7 +206,3 @@ section lists changes that could lift some of them, and what each would cost.
   pattern, since safe code can write its fields. A rule `matches(DFA, start, end)` (`Op::Matches`)
   requires one instead. Two automata are equal only if their states and edges are: their `id`,
   which a user can choose, only tells different ones apart early.
-- **The depth of the check of aims.** It recurses once for each level of eager aims, up to
-  `AIM_DEPTH`, with 12 to 15 KiB of stack for each level in a build without optimizations, and
-  less than 100 bytes in an optimized one. A stack of pending targets, as `nearest` has, would
-  lift the bound, but needs memory that `const fn` code cannot allocate, or a bound of its own.

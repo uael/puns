@@ -82,8 +82,8 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |   if const { C::LOCATE && !matches!(T::LAYOUT.kind, Kind::Pattern(_) | Kind::Array(..) | Kind::Slice(_)) }
-  |                                     ^^^^^^^^^
+  |   if const { C::WORK && !matches!(T::LAYOUT.kind, Kind::Pattern(_) | Kind::Array(..) | Kind::Slice(_)) }
+  |                                   ^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
@@ -124,8 +124,8 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |   if const { C::LOCATE && !matches!(T::LAYOUT.kind, Kind::Pattern(_) | Kind::Array(..) | Kind::Slice(_)) }
-  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   if const { C::WORK && !matches!(T::LAYOUT.kind, Kind::Pattern(_) | Kind::Array(..) | Kind::Slice(_)) }
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
@@ -327,12 +327,92 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let (eager, next, reserve) = const {
-  |  ________________________________^
+  |     let (eager, next) = const {
+  |  _______________________^
   | |     pointee_checked::<T, L>();
-  | |     // A pointee that holds no eager aim takes one level, and no more: the last one is kept for it.
-  | |     let leaf = !<<L::Pointee as Pointee>::Value as Pun>::LAYOUT.holds_eager_aims()
+  | |     match T::LAYOUT.rule(L::RULE) {
+  | |       Some(Rule::Aim(Aim { check, start, .. })) => {
 ... |
+  | |   };
+  | |___^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let align = match T::LAYOUT.rule(L::RULE) {
+  |                       ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let (align, before, head) = const {
+  |  _______________________________^
+  | |     let align = match T::LAYOUT.rule(L::RULE) {
+  | |       Some(Rule::Aim(aim)) => aim.align,
+  | |       _ => 1,
+... |
+  | |     (align, size_of::<<L::Pointee as Pointee>::Prefix>(), head)
+  | |   };
+  | |___^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         + if const { T::LAYOUT.is_unsized() } {
+  |                      ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     match T::LAYOUT.rule(L::RULE) {
+  |           ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let (extent, before, value_at) = const {
+  |  ____________________________________^
+  | |     let (before, at) = (size_of::<<L::Pointee as Pointee>::Prefix>(), L::Pointee::VALUE_AT);
+  | |     match T::LAYOUT.rule(L::RULE) {
+  | |       Some(Rule::Aim(Aim { start: Start::Stored(_), extent, .. })) => (extent, before, at),
+... |
+  | |   };
+  | |___^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |         + if const { T::LAYOUT.is_unsized() } {
+  |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |             let tail = T::LAYOUT.tail_shape();
+  |                        ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  | /           const {
+  | |             let tail = T::LAYOUT.tail_shape();
+  | |             tail.start + tail.bytes
+  | |           }
+  | |___________^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Stored(_), .. })))
+  |              ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let stored = const {
+  |  ________________^
+  | |     assert!(listed::<T, T::Rules>(0), "not the rules of the struct");
+  | |     matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Stored(_), .. })))
   | |   };
   | |___^
 
@@ -363,49 +443,12 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let (extent, align) = const {
-  |  _________________________^
+  |     let (extent, align, before) = const {
+  |  _________________________________^
+  | |     let before = size_of::<<L::Pointee as Pointee>::Prefix>();
   | |     match T::LAYOUT.rule(L::RULE) {
-  | |       Some(Rule::Aim(Aim { start: Start::Next, extent, align, .. })) => (extent, align),
-  | |       _ => (Extent::Rest, 1),
-  | |     }
-  | |   };
-  | |___^
-
-note: erroneous constant encountered
- --> src/validate.rs
-  |
-  |     let align = match T::LAYOUT.rule(L::RULE) {
-  |                       ^^^^^^^^^
-
-note: erroneous constant encountered
- --> src/validate.rs
-  |
-  |     let (align, before, head, length) = const {
-  |  _______________________________________^
-  | |     let align = match T::LAYOUT.rule(L::RULE) {
-  | |       Some(Rule::Aim(aim)) => aim.align,
-  | |       _ => 1,
+  | |       Some(Rule::Aim(Aim { start: Start::Next, extent, align, .. })) => (extent, align, before),
 ... |
-  | |     (align, size_of::<<L::Pointee as Pointee>::Prefix>(), head, L::Pointee::LENGTH)
-  | |   };
-  | |___^
-
-note: erroneous constant encountered
- --> src/validate.rs
-  |
-  |     match T::LAYOUT.rule(L::RULE) {
-  |           ^^^^^^^^^
-
-note: erroneous constant encountered
- --> src/validate.rs
-  |
-  |     let extent = const {
-  |  ________________^
-  | |     match T::LAYOUT.rule(L::RULE) {
-  | |       Some(Rule::Aim(Aim { start: Start::Stored(_), extent, .. })) => extent,
-  | |       _ => Extent::Rest,
-  | |     }
   | |   };
   | |___^
 
