@@ -3655,7 +3655,7 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
     let extent = layout.head() + ptr::metadata(source) * layout.stride();
     // The pointees of eager aims are looked for in the bytes of the source, which the target
     // covers.
-    let mut input = Input::new(source.cast::<u8>(), extent, (extent, extent));
+    let mut input = Input::new(source.cast::<u8>(), extent, extent);
     // SAFETY: The requirements of `try_cast_in` are those of this call, and the bytes of `input`
     // are those of `source`, which are valid for reads and initialized where a marked check reads
     // them.
@@ -3969,7 +3969,7 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Result<D, Error> {
   const { Plan::<S, D>::TRY };
   // `D` holds no eager aim (`Plan::TRY`), so nothing is looked for in these bytes.
-  let mut input = Input::new((&raw const value).cast(), size_of::<S>(), (0, 0));
+  let mut input = Input::new((&raw const value).cast(), size_of::<S>(), 0);
   // SAFETY: `Plan::<S, D>::TRY` compiled, so the analysis meets `Need::TRY`. `S` and `D` are
   // `Copy`, so `Sized`, and the fit is `Exact::Always`: they have the same size. So `value` is
   // valid for reads of a `D`, which `validate` does not need aligned. The relation records no byte
@@ -4896,7 +4896,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     };
     let target = ptr::from_raw_parts::<D>(addr, len);
     // The pointees of eager aims are looked for in the `n` bytes, after the target.
-    let mut input = Input::new(addr, n, (size, n));
+    let mut input = Input::new(addr, n, size);
     // SAFETY: This satisfies the safety contract of `validate`. `target` is at `addr`, and its
     // size, `size`, is at most `n`, which is checked above. So it is valid for reads of a `D`, by
     // contract on the caller. Every one of the `n` bytes is initialized, by contract on the
@@ -4920,8 +4920,9 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
   const unsafe fn back(addr: *const u8, n: usize) -> Result<(usize, *const D), Error> {
     let layout = const { D::LAYOUT };
     let Some(start) = n.checked_sub(layout.size()) else { return Err(Error::Size) };
-    // The pointees of eager aims are looked for in the `n` bytes, before the target.
-    let mut input = Input::new(addr, n, (0, start));
+    // The pointees of eager aims are looked for in the `n` bytes, before the target, where their
+    // claims must end.
+    let mut input = Input::new(addr, n, 0);
     // SAFETY: `start <= n`, and `addr` is valid for reads of `n` bytes, by contract on the
     // caller. So `addr..addr + start` is in bounds of one allocation, as `add` requires.
     let addr = unsafe { addr.add(start) };
@@ -4932,7 +4933,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     // SAFETY: This satisfies the safety contract of `validate`. `D` is `Sized`, by contract on the
     // caller, and `target` is the `size_of::<D>()` bytes from `start`, which end at `n`. So it is
     // valid for reads of a `D`, and its bytes are initialized, by contract on the caller.
-    if !unsafe { validate::<Self, Root, D>(target, &mut input) } {
+    if !unsafe { validate::<Self, Root, D>(target, &mut input) } || input.cursor > start {
       return Err(if input.limit { Error::Limit } else { Error::Validity });
     }
     Ok((start, target))
@@ -5359,7 +5360,7 @@ pub const fn region_as<S: ?Sized + Pun, K: Item<S::Rules>>(
   }
   let (start, n) = (step.value, step.size);
   // The pointees of its eager aims are looked for in the bytes of `value`, after it.
-  let mut input = Input::new(base, size, (start + n, size));
+  let mut input = Input::new(base, size, start + n);
   // SAFETY: `start + n <= size` (`region_at`), and the pointee is the one of the list of `S`, whose
   // step `region_at` took, so if it has a size of its type, what it stores before its value is in
   // the tail, before `start`. So the pointee is within the bytes of `value`, which are valid for

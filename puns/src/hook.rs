@@ -122,7 +122,7 @@ pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Option<Result<D,
     return None;
   }
   // `D` holds no eager aim (`Plan::check`), so nothing is looked for in these bytes.
-  let mut input = Input::new((&raw const value).cast(), size_of::<S>(), (0, 0));
+  let mut input = Input::new((&raw const value).cast(), size_of::<S>(), 0);
   // SAFETY: `verdict::<S, D>().try_pun` is `true`, so `check(Need::TRY)` is `None`, and the
   // analysis meets `Need::TRY`, as when `Plan::<S, D>::TRY` compiles. `S` and `D` are `Copy`, so
   // `Sized`, and the fit is `Exact::Always`: they have the same size. So `value` is valid for reads
