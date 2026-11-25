@@ -376,9 +376,11 @@ impl AimOption {
 
   /// Returns where the pointee is from the start of the struct whose field `member` has the aim:
   /// its expression, or the integer of the field, as its layout says, under a cast that
-  /// sign-extends a signed one.
+  /// sign-extends a signed one. The cast has the span of the field, so that a refusal of the cast
+  /// points at the field.
   fn start(&self, member: &Member) -> Expr {
-    self.start.clone().unwrap_or_else(|| parse_quote!(self.#member as u128))
+    let span = member.span();
+    self.start.clone().unwrap_or_else(|| syn::parse_quote_spanned!(span=> self.#member as u128))
   }
 }
 
@@ -1134,9 +1136,10 @@ fn named_field<'f, 'a>(
       let member = Member::Named(ident.clone());
       fields.iter().find(|field| field.member == member).map(|field| (field, ident.span()))
     }
-    Expr::Field(field) if is_self(&field.base) => {
-      fields.iter().find(|found| found.member == field.member).map(|found| (found, field.span()))
-    }
+    Expr::Field(field) if is_self(&field.base) => fields
+      .iter()
+      .find(|found| found.member == field.member)
+      .map(|found| (found, field.member.span())),
     _ => None,
   }
 }
