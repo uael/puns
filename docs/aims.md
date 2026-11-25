@@ -17,8 +17,8 @@ and every combination of them is an aim that `puns` checks and reads:
   gives, or of what remains of the tail of the struct.
 - When it is checked ([`layout::Check`]): with the struct (*eager*), or when it is read (*lazy*).
 
-The pointee is a [`Pointee`]: the value of a [`Pun`] type, or a [`Thin<T, M>`][`Thin`], which
-stores the metadata of a pointer to `T` before it, as an `M`: the length of a list or a text,
+The pointee is a [`Pointee`]: the value of a [`Pun`][trait-pun] type, or a [`Thin<T, M>`][`Thin`],
+which stores the metadata of a pointer to `T` before it, as an `M`: the length of a list or a text,
 nothing for a sized `T`, so that a pointer of one format points at any `T` as a `Thin<T, M>`. Its
 type is named in the hidden list of the rules of the struct, through which a check reaches the
 checks of the pointee, so that a type that points at itself is checked by a recursive call, and
@@ -134,7 +134,7 @@ assert!(puns::from_head::<Ptr>(puns::as_bytes(&[(-4i32).cast_unsigned(), 7])).is
 [`layout::Start`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Start.html
 [`Pointee`]: https://docs.rs/puns/0.2.4/puns/trait.Pointee.html
 [`pun_mut`]: https://docs.rs/puns/0.2.4/puns/fn.pun_mut.html
-[`Pun`]: https://docs.rs/puns/0.2.4/puns/trait.Pun.html
+[trait-pun]: https://docs.rs/puns/0.2.4/puns/trait.Pun.html
 [`pun`]: https://docs.rs/puns/0.2.4/puns/fn.pun.html
 [`Thin`]: https://docs.rs/puns/0.2.4/puns/struct.Thin.html
 [`try_pun_mut`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_mut.html

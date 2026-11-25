@@ -54,13 +54,13 @@ read. So reordered variants fail the build.
 
 The functions that the generated code calls to make a layout are associated functions of [`Layout`],
 [`Spec`], [`Rule`], [`Op`], [`Field`], [`Enum`], [`Variant`], [`Crc`], [`Checksum`], [`Varint`],
-[`Aim`], [`Start`], [`Extent`], [`Check`] and the identity of a type, and methods of the values that
-they return. Hidden constants of `Layout` fix these types with `fn(T)` types that no path can
-replace, so a path that names a module or another type for one of them does not compile. `Layout`
-itself is the type of `LAYOUT` in the implementation of [`Pun`]. The description of an enum of the
-`Rust` representation, whose type the generated code names, is what a function of `Layout` returns,
-and the samples of an enum (`layout::Samples`) are what functions of `Layout` take, so only the real
-types compile.
+[`Aim`][struct-aim], [`Start`], [`Extent`], [`Check`] and the identity of a type, and methods of the
+values that they return. Hidden constants of `Layout` fix these types with `fn(T)` types that no
+path can replace, so a path that names a module or another type for one of them does not compile.
+`Layout` itself is the type of `LAYOUT` in the implementation of [`Pun`]. The description of an enum
+of the `Rust` representation, whose type the generated code names, is what a function of `Layout`
+returns, and the samples of an enum (`layout::Samples`) are what functions of `Layout` take, so only
+the real types compile.
 
 Nothing else that the derive names through the path of `puns` makes a layout. A trait that it
 implements through the path is the trait of `puns`: otherwise the type does not implement that
@@ -158,7 +158,7 @@ What such an attribute can still change without failing the build:
 [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
 [enums]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
 [sample]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
-[`Aim`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Aim.html
+[struct-aim]: https://docs.rs/puns/0.2.4/puns/layout/struct.Aim.html
 [`AimOf`]: https://docs.rs/puns/0.2.4/puns/struct.AimOf.html
 [`aim_mut`]: https://docs.rs/puns/0.2.4/puns/fn.aim_mut.html
 [`aim`]: https://docs.rs/puns/0.2.4/puns/fn.aim.html
