@@ -563,7 +563,8 @@ jobs:
       # The reads of pointees through references, which only tree borrows allows (the module
       # `reads` of `aims`), on 32 bits and on a big-endian target too: a few seconds.
       - if: matrix.target && matrix.part == 4
-        run: cargo miri test -p puns --target ${{ matrix.target }} --test aims reads::
+        run: >-
+          cargo miri test -p puns --target ${{ matrix.target }} --test aims -- reads::
         env:
           MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-strict-provenance
 
