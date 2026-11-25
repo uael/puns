@@ -175,8 +175,8 @@ feature][layouts] lists these choices, and what `puns` does about them.
 ## Aims
 
 An *aim* is a rule of a struct that points at a place of the checked bytes. The value there is its
-*pointee*, such as the value that a self-relative pointer points at, or a region of the trailing
-bytes of the struct. A check of the struct checks the pointee of an eager aim with it, and a read
+*pointee*, such as the value that a self-relative pointer points at, or the value that a region
+holds in the trailing bytes of the struct. A check of the struct checks the pointee of an eager aim with it, and a read
 checks the pointee of a lazy one. [Aims][aims] says how.
 
 ## Uninhabited types

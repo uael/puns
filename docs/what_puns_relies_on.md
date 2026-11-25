@@ -202,8 +202,8 @@ run it under Miri with strict provenance ([Miri][testing#miri]).
 The safe method that reads the pointee of an eager [aim][aims] reads it through the reference to the
 value that holds the aim. The pointee may be outside that value. Under the tree borrows model of
 Miri, the reference has the provenance of the bytes of the pointee there. Under stacked borrows it
-does not, and code reads such a pointee with [`aim`] from a pointer to the bytes that hold both, or
-writes it with [`aim_mut`]. Rust has not decided its aliasing model. `puns` relies on tree borrows
+does not, and code reads such a pointee from a pointer ([Reading a
+pointee][aims#reading-a-pointee]). Rust has not decided its aliasing model. `puns` relies on tree borrows
 for these reads, and their tests run under Miri with tree borrows only ([Miri][testing#miri]).
 
 ### How `rustc` places fields
@@ -285,9 +285,8 @@ future.
 [api#in-a-constant]: api.md#in-a-constant
 [limits#bounds-of-the-analysis]: limits.md#bounds-of-the-analysis
 [aims]: aims.md
+[aims#reading-a-pointee]: aims.md#reading-a-pointee
 [layouts#what-puns-assumes]: layouts.md#what-puns-assumes
-[`aim`]: https://docs.rs/puns/0.2.4/puns/fn.aim.html
-[`aim_mut`]: https://docs.rs/puns/0.2.4/puns/fn.aim_mut.html
 [soundness#unions]: soundness.md#unions
 [testing#compile-fail-tests]: testing.md#compile-fail-tests
 [testing#miri]: testing.md#miri

@@ -4,9 +4,8 @@
 //! [api#in-a-constant]: super::api#in-a-constant
 //! [limits#bounds-of-the-analysis]: super::limits#bounds-of-the-analysis
 //! [aims]: super::aims
+//! [aims#reading-a-pointee]: super::aims#reading-a-pointee
 //! [layouts#what-puns-assumes]: super::layouts#what-puns-assumes
-//! [`aim`]: aim
-//! [`aim_mut`]: aim_mut
 //! [soundness#unions]: super::soundness#unions
 //! [testing#compile-fail-tests]: super::testing#compile-fail-tests
 //! [testing#miri]: super::testing#miri
