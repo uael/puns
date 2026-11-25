@@ -131,17 +131,16 @@ fn find_reserved(tokens: TokenStream) -> Option<Ident> {
 // -------------------------------------------------------------------------------------------------
 // Attributes
 
-/// Returns the identity of the type of `input` (`puns::layout::Id`): the crate being compiled, the
-/// name of the type, the number of this derive in that compilation, and the identity of each of
-/// its type and const parameters, in order. `generics` are the generics of its implementation of
-/// `Pun`.
+/// Returns the identity of the type of `input` (`puns::layout::Id`): the crate being compiled
+/// (`compiled_crate`), the name of the type, the number of this derive in that compilation, and the
+/// identity of each of its type and const parameters, in order. `generics` are the generics of its
+/// implementation of `Pun`.
 ///
 /// The name is a literal that the derive writes, passed to `Id::new`, an associated function of
 /// the type that `Layout::PIN` fixes: no path chooses it, so no crate can give a type the identity
 /// of another, and a check may take two types of one identity for one (`validate::PointeeType`).
-/// The crate is named by its package, the version of the package and the name of the crate, which
-/// Cargo sets for the compiler, whose process runs the derive: Cargo builds no two packages of one
-/// name and one version in a build. Each derive in a compilation takes the next number.
+/// Each derive in a compilation takes the next number. A type has no identity (`Id::NONE`) where
+/// the derive cannot tell its crate apart.
 ///
 /// Two instances of a generic type are other types, which `rustc` may lay out differently, so the
 /// identity of an instance has those of its parameters. The identity of a type parameter is the
@@ -154,6 +153,9 @@ fn find_reserved(tokens: TokenStream) -> Option<Ident> {
 fn identity(input: &DeriveInput, generics: &syn::Generics, root: &TokenStream) -> TokenStream {
   // One crate is expanded by one process, in which each derive takes the next number.
   static DERIVES: AtomicUsize = AtomicUsize::new(0);
+  let Some(krate) = compiled_crate(std::env::args()) else {
+    return quote!(#root::layout::Id::NONE);
+  };
   let mut args = vec![];
   for param in &input.generics.params {
     match param {
@@ -172,14 +174,7 @@ fn identity(input: &DeriveInput, generics: &syn::Generics, root: &TokenStream) -
     }
   }
   let n = DERIVES.fetch_add(1, Ordering::Relaxed);
-  let cargo = |name: &str| std::env::var(name).unwrap_or_default();
-  let name = proc_macro2::Literal::string(&format!(
-    "{}@{}/{}::{}#{n}",
-    cargo("CARGO_PKG_NAME"),
-    cargo("CARGO_PKG_VERSION"),
-    cargo("CARGO_CRATE_NAME"),
-    input.ident,
-  ));
+  let name = proc_macro2::Literal::string(&format!("{krate}::{}#{n}", input.ident));
   // The identities of the parameters are values of the instance, which a `const` block makes
   // `'static`.
   let args = if args.is_empty() { quote!(&[]) } else { quote!(const { &[#(#args),*] }) };
@@ -189,6 +184,62 @@ fn identity(input: &DeriveInput, generics: &syn::Generics, root: &TokenStream) -
     let id: #root::layout::Id = #root::layout::Id::new(#name, #args);
     id
   })
+}
+
+/// Returns the crate that `args`, the arguments of the `rustc` process that runs the derive,
+/// compile, as `rustc` tells it apart from the other crates of a program: its name, whether it is
+/// an executable, and the values of `-C metadata`, which make its `StableCrateId`. `rustc` refuses
+/// two crates of one `StableCrateId` in a program, and an executable is the root of its program,
+/// so no two crates of a program give one string. Cargo, for one, gives each crate of a build its
+/// own `-C metadata`: the library and the executable of a package have the same name, and two
+/// packages from two sources may have the same name and version. The values are each behind their
+/// length, so that the string tells them apart.
+///
+/// Without `--crate-type` nor `--test`, as Cargo compiles a test or a bench without a harness,
+/// `rustc` makes an executable, unless a `#![crate_type]` of the crate says otherwise, which the
+/// derive does not see: it takes the crate for an executable. Cargo gives every library its
+/// `--crate-type`. Returns `None` without `--crate-name`, or with an `@file` that cannot be read.
+/// `rustc` reads the arguments of an `@file` as its lines, as here.
+fn compiled_crate(args: impl Iterator<Item = String>) -> Option<String> {
+  let mut expanded = vec![];
+  for arg in args.skip(1) {
+    match arg.strip_prefix('@') {
+      Some(path) => expanded.extend(std::fs::read_to_string(path).ok()?.lines().map(String::from)),
+      None => expanded.push(arg),
+    }
+  }
+  let (mut name, mut types, mut test, mut metadata) = (None, vec![], false, vec![]);
+  let mut args = expanded.iter().map(String::as_str);
+  while let Some(arg) = args.next() {
+    // `--flag value`, `--flag=value`, and `-Cvalue` for `-C value`.
+    let mut value = |flag: &str| match arg.strip_prefix(flag) {
+      Some("") => args.next(),
+      Some(rest) if flag == "-C" => Some(rest),
+      Some(rest) => rest.strip_prefix('='),
+      None => None,
+    };
+    if let Some(value) = value("--crate-name") {
+      name = Some(value);
+    } else if let Some(value) = value("--crate-type") {
+      types.extend(value.split(','));
+    } else if let Some(value) = value("-C").or_else(|| value("--codegen")) {
+      if let Some(value) = value.strip_prefix("metadata=") {
+        metadata.push(value);
+      }
+    } else if arg == "--test" {
+      test = true;
+    }
+  }
+  let name = name?;
+  let executable = test || types.is_empty() || types.contains(&"bin");
+  let mut krate = format!("{}:{name}/{}", name.len(), if executable { "bin" } else { "lib" });
+  for value in metadata {
+    krate.push('/');
+    krate.push_str(&value.len().to_string());
+    krate.push(':');
+    krate.push_str(value);
+  }
+  Some(krate)
 }
 
 /// The `repr` of a type, as far as the derive reads it.
@@ -3826,4 +3877,69 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
       }
     };
   })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::compiled_crate;
+
+  /// The crate that `rustc` compiles with `args`, after the name of the program.
+  fn compiled(args: &[&str]) -> Option<String> {
+    compiled_crate(std::iter::once("rustc").chain(args.iter().copied()).map(str::to_owned))
+  }
+
+  #[test]
+  fn the_library_and_the_executable_of_a_package_are_two_crates() {
+    let lib = compiled(&["--crate-name", "pkg", "--crate-type", "lib", "-C", "metadata=a"]);
+    let bin = compiled(&["--crate-name", "pkg", "--crate-type", "bin", "-C", "metadata=a"]);
+    let test = compiled(&["--crate-name", "pkg", "--test", "-C", "metadata=a"]);
+    assert_eq!(lib.as_deref(), Some("3:pkg/lib/1:a"));
+    assert_eq!(bin.as_deref(), Some("3:pkg/bin/1:a"));
+    assert_eq!(test, bin);
+  }
+
+  #[test]
+  fn crates_of_one_name_with_other_metadata_are_two_crates() {
+    let one = compiled(&["--crate-name", "pkg", "--crate-type", "lib", "-C", "metadata=a"]);
+    let other = compiled(&["--crate-name", "pkg", "--crate-type", "lib", "-C", "metadata=b"]);
+    assert_ne!(one, other);
+    // Each value is behind its length, so two values are not one that holds the separator.
+    let two = compiled(&["--crate-name=x", "--crate-type=lib", "-Cmetadata=a", "-Cmetadata=b"]);
+    let joined = compiled(&["--crate-name=x", "--crate-type=lib", "-Cmetadata=a/1:b"]);
+    assert_eq!(two.as_deref(), Some("1:x/lib/1:a/1:b"));
+    assert_eq!(joined.as_deref(), Some("1:x/lib/5:a/1:b"));
+  }
+
+  #[test]
+  fn every_spelling_of_the_arguments_is_read() {
+    let spelled = [
+      &["--crate-name", "x", "--crate-type", "rlib,bin", "--codegen", "metadata=m"][..],
+      &["--crate-name=x", "--crate-type=rlib,bin", "--codegen=metadata=m"],
+      &["--crate-name", "x", "--crate-type", "bin", "-Cmetadata=m", "-C", "opt-level=3"],
+    ];
+    for args in spelled {
+      assert_eq!(compiled(args).as_deref(), Some("1:x/bin/1:m"), "{args:?}");
+    }
+  }
+
+  #[test]
+  fn a_crate_without_a_type_is_an_executable() {
+    let bench = compiled(&["--crate-name", "x", "-C", "metadata=a", "benches/x.rs"]);
+    assert_eq!(bench.as_deref(), Some("1:x/bin/1:a"));
+  }
+
+  #[test]
+  fn a_crate_that_the_arguments_do_not_name_is_none() {
+    assert_eq!(compiled(&["--crate-type", "lib", "-C", "metadata=a"]), None);
+    assert_eq!(compiled(&["--crate-name", "x", "--crate-type", "lib", "@/nonexistent/args"]), None);
+  }
+
+  #[test]
+  fn the_arguments_of_a_file_are_its_lines() {
+    let path = std::env::temp_dir().join(format!("puns-derive-args-{}", std::process::id()));
+    std::fs::write(&path, "--crate-name\nx\n--crate-type\nlib\n-C\nmetadata=m\n").unwrap();
+    let krate = compiled(&[&format!("@{}", path.display())]);
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(krate.as_deref(), Some("1:x/lib/1:m"));
+  }
 }

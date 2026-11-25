@@ -28,6 +28,7 @@ jobs:
             id: library
             run: |
               cargo test -p puns --lib
+              cargo test -p puns-derive --lib
               cargo test --workspace --exclude puns-model --doc
           # Apart: trybuild builds each program, about twenty seconds of each half (the two tests
           # of `compile_fail.rs`). The cases of `compile-fail-kept`: the refusals and their
