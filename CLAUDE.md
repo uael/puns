@@ -17,8 +17,8 @@ cargo rustc --release --features unstable --example codegen -- --emit asm -C llv
 cargo bench -p puns --features unstable --bench checks   # Time of the run-time checks, next to the same checks by hand (not in CI)
 cargo bench -p puns --features unstable --bench checks -- ipv6  # Only the cases whose name has `ipv6`
 MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests  # Miri, tree borrows
-MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests --target s390x-unknown-linux-gnu  # Miri, stacked borrows, on a big-endian target
-MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests --target i686-unknown-linux-gnu  # 32 bits
+MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --lib $(MIRI=1 STACKED=1 sh .github/tests.sh default) --target s390x-unknown-linux-gnu  # Miri, stacked borrows, on a big-endian target: the files that it runs (`.github/tests.sh`)
+MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --lib $(MIRI=1 STACKED=1 sh .github/tests.sh default) --target i686-unknown-linux-gnu  # 32 bits, stacked borrows too
 cargo test --profile model -p puns-model --features full  # The full model check (every night in model.yml, also with `full,unstable`); `cargo test` runs a sample
 cargo test -p puns --features verdict  # Without the `unstable` feature, the default: every test that builds without it, the record of verdicts included
 cargo test -p puns --features unstable  # With it: the targets that need it too (`required-features`), the cases of `compile-fail-unstable`
@@ -82,10 +82,12 @@ these files: measure the peak memory of their `rustc`. Under Miri, the model che
 of pairs that reaches every unsafe path, not every pair. `puns-model/tests/miri_sample.rs` names the
 unsafe path that each pair reaches. Of the examples, only `ethernet` runs under Miri, since the
 others reach the same unsafe code of the library. A test file that is not for Miri starts with
-`#![cfg(not(miri))]` and says why. CI gives Miri the other ones by name, since Miri takes a second
-to start each test binary, even one that runs nothing. Each pair of types in a test of the model is
-an instance of the analysis, about a tenth of a second of build, so keep the tests that every push
-builds small.
+`#![cfg(not(miri))]` and says why. One that Miri runs with tree borrows only, since it reads
+through a reference what stacked borrows gives no access to (the safe reads of pointees outside
+their values), is in `tree_borrows_only` of `.github/tests.sh`. CI gives Miri the other ones by
+name, since Miri takes a second to start each test binary, even one that runs nothing. Each pair
+of types in a test of the model is an instance of the analysis, about a tenth of a second of build,
+so keep the tests that every push builds small.
 
 What `unsafe` code assumes of the target (the alignment of a primitive, the width of `usize` and of
 `isize`, the byte order) is asserted in a `const` where it is used, or derived from the target, and
@@ -142,9 +144,9 @@ done yet: read it, and the module docs of what you change, before changing the l
 the crate docs and `README.md` consistent with the code.
 
 - **`puns/`**: the library (`#![no_std]`, no dependency but the derive). A self-relative pointer,
-  such as one of `nearest`, derives `Pun` with `#[pun(pointer(..))]` on a field of type `InPlace<T>`,
-  an eager aim (`layout::Aim`) whose pointee `puns` checks, so `nearest` depends on `puns`, not the
-  reverse. The tests declare such a pointer through that API only (`tests/support/aims.rs`, shared
+  such as one of `nearest`, derives `Pun` with `#[pun(pointer(..))]` on a field of type
+  `InPlace<T>`, an eager aim (`layout::Aim`) whose pointee `puns` checks, so `nearest` depends on
+  `puns`, not the reverse. The tests declare such a pointer through that API only (`tests/support/aims.rs`, shared
   by `#[path]` with the compile-fail cases).
 - **`puns-derive/`**: `#[derive(Pun)]`, re-exported as `puns::Pun`.
 - **`puns-model/`**: the model check of the analysis against oracles that do not use it (not

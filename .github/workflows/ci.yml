@@ -278,23 +278,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Of the tests of `puns`, the ones that Miri runs, for each run: three parts of about the
+          # Of the tests of `puns`, the ones that Miri runs, for each run: four parts of about the
           # same time under Miri without the `unstable` feature, and the files about it, with it, in
           # two parts (see the step that selects them).
-          - name: tree borrows, 1 of 3
+          - name: tree borrows, 1 of 4
             id: tree
             args: -p puns
             part: 1
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
-          - name: tree borrows, 2 of 3
+          - name: tree borrows, 2 of 4
             id: tree
             args: -p puns
             part: 2
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
-          - name: tree borrows, 3 of 3
+          - name: tree borrows, 3 of 4
             id: tree
             args: -p puns
             part: 3
+            flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
+          - name: tree borrows, 4 of 4
+            id: tree
+            args: -p puns
+            part: 4
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
           - name: tree borrows, unstable, 1 of 2
             id: tree-unstable-1
@@ -309,23 +314,29 @@ jobs:
           # Stacked borrows, on a big-endian target: what loads integers, sums and CRCs several
           # bytes at a time must not depend on the byte order of the target, and the rules of
           # stacked borrows do not depend on the target (x86-64 has the jobs above).
-          - name: stacked borrows, big-endian, 1 of 3
+          - name: stacked borrows, big-endian, 1 of 4
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 1
             flags: -Zmiri-strict-provenance
-          - name: stacked borrows, big-endian, 2 of 3
+          - name: stacked borrows, big-endian, 2 of 4
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 2
             flags: -Zmiri-strict-provenance
-          - name: stacked borrows, big-endian, 3 of 3
+          - name: stacked borrows, big-endian, 3 of 4
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 3
+            flags: -Zmiri-strict-provenance
+          - name: stacked borrows, big-endian, 4 of 4
+            id: stacked-s390x
+            args: -p puns
+            target: s390x-unknown-linux-gnu
+            part: 4
             flags: -Zmiri-strict-provenance
           - name: stacked borrows, big-endian, unstable, 1 of 2
             id: stacked-s390x-unstable-1
@@ -340,23 +351,29 @@ jobs:
             part: unstable-2
             flags: -Zmiri-strict-provenance
           # 32 bits: a smaller `usize`, a `u64` aligned to 4.
-          - name: 32 bits, 1 of 3
+          - name: 32 bits, 1 of 4
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 1
             flags: -Zmiri-strict-provenance
-          - name: 32 bits, 2 of 3
+          - name: 32 bits, 2 of 4
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 2
             flags: -Zmiri-strict-provenance
-          - name: 32 bits, 3 of 3
+          - name: 32 bits, 3 of 4
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 3
+            flags: -Zmiri-strict-provenance
+          - name: 32 bits, 4 of 4
+            id: i686
+            args: -p puns
+            target: i686-unknown-linux-gnu
+            part: 4
             flags: -Zmiri-strict-provenance
           - name: 32 bits, unstable, 1 of 2
             id: i686-unstable-1
@@ -433,11 +450,12 @@ jobs:
       # A test file that is not for Miri says so (`#![cfg(not(miri))]`: the examples other than
       # `ethernet`, the trybuild test, what is about the derive and not the unsafe code). With
       # `--tests`, each would still be a binary that Miri starts to run nothing, a second each.
-      # The first two parts are named, about seventeen seconds of Miri each on x86-64 with tree
-      # borrows (less on the other targets); the third is every other file that Miri runs without
-      # the feature, so that a new file runs. A named file that is not there fails the job. The
-      # files about the feature run with it, every other one each. Under Miri, the unit tests run
-      # without the feature only: with it, fourteen seconds more.
+      # The first three parts are named, at most twenty seconds of Miri each on x86-64 with tree
+      # borrows, as the times of the test binaries in the logs of the jobs say; the fourth is every
+      # other file that Miri runs without the feature, so that a new file runs. A named file that
+      # is not there fails the job: `aim_reads`, which stacked borrows does not run, is in the
+      # fourth. The files about the feature run with it, every other one each. Under Miri, the unit
+      # tests run without the feature only: with it, fourteen seconds more.
       - name: Select the tests that Miri runs
         if: matrix.part
         env:
@@ -446,13 +464,16 @@ jobs:
         run: |
           one="--lib --test core_shadowed --test str"
           two="--test ethernet --test checksums --test bytes --test patterns"
+          three="--test aims --test api --test assumed --test enums"
           case "${{ matrix.part }}" in
             1) tests=$one ;;
             2) tests=$two ;;
-            3)
+            3) tests=$three ;;
+            4)
               tests=""
-              for test in $(MIRI=1 STACKED=$STACKED sh .github/tests.sh default | sed 's/^--test //'); do
-                case " $one $two " in
+              files=$(MIRI=1 STACKED=$STACKED sh .github/tests.sh default | sed 's/^--test //')
+              for test in $files; do
+                case " $one $two $three " in
                   *" --test $test "*) ;;
                   *) tests="$tests --test $test" ;;
                 esac

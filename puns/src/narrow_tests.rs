@@ -195,6 +195,11 @@ impl Scope {
   }
 }
 
+/// The steps of a walk under Miri, where a step of a walk that runs to the limit of the library
+/// (`walk_limit`, 640 steps for 64 bytes) takes milliseconds, and the evaluations that are compared
+/// take the same steps: a walk that does not end within them fails in both.
+const MIRI_WALK_STEPS: usize = 16;
+
 /// Returns a constant at the bounds of the widths, or a small one.
 fn constant(random: &mut Random) -> u128 {
   const BOUNDS: [u128; 20] = [
@@ -422,7 +427,7 @@ fn run(ops: &[Op], entry: &Entry, narrowed: bool, machine: &mut Machine, bytes: 
       }
       let inner = entries[at].unwrap_or(*entry);
       let mut state = fit(machine.top(), how.result);
-      let (mut steps, limit) = (0, walk_limit(size));
+      let (mut steps, limit) = (0, if cfg!(miri) { MIRI_WALK_STEPS } else { walk_limit(size) });
       let result = loop {
         let (mut c, mut n) = (machine.enter(var, state), machine.enter(var, state));
         if !run(cond, &inner, narrowed, &mut c, bytes) {

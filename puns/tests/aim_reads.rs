@@ -1,9 +1,10 @@
 //! The safe reads of the pointees of eager aims, which the derive writes: `name(&self)`, through
 //! the reference to the value, and `name_mut(&mut self)`.
 //!
-//! Miri: tree borrows only. A reference to a value gives the provenance of the bytes of a pointee
-//! outside it under tree borrows, which these reads rely on, but not under stacked borrows, under
-//! which `aims.rs` reads the same pointees from pointers to the bytes that hold them.
+//! Miri runs this file with tree borrows only (`tree_borrows_only` in `.github/tests.sh`). A
+//! reference to a value gives the provenance of the bytes of a pointee outside it under tree
+//! borrows, which these reads rely on, but not under stacked borrows, under which `aims.rs` reads
+//! the same pointees from pointers to the bytes that hold them.
 
 use core::num::NonZero;
 
