@@ -930,6 +930,11 @@ const unsafe fn check_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
   else {
     return false;
   };
+  // The value exists in the bytes: its size does not overflow.
+  let Some(size) = const { <<L::Pointee as Pointee>::Value as Pun>::LAYOUT }.size_of_val(len)
+  else {
+    return false;
+  };
   let (shared, within) = const {
     match T::LAYOUT.rule(L::RULE) {
       Some(Rule::Aim(aim)) => (aim.shared, matches!(aim.extent, Extent::Rest)),
@@ -941,27 +946,22 @@ const unsafe fn check_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
     let hi = input.hi;
     input.hi = SHARED;
     // SAFETY: As below.
-    let valid = unsafe { check_value::<C, L::Pointee, true>(addr, len, input) };
+    let valid = unsafe { check_value::<C, L::Pointee, true>(addr, (len, size), input) };
     input.hi = hi;
     return valid;
   }
-  // The value exists in the bytes: its size does not overflow.
-  let Some(size) = const { <<L::Pointee as Pointee>::Value as Pun>::LAYOUT }.size_of_val(len)
-  else {
-    return false;
-  };
   // A pointee that ends where the tail of the struct ends is within the struct, claimed with it,
   // as a pointee at the cursor is, and is checked in place: no pointee waits without a claim.
   if within {
     // SAFETY: As below.
-    return unsafe { check_value::<C, L::Pointee, false>(addr, len, input) };
+    return unsafe { check_value::<C, L::Pointee, false>(addr, (len, size), input) };
   }
   if !input.claim(to - before, to.saturating_add(size)) {
     return false;
   }
   // SAFETY: The value is at `addr` with the length `len`, within the bytes of `input`, which are
   // valid for reads and initialized, as `check_value` requires.
-  unsafe { check_value::<C, L::Pointee, true>(addr, len, input) }
+  unsafe { check_value::<C, L::Pointee, true>(addr, (len, size), input) }
 }
 
 /// Returns where the value of the pointee of the eager aim at a stored place `L` of the struct `T`
@@ -1023,12 +1023,15 @@ const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
   if before > 0 && !unsafe { validate_whole::<C, P::Prefix>(start.cast(), input) } {
     return false;
   }
+  // The value exists in the bytes: its size does not overflow.
+  let Some(size) = const { <P::Value as Pun>::LAYOUT }.size_of_val(len) else { return false };
   // SAFETY: The requirements of `check_value` are those of this call.
-  unsafe { check_value::<C, P, false>(addr, len, input) }
+  unsafe { check_value::<C, P, false>(addr, (len, size), input) }
 }
 
-/// Returns whether the value of the pointee `P` at `addr`, the length of whose tail is `len`, is
-/// valid, every part of it checked, its own eager aims included.
+/// Returns whether the value of the pointee `P` at `addr`, the length of whose tail is `len` and
+/// whose size is `size`, is valid, every part of it checked, its own eager aims included. The
+/// caller computes the size, which a claim needs first.
 ///
 /// A pointee is checked in place, nested in the check of the value that holds its aim: it takes
 /// its parts from the budget of [`AIM_PARTS`] while it runs, and its size from the budget of bytes
@@ -1054,7 +1057,7 @@ const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
 /// `input` or of a value within them, which are in one allocation, valid for reads and initialized.
 const unsafe fn check_value<C: Checks, P: ?Sized + Pointee, const WAITS: bool>(
   addr: *const u8,
-  len: usize,
+  (len, size): (usize, usize),
   input: &mut Input,
 ) -> bool {
   let (before, parts, nested) = const {
@@ -1063,8 +1066,6 @@ const unsafe fn check_value<C: Checks, P: ?Sized + Pointee, const WAITS: bool>(
     (size_of::<P::Prefix>(), parts, parts.saturating_add(AIM_PARTS - IN_PLACE))
   };
   let value = ptr::from_raw_parts::<P::Value>(addr, len);
-  // The value exists in the bytes: its size does not overflow.
-  let Some(size) = const { <P::Value as Pun>::LAYOUT }.size_of_val(len) else { return false };
   // An empty slice holds no aim, whatever its elements hold, and is checked in place at once. A
   // pointee waits for a loop in a value of a loop, or, in place, if it is nested in a value of its
   // type past `IN_PLACE` parts, or where its parts are not left.
@@ -1493,9 +1494,16 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
       // the end of its own claim, with no pointee waiting since a claim of its own, and the one
       // that waits at its end ends where its window does. The first pointee, and one that waits
       // since the last claim, which ends its window now, are checked where the cursor is.
-      let window = pointee.hi != OPEN;
-      let around = (input.cursor, input.hi, input.open);
-      if window {
+      // SAFETY: The value of `pointee` is a `P` within the bytes of `input`, by contract on the
+      // caller for the first, and as `waits` put the others, and this loop is the innermost one, as
+      // `Looped<P>` requires of the pointees that wait for it.
+      let valid = if pointee.hi == OPEN {
+        // Its window is the one of the cursor, and it no longer waits: the next claim is within it.
+        input.open = core::ptr::null_mut();
+        // SAFETY: As above.
+        unsafe { validate::<Looped<P>, Root, P::Value>(value, input) }
+      } else {
+        let around = (input.cursor, input.hi, input.open);
         // SAFETY: The value of `pointee` is within the bytes of `input`, in one allocation, at or
         // after their start, as `offset_from_unsigned` requires.
         let from = unsafe { pointee.value.offset_from_unsigned(input.start) };
@@ -1503,22 +1511,15 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
           break false;
         };
         (input.cursor, input.hi, input.open) = (from + size, pointee.hi, core::ptr::null_mut());
-      } else if !input.open.is_null() {
-        // SAFETY: As in `Input::claim`.
-        unsafe { *input.open = input.hi };
-        input.open = core::ptr::null_mut();
-      }
-      // SAFETY: The value of `pointee` is a `P` within the bytes of `input`, by contract on the
-      // caller for the first, and as `waits` put the others, and this loop is the innermost one, as
-      // `Looped<P>` requires of the pointees that wait for it.
-      let valid = unsafe { validate::<Looped<P>, Root, P::Value>(value, input) };
-      if window {
+        // SAFETY: As above.
+        let valid = unsafe { validate::<Looped<P>, Root, P::Value>(value, input) };
         if !input.open.is_null() {
           // SAFETY: As in `Input::claim`.
           unsafe { *input.open = input.hi };
         }
         (input.cursor, input.hi, input.open) = around;
-      }
+        valid
+      };
       if !valid {
         break false;
       }
