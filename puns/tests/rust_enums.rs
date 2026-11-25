@@ -31,7 +31,6 @@ enum Unit {
 
 /// An enum without variants, which has no values.
 #[derive(Pun, Clone, Copy)]
-#[expect(clippy::empty_enums, reason = "a type without values, which is the point")]
 enum Void {}
 
 #[test]

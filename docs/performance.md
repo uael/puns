@@ -8,7 +8,8 @@ compiles to the checks of what the analysis could not prove.
 The table below gives the machine code of some functions of
 [`puns/examples/codegen.rs`][codegen]. That file defines their types, records the machine code
 of more functions, and gives the command that writes the assembly. The code was measured on
-`x86_64-unknown-linux-gnu` with `rustc` 1.100.0, in release with LTO and one codegen unit.
+`x86_64-unknown-linux-gnu` with `rustc` 1.99.1 and 1.100.0, which give the same code, in release
+with LTO and one codegen unit.
 
 | Function                                           | Machine code                                  |
 |----------------------------------------------------|-----------------------------------------------|

@@ -72,8 +72,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   keeps unique in a program; `args.rs` reads them where the `std` of the derive does not have
   them), the name, the number of the derive, and the copy of the derive (`this_derive`). Where
   the derive cannot read the arguments as `rustc` does, the type has none: "What the derive
-  trusts" lists the cases. Its option tables are those of the pinned `rustc`
-  (`the_options_are_those_of_rustc`), so a new toolchain may need them updated. It is pinned by
+  trusts" lists the cases. Its option tables are those of every `rustc` from 1.99
+  (`the_options_are_those_of_rustc`, which CI runs on 1.99 and 1.100), so a new toolchain may need
+  them updated. It is pinned by
   `compile-fail/aim_identity_of_another.rs` (crate path), `core_shadowed` and `puns_model`
   (`src/identity_test.rs`) in `puns-model` (`::core`, and a library and an executable that
   include one file); the CI job "Linux with musl" runs `puns_model` where `std` does not have the

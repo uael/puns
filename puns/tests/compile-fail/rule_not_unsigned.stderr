@@ -43,8 +43,6 @@ error[E0277]: a constant of `#[pun(..)]` is an unsigned integer: `f64` is not on
 note: required by a bound in `Op::constant`
   --> src/layout.rs
    |
-   | impl Op {
-...
    |   pub const fn constant<T: Unsigned>(value: &T) -> u128 {
    |                            ^^^^^^^^ required by this bound in `Op::constant`
 
@@ -69,7 +67,5 @@ error[E0277]: a constant of `#[pun(..)]` is an unsigned integer: `i32` is not on
 note: required by a bound in `Op::constant`
   --> src/layout.rs
    |
-   | impl Op {
-...
    |   pub const fn constant<T: Unsigned>(value: &T) -> u128 {
    |                            ^^^^^^^^ required by this bound in `Op::constant`

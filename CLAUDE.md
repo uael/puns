@@ -40,14 +40,18 @@ RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all  # Build documentation
 cargo deny check                     # License/advisory/ban auditing
 ```
 
-The crates build on **stable** Rust 1.100.0, pinned in `rust-toolchain`. `rust-version` is 1.99, the
-first stable release with `size_of_val_raw` and `align_of_val_raw` in `const`, which the layout of
-unsized types needs. The CI job "Minimum Rust version" builds on 1.99. A change that needs a newer
-feature raises `rust-version`, and gives the reason in "Minimum Rust version" in the crate docs. CI
-also builds for two targets without `std`: `thumbv7em-none-eabihf`, and, on the pinned nightly,
-`msp430-none-elf`, whose `usize` has 16 bits. A pinned nightly (`nightly-2026-11-17`) is used by
-`cargo xtask fmt` (`rustfmt.toml` uses unstable options) and by Miri, under which the trybuild test
-is ignored. Generate trybuild `.stderr` files with the pinned stable.
+The crates build on **stable** Rust 1.99.1, pinned in `rust-toolchain`: the latest release of 1.99,
+the `rust-version`, the first stable release with `size_of_val_raw` and `align_of_val_raw` in
+`const`, which the layout of unsized types needs. The pin is the minimum version, so every check
+runs on the oldest `rustc` that the crates support. `nearest` builds `puns` and `puns-derive` on
+1.100, so the CI job "Rust 1.100" runs there what depends on the version of `rustc`: the options of
+`rustc` that the derive reads, the identities that it writes, and a build of the examples. A change
+that needs a newer feature raises `rust-version` and the pin, and gives the reason in "Minimum Rust
+version" in the crate docs. CI also builds for two targets without `std`: `thumbv7em-none-eabihf`,
+and, on the pinned nightly, `msp430-none-elf`, whose `usize` has 16 bits. A pinned nightly
+(`nightly-2026-11-17`) is used by `cargo xtask fmt` (`rustfmt.toml` uses unstable options) and by
+Miri, under which the trybuild test is ignored. Generate trybuild `.stderr` files with the pinned
+stable.
 
 Most refusals are panics of `const { .. }` blocks in generic functions, evaluated at
 monomorphization: `cargo check` does not report them, `cargo build` does. The trybuild test has a
