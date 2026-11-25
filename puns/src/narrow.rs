@@ -6,16 +6,18 @@
 //! one into the other (`adc`), its product is three multiplications, and its division is a call. In
 //! a loop, the optimizer does not know that the high half of a state is zero. So this module finds
 //! the range of every value of an expression at compile time. Each operation is then computed as
-//! narrowly as its range allows, with the same result and the same failure as on `u128`: in a
-//! register (64 bits, or 32 where `usize` is narrower) where the values fit it, or in 128 bits
-//! otherwise.
+//! narrowly as its range allows, with the same result and the same failure as on `u128`: on the
+//! narrowest of `u32`, `u64` and `u128` that holds its values, but not narrower than a register (64
+//! bits, or 32 where `usize` is narrower), as [`Range::fits`] says.
 //!
 //! # Ranges
 //!
 //! A value is known as two intervals, one for each half of a `u128` ([`Range`]). For example,
 //! `(kind << 64) + start` is a kind of `0..=255` in the high half and an offset in the low half. A
-//! field, a read of `n` bytes and a checksum may be any value of their width, and a signed one,
-//! sign-extended, any value of 128 bits. A literal is itself, and a comparison is `0..=1`.
+//! field, a read of `n` bytes, a CRC-32, an Adler-32, a Fletcher-16 and `sum16` may be any value of
+//! their width, and a signed field, sign-extended, any value of 128 bits. A [`Crc`](layout::Crc) of
+//! any width is taken to be any value of 64 bits, and a sum of bytes is at most 255 times
+//! `isize::MAX`. A literal is itself, and a comparison is `0..=1`.
 //! `size_of_val(self)` is at most `isize::MAX` ([`SIZE_MAX`]). A QUIC integer is 62 bits, and the
 //! other integers of variable length may be anything. Each operation makes the range of its result
 //! from those of its operands, and tells whether it may fail. A sum whose bounds do not overflow
@@ -32,10 +34,10 @@
 //!
 //! The state of a walk is a fixed point. It is what the walk starts as, joined twice with what a
 //! step makes of it. Then each bound that still moves goes as far as it can, in at most four more
-//! steps. The number of steps of a walk, at most `8 * size + 128`, bounds nothing. On 64 bits it is
-//! more than `2^64` for a value of `isize::MAX` bytes. The state of a walk three deep or more,
-//! inside two others, may be anything, so that the analysis stays a few times the length of the
-//! expression.
+//! steps. The limit on the steps of a walk ([Walks](crate::reference::rules#walks)) bounds nothing
+//! here: on 64 bits, it is `usize::MAX` steps for a value of `isize::MAX` bytes, so a state that
+//! grows at each step could pass `2^64`. The state of a walk three deep or more, inside two others,
+//! may be anything, so that the analysis stays a few times the length of the expression.
 //!
 //! # How an operation is computed
 //!
@@ -43,7 +45,8 @@
 //! that applies the operation, as the operation is (see "No interpreter" in the documentation of
 //! [`validate`](mod@crate::validate#no-interpreter)). It says four things:
 //!
-//! - The width in which the operation is computed, a register or 128 bits ([`REGISTER`]).
+//! - The width in which the operation is computed, 32, 64 or 128 bits, never narrower than a
+//!   register ([`REGISTER`]).
 //! - Whether it may fail. An addition, a product or a shift that cannot overflow is not tested.
 //! - Whether an addition or a difference of 128 bits is computed on each half alone, which is done
 //!   where the low halves cannot carry or borrow.
@@ -62,8 +65,9 @@
 //! bits, so the bounds of what it reads were tested again. For the UDP packet behind 3 headers,
 //! that was 217 instructions against 209. A remainder in 32 bits after a sum in 64 bits was worse
 //! than either, 243 instructions against 241 for IPv4. These counts are of
-//! `valgrind --tool=callgrind` on `benches/checks.rs`. The bounds of a read are one comparison of
-//! the offset with `size - n`, which does not change in a walk.
+//! `valgrind --tool=callgrind` on `benches/checks.rs`, taken when this module was written (commit
+//! a1090c5, 2026-11-18), on a machine that was not recorded. The bounds of a read are one
+//! comparison of the offset with `size - n`, which does not change in a walk.
 //!
 //! # Tests
 //!
@@ -82,8 +86,8 @@
 //! `tests/rules_are_rust.rs` compares rules at the limits of the widths, and walks, with Rust. The
 //! tests catch an analysis that does not test a carry, that takes no fixed point, or that does not
 //! join what follows a part. They also catch an analysis that is wrong about the range of a
-//! product, a remainder or a shift. Each of these faults was tried. The tests cannot catch a bound
-//! of `isize::MAX` taken too small, because no value of the tests is large enough to tell.
+//! product, a remainder or a shift. The tests cannot catch a bound of `isize::MAX` taken too small,
+//! because no value of the tests is large enough to tell.
 
 use crate::{
   layout::{self, MAX_OPS, Op, STACK, VARIABLES, Varint},

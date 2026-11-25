@@ -4,16 +4,20 @@
 //! value of `S` is a [valid] value of `D`. It walks both layouts together, as the product of two
 //! automata, and answers the following questions:
 //!
-//! - **Fit** ([`Fit`]): how the size of a source maps to the size of a target. The sizes fit
-//!   always, for some lengths of a slice, or never, or the source is truncated to the size of the
-//!   target. It accounts for the trailing padding of unsized structs, and is checked against
+//! - **Fit** ([`Fit`]): how the [extent](crate::reference::how_puns_decides#layouts-and-rules) of a
+//!   source maps to the extent of a target. The extents are the same always, for some lengths of a
+//!   slice, or never, or the source is truncated to the extent of the target. The trailing padding
+//!   of an unsized target is not part of its extent: where the target is more aligned than the
+//!   source, `Plan::check_by` checks that the source has room for it. [`Layout::structure`] checks
+//!   the size that the layout gives an unsized struct, trailing padding included, against
 //!   `size_of_val_raw`.
-//! - **Uninitialized bytes**: whether a byte that the target requires to be initialized would be
-//!   read from padding. This is always an error.
+//! - **Uninitialized bytes**: whether a byte that the target requires to be initialized may be
+//!   padding in the source ([`Relation`], `uninit`). This is always an error.
 //! - **Validity** ([`Relation`]): whether the pun is infallible, fallible, or never valid. Each
 //!   constrained scalar of the target must accept every value that the source may hold under it.
 //! - **Marks** ([`Marks`]): which scalars, patterns, enums, unions and rules of the target the
-//!   source does not prove. These are exactly what a checked pun checks at run time.
+//!   source does not prove. A checked pun checks these at run time, and with them the parts that
+//!   share a check with them ([What a check reads](#what-a-check-reads)).
 //! - **Mutability** ([`mutable`], [`mutable_part`]): whether the reverse inclusion holds, which is
 //!   what a `&mut` requires. Every value written through the target must leave a valid source.
 //!
@@ -22,8 +26,8 @@
 //! [Layouts that Rust leaves to the compiler](#layouts-that-rust-leaves-to-the-compiler)).
 //!
 //! The errors of the analysis are panics of `const { .. }` blocks in the generic functions of the
-//! crate. Such a block depends on type parameters, so it is evaluated after monomorphization, and
-//! `cargo check` does not report these errors while `cargo build` does.
+//! crate, evaluated after monomorphization ([Compile-time errors](crate::reference::errors) says
+//! when a build reports them).
 //!
 //! # Cost
 //!
@@ -57,10 +61,11 @@
 //!
 //! So the cost of an analysis grows with the number of fields, variants, ranges of values and
 //! states of automata of the types. Where it would grow with their size, a search stops at a limit:
-//! [`PLACES`] places of fields, a budget of boxes of a scalar, a budget of runs under a pattern,
-//! and [`CUT_ELEMENTS`] elements of an array looked at one by one. These limits keep the analysis
-//! within the bound of const evaluation (see "Minimum Rust version" in the [crate
-//! documentation](crate#minimum-rust-version)).
+//! [`PLACES`] places of fields, a budget of boxes of a scalar, a budget of runs under a pattern and
+//! of steps of its automaton over bytes of any value, [`KNOWN`] ranges of the values of a tag, and
+//! [`CUT_ELEMENTS`] elements of an array looked at one by one. These limits keep the analysis
+//! within the bound of const evaluation ([Limits of
+//! Rust](crate::reference::limits#limits-of-rust)).
 //!
 //! # Enums and unions
 //!
@@ -84,9 +89,10 @@
 //! initializes.
 //!
 //! A union as a target is proven by one of its fields that the source proves. Otherwise it is
-//! checked field by field at run time if the check of no field reads a byte that may be padding in
-//! the source, and refused if one does ([`relate_union_from`]). The marks of the analysis cannot
-//! tell the validation which fields to skip, so a union is not checked by some of its fields only.
+//! checked field by field at run time if no field requires a byte to be initialized that may be
+//! padding in the source, and refused if one does ([`relate_union_from`]). The marks of the
+//! analysis cannot tell the validation which fields to skip, so a union is not checked by some of
+//! its fields only.
 //! A union that is proven may still be checked, with a part that holds it. That check stops at the
 //! first field that the source proves whatever safe code writes, one that holds no requirement
 //! ([`Layout::holds_requirement`]). A field proven through a requirement, a `valid(..)` or a rule,
@@ -138,8 +144,8 @@
 //! that reads the bytes of its struct reads what the source has under every part of the struct, a
 //! part that is proven without being read included. A rule that loads a field reads the bytes of
 //! that field, though they are of any value and no other check reads them ([`unreadable_rules`]).
-//! A leaf that is both marked and unreadable is refused, as a byte read from padding is
-//! ([`Relation::settle`]).
+//! A leaf that is both marked and unreadable is refused, as a byte that the target requires to be
+//! initialized and that may be padding in the source is ([`Relation::settle`]).
 //!
 //! # Shifted relations
 //!
@@ -194,20 +200,16 @@
 //! Rules are checked when a value is made from something else, and tell `from_head` how long a
 //! value is. Each rule of a struct is a leaf of its own, proven or checked on its own. A rule is
 //! proven only by the same rule, at the same place of the source, in a struct of the same extent
-//! ([`Layout::same_extent`], [`Layout::has_rule`], [`proves_rule`]). A rule is a function of four
-//! things: the bytes of its struct, its size (`size_of_val(self)` or a `size` rule), the number of
-//! elements of its tail (a `len` rule), and the bytes of that tail (regions). So a struct of the
-//! source with the same rule ([`Rule::equals`](crate::layout::Rule::equals)), the same sized part
-//! and the same tail computes the same rule over the same bytes, whatever its fields, which are
-//! related to the target as any others, and whatever its other rules, but for an aim at the cursor,
-//! which the aims at the cursor before it place: the source must have the same ones first. A rule
-//! that is proven is not checked, though the step of a proven aim at the cursor is still taken
-//! where a checked one follows it. The same tail means the same start, the
-//! same size of an element and, for a sized struct, the same bytes and elements of the array that
-//! it ends with. This is how `Frame<Ipv4<Udp>>` proves the rules of `Frame<Ipv4>`, since the
-//! payload of `Ipv4` is a typed region of its bytes, not a field of another type. A part of a
-//! struct of a dynamic size has another size, so it does not prove the rules of a struct of its own
-//! size.
+//! ([`proves_rule`]), as [Why the pair
+//! decides](crate::reference::how_puns_decides#why-the-pair-decides) states.
+//! [`Layout::same_extent`] and [`Layout::has_rule`] say why such a struct computes the same rule
+//! over the same bytes, whatever its fields, which are related to the target as any others, and
+//! whatever its other rules, but for an aim at the cursor, which the aims at the cursor before it
+//! place: the source must have the same ones first. A rule that is proven is not checked, though
+//! the step of a proven aim at the cursor is still taken where a checked one follows it. This is
+//! how `Frame<Ipv4<Udp>>` proves the rules of `Frame<Ipv4>`, since the payload of `Ipv4` is a typed
+//! region of its bytes, not a field of another type. A part of a struct of a dynamic size has
+//! another size, so it does not prove the rules of a struct of its own size.
 //!
 //! The elements of an array or a slice share their leaves, so their rules are proven together.
 //! Where the source has elements of the same size at the same place, each element is to the source
@@ -219,10 +221,11 @@
 //! # Layouts that Rust leaves to the compiler
 //!
 //! Without the `unstable` feature ([`STRICT`]), the analysis does not look into a node that is not
-//! `fixed` ([`Layout::is_opaque`], [`Stable`](crate::layout::Stable)), and the cursor makes it one
-//! run ([`RunKind::Opaque`]). The exception is a node whose size is the same in every layout, that
-//! has no rule, and whose bytes are all of any value or all padding, since what such bytes are does
-//! not depend on where its fields are.
+//! `fixed` ([`Stable`](crate::layout::Stable)), and the cursor makes it one run
+//! ([`RunKind::Opaque`]). The exception is a node whose size is the same in every layout, that has
+//! no rule, and whose bytes are all of any value or all padding, since what such bytes are does not
+//! depend on where its fields are. A node that the analysis does not look into is *opaque* in this
+//! module ([`Layout::is_opaque`]), and so are its run and the part of a layout that it is.
 //!
 //! - **As a source**, an opaque node is what every layout of it is (all initialized bytes if it is
 //!   `init`, and otherwise all bytes that may be padding). That the first byte of a `(u8, u16)` is
@@ -230,14 +233,15 @@
 //! - **As a target**, an opaque node is proven by the same type at the same place ([`equal`]). A
 //!   struct or a tuple whose size is the same in every layout may also be proven field by field
 //!   ([`relate_fields`]). A field may be anywhere, so it must be proven everywhere that it may be,
-//!   and since a struct is valid if each of its fields is valid at its place, the source proves the
-//!   struct in every order of its fields if, and only if, it proves each field at each offset that
-//!   the field has in some order. This is exact, and tries no order. The offsets taken are the
-//!   multiples of the alignment of the field where the field fits or, where no order needs padding,
-//!   the multiples of the greatest common divisor of the sizes, of which every sum of sizes is one.
-//!   A few of these offsets are in no order, such as the second byte of a `(bool, [u8; 3])`, so
-//!   more is then required, never less. A struct that has a rule, which names fields, proves only
-//!   itself, as an enum does.
+//!   and since a struct is valid if each of its fields is valid at its place ([A value whose fields
+//!   are valid](crate::reference::what_puns_relies_on#a-value-whose-fields-are-valid)), the source
+//!   proves the struct in every order of its fields if, and only if, it proves each field at each
+//!   offset that the field has in some order. This is exact, and tries no order. The offsets taken
+//!   are the multiples of the alignment of the field where the field fits or, where no order needs
+//!   padding, the multiples of the greatest common divisor of the sizes, of which every sum of
+//!   sizes is one. A few of these offsets are in no order, such as the second byte of a `(bool,
+//!   [u8; 3])`, so more is then required, never less. A struct that has a rule, which names fields,
+//!   proves only itself, as an enum does.
 //! - **A check does not replace a proof in an opaque node,** since a check would read where the
 //!   compiler may not have put the field. What is not proven does not compile
 //!   ([`Relation::unspecified`]), and whatever reads a relation reads this, including what a
@@ -253,9 +257,9 @@
 //!
 //! A check must not read a byte of the source that, in another layout that Rust allows, holds
 //! another field ([`reads_moved`]). The analysis counts the bytes that a check reads as "What a
-//! check may read" in the [crate documentation](crate#what-a-check-may-read) says. Under an array
-//! whose elements the source does not match, it counts every byte, including bytes that no check
-//! reads.
+//! check may read" in the [reference](crate::reference::layouts#what-a-check-may-read) says. Under
+//! an array whose elements the source does not match, it counts every byte, including bytes that no
+//! check reads.
 //!
 //! The analysis looks for nothing inside a part of the source that is not fixed, at the place where
 //! `rustc` put it. A rule is proven by the same rule of the same struct at the same place, which
@@ -266,9 +270,10 @@
 //! Rust does not specify compiles only if both sides are the same type ([`sizes_kept`]).
 //! The check of the pointee of an eager aim compiles only if nothing that Rust does not specify in
 //! the pointee has something to check ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does
-//! not accept the zeros of an enum that is not fixed.
+//! not accept zeros that make a part whose representation Rust does not specify and `puns` does not
+//! assume, other than a struct or a tuple (`Stable::specified`).
 //!
-//! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
+//! [valid]: crate::reference::how_puns_decides#what-is-a-valid-value
 
 use crate::layout::{
   Dfa, Endian, Kind, Layout, Op, Rule, Spec, Tags, UNSTABLE, Uniform, Valid, max_value,
@@ -283,7 +288,9 @@ const STRICT: bool = !UNSTABLE;
 // -------------------------------------------------------------------------------------------------
 // `Cursor`
 
-/// The maximum nesting of arrays, slices and structs that a [`Cursor`] follows.
+/// The most frames of a [`Cursor`]: one for the part where it is, and one for each array, slice and
+/// struct around it, so 31 levels of nesting around a scalar ([Bounds of the
+/// analysis](crate::reference::limits#bounds-of-the-analysis)).
 const MAX_DEPTH: usize = 32;
 
 /// The kind of a [`Run`].
@@ -838,7 +845,8 @@ impl Relation {
     }
   }
 
-  /// Records `pos` as a byte read from padding, if none is recorded yet.
+  /// Records `pos` as a byte that the target requires to be initialized and that may be padding
+  /// in the source, if none is recorded yet.
   const fn uninit(&mut self, pos: usize) {
     if self.uninit.is_none() {
       self.uninit = Some(pos);
@@ -862,7 +870,7 @@ impl Relation {
     }
   }
 
-  /// Records a byte read from padding if a leaf that is marked must not be read.
+  /// Records the first unreadable byte as `uninit` if a leaf that is marked must not be read.
   ///
   /// This is the last step of an analysis whose marks tell the validation what to check. Before
   /// it, a leaf may still be marked.
@@ -1419,14 +1427,15 @@ const PLACES: usize = 1024;
 /// not the order of its fields ([`RunKind::Opaque`]). A field may be anywhere, so it must be
 /// proven everywhere it may be.
 ///
-/// A struct is valid if each of its fields is valid at its place. So the source proves the
-/// struct in every order of its fields if, and only if, it proves each field at each offset that
-/// the field has in some order. This is exact, and no order is tried. The offsets taken are all
-/// those that the field may have, the multiples of its alignment where it fits. Where no order
-/// needs padding, because every size is a multiple of every alignment, they are the multiples of
-/// the greatest common divisor of the sizes, since every sum of sizes is one. Some of these offsets
-/// are in no order, such as the second byte of a `(bool, [u8; 3])`. More is then required, never
-/// less.
+/// A struct is valid if each of its fields is valid at its place ([A value whose fields are
+/// valid](crate::reference::what_puns_relies_on#a-value-whose-fields-are-valid)). So the source
+/// proves the struct in every order of its fields if, and only if, it proves each field at each
+/// offset that the field has in some order. This is exact, and no order is tried. The offsets taken
+/// are all those that the field may have, the multiples of its alignment where it fits. Where no
+/// order needs padding, because every size is a multiple of every alignment, they are the multiples
+/// of the greatest common divisor of the sizes, since every sum of sizes is one. Some of these
+/// offsets are in no order, such as the second byte of a `(bool, [u8; 3])`. More is then required,
+/// never less.
 ///
 /// Nothing is left to check at run time, since a check would read where the compiler may not have
 /// put the field. A field that the source does not prove somewhere fails the relation. So does a
@@ -1659,8 +1668,8 @@ const fn relate_enum_from(
 /// the source did not prove.
 ///
 /// The union is proven if the source proves one of its fields. Otherwise it is checked at run
-/// time, field by field, if no field's check would read a byte that may be padding in the
-/// source. Otherwise it is refused, with that byte recorded as read from padding.
+/// time, field by field, if no field requires a byte to be initialized that may be padding in the
+/// source. Otherwise it is refused, with that byte recorded in [`Relation::uninit`].
 ///
 /// Returns `false`, having done nothing, if `b` is not a union.
 const fn relate_union_from(
@@ -2998,10 +3007,10 @@ pub enum Exact {
   Never(&'static str),
 }
 
-/// How the extent of a source maps to the extent of a target.
+/// How the [extent](crate::reference::how_puns_decides#layouts-and-rules) of a source maps to the
+/// extent of a target.
 ///
-/// The *extent* of a value is its size without the trailing padding of an unsized type (the offset
-/// of its slice tail plus the size of that slice).
+/// The extent of an unsized value is the offset of its slice tail plus the size of that slice.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Fit {
   /// Whether the extents are the same.
@@ -3019,7 +3028,7 @@ pub const TOO_LARGE: &str = "the source is larger than the target";
 /// The reason of [`Exact::Never`] when no number of elements in the tail of the target makes it the
 /// size of the source.
 pub const UNEVEN: &str =
-  "the size of the source cannot be reached with elements of the tail slice of the target";
+  "the size of the source cannot be reached with elements of the trailing slice of the target";
 
 /// Returns how the extent of a source of layout `a` maps to the extent of a target of layout `b`.
 pub const fn fit(a: &Layout, b: &Layout) -> Fit {
@@ -3184,12 +3193,11 @@ pub const MUTABLE: &str = "some values of the target are not valid for the sourc
                            where the source is not), and could be written through the `&mut`";
 /// Why a `&mut` to a part is refused when it covers a part of the source whose layout Rust leaves
 /// to the compiler, without being of the same type.
-pub const PART_UNSPECIFIED: &str = "the `&mut` covers a part of the source whose layout Rust \
-                                    leaves to the compiler (a struct, a tuple or an enum of the \
-                                    `Rust` representation), which only a `&mut` \
-                                    to the same type may write.\nAdd `#[repr(C)]` (or \
-                                    `#[repr(u8)]` to an enum), or enable the `unstable` feature \
-                                    of `puns`";
+pub const PART_UNSPECIFIED: &str = "the `&mut` covers a part of the source with an unspecified \
+                                    layout (a struct, a tuple or an enum of the `Rust` \
+                                    representation), which only a `&mut` to the same type may \
+                                    write.\nAdd `#[repr(C)]` (or `#[repr(u8)]` to an enum), or \
+                                    enable the `unstable` feature of `puns`";
 /// Why a `&mut` to a part is refused when a struct of the source that has a rule overlaps it.
 pub const PART_RULE: &str = "a struct of the source that has a rule (a size, a length, an \
                              assertion, a region) overlaps the bytes that the `&mut` covers, and \

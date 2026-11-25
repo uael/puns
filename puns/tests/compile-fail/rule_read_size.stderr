@@ -1,0 +1,29 @@
+error[E0080]: evaluation panicked: `le` and `be` read 1 to 16 bytes, an unsigned integer of at most 128 bits
+ --> tests/compile-fail/rule_read_size.rs:9:20
+  |
+7 | #[derive(Pun)]
+  |          --- in this derive macro expansion
+8 | #[repr(C)]
+9 | #[pun(assert(be(0, SIZE) == 0))]
+  |                    ^^^^ evaluation of `_::<impl puns::Pun for Wide>::LAYOUT::{constant#1}` failed inside this call
+  |
+note: inside `Op::at`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/layout.rs
+  |
+  | /     assert!(
+  | |       size >= 1 && size <= 16,
+  | |       "`le` and `be` read 1 to 16 bytes, an unsigned integer of at most 128 bits"
+  | |     );
+  | |_____- in this macro invocation
+
+note: erroneous constant encountered
+ --> tests/compile-fail/rule_read_size.rs:7:10
+  |
+7 | #[derive(Pun)]
+  |          ^^^
+  |
+  = note: this note originates in the derive macro `Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

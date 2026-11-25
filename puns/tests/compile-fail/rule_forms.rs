@@ -70,4 +70,11 @@ struct CallOfAField {
   a: u8,
 }
 
+#[derive(puns::Pun)]
+#[repr(C)]
+#[pun(assert(le(0, 17) == 0))]
+struct ReadOfSeventeenBytes {
+  a: u8,
+}
+
 fn main() {}

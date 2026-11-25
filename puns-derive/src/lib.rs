@@ -18,7 +18,8 @@ use syn::{
 // The link names the version of this crate, which is that of `puns` (`version_group` in
 // `release-plz.toml`).
 #[doc = concat!(
-  "Implements `Pun` as [`puns::Pun`](https://docs.rs/puns/",
+  "Implements `Pun` for a struct, an enum or a union, or the reading functions of a view, as ",
+  "[`puns::Pun`](https://docs.rs/puns/",
   env!("CARGO_PKG_VERSION"),
   "/puns/derive.Pun.html) documents."
 )]
@@ -50,6 +51,10 @@ pub fn derive_pun(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
+/// The documentation of `puns` on docs.rs, at the version of this crate, which is that of `puns`,
+/// for the links of the documentation that the derive generates.
+const DOCS: &str = concat!("https://docs.rs/puns/", env!("CARGO_PKG_VERSION"), "/puns/");
+
 /// Returns the types of the variants of a view as a balanced tree (`puns::view::List`): the first
 /// half, then the second.
 fn view_tree(types: &[&Type], root: &TokenStream) -> TokenStream {
@@ -78,8 +83,9 @@ fn view_place(index: usize, count: usize, root: &TokenStream) -> TokenStream {
 
 /// Returns what stands for the implementations of the derive when it fails.
 ///
-/// The error of the derive is then the only one, rather than one at each use of the type. The
-/// fallback is never used, since the crate does not compile.
+/// A use of the type then gives no error that it does not implement `Pun`, so the error of the
+/// derive comes first. An evaluation of its layout fails with "`#[derive(Pun)]` failed", next to
+/// it. The fallback is never used, since the crate does not compile.
 fn fallback(input: &DeriveInput) -> TokenStream {
   let Ok(options) = parse_options(&input.attrs, "the type", &ALL_OPTIONS) else {
     return TokenStream::new();
@@ -144,7 +150,8 @@ fn find_reserved(tokens: TokenStream) -> Option<Ident> {
 /// read by its name, so a parameter bounded by another trait named `Pun` does not compile. Lifetime
 /// parameters do not count, since `rustc` lays out a type whatever its lifetimes.
 fn identity(input: &DeriveInput, generics: &syn::Generics, root: &TokenStream) -> TokenStream {
-  // One crate is expanded by one process, in which each derive takes the next number.
+  // One crate is expanded by one process, in which each call takes the next number, so no two
+  // types of a crate have the same one. A derive of an enum with fields calls this twice.
   static DERIVES: AtomicUsize = AtomicUsize::new(0);
   let mut args = vec![];
   for param in &input.generics.params {
@@ -576,6 +583,8 @@ const VARIABLES: usize = 8;
 const MAX_OPS: usize = 256;
 /// The depth of walks within walks of an expression.
 const MAX_WALKS: usize = 4;
+/// Why the size of `le` or `be` is refused, as `layout::check_ops` says it of a constant.
+const READ_SIZE: &str = "`le` and `be` read 1 to 16 bytes, an unsigned integer of at most 128 bits";
 
 /// Returns `tokens` located at `span`, so that an error in what they compute is reported there.
 ///
@@ -763,7 +772,7 @@ fn compile_block(
 ) -> Result<Ty> {
   let (op, visible) = (quote!(#root::layout::Op), scope.names.len());
   let Some((last, statements)) = block.stmts.split_last() else {
-    return Err(Error::new(block.span(), "a block has a value"));
+    return Err(Error::new(block.span(), "a block in a rule must end with its value"));
   };
   for statement in statements {
     let syn::Stmt::Local(local) = statement else {
@@ -810,14 +819,13 @@ fn compile_block(
   Ok(ty)
 }
 
-/// Returns the number of operations in a part of an expression that may not be computed, as an
+/// Returns the number of operations in a branch of an expression that may not be computed, as an
 /// operation holds it (`layout::Op::Shortcut`).
 ///
-/// # Errors
-///
-/// Returns an error if the number does not fit a `u16`.
-fn part(len: usize) -> Result<u16> {
-  u16::try_from(len).map_err(|_| Error::new(Span::call_site(), "this expression is too long"))
+/// A number that does not fit a `u16` is `u16::MAX`: the expression then has more than
+/// [`MAX_OPS`] operations, which [`limits`] reports with the numbers before any operation is used.
+fn part(len: usize) -> u16 {
+  u16::try_from(len).unwrap_or(u16::MAX)
 }
 
 /// Compiles `expr` to the operations of a postfix expression, and returns its type.
@@ -891,7 +899,7 @@ fn compile(
     // `if COND { EXPR } else { EXPR }`
     Expr::If(branch) => {
       let Some((_, otherwise)) = &branch.else_branch else {
-        return Err(Error::new(branch.span(), "an `if` has an `else`"));
+        return Err(Error::new(branch.span(), "an `if` in a rule needs an `else`"));
       };
       let cond = compile(&branch.cond, fields, root, ops, scope)?;
       expect(cond, Ty::Bool, &branch.cond)?;
@@ -902,7 +910,7 @@ fn compile(
       let middle = ops.len();
       let other = compile(otherwise, fields, root, ops, scope)?;
       expect(other, then, otherwise)?;
-      let (first, second) = (part(middle - start + 1)?, part(ops.len() - middle)?);
+      let (first, second) = (part(middle - start + 1), part(ops.len() - middle));
       ops.insert(middle, quote!(#op::Else(#second)));
       ops.insert(start, quote!(#op::Then(#first)));
       ops.push(quote!(#op::Select));
@@ -974,7 +982,7 @@ fn compile(
       expect(right, left, &binary.right)?;
       // The right side of `&&` and `||` is only computed if the left one does not decide.
       if let BinOp::And(_) | BinOp::Or(_) = binary.op {
-        let (either, len) = (matches!(binary.op, BinOp::Or(_)), part(ops.len() - start + 1)?);
+        let (either, len) = (matches!(binary.op, BinOp::Or(_)), part(ops.len() - start + 1));
         ops.insert(start, quote!(#op::Shortcut { either: #either, len: #len }));
       }
       let name = Ident::new(name, binary.op.span());
@@ -1012,6 +1020,12 @@ fn compile(
       let (size, endian) = (&call.args[1], if is_call(call, "be") { "Big" } else { "Little" });
       let endian = format_ident!("{endian}");
       int(&call.args[0], ops, scope)?;
+      // A constant is checked by `Op::at`, a literal here, where it is written.
+      if let Expr::Lit(ExprLit { lit: Lit::Int(int), .. }) = size
+        && !matches!(int.base10_parse::<u8>(), Ok(1..=16))
+      {
+        return Err(Error::new_spanned(size, READ_SIZE));
+      }
       let endian = quote!(#root::layout::Endian::#endian);
       ops.push(located(quote!(#op::at((#size) as usize, #endian)), size.span()));
       Ty::Int
@@ -1758,12 +1772,12 @@ fn home(this: &TokenStream, name: &Ident, ty: &Type) -> TokenStream {
 /// Returns the one home of the type of each field, and the function that ties it to the item as
 /// `rustc` compiled it.
 ///
-/// The derive reads the tokens of the item, and an item can name another type than its tokens
-/// seem to: a macro in the type of a field expands in the code generated here, where `Self` and
-/// the names `__Pun..` are other items than in the declaration, and an attribute expanded after
-/// the derive can change the item. So the type of each field is written once, as the associated
-/// type `name` of `__PunTypes`, in an implementation for the type, where `Self` is the type as in
-/// its declaration. Every other place names it through [`home`], so they all name one type.
+/// The derive reads the tokens of the item, which can name other types than the item that `rustc`
+/// compiles: `docs/trust.md` says how ("The generated code" and "Attribute macros below the
+/// derive"). So the type of each field is written once, as the associated type `name` of
+/// `__PunTypes`, in an implementation for the type, where `Self` is the
+/// type as in its declaration. Every other place names it through [`home`], so they all name one
+/// type.
 ///
 /// `check` is the body of `item`, which is never called. It compiles only if the item as compiled
 /// has the fields and the variants that the derive read, each of the type of its home, and no
@@ -1859,8 +1873,8 @@ fn in_place_field(options: &Options) -> bool {
 /// Returns the rule of an aim at a `pointee` that a struct declares, at the place that `start`
 /// gives (`Stored(start)`), or at the cursor (`Next`) without one, as large as `size` says, checked
 /// with the struct if `eager`, and the steps of its two expressions, where its pointee is and how
-/// large it is ([`steps`]). `#[pun(pointer(..))]` gives a start, and `#[pun(regions(..))]` none: both are
-/// one rule, written here.
+/// large it is ([`steps`]). `#[pun(pointer(..))]` gives a start, and `#[pun(regions(..))]` none:
+/// both are one rule, written here.
 ///
 /// The type is written in the rule and in the list of the rules (`Pun::Rules`), in the one
 /// implementation, where it names one type, and `validate::listed` compares the two.
@@ -1944,7 +1958,8 @@ fn read_aim(
       let doc = format!(
         "Returns the bytes of the `{name}` region of the tail, truncated if the fields that size \
          the regions give more bytes than the tail holds. The region takes the rest of the tail \
-         if its expression fails.{check}"
+         if its expression fails.{check}\n\n# Examples\n\nSee [Bit fields and \
+         regions]({DOCS}reference/in_practice/index.html#bit-fields-and-regions)."
       );
       quote! {
         #[doc = #doc]
@@ -1962,7 +1977,8 @@ fn read_aim(
          the tail holds, and takes the rest of the tail if its expression fails.\n\n# Errors\n\n\
          Returns the error of `puns::from_bytes` if the bytes of the region are not a value of \
          that type.{check} It also compiles only under the compile-time conditions of \
-         `puns::from_bytes` for the type of the region."
+         `puns::from_bytes` for the type of the region.\n\n# Examples\n\nSee [A region with a \
+         type]({DOCS}reference/in_practice/index.html#a-region-with-a-type)."
       );
       quote! {
         #[doc = #doc]
@@ -1979,7 +1995,7 @@ fn read_aim(
          `bytes`.\n\n# Errors\n\nIf the value is not in `bytes`, if the pointee is not within \
          them, and the errors of `puns::from_bytes` on its bytes.\n\n# Compile-time errors\n\n\
          A call compiles only under the compile-time conditions of `puns::from_bytes` for the \
-         pointee."
+         pointee.\n\n# Examples\n\nSee [Aims]({DOCS}reference/aims/index.html)."
       );
       quote! {
         #[doc = #doc]
@@ -2001,10 +2017,11 @@ fn read_aim(
          under stacked borrows, where `puns::aim` reads it from a pointer to the bytes that hold \
          both, with `Self::AIMS.{name}`.\n\n# Compile-time errors\n\nA call compiles only if \
          the pointee is sized, a `Thin`, or stores the length of its tail in its sized fields, \
-         where its extent is what it stores."
+         where its extent is what it stores.\n\n# Examples\n\nSee \
+         [Aims]({DOCS}reference/aims/index.html)."
       );
       // No `unsafe` block: the function that the path names is called as safe code, whatever it
-      // is ("What the derive trusts" in the documentation of the derive).
+      // is (`docs/trust.md`, "The generated code").
       quote! {
         #[doc = #doc]
         #[inline]
@@ -2230,9 +2247,12 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       }
 
       impl #impl_generics __PunOffsets for #this #where_clause {
-        // SAFETY: `Self` is `Sized`, or its last field is unsized, so that it is a slice, `str` or
-        // a struct whose last field is one of these, at any depth (`Pun`, section Safety), and its
-        // probe is the probe of that field cast with `as` casts, as for `Layout::structure` below.
+        // SAFETY: Either `Self` is `Sized`, and `offsets` requires nothing of its probe, or its
+        // last field is unsized, and its probe is the probe of that field cast with `as` casts, as
+        // for `Layout::structure` below. That probe is a pointer to a slice cast with `as` casts
+        // only (`Pun`, section Safety), which compiles only if a pointer to the field carries a
+        // slice length, so the field is a slice, `str` or a struct whose last field is one of
+        // these, at any depth.
         // These are the requirements of `offsets`.
         const OFFSETS: [::core::primitive::usize; #count] = unsafe {
           #root::layout::Layout::offsets::<Self, #count>(<Self as #root::Pun>::PROBE)
@@ -2240,7 +2260,10 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       }
 
       // SAFETY: `OFFSETS` projects a pointer to a `Self` onto each field that `Fields` lists, in
-      // that order, so it holds the offset of each of these fields in the struct as compiled.
+      // that order, so it holds the offset of each of these fields in the struct as compiled. It is
+      // measured in const evaluation and used at run time, which relies on the layout being the
+      // same in both, which no documentation states (`docs/what_puns_relies_on.md`, "The layout in
+      // const evaluation").
       #[allow(non_upper_case_globals)]
       unsafe impl #memory_generics #root::layout::Offsets<__PunMemory, #count> for #this
         #where_clause
@@ -2377,7 +2400,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
        where the expression, evaluated as Rust code, panics, such as on a division by zero.\n\n\
        # Compile-time errors\n\nA call compiles only if each field that the expression names is \
        an unsigned integer, or a sized struct whose only field with a size is one and is as large \
-       as the struct.",
+       as the struct.\n\n# Examples\n\nSee [Bit fields and \
+       regions]({DOCS}reference/in_practice/index.html#bit-fields-and-regions).",
       getter.expr.to_token_stream(),
       ty.to_token_stream()
     );
@@ -2531,19 +2555,24 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       // - `Layout::structure` takes the size and the alignment from the compiler. It asserts that
       //   the fields do not overlap and are within the size, and that the trailing padding of an
       //   unsized struct is the one it computes.
-      // - The offset of each field is that of the compiler, measured on the struct as compiled:
-      //   the offset of a place projected from a pointer to the struct, in the memory of
-      //   `Layout::offsets` for `repr(C)` and `repr(transparent)`, which holds the struct
-      //   whatever its size, and to an uninitialized value otherwise.
+      // - The offset of each field is that of the compiler, measured on the struct as compiled: the
+      //   offset of a place projected from a pointer to the struct, in the memory of
+      //   `Layout::offsets` for `repr(C)` and `repr(transparent)`, which holds the struct whatever
+      //   its size, and to an uninitialized value otherwise. The offsets are measured in const
+      //   evaluation and used at run time, as by the loads of rules. For the `Rust` representation,
+      //   that the layout is the same in both is not established: `puns` relies on `rustc`
+      //   computing both with the same code (`docs/what_puns_relies_on.md`, "The layout in const
+      //   evaluation").
       // - The type of each field is its home in `__PunTypes`, which `item` requires to be the type
       //   of the field of that name in the struct as compiled, and the struct to have no other
-      //   field. Each field has the layout of its type (`Pun`, section Safety), or a restriction
-      //   of it (`Layout::restricted`), which guarantees the same values and accepts fewer. A
-      //   struct is valid if each of its fields is valid [1], and a byte that no field covers is
-      //   padding. The field of an eager aim is an `InPlace<T>`, which `item` requires too, and
+      //   field. Each field has the layout of its type (`Pun`, section Safety), or a restriction of
+      //   it (`Layout::restricted`), which guarantees the same values and accepts fewer. A struct
+      //   is valid if, and only if, each of its fields is valid, and a byte that no field covers is
+      //   padding. The Rust Reference states the "only if" [1]. The derive relies on the "if",
+      //   which no documentation states (`docs/what_puns_relies_on.md`, "A value whose fields are
+      //   valid"). The field of an eager aim is an `InPlace<T>`, which `item` requires too, and
       //   which is `repr(transparent)` over its `T` and has no other invariant, so its layout is
-      //   that of `T`.
-      //   Rules are requirements of `puns`, never of the language.
+      //   that of `T`. Rules are requirements of `puns`, never of the language.
       // - An eager aim says that every value holds a valid pointee where its expression says. No
       //   code makes an `InPlace`, so no safe code makes a value of the struct, which exists only
       //   where `puns` checked its pointee, or where unsafe code put it.
@@ -2555,9 +2584,9 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       //   same in every layout that Rust allows.
       // - Each field is `Pun`, so no byte is inside an `UnsafeCell`.
       // The functions called are those of the types that `Layout::PIN` fixes, which no path can
-      // replace. A struct whose private fields keep an invariant must not derive `Pun` (crate
-      // documentation, section Soundness): the layout describes only what the language requires of
-      // its fields.
+      // replace. A struct whose private fields keep an invariant must not derive `Pun`
+      // (`docs/soundness.md`, "What deriving `Pun` means"): the layout describes only what the
+      // language requires of its fields.
       //
       // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.struct:
       //
@@ -2576,7 +2605,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         // `as` casts, cast again to `*const Self`. The size of the struct with 8 elements in its
         // tail must fit in an `isize`, which is not established. The derive relies on `rustc` to
         // report an error in const evaluation where it does not fit. No documentation promises this
-        // behavior, which the crate documentation discloses (section Soundness).
+        // behavior, which `docs/what_puns_relies_on.md` discloses ("Errors of const evaluation").
         const LAYOUT: #root::layout::Layout = unsafe {
           #root::layout::Layout::structure::<Self>(
             Self::PROBE,
@@ -2682,10 +2711,13 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     .collect::<Vec<_>>();
   if references.len() == data.variants.len() {
     let lifetime = &references[0].1.lifetime;
-    if lifetime.is_none() || references.iter().any(|(_, reference)| &reference.lifetime != lifetime)
-    {
-      return Err(Error::new(
-        Span::call_site(),
+    // The error is at the first reference without the named lifetime of the first one.
+    let other = references
+      .iter()
+      .find(|(_, reference)| lifetime.is_none() || &reference.lifetime != lifetime);
+    if let Some((_, reference)) = other {
+      return Err(Error::new_spanned(
+        reference,
         "the references of the variants must have the same lifetime",
       ));
     }
@@ -2742,6 +2774,9 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         }
       }
     });
+    let examples = format!(
+      "\n# Examples\n\nSee the view `Message` of [the examples]({DOCS}derive.Pun.html#examples)."
+    );
     return Ok(quote! {
       impl #impl_generics #root::view::Views for #ident #ty_generics #where_clause {
         type List = #list;
@@ -2761,6 +2796,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         ///
         /// A call compiles only if the type of each variant meets the compile-time conditions of
         /// `puns::from_bytes`.
+        #[doc = #examples]
         #vis const fn from_head(bytes: #bytes) -> #result<(Self, #bytes), #root::Error> {
           let mut known = #root::view::Known::<Self, #count, true>::new(bytes);
           #(#from_heads)*
@@ -2778,6 +2814,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         ///
         /// A call compiles only if the type of each variant meets the compile-time conditions of
         /// `puns::from_bytes`.
+        #[doc = #examples]
         #vis const fn from_bytes(bytes: #bytes) -> #result<Self, #root::Error> {
           let mut known = #root::view::Known::<Self, #count, false>::new(bytes);
           #(#wholes)*
@@ -2796,8 +2833,8 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     // initialized, which is not established: `align` may add padding after the discriminant, and
     // with the `Rust` representation, Rust does not say how the discriminant is stored. The call
     // is evaluated in the constants `SPEC` and `SPECIFIED`, where `rustc` reports an error instead
-    // of reading an uninitialized byte. No documentation promises this behavior, which the crate documentation
-    // discloses (section Soundness).
+    // of reading an uninitialized byte. No documentation promises this behavior, which
+    // `docs/what_puns_relies_on.md` discloses ("Errors of const evaluation").
     variants.push(quote!(unsafe { #root::layout::Spec::bits_of(Self::#variant) }));
     discriminants.push(quote!(Self::#variant as ::core::primitive::i128));
   }
@@ -2822,11 +2859,18 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
 
     // SAFETY: `SPEC` has the size of `Self`, and the items of the `# Safety` of `Scalar` hold:
     // - A valid value of an enum without fields is one of its variants [1]. `SPEC` accepts the
-    //   bytes of each variant, read from a value of it, as an unsigned integer in the byte order
-    //   of the target. `item` requires the enum as compiled to have no other variant. An enum of
-    //   size 0 has one variant, and no byte.
-    // - Each value that `SPEC` accepts is the bytes of a variant, so a valid `Self`. The derive
-    //   is told of no other invariant.
+    //   bytes of each variant, read from a value of it, as an unsigned integer in the byte order of
+    //   the target. `item` requires the enum as compiled to have no other variant. An enum of size
+    //   0 has one variant, and no byte. That a value made at run time holds the same bytes as the
+    //   value read in const evaluation is not established: for the `Rust` representation, `puns`
+    //   takes the layout in const evaluation to be the one at run time
+    //   (`docs/what_puns_relies_on.md`, "The layout in const evaluation"), and with `repr(C)`
+    //   alone, that every byte of the value is initialized relies on `rustc` storing it as an
+    //   integer (`docs/what_puns_relies_on.md`, "The tag of a `repr(C)` enum").
+    // - Each value that `SPEC` accepts is the bytes of a variant, so a valid `Self`: the derive
+    //   relies on a valid discriminant being all that such an enum requires, which no documentation
+    //   states (`docs/what_puns_relies_on.md`, "A value whose fields are valid"). The derive is
+    //   told of no other invariant.
     // - An enum without fields holds no `UnsafeCell`.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.enum:
@@ -2948,8 +2992,9 @@ fn needs_bound(ty: &Type, input: &DeriveInput) -> bool {
 /// [`derive_discovered`].
 ///
 /// With `repr(C)` or an integer, Rust specifies the layout (RFC 2195): the offsets of the fields
-/// are those of `repr(C)` structs, computed from the sizes and the alignments of the fields
-/// (`Layout::repr_c`). `bounds` are those of `#[pun(bound(..))]`, if any.
+/// are those of `repr(C)` structs, measured on the sample of the variant, or, for a variant without
+/// a sample, computed from the sizes and the alignments of the fields (`Layout::repr_c`). `bounds`
+/// are those of `#[pun(bound(..))]`, if any.
 fn derive_tagged(
   input: &DeriveInput,
   data: &DataEnum,
@@ -3212,8 +3257,9 @@ fn derive_tagged(
       unsafe impl #root::Scalar for #tag {
         const SPEC: #root::layout::Spec = {
           let merged: &'static ([(u128, u128); #count], usize) = const {
-            // SAFETY: As for `TAGS` below, every byte of a value of `#tag` is initialized, which is
-            // what `bits_of` requires.
+            // SAFETY: `bits_of` requires every byte of a value of `#tag` to be initialized. As for
+            // `TAGS` below, this holds with a primitive representation, and is not established
+            // with `repr(C)` alone, where the error of const evaluation is relied on.
             &#root::layout::Spec::sorted_ranges([
               #(unsafe { #root::layout::Spec::bits_of(#tag::#names) }),*
             ])
@@ -3240,14 +3286,23 @@ fn derive_tagged(
         const TAGS: [::core::primitive::u128; #count] = {
           let tags =
           // SAFETY (of the generated code): `#tag` is an enum without fields, `repr(C)` or of a
-          // primitive representation, without `align`. Such an enum is an integer that holds its
-          // discriminant (the crate documentation, "What Rust documents"), so every byte of it is
-          // initialized. Each sample is a value of a variant of the enum, which starts with its
-          // tag, the enum with all fields removed [1] [2]. With an integer, the tag is that
-          // integer, as `#tag` is. With `repr(C)` alone, the discriminants are implicit [3] [4], so
-          // the tag and `#tag` are the same enum without fields. Either way, the first
-          // `size_of::<#tag>()` bytes of a sample are its tag, an integer, so initialized. These
-          // are the requirements of `declared_tags`.
+          // primitive representation, without `align`. With a primitive representation, such an
+          // enum is that integer, which holds its discriminant (`docs/what_puns_relies_on.md`,
+          // "What Rust documents"), so every byte of it is initialized. With `repr(C)` alone, Rust
+          // gives only its size and alignment, those of a C enum of the target, so that every byte
+          // of it is initialized is not established. Each sample is a value of a variant of the
+          // enum, which starts with its tag, the enum with all fields removed [1] [2]. With an
+          // integer, the tag is that integer, as `#tag` is. With `repr(C)` alone, the discriminants
+          // are implicit [3] [4], so the tag and `#tag` are the same enum without fields. Either
+          // way, the first `size_of::<#tag>()` bytes of a sample are its tag, an integer, so
+          // initialized, if the enum as compiled has the representation that the derive read. This
+          // is not established: an attribute macro below the derive can change it (`docs/trust.md`,
+          // "Attribute macros below the derive"), and with a narrower tag, a byte of padding of the
+          // sample may be among these bytes. Of the two requirements of `declared_tags`, the second
+          // is not established in any case, and with `repr(C)` alone neither is. The constant is
+          // evaluated at compile time, where `rustc` reports an error instead of reading an
+          // uninitialized byte. No documentation promises this behavior, which
+          // `docs/what_puns_relies_on.md` discloses ("Errors of const evaluation").
           //
           // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.adt:
           //
@@ -3301,9 +3356,10 @@ fn derive_tagged(
                 // sample whose byte `after` may have been changed, so it may be no `Self`. This
                 // constant is evaluated at compile time, where the `match`, which reads the
                 // variant, relies on the behaviors of `rustc` that `discover` relies on, and that
-                // the crate documentation discloses (section Soundness): `rustc` reports an error
-                // if the tag is not the tag of a variant, and otherwise reads the variant from the
-                // tag alone, without reading the fields.
+                // `docs/what_puns_relies_on.md` discloses ("Errors of const evaluation" and "The
+                // variant read from the tag"): `rustc` reports an error if the tag is not the tag
+                // of a variant, and otherwise reads the variant from the tag alone, without
+                // reading the fields.
                 let read = match unsafe { &*changed.as_ptr() } {
                   #(Self::#names { .. } => #variant_indices,)*
                 };
@@ -3319,22 +3375,26 @@ fn derive_tagged(
 
       // SAFETY: For every enum that `derive_tagged` accepts, the layout meets the `# Safety` of
       // `Pun`:
-      // - The enum is `repr(C)` or of a primitive representation, whose layout Rust specifies
-      //   [1] [2]. Its tag is `#tag`, an enum without fields of the same representation and
-      //   discriminants, whose values `TAGS` compares with those of the enum, and fails the build
-      //   if they differ, and whose width `TAGS` checks on copies of the samples whose byte after
-      //   the tag is changed. Each variant is a `repr(C)` struct, after the tag or in a union next
-      //   to it. The offsets of its fields are measured on its sample, or, for a variant without
-      //   one, computed by `Layout::repr_c` as `repr(C)` specifies, from the representation that
-      //   the derive read, which it trusts to be that of the enum as compiled there ("What the
-      //   derive trusts"). `Layout::enumeration` asserts the result against the size and the
-      //   alignment of the enum, and asserts that the tag and the fields are within it and do not
-      //   overlap.
+      // - The enum is `repr(C)` or of a primitive representation, whose layout Rust specifies [1]
+      //   [2], except, with `repr(C)` alone, that every byte of the tag of a value made at run time
+      //   is initialized: this is not established, and relies on `rustc` storing the tag as an
+      //   integer (`docs/what_puns_relies_on.md`, "The tag of a `repr(C)` enum"). Its tag is
+      //   `#tag`, an enum without fields of the same representation and discriminants, whose values
+      //   `TAGS` compares with those of the enum, and fails the build if they differ, and whose
+      //   width `TAGS` checks on copies of the samples whose byte after the tag is changed. Each
+      //   variant is a `repr(C)` struct, after the tag or in a union next to it. The offsets of its
+      //   fields are measured on its sample, or, for a variant without one, computed by
+      //   `Layout::repr_c` as `repr(C)` specifies, from the representation that the derive read,
+      //   which it trusts to be that of the enum as compiled there ("What the derive trusts").
+      //   `Layout::enumeration` asserts the result against the size and the alignment of the enum,
+      //   and asserts that the tag and the fields are within it and do not overlap.
       // - The type of each field is its home in `__PunTypes`, which `item` requires to be the type
       //   of that field of that variant in the enum as compiled, and the enum to have no other
       //   variant and no other field. Each field has the layout of its type, or a restriction of
-      //   it. An enum is valid if its tag is that of a variant and the fields of that variant are
-      //   valid [3], which is what the layout accepts.
+      //   it. An enum is valid if, and only if, its tag is that of a variant and the fields of
+      //   that variant are valid, which is what the layout accepts. The Rust Reference states the
+      //   "only if" [3]. The derive relies on the "if", which no documentation states
+      //   (`docs/what_puns_relies_on.md`, "A value whose fields are valid").
       // - `Variants` lists the variants in order, each with its fields (see the markers above).
       //   The other lists are `()`.
       // - Each field is `Pun`, and the tag is an integer, so no byte is in an `UnsafeCell`.
@@ -3620,7 +3680,10 @@ fn derive_discovered(
       // facts of the compiler that the module documentation of `discover` lists. Each variant
       // holds its fields at the offsets observed on its sample, each with the layout of its type,
       // its home in `__PunTypes`, which `item` requires to be the type of that field in the enum
-      // as compiled, and the enum to have no other variant and no other field.
+      // as compiled, and the enum to have no other variant and no other field. The layout
+      // accepts a value whose tag is that of a variant whose fields are valid. The derive relies
+      // on such a value being valid, which no documentation states
+      // (`docs/what_puns_relies_on.md`, "A value whose fields are valid").
       // `Variants` lists the variants in order, each with its fields. The other lists are `()`.
       // Each field is `Pun`, so no byte is in an `UnsafeCell`.
       unsafe impl #impl_generics #root::Pun for #this #where_clause {
@@ -3779,10 +3842,14 @@ fn derive_union(input: &DeriveInput, data: &syn::DataUnion) -> Result<TokenStrea
       // A field that the derive did not read only adds values, which the layout does not accept as
       // a target, and guarantees none.
       // `Layout::union` takes the size and the alignment from the compiler. As a target, the
-      // layout accepts bytes that are a valid value of one field. Such bytes are a value that safe code makes by writing that field,
-      // which is valid [2]. As a source, the layout guarantees nothing, not even that a byte is
-      // initialized, which every value holds. `Variants` lists the fields in order. The other lists
-      // are `()`. Each field is `Pun`, so no byte is in an `UnsafeCell`.
+      // layout accepts bytes whose first bytes, as many as one field has, are a valid value of that
+      // field, whatever the bytes after them are. Safe code makes those first bytes by writing that
+      // field, which is valid [2]. That the bytes after them may be any bytes is not established:
+      // it holds under every proposal for the validity of unions, the narrowest of which asks only
+      // that the bytes of one field are a valid value of it (`docs/soundness.md`, "Unions"). As a
+      // source, the layout guarantees nothing, not even that a byte is initialized, which every
+      // value holds. `Variants` lists the fields in order. The other lists are `()`. Each field is
+      // `Pun`, so no byte is in an `UnsafeCell`.
       //
       // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.union.size-align:
       //

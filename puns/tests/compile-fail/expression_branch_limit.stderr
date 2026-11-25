@@ -1,0 +1,16 @@
+error: this expression has 65542 operations, and one has at most 256: the validation applies each in a function of its own. Split it into several `assert`s, or name what it computes several times with `let`
+  --> tests/compile-fail/expression_branch_limit.rs:10:18
+   |
+ 6 | / macro_rules! item {
+ 7 | |   ($($sum:tt)*) => {
+ 8 | |     #[derive(Pun)]
+ 9 | |     #[repr(C)]
+10 | |     #[pun(assert(a == 0 || $($sum)* == 0))]
+   | |                  ^^^^^^^^^^^^^^^^^^^^^^^
+...  |
+14 | |   };
+15 | | }
+   | |_- this error originates in the macro `item` which comes from the expansion of the macro `double`
+...
+23 |   double!((x x x x x x x x x x x x x x x); a);
+   |   ------------------------------------------- in this macro invocation

@@ -5,8 +5,8 @@
 //! any `T` and `E` whose layout is known. Where `core` documents the layout, as for an `Option` of
 //! a `NonZero` (`Pun::NULL_OPTIMIZED`), it is a layout that Rust specifies. Otherwise it is the
 //! layout that `puns` assumes of an enum of the `Rust` representation, checked against what is
-//! found ([`assume`](crate::assume)), where the assumption applies, and a layout that Rust leaves to
-//! the compiler elsewhere.
+//! found ([`assume`](crate::assume)), where the assumption applies, and a layout that Rust leaves
+//! to the compiler elsewhere.
 //!
 //! `Option<NonZero<u32>>` is a niche at 0, so every `u32` is one, proven both ways.
 //! `Option<bool>` is the niche 2. `Option<Option<bool>>` has two niches, and `rustc` puts `None`
@@ -105,8 +105,9 @@ impl<T: Pun> Found for Option<T> {
   const SAMPLES: [MaybeUninit<Self>; 2] = if T::LAYOUT.is_inhabited() {
     // SAFETY: `Layout::sample::<T>()` is a valid `T`, as `assume_init` requires. It writes the
     // least valid value of each scalar in the layout of `T`, the tag and the fields of its first
-    // variant that has values, and leaves padding as it is. Every value that the layout accepts is
-    // a valid `T` (`Pun`, section Safety). `T` has values: the condition checks it.
+    // variant that has values, and leaves padding as it is. Every value that the layout accepts,
+    // apart from its rules, is a valid `T` (`Pun`, section Safety). `T` has values: the condition
+    // checks it.
     [Layout::wrap(None), Layout::wrap(Some(unsafe { Layout::sample::<T>().assume_init() }))]
   } else {
     [Layout::wrap(None), Layout::uninit()]
@@ -219,8 +220,10 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
 // `discover`. These fail to compile rather than find a wrong layout, under the facts of the
 // compiler that its module documentation lists. The variant `Some` holds the layout of `T` at the
 // offset observed on a sample, and the lists of variants and fields are those of this layout (see
-// `OptionNone`, `OptionSome` and `OptionSomeField`). `Option<T>` holds a `T` or nothing, and a
-// tag, so no `UnsafeCell`, since `T: Pun`.
+// `OptionNone`, `OptionSome` and `OptionSomeField`). The layout accepts a value whose tag is that
+// of a variant whose fields are valid. `puns` relies on such a value being valid, which no
+// documentation states (`docs/what_puns_relies_on.md`, "A value whose fields are valid").
+// `Option<T>` holds a `T` or nothing, and a tag, so no `UnsafeCell`, since `T: Pun`.
 unsafe impl<T: Pun> Pun for Option<T> {
   type Elem = ();
   type Fields = ();
@@ -245,8 +248,9 @@ unsafe impl<T: Pun> Pun for Option<T> {
 // SAFETY: The layout is the one that `rustc` gave `Result<T, E>`, found by the experiments of
 // `discover`, as for `Option<T>`. The variants `Ok` and `Err` hold the layouts of `T` and `E` at
 // the offsets observed on their samples, and the lists of variants and fields are those of this
-// layout (see `ResultOk`, `ResultErr`, `ResultOkField` and `ResultErrField`). `Result<T, E>` holds
-// a `T` or an `E`, and a tag, so no `UnsafeCell`.
+// layout (see `ResultOk`, `ResultErr`, `ResultOkField` and `ResultErrField`). Its values are
+// accepted as those of `Option<T>` are. `Result<T, E>` holds a `T` or an `E`, and a tag, so no
+// `UnsafeCell`.
 unsafe impl<T: Pun, E: Pun> Pun for Result<T, E> {
   type Elem = ();
   type Fields = ();

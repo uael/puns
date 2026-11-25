@@ -1,8 +1,7 @@
-// What the layout of an enum of the `Rust` representation rests on (`puns/src/discover.rs`, "Const
-// evaluation fails on what is not a value" and "A fresh value has uninitialized padding"). The
-// padding of a value made in const evaluation is uninitialized, and reading it is an error. Here,
-// bytes 1 to 3 of `E::B`, between its tag and its `u32`. If this ever compiles, padding would pass
-// for a tag.
+// What the layout of an enum of the `Rust` representation rests on (`docs/what_puns_relies_on.md`,
+// "Errors of const evaluation" and "The padding of a new value"). The padding of a value made in
+// const evaluation is uninitialized, and reading it is an error. Here, bytes 1 to 3 of `E::B`,
+// between its tag and its `u32`. If this ever compiles, padding would pass for a tag.
 use core::mem::MaybeUninit;
 
 #[expect(dead_code, reason = "only its layout matters")]

@@ -1,4 +1,4 @@
-error: an `if` has an `else`
+error: an `if` in a rule needs an `else`
  --> tests/compile-fail/rule_forms.rs:5:14
   |
 5 | #[pun(assert(if a == 1 { true }))]
@@ -57,3 +57,9 @@ error: a rule cannot call this function: it computes with operators, `if`, `let`
    |
 68 | #[pun(assert(u8::min(a, 2) == 2))]
    |              ^^^^^^^^^^^^^
+
+error: `le` and `be` read 1 to 16 bytes, an unsigned integer of at most 128 bits
+  --> tests/compile-fail/rule_forms.rs:75:20
+   |
+75 | #[pun(assert(le(0, 17) == 0))]
+   |                    ^^

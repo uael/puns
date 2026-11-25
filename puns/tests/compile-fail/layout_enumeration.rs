@@ -19,6 +19,7 @@ const WORD: Layout = Layout::scalar::<u16>(Spec::any::<u16>());
 const LONG: Layout = Layout::scalar::<u32>(Spec::any::<u32>());
 const DOT: Layout = Layout::variant::<Shape>(&[]);
 const LINE: Layout = Layout::variant::<Shape>(&[Field::new(1, &BYTE)]);
+const EMPTY: Layout = Layout::array(&BYTE, 0);
 const SHADOWS: &[(usize, usize)] = &[(1, 1), (2, 1)];
 
 /// The layout of `Shape`, with the tag `$tag` and the variants `$variants`.
@@ -48,5 +49,6 @@ const _: Layout = shape!(&TAG, &[Variant::new(0, &Layout::variant::<u32>(&[]))])
 const _: Layout = shape!(&TAG, &[line!(&[Field::new(1, &<[u8] as Pun>::LAYOUT)])]);
 const _: Layout = shape!(&TAG, &[line!(&[Field::new(1, &WORD)])]);
 const _: Layout = shape!(&TAG, &[line!(&[Field::new(0, &BYTE)])]);
+const _: Layout = shape!(&TAG, &[line!(&[Field::new(3, &EMPTY)])]);
 
 fn main() {}

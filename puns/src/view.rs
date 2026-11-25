@@ -1,5 +1,5 @@
-//! Views: enums whose variants each hold a reference, for the `from_bytes` and `from_head` that
-//! `#[derive(Pun)]` writes for them.
+//! [Views](macro@crate::Pun#views), for the `from_bytes` and `from_head` that `#[derive(Pun)]`
+//! writes for them.
 //!
 //! Both functions return the first variant, in order, that the bytes are (or start with, for
 //! `from_head`). The order of the variants is the order of preference. They answer what trying each
@@ -7,12 +7,13 @@
 //! already known of it.
 //!
 //! - A variant is passed over on its first constrained scalar alone, before anything else of it is
-//!   computed, if the bytes do not have a value that this scalar accepts ([`crate::rejects`]).
+//!   computed, if the bytes do not have a value that this scalar accepts (`crate::rejects`).
 //!   Examples of such scalars are an EtherType and a version. These comparisons of the same bytes,
 //!   one for each variant, become one decision of the optimizer. A VLAN frame meets the EtherTypes
 //!   of IPv4 and of ARP as in a `match`.
-//! - A variant has a *base*. It is the first later variant whose type accepts every value of the
-//!   type of the variant, over the same bytes. The analysis decides it at compile time, as it
+//! - A variant has a *base*. It is the first later variant to which [`pun_ref`](crate::pun_ref) of
+//!   the variant is proven, and from which [`try_pun_ref`](crate::try_pun_ref) to the variant
+//!   compiles, over the same bytes for `from_head`. The analysis decides it at compile time, as it
 //!   decides that `pun_ref` is proven. `Frame<Ipv4>` accepts every `Frame<Ipv4<Udp>>`, and `Frame`
 //!   accepts both. The base is decided first. Bytes that are not a value of the base are not a
 //!   value of the variant either. For bytes that are, the variant is checked only for what its base
@@ -26,9 +27,9 @@
 //!   and no state remains at run time.
 //! - For `from_head`, a base must also take the same bytes as the variant (`same_extent`). Both
 //!   must tell their extent (a size, or a `size` or `len` rule, which a valid value meets). Or
-//!   neither does, and both take as many elements as fit in the same way: the same alignment and
-//!   element, and a head of the same remainder. The variant then takes the extent of its base,
-//!   without trailing padding, which each adds on its own.
+//!   neither does, and both take as many elements as fit in the same way: the same alignment, the
+//!   same size of element, and a head of the same remainder. The variant then takes the extent of
+//!   its base, without trailing padding, which each adds on its own.
 //!
 //! # Why the answer is that of trying each variant in turn
 //!
@@ -207,8 +208,8 @@ where
 {
   /// The index of the base for `from_bytes`, or `NONE`, and what is left to check of `I` from it.
   ///
-  /// The base is the first later variant whose type accepts every value of the type of `I`, over
-  /// the same bytes, and from which what is left to check of `I` can be checked.
+  /// The base is the first later variant to which `pun_ref` of `I` is proven, and from which
+  /// `try_pun_ref` to `I` compiles.
   const WHOLE: (usize, Marks) = {
     let index = <V::List as Get<I>>::INDEX;
     base(&V::List::TREE, index, index + 1, false)
@@ -449,9 +450,8 @@ where
 /// Returns the index of the base of the variant `I`, or `usize::MAX` if it has none.
 ///
 /// `HEAD` selects the base for `from_head`, which must also take the same bytes as `I`.
-/// Otherwise it is the base for `from_bytes`. The base is the first later variant whose type
-/// accepts every value of the type of `I`, over the same bytes, and from which what is left to
-/// check of `I` can be checked.
+/// Otherwise it is the base for `from_bytes`. The base is the first later variant to which
+/// `pun_ref` of `I` is proven, and from which `try_pun_ref` to `I` compiles.
 #[must_use]
 pub const fn base_of<V: ?Sized + Views, I: Index, const HEAD: bool>() -> usize
 where
@@ -470,14 +470,9 @@ where
 ///
 /// # Compile-time errors
 ///
-/// A call compiles only if all of the following hold, as for [`from_bytes`](crate::from_bytes):
-///
-/// - Some bytes are a valid value of the type of `I`.
-/// - Without the `unstable` feature, whether the call compiles, what it checks and which values a
-///   check accepts do not depend on a layout that Rust leaves to the compiler.
-///
-/// These conditions are checked after monomorphization, as [the crate
-/// documentation](crate#compile-time-errors) explains.
+/// A call compiles only under the compile-time conditions of [`from_bytes`](crate::from_bytes) for
+/// the type of `I`, which are checked after monomorphization, as [the
+/// reference](crate::reference::errors) explains.
 #[inline(always)]
 pub const fn decide<'a, V: ?Sized + Views, I: Index, const N: usize, const HEAD: bool>(
   known: &mut Known<'a, V, N, HEAD>,
@@ -508,7 +503,8 @@ where
   // SAFETY: `find` returned `target`, a value of the type at `I` at the address of `known.bytes`,
   // of size at most their length. The reference is valid, as in `from_head` and `try_pun_ref`:
   // - It is not null, because `known.bytes` is a reference at the same address.
-  // - It is aligned, because `Plan::front_by` and `Plan::try_cast_by` checked the address.
+  // - It is aligned. `Plan::front_by` and `Plan::try_cast_by` checked the address where the type
+  //   at `I` is aligned to more than 1, and any address is aligned to 1.
   // - It is not dangling, because it is within `known.bytes`.
   // - It points to a valid value of the type at `I`, as `find` returns. `validate` found every part
   //   that `Choice<V, I>` marks to be valid, and the base of `I`, or bytes, prove the others.

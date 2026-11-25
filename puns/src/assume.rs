@@ -669,9 +669,9 @@ pub const fn holds<E, const V: usize>(desc: &Desc<V>, fields: &[&[Field]; V]) ->
   assert!(
     agrees,
     "an enum of the `Rust` representation is not laid out as `puns` assumes (see \"What `puns` \
-     assumes\" in the crate documentation): `rustc` lays out enums otherwise, or the `Spec` of a \
-     scalar in it declares a type that its bytes are not (`Spec::stored_as`); enable the \
-     `unstable` feature, which uses the layout that `rustc` chose"
+     assumes\" in the reference, `puns::reference::layouts`): `rustc` lays out enums otherwise, \
+     or the `Spec` of a scalar in it declares a type that its bytes are not (`Spec::stored_as`); \
+     enable the `unstable` feature, which uses the layout that `rustc` chose"
   );
   true
 }
@@ -727,8 +727,9 @@ pub const fn fieldless<E>(discriminants: &[i128], bits: &[u128]) -> bool {
   assert!(
     agrees,
     "an enum without fields of the `Rust` representation is not laid out as `puns` assumes (see \
-     \"What `puns` assumes\" in the crate documentation): `rustc` has changed how it lays out \
-     enums; enable the `unstable` feature, which uses the layout that `rustc` chose"
+     \"What `puns` assumes\" in the reference, `puns::reference::layouts`): `rustc` has changed \
+     how it lays out enums; enable the `unstable` feature, which uses the layout that `rustc` \
+     chose"
   );
   true
 }

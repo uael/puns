@@ -13,6 +13,7 @@ struct Pair(u8, u8);
 const BYTE: Layout = Layout::scalar::<u8>(Spec::any::<u8>());
 const WORD: Layout = Layout::scalar::<u16>(Spec::any::<u16>());
 const BYTES: &Layout = &<[u8] as Pun>::LAYOUT;
+const EMPTY: Layout = Layout::array(&BYTE, 0);
 
 // SAFETY (of each call of `Layout::structure`): `Pair` is `Sized`, and `Layout::structure` requires
 // nothing of a `Sized` type.
@@ -27,6 +28,8 @@ const _: Layout = unsafe {
 };
 const _: Layout =
   unsafe { Layout::structure::<Pair>(core::ptr::null(), &[Field::new(1, &WORD)], &[]) };
+const _: Layout =
+  unsafe { Layout::structure::<Pair>(core::ptr::null(), &[Field::new(3, &EMPTY)], &[]) };
 const _: Layout = unsafe {
   Layout::structure::<Pair>(
     core::ptr::null(),

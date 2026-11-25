@@ -1,6 +1,6 @@
 error[E0080]: evaluation panicked:
               cannot pun: the source is larger than the target.
-              Use `head` or `tail` (or their `_ref` and `_mut` forms) to take a part of the source.
+              Use `head` or `tail` (or their `_ref` and `_mut` forms) to take the first or last bytes of the source.
 
     --> src/lib.rs
      |

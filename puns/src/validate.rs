@@ -4,10 +4,12 @@
 //! associated types: the element of an array, the list of the fields of a struct. Each call is an
 //! instance of its own, in which the layout of the type and the marks of the analysis are
 //! constants. Each check sits behind an `if const { .. }` on the marks. A check that is not marked
-//! is not compiled, so what the analysis proved never reaches code generation. A marked check of a
-//! scalar is a load and a comparison. A marked check of a pattern, an enum or a rule runs the
-//! automaton, reads the tag, or computes the rule, with its checksums and walks.
-//! `examples/codegen.rs` records the machine code that this gives.
+//! is not compiled, so a part that the analysis proved reaches code generation only where it
+//! shares a check with a part that it did not prove ([What a check
+//! reads](crate::analysis#what-a-check-reads)). A marked check of a scalar is a load and a
+//! comparison. A marked check of a pattern, an enum or a rule runs the automaton, reads the tag, or
+//! computes the rule, with its checksums and walks. `examples/codegen.rs` records the machine code
+//! that this gives.
 //!
 //! `from_head` turns the value of a `size` or `len` rule into a number of elements in a `usize`.
 //! There, the optimizer knows that the value of a field fits a `usize`.
@@ -71,8 +73,9 @@
 //! every operation of each, and with a walk exactly where the expression has one. The functions
 //! name every part of the tree whatever its kind. Where a part is not a walk, they name the
 //! expression that it is in again, which adds nothing new.
-//! [`Machine::apply`](layout::Machine::apply) never sees a walk. `from_head` also finds a `size`
-//! rule of the last field through the types (`Fields::Last`), and checks that it is the layout's.
+//! [`Machine::apply`](layout::Machine::apply) never sees a walk. `from_head` also finds a `size` or
+//! `len` rule of the last field through the types (`Fields::Last`), and checks that it is the
+//! layout's.
 //!
 //! # The machine
 //!
@@ -174,9 +177,11 @@ const unsafe fn validate_whole<C: Checks, T: ?Sized + Pun>(
 ///
 /// - `ptr` is valid for reads of a `T`. It need not be aligned.
 /// - Every byte that a check marked by `C` reads is initialized. A marked scalar reads its own
-///   bytes. A marked pattern reads its tail. An enum or a union with a marked
-///   leaf reads its tag and what the checks of its variants read, which check every part. Nothing
-///   is read of a variant, or of a field of a union, that has no value. A struct whose rules are
+///   bytes. A marked pattern reads its tail. An enum with a marked leaf reads its tag and what the
+///   checks of the fields of the variant of that tag read, which check every part. A union with a
+///   marked leaf reads what the checks of its fields read, which check every part, for each field
+///   in order up to the first that accepts the value. Nothing is read of a variant, or of a field
+///   of a union, that has no value. A struct whose rules are
 ///   marked reads the fields that its rules load and, if one of its rules reads bytes by offset
 ///   ([`Layout::rules_read_bytes`]), all of its bytes, padding included.
 ///
@@ -206,10 +211,11 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
   //   initialized, as `check_rules` requires.
   // - A pattern is its tail of `ptr::metadata(ptr)` bytes, which are marked, so initialized, as
   //   `Dfa::matches_utf8` and `Dfa::matches` require.
-  // - An enum or a union has a marked leaf, so its tag and what the checks of its variants read
-  //   are initialized, by contract on the caller. These are the requirements of `validate_enum`,
-  //   with `layout` the layout of `T`, and of `validate_union`, with `T::Variants` the list of
-  //   its variants.
+  // - An enum or a union has a marked leaf, so what its check reads is initialized, by contract on
+  //   the caller: for an enum, its tag and what the checks of the fields of its variant read, and
+  //   for a union, what the checks of its fields read up to the first that accepts the value.
+  //   These are the requirements of `validate_enum`, and of `validate_union`, with `T::Variants`
+  //   the list of its variants.
   //
   // The shapes whose checks hold the layout, a scalar, a pattern and an enum, are checked in
   // functions of their own, which take it from `T`: a value of it would be a local of this
@@ -299,7 +305,8 @@ const unsafe fn validate_pattern<T: ?Sized + Pun>(ptr: *const T) -> bool {
 ///
 /// # Panics
 ///
-/// Panics if the tag of `layout` is not a scalar. No layout made by this crate has such a tag.
+/// Panics if the tag of the layout of `T` is not a scalar, as [`tag_of`] does. No layout made by
+/// this crate has such a tag.
 ///
 /// # Safety
 ///
@@ -346,10 +353,12 @@ const unsafe fn tag_of<T: ?Sized + Pun>(ptr: *const T) -> u128 {
   }) else {
     return 0;
   };
-  // SAFETY: `Layout::enumeration` asserts that the tag is a scalar that `Spec::is_integer`
-  // accepts, so of at most 16 bytes, at `offset` within the size of `T`. So `add` stays within the
-  // `T` at `ptr`, and the tag is valid for reads, and initialized, by contract on the caller. These
-  // are the requirements of `load`.
+  // SAFETY: `T` is an enum, not a union, so `Layout::enumeration` or `Layout::uninhabited` made
+  // its layout. `Layout::enumeration` asserts that the tag is a scalar that `Spec::is_integer`
+  // accepts, so of at most 16 bytes, at `offset` within the size of `T`. `Layout::uninhabited`
+  // gives `Enum::NEVER`, whose tag is a scalar of size 0 at offset 0, which `Spec::is_integer`
+  // accepts. So `add` stays within the `T` at `ptr`, and the tag is valid for reads, and
+  // initialized, by contract on the caller. These are the requirements of `load`.
   unsafe { load(ptr.cast::<u8>().add(offset), size, endian) }
 }
 
@@ -446,9 +455,11 @@ const fn inhabited<F: Fields>() -> bool {
 ///
 /// - `ptr` is valid for reads of a `T`. It need not be aligned.
 /// - `V` is `T::Variants`, or a list that `Variants::Next` reaches from it.
-/// - Every byte that the checks of `V` or of a field after it read, which check every part, is
-///   initialized, for the fields that have values. The analysis refuses a union of which such a
-///   field would read a byte that may be padding in the source.
+/// - Every byte that the checks of `V` and of the fields after it read, which check every part,
+///   is initialized, for the fields that have values, up to the first field that accepts the
+///   value at `ptr`. The analysis establishes it for the fields up to the first that the source
+///   proves whatever safe code writes, which accepts every value of the source, or for every field
+///   if none does ([Enums and unions](crate::analysis#enums-and-unions)).
 const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(
   ptr: *const T,
   input: &mut Input,
@@ -458,9 +469,10 @@ const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(
   }
   // SAFETY: `V` is in the list of the variants of `T`, by contract on the caller, so `V::Fields` is
   // the one field of a variant in the layout of the union, at offset 0 (`Variants`, section
-  // Safety). Every byte that its checks read is initialized, by contract on the caller, as
-  // `validate_fields` requires. The requirements of the call for the next fields are those of this
-  // call. Nothing is read of a field that has no value, which no bytes are, as in
+  // Safety). No field before `V` accepted the value, so every byte that the checks of `V` read is
+  // initialized, by contract on the caller, as `validate_fields` requires. The next fields are
+  // checked only if `V` does not accept the value, so the requirements of that call are those of
+  // this call. Nothing is read of a field that has no value, which no bytes are, as in
   // `validate_variants`.
   unsafe {
     (const { inhabited::<V::Fields>() } && validate_variant::<C, T, V::Fields>(ptr, input))
@@ -470,8 +482,9 @@ const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(
 
 /// Returns whether the parts that `C` marks of the `len` elements at `ptr` are valid.
 ///
-/// Elements whose checks are a few comparisons are checked in blocks of about 64 bytes, without a
-/// branch within a block. The result is the same as one element at a time.
+/// Elements whose checks are a few comparisons are checked in blocks of as many elements as fit in
+/// 64 bytes ([`Layout::block`](layout::Layout::block)), without a branch within a block. The result
+/// is the same as one element at a time.
 ///
 /// In a check with a worklist, once an element of a slice (`SLICE`) put a pointee in it, the rest
 /// of the slice waits there in one entry, behind the pointees of that element: the worklist grows
@@ -689,10 +702,11 @@ pub const unsafe fn check_rules<C: Checks, P: Path, T: ?Sized + Pun>(
   const { assert!(listed::<T, T::Rules>(0), "not the rules of the struct") };
   let (len, tail, size) = tail_of(ptr);
   let head = const { T::LAYOUT.tail_shape().start };
-  // SAFETY: `tail_of` returns `size`, the size of the `T` at `ptr`, and the tail of `tail` bytes
-  // starts at `head`, so `head + tail <= size`. That `T` is valid for reads, the bytes that its
-  // rules read are initialized, and it is within `input` if it has an aim at a stored place, by
-  // contract on the caller, as `check_listed` requires.
+  // SAFETY: `tail_of` returns `size`, the extent of the `T` at `ptr`, which is at most its size,
+  // and the tail of `tail` bytes starts at `head`, so `head + tail <= size`. That `T` is valid for
+  // reads, so its first `size` bytes are, the bytes that its rules read are initialized, and it is
+  // within `input` if it has an aim at a stored place, by contract on the caller, as
+  // `check_listed` requires.
   unsafe { check_listed::<C, P, T, T::Rules>(ptr.cast(), size, (head, tail), len, 0, input) }
 }
 
@@ -2288,9 +2302,9 @@ const unsafe fn walk<X: Ops, W: Steps>(
 /// Returns the length of the tail of the struct at `ptr`, the size of that tail in bytes, and the
 /// extent of the struct.
 ///
-/// The tail of a `Sized` struct is its last field, and its extent is its size. The extent of an
-/// unsized struct ends with its slice, without the padding that may follow it, which
-/// `size_of_val` counts.
+/// The tail of a `Sized` struct is its last field, and its
+/// [extent](crate::reference::how_puns_decides#layouts-and-rules) is its size. The extent of an
+/// unsized struct is the offset of its slice plus the size of that slice.
 #[cfg_attr(not(debug_assertions), inline(always))]
 pub const fn tail_of<T: ?Sized + Pun>(ptr: *const T) -> (usize, usize, usize) {
   let (layout, shape) = const { (T::LAYOUT, T::LAYOUT.tail_shape()) };

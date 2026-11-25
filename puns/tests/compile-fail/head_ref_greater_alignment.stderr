@@ -1,0 +1,83 @@
+error[E0080]: evaluation panicked:
+              cannot pun: the target has a greater alignment than the source.
+              Use `head` to copy it, or `from_head` to take it from bytes, whose address is checked at run time.
+
+    --> src/lib.rs
+     |
+     |   const HEAD_REF: () = Self::require(Self::check(Need::PART_REF));
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8; 4], u16>::HEAD_REF` failed inside this call
+     |
+note: inside `puns::Plan::<[u8; 4], u16>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::HEAD_REF };
+  |           ^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::HEAD_REF };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn head_ref::<[u8; 4], u16>`
+ --> tests/compile-fail/head_ref_greater_alignment.rs:4:17
+  |
+4 |   let _: &u16 = puns::head_ref(&[0u8; 4]);
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked:
+              cannot pun: the target has a greater alignment than the source.
+              Use `head` to copy it, or `from_head` to take it from bytes, whose address is checked at run time.
+
+    --> src/lib.rs
+     |
+     |   const HEAD_MUT: () = Self::require(Self::check_head_mut());
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8; 4], u16>::HEAD_MUT` failed inside this call
+     |
+note: inside `puns::Plan::<[u8; 4], u16>::require`
+ --> src/lib.rs
+  |
+  |       message.panic();
+  |       ^^^^^^^^^^^^^^^
+note: inside `puns::Message::panic`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/lib.rs
+  |
+  |     panic!("{}", unsafe { core::str::from_utf8_unchecked(this.bytes.split_at(this.len).0) })
+  |     ---------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::HEAD_MUT };
+  |           ^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |   const { Plan::<S, D>::HEAD_MUT };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: the above error was encountered while instantiating `fn head_mut::<[u8; 4], u16>`
+ --> tests/compile-fail/head_ref_greater_alignment.rs:5:21
+  |
+5 |   let _: &mut u16 = puns::head_mut(&mut [0u8; 4]);
+  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

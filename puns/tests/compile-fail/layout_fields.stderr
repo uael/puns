@@ -1,7 +1,7 @@
 error[E0080]: evaluation panicked: only the last field of a struct can be unsized
-  --> tests/compile-fail/layout_fields.rs:20:3
+  --> tests/compile-fail/layout_fields.rs:21:3
    |
-20 |   Layout::structure::<Pair>(core::ptr::null(), &[Field::new(0, BYTES), Field::new(1, &BYTE)], &[])
+21 |   Layout::structure::<Pair>(core::ptr::null(), &[Field::new(0, BYTES), Field::new(1, &BYTE)], &[])
    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
    |
 note: inside `puns::layout::Layout::structure::<Pair>`
@@ -15,9 +15,9 @@ note: inside `puns::layout::Layout::structure::<Pair>`
    |       ------------------------------------------------------------------------- in this macro invocation
 
 error[E0080]: evaluation panicked: fields must not overlap
-  --> tests/compile-fail/layout_fields.rs:23:3
+  --> tests/compile-fail/layout_fields.rs:24:3
    |
-23 |   Layout::structure::<Pair>(core::ptr::null(), &[Field::new(0, &WORD), Field::new(1, BYTES)], &[])
+24 |   Layout::structure::<Pair>(core::ptr::null(), &[Field::new(0, &WORD), Field::new(1, BYTES)], &[])
    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
    |
 note: inside `puns::layout::Layout::structure::<Pair>`
@@ -31,9 +31,9 @@ note: inside `puns::layout::Layout::structure::<Pair>`
    |         ------------------------------------------------------- in this macro invocation
 
 error[E0080]: evaluation panicked: fields must be sorted and must not overlap
-  --> tests/compile-fail/layout_fields.rs:26:3
+  --> tests/compile-fail/layout_fields.rs:27:3
    |
-26 |   Layout::structure::<Pair>(core::ptr::null(), &[Field::new(0, &WORD), Field::new(1, &BYTE)], &[])
+27 |   Layout::structure::<Pair>(core::ptr::null(), &[Field::new(0, &WORD), Field::new(1, &BYTE)], &[])
    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
    |
 note: inside `puns::layout::Layout::structure::<Pair>`
@@ -47,9 +47,9 @@ note: inside `puns::layout::Layout::structure::<Pair>`
    |         -------------------------------------------------------------------------- in this macro invocation
 
 error[E0080]: evaluation panicked: field out of bounds
-  --> tests/compile-fail/layout_fields.rs:29:12
+  --> tests/compile-fail/layout_fields.rs:30:12
    |
-29 |   unsafe { Layout::structure::<Pair>(core::ptr::null(), &[Field::new(1, &WORD)], &[]) };
+30 |   unsafe { Layout::structure::<Pair>(core::ptr::null(), &[Field::new(1, &WORD)], &[]) };
    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
    |
 note: inside `puns::layout::Layout::structure::<Pair>`
@@ -59,17 +59,33 @@ note: inside `puns::layout::Layout::structure::<Pair>`
    |
   ::: src/layout.rs
    |
-   |         assert!(end <= size, "field out of bounds");
-   |         ------------------------------------------- in this macro invocation
+   |         assert!(end <= size && reach <= size, "field out of bounds");
+   |         ------------------------------------------------------------ in this macro invocation
 
-error[E0080]: evaluation panicked: `len` is about a last field that is a slice, or an array
-  --> tests/compile-fail/layout_fields.rs:31:3
+error[E0080]: evaluation panicked: field out of bounds
+  --> tests/compile-fail/layout_fields.rs:32:12
    |
-31 | /   Layout::structure::<Pair>(
-32 | |     core::ptr::null(),
-33 | |     &[Field::new(0, &BYTE), Field::new(1, &BYTE)],
-34 | |     &[Rule::Len(&[Op::Lit(1)])],
-35 | |   )
+32 |   unsafe { Layout::structure::<Pair>(core::ptr::null(), &[Field::new(3, &EMPTY)], &[]) };
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+   |
+note: inside `puns::layout::Layout::structure::<Pair>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   |         assert!(end <= size && reach <= size, "field out of bounds");
+   |         ------------------------------------------------------------ in this macro invocation
+
+error[E0080]: evaluation panicked: `len` is about a last field that is or ends with an array, a slice or a `str`
+  --> tests/compile-fail/layout_fields.rs:34:3
+   |
+34 | /   Layout::structure::<Pair>(
+35 | |     core::ptr::null(),
+36 | |     &[Field::new(0, &BYTE), Field::new(1, &BYTE)],
+37 | |     &[Rule::Len(&[Op::Lit(1)])],
+38 | |   )
    | |___^ evaluation of `_` failed inside this call
    |
 note: inside `puns::layout::Layout::structure::<Pair>`
@@ -81,14 +97,14 @@ note: inside `puns::layout::Layout::structure::<Pair>`
    |
    | /           assert!(
    | |             !matches!(rules[i], Rule::Len(_)) || this.tail_shape().array,
-   | |             "`len` is about a last field that is a slice, or an array"
+   | |             "`len` is about a last field that is or ends with an array, a slice or a `str`"
    | |           );
    | |___________- in this macro invocation
 
 error[E0080]: evaluation panicked: only scalar fields can be restricted
-  --> tests/compile-fail/layout_fields.rs:37:18
+  --> tests/compile-fail/layout_fields.rs:40:18
    |
-37 | const _: Field = Field::restricted(0, &Layout::array(&BYTE, 2));
+40 | const _: Field = Field::restricted(0, &Layout::array(&BYTE, 2));
    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
    |
 note: inside `puns::layout::Field::restricted`
@@ -102,9 +118,9 @@ note: inside `puns::layout::Field::restricted`
    |     --------------------------------------------------------------------------------------- in this macro invocation
 
 error[E0080]: evaluation panicked: only initialized scalars can be restricted
-  --> tests/compile-fail/layout_fields.rs:38:19
+  --> tests/compile-fail/layout_fields.rs:41:19
    |
-38 | const _: Layout = Layout::scalar::<u8>(Spec::uninit::<u8>()).restricted(&[(0, 1)]);
+41 | const _: Layout = Layout::scalar::<u8>(Spec::uninit::<u8>()).restricted(&[(0, 1)]);
    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
    |
 note: inside `puns::layout::Layout::restricted`
@@ -118,9 +134,9 @@ note: inside `puns::layout::Layout::restricted`
    |     ------------------------------------------------------------------------------------------- in this macro invocation
 
 error[E0080]: evaluation panicked: array is too large
-  --> tests/compile-fail/layout_fields.rs:39:19
+  --> tests/compile-fail/layout_fields.rs:42:19
    |
-39 | const _: Layout = Layout::array(&WORD, usize::MAX);
+42 | const _: Layout = Layout::array(&WORD, usize::MAX);
    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
    |
 note: inside `puns::layout::Layout::array`

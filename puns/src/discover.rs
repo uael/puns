@@ -65,56 +65,42 @@
 //!
 //! # What the experiments rely on
 //!
-//! The experiments rely on these facts of the compiler, and on one fact of this crate.
+//! The experiments rely on facts of the compiler that no documentation states, and on one fact of
+//! this crate. The chapter [What `puns` relies on](crate::reference::what_puns_relies_on) of the
+//! reference states each fact of the compiler, with what checks it, under the section that each
+//! heading below links to.
 //!
 //! ## The layout is that of the target
 //!
-//! The layout of a type is the same in const evaluation as at run time, for a given target. Const
-//! evaluation computes it for that target, with the same code. This is a property of how `rustc` is
-//! built.
+//! [The layout in const
+//! evaluation](crate::reference::what_puns_relies_on#the-layout-in-const-evaluation).
 //!
 //! ## One scalar tells the variant
 //!
-//! The variant of a value is told by one scalar at a fixed place, its *tag*. Either it is a direct
-//! tag before the fields of every variant, with one value for each variant. Or it is a *niche*, a
-//! scalar in the fields of one variant, the dataful one, that no field of another variant covers.
-//! The values of the niche that are valid for its field are that variant, and each other value is
-//! one other variant, or no value. This is how `rustc` lays out enums, since 2017 for one variant
-//! with fields and since Rust 1.65 for several. It is not a promise of the language. The
-//! experiments verify what they rely on of it. The tag decides, and nothing outside the tag does. A
-//! layout of another shape is refused.
+//! [The tag of an enum of the `Rust`
+//! representation](crate::reference::what_puns_relies_on#the-tag-of-an-enum-of-the-rust-representation):
+//! a direct tag or a niche, and nothing outside the tag.
 //!
 //! ## Const evaluation fails on what is not a value
 //!
-//! Const evaluation reports an error when it reads an uninitialized byte, and when it reads the
-//! variant of a value whose tag is not the tag of a variant that has values. This is a behavior of
-//! the compiler, which the Reference does not promise for undefined behavior in `const`. The
-//! compile-fail tests `discover_reads_padding` and `discover_invalid_tag` check this behavior.
+//! [Errors of const evaluation](crate::reference::what_puns_relies_on#errors-of-const-evaluation),
+//! the first two.
 //!
 //! ## The variant is read from the tag
 //!
-//! When const evaluation reads the variant of a value whose tag is the tag of a variant that has
-//! values, it reads the tag alone, and neither reads nor checks the other bytes of the value. Yet
-//! `mem::discriminant` takes a reference to the whole value, and the Reference requires a reference
-//! to point to a valid value. [`try_tag`] relies on this behavior of the compiler: the bytes of the
-//! tag of one variant, moved into the sample of another, make a value whose tag is valid and whose
-//! other bytes may be no valid fields of the variant that the tag tells. The model check compares
-//! the layouts that the experiments find with oracles that do not use them, for its enums of the
-//! `Rust` representation.
+//! [The variant read from the
+//! tag](crate::reference::what_puns_relies_on#the-variant-read-from-the-tag). [`try_tag`] relies on
+//! it.
 //!
 //! ## The discriminant is the index
 //!
-//! `mem::Discriminant<E>` of an enum of the `Rust` representation holds its discriminant, which is
-//! the index of the variant, as an `isize`. No explicit discriminant is allowed on such an enum
-//! with fields. The size of `Discriminant<E>` is asserted, and the discriminant of every sample is
-//! checked to be its own index.
+//! [The discriminant of an enum of the `Rust`
+//! representation](crate::reference::what_puns_relies_on#the-discriminant-of-an-enum-of-the-rust-representation).
+//! [`variant`] reads it.
 //!
 //! ## A fresh value has uninitialized padding
 //!
-//! A value made in const evaluation (`E::A(x)`) has its padding uninitialized, because making a
-//! variant writes its fields and its tag and nothing else. So a byte of a fresh sample outside its
-//! fields that can be read is a byte of the tag, which the compile-fail test
-//! `discover_reads_padding` checks.
+//! [The padding of a new value](crate::reference::what_puns_relies_on#the-padding-of-a-new-value).
 //!
 //! ## The valid values of a layout are valid for `rustc`
 //!
@@ -150,16 +136,16 @@
 //! [tag]: #the-variant-is-read-from-the-tag
 //! [index]: #the-discriminant-is-the-index
 //! [fresh]: #a-fresh-value-has-uninitialized-padding
-//! [`mem::variant_count`]: https://doc.rust-lang.org/core/mem/fn.variant_count.html
-//! [`discriminant_value`]: https://doc.rust-lang.org/core/intrinsics/fn.discriminant_value.html
-//! [`mem::discriminant`]: https://doc.rust-lang.org/core/mem/fn.discriminant.html
+//! [`mem::variant_count`]: https://doc.rust-lang.org/1.99.0/core/mem/fn.variant_count.html
+//! [`discriminant_value`]: https://doc.rust-lang.org/1.99.0/core/intrinsics/fn.discriminant_value.html
+//! [`mem::discriminant`]: https://doc.rust-lang.org/1.99.0/core/mem/fn.discriminant.html
 
 use core::mem::{self, MaybeUninit};
 
 use crate::layout::{Endian, Field, Kind, Layout, Spec, Valid, load, max_value};
 
-/// Returns a `T` that is valid in the sense of the Reference, whose rules may not hold, in which
-/// every scalar is the least of its values and padding is uninitialized.
+/// Returns a `T` that is valid in the sense of the Rust Reference, whose rules may not hold, in
+/// which every scalar is the least of its values and padding is uninitialized.
 ///
 /// Of an enum, the sample is its first variant that has values.
 ///
@@ -199,9 +185,11 @@ const unsafe fn write(layout: &Layout, ptr: *mut u8) {
   //   or not.
   // - A field of a struct is within the size of the struct, which `Layout::structure` asserts,
   //   so `add` stays within the value, and `write` of the field is within it.
-  // - The tag of an enum, and each of its variants, are within the size of the enum, which
-  //   `Layout::enumeration` asserts. So `store` of the tag and `write` of the variant are within
-  //   the value.
+  // - The tag and the variants of an enum, or the fields of a union, are within its size:
+  //   `Layout::enumeration` asserts it of an enum, and `Layout::union` of a union, each of whose
+  //   variants has the size of the union and holds one field at 0 within it. The layout of a type
+  //   without values (`Layout::uninhabited`) has a tag of size 0 and no variant. So `store` of the
+  //   tag and `write` of the variant are within the value.
   unsafe {
     match layout.kind {
       Kind::Scalar(spec) => match spec.valid {
@@ -262,8 +250,19 @@ const unsafe fn store(ptr: *mut u8, size: usize, endian: Endian, value: u128) {
   while i < size {
     let digit = if endian.is_little() { i } else { size - 1 - i };
     // SAFETY: `i < size`, and `ptr` is valid for writes of `size` bytes, by contract on the
-    // caller. So `add(i)` stays within them, and the byte there is valid for writes. A `u8` is
-    // aligned at any address. These are the requirements of `add` and of `write`.
+    // caller. So `add(i)` stays within them [1], and the byte there is valid for writes. A `u8` is
+    // aligned at any address [2].
+    //
+    // [1] Per https://doc.rust-lang.org/1.99.0/core/primitive.pointer.html#method.add:
+    //
+    //     If the computed offset is non-zero, then `self` must be derived from a pointer to some
+    //     allocation, and the entire memory range between `self` and `result` (i.e.,
+    //     `self.addr()..result`) must be in bounds of that allocation.
+    //
+    // [2] Per https://doc.rust-lang.org/1.99.0/core/ptr/fn.write.html#safety:
+    //
+    //     - `dst` must be valid for writes or `T` must be a ZST.
+    //     - `dst` must be properly aligned.
     unsafe { ptr.add(i).write(if digit < 16 { (value >> (8 * digit)) as u8 } else { 0 }) };
     i += 1;
   }
@@ -295,10 +294,10 @@ const unsafe fn variant<E>(ptr: *const E) -> usize {
   // - It points to a valid `E` at run time, by contract on the caller. At compile time, this is not
   //   established: the bytes at `ptr` may be no `E`, which is valid only if its tag is the tag of a
   //   variant and the fields of that variant are valid [2]. The call then relies on two behaviors
-  //   of `rustc` that the Reference does not promise, and that the crate documentation discloses
-  //   (section Soundness). `rustc` reports an error if the tag is uninitialized or not the tag of a
-  //   variant that has values, and otherwise reads the variant from the tag alone, without reading
-  //   the fields (`discover`, module documentation).
+  //   of `rustc` that the Rust Reference does not promise, and that `docs/what_puns_relies_on.md`
+  //   discloses ("Errors of const evaluation" and "The variant read from the tag"). `rustc` reports
+  //   an error if the tag is uninitialized or not the tag of a variant that has values, and
+  //   otherwise reads the variant from the tag alone, without reading the fields.
   //
   // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.reference-box:
   //
@@ -371,8 +370,19 @@ impl<E> Buf<E> {
   const fn fill(&mut self, offset: usize, len: usize, byte: u8) {
     assert!(offset + len <= size_of::<E>());
     // SAFETY: `offset + len` is at most the size of an `E`, which is asserted above. So
-    // `add(offset)` stays within `self`, and the `len` bytes from there are valid for writes. A
-    // `u8` is aligned at any address. These are the requirements of `add` and of `write_bytes`.
+    // `add(offset)` stays within `self` [1], and the `len` bytes from there are valid for writes.
+    // A `u8` is aligned at any address [2].
+    //
+    // [1] Per https://doc.rust-lang.org/1.99.0/core/primitive.pointer.html#method.add:
+    //
+    //     If the computed offset is non-zero, then `self` must be derived from a pointer to some
+    //     allocation, and the entire memory range between `self` and `result` (i.e.,
+    //     `self.addr()..result`) must be in bounds of that allocation.
+    //
+    // [2] Per https://doc.rust-lang.org/1.99.0/core/ptr/fn.write_bytes.html#safety:
+    //
+    //     - `dst` must be valid for writes of `count * size_of::<T>()` bytes.
+    //     - `dst` must be properly aligned.
     unsafe { core::ptr::write_bytes(self.0.as_mut_ptr().cast::<u8>().add(offset), byte, len) };
   }
 
@@ -606,8 +616,8 @@ const unsafe fn read<E>(sample: &MaybeUninit<E>, offset: usize, len: usize) -> u
   // above. So `add(offset)` stays within `sample`, and the `len` bytes from there are valid for
   // reads. `load` also requires them to be initialized, which is not established. By contract on
   // the caller, the call is evaluated at compile time, where `rustc` reports an error instead of
-  // reading an uninitialized byte. No documentation promises this behavior, which the crate
-  // documentation discloses (section Soundness).
+  // reading an uninitialized byte. No documentation promises this behavior, which
+  // `docs/what_puns_relies_on.md` discloses ("Errors of const evaluation").
   unsafe { load(sample.as_ptr().cast::<u8>().add(offset), len, Endian::NATIVE) }
 }
 

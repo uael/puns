@@ -1,0 +1,295 @@
+# What `puns` relies on
+
+`puns` builds each layout in `const fn`s from what the compiler reports: `size_of` and `align_of`,
+the offsets of fields, and `size_of_val_raw` for an unsized type. What it concludes from them relies
+on what Rust documents, and on facts that no documentation states: that a value whose fields are
+valid is valid, and behaviors of `rustc`. Each of these facts is below, with what checks it.
+
+## What Rust documents
+
+Each row is a guarantee that `puns` relies on, and where Rust states it: "R" is the
+[Reference][reference] and "C" the documentation of [`core`], both of Rust 1.99, the minimum
+version of `puns`, since the guarantee must hold there. One guarantee is only in the nightly
+Reference, and one only from 1.100, as marked.
+
+| Guarantee | Where |
+|---|---|
+| A size is a multiple of the alignment, and the stride of an array | R [`r-layout.properties.size`][size] |
+| `bool`, the integers, the floats and `char` have the sizes that the Rust Reference lists, and `usize` and `isize` the same size | R [`r-layout.primitive.size`][primitive size], [`r-layout.primitive.size-align`][primitive size-align] |
+| The alignment of a primitive is that of the platform, so `puns` reads it | R [`r-layout.primitive.platform-specific-alignment`][primitive align] |
+| Any initialized bytes are an integer or a float | R [`r-type.numeric.validity`][numeric validity] |
+| `bool` is one byte, 0 or 1 | R [`r-type.bool.layout`][bool layout], [`r-type.bool.repr`][bool repr] |
+| `char` is a `u32` that is a Unicode scalar value | R [`r-type.char.value`][char value], [`r-type.char.layout`][char layout] |
+| `[T; N]` is `N` elements one after the other, `[T]` is laid out as the array, and `str` as `[u8]` | R [`r-layout.array`][array], [`r-layout.slice`][slice], [`r-layout.str`][str] |
+| `()` has size 0 and alignment 1. `!` has the same, and no value | R [`r-layout.tuple.unit`][unit], [`r-undefined.validity.never`][validity never], nightly [`r-type.never.layout`][never layout] |
+| A struct, a tuple and an array require their fields or elements to be valid, and padding may be uninitialized | R [`r-undefined.validity.struct`][validity struct], [`r-undefined.validity.undef`][validity undef] |
+| An enum requires a valid discriminant, and valid fields of the variant that it indicates | R [`r-undefined.validity.enum`][validity enum] |
+| A `repr(C)` struct has its fields in order, each at the next offset that its alignment allows | R [`r-layout.repr.c.struct`][c struct] |
+| A `repr(C)` union has every field at 0, and `packed(N)` lowers its alignment without moving a field | R [`r-layout.repr.c.union.size-align`][c union], [`r-layout.repr.alignment.packed-fields`][packed fields] |
+| An enum without fields of `repr(C)` has the size of a C enum of the target. One of a primitive representation has the size of that integer, and holds its discriminant there | R [`r-layout.repr.c.enum`][c enum], [`r-layout.repr.primitive.enum`][primitive enum], [`r-items.enum.discriminant.access-memory`][discriminant memory] |
+| An enum with fields of a primitive representation is a `repr(C)` union of `repr(C)` structs, one for each variant, each of which starts with the tag ([RFC 2195]) | R [`r-layout.repr.primitive.adt`][primitive adt] |
+| An enum with fields of `repr(C)`, alone or with a primitive representation, is a `repr(C)` struct of the tag and of a `repr(C)` union of `repr(C)` structs of the fields of each variant ([RFC 2195]) | R [`r-layout.repr.c.adt`][c adt], [`r-layout.repr.primitive-c`][primitive c] |
+| `repr(transparent)` has the layout of its field | R [`r-layout.repr.transparent.layout-abi`][transparent] |
+| `packed(N)` lowers the alignment of each field to at most `N`, and `align(N)` raises the alignment of the type to at least `N` | R [`r-layout.repr.alignment`][alignment] |
+| The `Rust` representation puts each field at a multiple of its alignment, and the type is at least as aligned as its fields | R [`r-layout.repr.rust.layout`][rust layout] |
+| The fields of a struct of the `Rust` representation do not overlap, in an order that is not specified | R [`r-layout.repr.rust.layout.struct`][rust struct] |
+| A struct of the `Rust` representation whose fields have size 0 has size 0, as does an enum without variants or of one such variant | R [`r-layout.repr.rust.struct-zst`][struct zst], [`r-layout.repr.rust.enum-struct-like-zst`][enum struct-like], 1.100 [`r-layout.repr.rust.enum-empty-zst`][enum empty] |
+| The `Rust` representation guarantees nothing else | R [`r-layout.repr.rust.unspecified`][rust unspecified] |
+| A tuple has the `Rust` representation | R [`r-layout.tuple.def`][tuple] |
+| The representation of a type does not change the layout of its fields | R [`r-layout.repr.inter-field`][inter-field] |
+| `NonZero<T>` is `T`, except zero | C [`NonZero`, "Layout"][nonzero layout] |
+| `Option<T>` is `T`, and `None` is zeros, for a `NonZero` and a `repr(transparent)` struct around one | C [`option`, "Representation"][option representation] |
+| `Result<T, E>` has the size of `T`, and `Ok(t)` the bytes of `t`, when `T` is such a type and `E` has size 0 and alignment 1, or the reverse | C [`result`, "Representation"][result representation] |
+| `ManuallyDrop<T>` has the layout and the valid values of `T` | C [`ManuallyDrop`] |
+| `MaybeUninit<T>` has the size and the alignment of `T`, and any bytes are a value | C [`MaybeUninit`, "Layout"][maybe-uninit layout], [`MaybeUninit`, "Validity"][maybe-uninit validity] |
+| `PhantomData<T>` has size 0 and alignment 1 | C [`PhantomData`, "Layout"][phantom layout] |
+
+Which bytes a union may hold is not decided ([`r-undefined.validity.union`][validity union]), and
+[Unions][soundness#unions] says what `puns` does.
+
+Rust also documents that an "option-like" enum, as [`core` defines it][abi compatibility], is
+ABI-compatible with the type that it holds, when that type is one of those of the `Option` row of
+the table. `puns` does not take a layout from it, because it gives the size of the enum but not
+which bytes its other variant is. `Option<bool>` is one byte with `None` at 2 only because `rustc`
+does it today, and the documentation of `MaybeUninit` and `UnsafeCell` says that such layouts vary.
+So `puns` assumes these layouts, and checks them when compiling ([The layout that `puns`
+assumes](#the-layout-that-puns-assumes)).
+
+## What no documentation states
+
+### A value whose fields are valid
+
+The Rust Reference states what validity requires of a struct, a tuple, an array and an enum (the
+rows above), and warns that its list of undefined behavior "is not exhaustive; it may grow or
+shrink" ([`r-undefined`][undefined]). `puns` takes these conditions to be all that validity
+requires. A struct, a tuple, an array or a slice is valid if its fields or its elements are,
+whatever its padding holds, and an enum if its tag is that of a variant whose fields are valid.
+
+This does not hold of every type of `core`. `NonZero` restricts the values of its field with an
+attribute that stable Rust does not accept, so `puns` describes it by its documentation (the
+`NonZero` row). `puns` describes by their fields only arrays, slices, tuples, `Option`, `Result`,
+and the types that derive `Pun`.
+
+No test checks this assumption. The oracles of the model check take it too
+([`types.rs`][model types]), and so does Miri when it checks that a value is valid
+([Miri][testing#miri]).
+
+### The tag of a `repr(C)` enum
+
+The Rust Reference gives an enum without fields of `repr(C)` alone the size and the alignment of a C
+enum of the target ([`r-layout.repr.c.enum`][c enum]), and the same to the tag of a `repr(C)` enum
+with fields. It does not say that each byte of such an enum or tag is initialized. `rustc` stores it
+as an integer of that size, which holds the discriminant, so every byte is. `puns` relies on this
+where it reads such a tag. It reads one at compile time in the derive, where a byte that is not
+initialized fails the build ([Errors of const evaluation](#errors-of-const-evaluation)). It reads
+one at run time in a pun that reads the tag, such as `pun::<C, u32>` for a `repr(C)` enum `C`
+without fields. Miri, which reports a read of an uninitialized byte, runs the test
+`a_repr_c_tag_made_at_run_time` of `puns/tests/enums.rs`, which reads such a tag.
+
+### The layout in const evaluation
+
+The layout of a type in const evaluation is the one that it has at run time on the target of the
+compilation, since `rustc` computes both with the same code. `puns` measures offsets and finds tags
+in const evaluation, and uses them at run time. No documentation says that const evaluation sees
+the bytes of a value, such as the tag of an enum, where they are at run time. The tests of `puns`
+and the model check use the layouts that const evaluation found on values made at run time,
+natively.
+
+### Pointers to unsized types
+
+A pointer to an unsized type, a struct that ends with a slice or a `str`, has the representation of
+a pointer to a slice: an address and the length of its trailing slice. For each unsized type, a
+pointer made from a pointer to a slice by `as` casts must give back its address and its length, or
+the build fails.
+
+### The tag of an enum of the `Rust` representation
+
+`rustc` tells the variant of such an enum by one scalar at a fixed place, its *tag*, as [Enums with
+fields][derive#enums-with-fields] requires. A *direct tag* is all the bytes before the first field
+of any variant, with one value for each variant. A *niche* is a scalar in the fields of one variant,
+the *dataful* one, that no field of another variant covers: the values that are valid for its field
+are that variant, and each other value is one other variant, or no value. `rustc` has laid out
+enums this way since 2017 for one variant with fields, and since Rust 1.65 for several.
+
+The derive finds the tag by *experiments* in const evaluation on the sample of each variant, so the
+tag is where `rustc` put it. The experiments verify what they assume, among which that no byte
+outside the tag tells the variant, and one that fails stops the build, so no wrong layout is used. A
+layout of another shape is refused. If `rustc` places the fields of an uninhabited variant before
+those of the other variants, the build fails, because `puns` cannot observe where those fields are
+and does not guess.
+
+### The layout that `puns` assumes
+
+Without the `unstable` feature, `puns` assumes how `rustc` lays out most enums of the `Rust`
+representation, `Option` and `Result` included, from the layouts of the fields of their variants,
+which no documentation states ([What `puns` assumes][layouts#what-puns-assumes]). It relies on it
+only to count the layout that the experiments found as the same in every layout that Rust allows,
+and only after a check when compiling shows that `rustc` laid the enum out as assumed. A compiler
+that lays one out otherwise makes the build fail, so a wrong assumption is never unsound.
+
+### The discriminant of an enum of the `Rust` representation
+
+`mem::Discriminant<E>` of an enum of the `Rust` representation holds the index of the variant, as
+an `isize`. `core` documents it only as an opaque type ([`Discriminant`]), and stable Rust cannot
+compare two of them in `const`, so the experiments read it as an `isize` to tell the variant of a
+value. The size of `Discriminant<E>` is asserted, and the discriminant of each sample is checked to
+be the index of its variant, so another representation fails the build.
+
+### Errors of const evaluation
+
+Const evaluation reports an error where it would otherwise have undefined behavior, in three cases.
+The first is a read of an uninitialized byte. The second is a read of the variant of a value whose
+tag is not the tag of a variant that has values. The third is the size of a slice larger than an
+object can be. Code that relies on them runs only at compile time:
+
+- The experiments rely on the first two.
+- Each unsized type relies on the first, where it reads a pointer to it as a pointer to a slice to
+  check its representation ([Pointers to unsized types](#pointers-to-unsized-types)). A byte of the
+  pointer that is not initialized fails the build.
+- The derive relies on the first to refuse an enum without fields whose `align` gives it padding,
+  since it reads each variant from all of its bytes. It also relies on it where it reads the bytes
+  of an enum without fields of `repr(C)` alone, which Rust does not say are all initialized.
+- The derive relies on the first where it compares the tags of an enum of a primitive or `C`
+  representation with the first bytes of the samples. An attribute macro below the derive that
+  narrows the tag leaves padding among these bytes, which fails the build ([Attribute macros below
+  the derive][trust#attribute-macros-below-the-derive]).
+- The derive relies on the second where it checks the width of the tag of an enum of the `Rust`
+  representation that it read: it changes a byte past that tag in a sample, then reads the
+  variant. A byte that is part of the tag gives another variant, which fails the check, or a tag
+  of no variant, which fails the build.
+- The derive relies on the third for an unsized struct whose trailing slice has elements so large
+  that 8 of them overflow an `isize`. It compares the layout of an unsized struct with the sizes
+  that `rustc` gives for trailing slices of up to 8 elements.
+
+[Compile-fail tests][testing#compile-fail-tests] check each of the three errors.
+
+### The padding of a new value
+
+A value made in const evaluation, such as `E::A(x)`, has its padding uninitialized, because making
+a variant writes its fields and its tag and nothing else. So a byte of a new sample, outside its
+fields, that the experiments can read is a byte of the tag, and a byte of padding that they would
+take for the tag fails the build, by the first error above. The compile-fail test
+`discover_reads_padding` checks it.
+
+### The variant read from the tag
+
+Const evaluation reads the variant of a value from its tag alone, when the tag is that of a
+variant, and reads no other byte of the value. Yet `mem::discriminant` takes a reference to the
+whole value, and the Rust Reference requires a reference to point to a valid value
+([`r-undefined.validity.reference-box`][validity reference]). The experiments rely on it when they
+move the tag of one variant into a value of another. The derive also relies on it to check the
+width of the tag of an enum of a primitive or `C` representation ([Attribute macros below the
+derive][trust#attribute-macros-below-the-derive]). The [model check][testing#the-model-check]
+checks the layouts that the experiments find.
+
+### The address read as an integer
+
+To check the alignment of an address at run time, `puns` reinterprets the pointer as a `usize`
+through a union, since no stable `const fn` gives the address on Rust 1.99. Of this, `core` says
+([`transmute`][transmute]):
+
+> Transmuting pointers to integers in a const context is undefined behavior, unless the pointer
+> was originally created from an integer. [...] (And even outside `const`, such transmutation is
+> touching on many unspecified aspects of the Rust memory model and should be avoided. [...])
+
+At run time, `core` does not call it undefined behavior, but says to avoid it, and no documentation
+promises that the integer is the address. The integer is never made into a pointer again. A check
+of an address does not compile in a constant ([In a constant][api#in-a-constant]). The tests
+run it under Miri with strict provenance ([Miri][testing#miri]).
+
+### The provenance of a reference to a value with an eager aim
+
+The safe method that reads the pointee of an eager [aim][aims] reads it through the reference to the
+value that holds the aim. The pointee may be outside that value. Under the tree borrows model of
+Miri, the reference has the provenance of the bytes of the pointee there. Under stacked borrows it
+does not, and code reads such a pointee from a pointer ([Reading a
+pointee][aims#reading-a-pointee]). Rust has not decided its aliasing model. `puns` relies on tree borrows
+for these reads, and their tests run under Miri with tree borrows only ([Miri][testing#miri]).
+
+### How `rustc` places fields
+
+`rustc` places the fields of a struct of the `Rust` representation one after another, in an order
+of its choosing, each at the first offset that its alignment allows. So the sizes that it may give
+are those of the orders of the fields, which `puns` tries up to a
+[bound][limits#bounds-of-the-analysis]. No documentation states this. Rust only bounds the offsets
+([`r-layout.repr.rust.layout`][rust layout]), and a compiler could put padding where no alignment
+needs it. The size that `puns` reads would then match no order, so the struct would no longer count
+as the same in every layout, and the pun would fail to compile rather than change what it does.
+
+The [record of verdicts][testing#the-record-of-verdicts] runs under
+[`-Zrandomize-layout`][randomize]. This flag rearranges fields "within the degrees of freedom
+provided by the largely unspecified default representation", which "also affects type sizes and
+padding". On `nightly-2026-11-17`, it shuffles the order of the fields and does nothing else
+([`rustc_abi`][shuffle]), so it changes no alignment. Its comment says that it may do more in the
+future.
+
+[reference]: https://doc.rust-lang.org/1.99.0/reference/
+[`core`]: https://doc.rust-lang.org/1.99.0/core/
+[RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
+[randomize]: https://doc.rust-lang.org/nightly/unstable-book/compiler-flags/randomize-layout.html
+[shuffle]: https://github.com/rust-lang/rust/blob/5df8c02afdf6b882bc301442cea70f026e3d3974/compiler/rustc_abi/src/layout.rs#L616-L638
+[transmute]: https://doc.rust-lang.org/1.99.0/core/mem/fn.transmute.html#transmutation-between-pointers-and-integers
+[size]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.properties.size
+[primitive size]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.primitive.size
+[primitive size-align]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.primitive.size-align
+[primitive align]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.primitive.platform-specific-alignment
+[numeric validity]: https://doc.rust-lang.org/1.99.0/reference/types/numeric.html#r-type.numeric.validity
+[bool layout]: https://doc.rust-lang.org/1.99.0/reference/types/boolean.html#r-type.bool.layout
+[bool repr]: https://doc.rust-lang.org/1.99.0/reference/types/boolean.html#r-type.bool.repr
+[char value]: https://doc.rust-lang.org/1.99.0/reference/types/char.html#r-type.char.value
+[char layout]: https://doc.rust-lang.org/1.99.0/reference/types/char.html#r-type.char.layout
+[array]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.array
+[slice]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.slice
+[str]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.str
+[unit]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.tuple.unit
+[validity never]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.never
+[never layout]: https://doc.rust-lang.org/nightly/reference/types/never.html#r-type.never.layout
+[validity struct]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.struct
+[validity undef]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.undef
+[validity enum]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.enum
+[validity union]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.union
+[undefined]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined
+[validity reference]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.reference-box
+[c struct]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.struct
+[c union]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.union.size-align
+[packed fields]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.alignment.packed-fields
+[c enum]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.enum
+[primitive enum]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.enum
+[discriminant memory]: https://doc.rust-lang.org/1.99.0/reference/items/enumerations.html#r-items.enum.discriminant.access-memory
+[c adt]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.adt
+[primitive adt]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.adt
+[primitive c]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive-c
+[transparent]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi
+[alignment]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.alignment
+[rust layout]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.rust.layout
+[rust struct]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.rust.layout.struct
+[struct zst]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.rust.struct-zst
+[enum struct-like]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.rust.enum-struct-like-zst
+[enum empty]: https://doc.rust-lang.org/1.100.0/reference/type-layout.html#r-layout.repr.rust.enum-empty-zst
+[rust unspecified]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.rust.unspecified
+[tuple]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.tuple.def
+[inter-field]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.inter-field
+[nonzero layout]: https://doc.rust-lang.org/1.99.0/core/num/struct.NonZero.html#layout-1
+[option representation]: https://doc.rust-lang.org/1.99.0/core/option/index.html#representation
+[result representation]: https://doc.rust-lang.org/1.99.0/core/result/index.html#representation
+[`ManuallyDrop`]: https://doc.rust-lang.org/1.99.0/core/mem/struct.ManuallyDrop.html
+[maybe-uninit layout]: https://doc.rust-lang.org/1.99.0/core/mem/union.MaybeUninit.html#layout-1
+[maybe-uninit validity]: https://doc.rust-lang.org/1.99.0/core/mem/union.MaybeUninit.html#validity
+[phantom layout]: https://doc.rust-lang.org/1.99.0/core/marker/struct.PhantomData.html#layout-1
+[abi compatibility]: https://doc.rust-lang.org/1.99.0/core/primitive.fn.html#abi-compatibility
+[`Discriminant`]: https://doc.rust-lang.org/1.99.0/core/mem/struct.Discriminant.html
+
+[derive#enums-with-fields]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
+[model types]: https://github.com/uael/puns/blob/v0.2.4/puns-model/src/types.rs
+
+[api#in-a-constant]: api.md#in-a-constant
+[limits#bounds-of-the-analysis]: limits.md#bounds-of-the-analysis
+[aims]: aims.md
+[aims#reading-a-pointee]: aims.md#reading-a-pointee
+[layouts#what-puns-assumes]: layouts.md#what-puns-assumes
+[soundness#unions]: soundness.md#unions
+[testing#compile-fail-tests]: testing.md#compile-fail-tests
+[testing#miri]: testing.md#miri
+[testing#the-model-check]: testing.md#the-model-check
+[testing#the-record-of-verdicts]: testing.md#the-record-of-verdicts
+[trust#attribute-macros-below-the-derive]: trust.md#attribute-macros-below-the-derive

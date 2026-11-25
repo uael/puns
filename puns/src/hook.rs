@@ -124,18 +124,12 @@ pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Option<Result<D,
   // `D` holds no eager aim (`Plan::check`), so nothing is looked for in these bytes.
   let mut input = Input::new((&raw const value).cast(), size_of::<S>());
   // SAFETY: `verdict::<S, D>().try_pun` is `true`, so `check(Need::TRY)` is `None`, and the
-  // analysis meets `Need::TRY`, as when `Plan::<S, D>::TRY` compiles. `S` and `D` are `Copy`, so
-  // `Sized`, and the fit is `Exact::Always`: they have the same size. So `value` is valid for reads
-  // of a `D`, which `validate` does not need aligned. The relation records no byte that may be
-  // padding in `S` and that `D` requires to be initialized, or that a check marked by the analysis
-  // reads. So every byte that `validate` reads is initialized.
+  // analysis meets `Need::TRY`, as when `Plan::<S, D>::TRY` compiles. The rest is the proof of the
+  // same call in `crate::try_pun`.
   if !unsafe { validate::<Plan<S, D>, Root, D>((&raw const value).cast(), &mut input) } {
     return Some(Err(Error::Validity));
   }
-  // SAFETY: `S` and `D` have the same size. `validate` found every part of `D` that the analysis
-  // marked to be valid in `value`. Every part that it did not mark is valid in every value of `S`,
-  // since the relation records no disjoint part, and nothing that Rust leaves to the compiler. So
-  // `value` is a valid `D`, as `pun_unchecked` requires.
+  // SAFETY: `validate` returned `true`. The rest is the proof of the same call in `crate::try_pun`.
   Some(Ok(unsafe { pun_unchecked(value) }))
 }
 
@@ -146,10 +140,8 @@ pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Option<D> {
     return None;
   }
   // SAFETY: `verdict::<S, D>().pun` is `true`, so `check(Need::VALUE)` is `None`, and the analysis
-  // meets `Need::VALUE`, as when `Plan::<S, D>::BY_VALUE` compiles. Its fit is `Exact::Always`: `S`
-  // and `D` are `Copy`, so `Sized`, and `size_of::<S>() == size_of::<D>()`. Its relation records
-  // nothing, so every value of `S` is a valid `D` (`Relation::infallible`). This is what
-  // `pun_unchecked` requires.
+  // meets `Need::VALUE`, as when `Plan::<S, D>::BY_VALUE` compiles. The rest is the proof of the
+  // same call in `crate::pun`.
   Some(unsafe { pun_unchecked(value) })
 }
 
@@ -160,10 +152,8 @@ pub const fn head<S: Pun + Copy, D: Pun + Copy>(value: S) -> Option<D> {
     return None;
   }
   // SAFETY: `verdict::<S, D>().head` is `true`, so `check(Need::PART)` is `None`, and the analysis
-  // meets `Need::PART`, as when `Plan::<S, D>::HEAD` compiles. Its fit can shrink: `size_of::<S>()
-  // >= size_of::<D>()`. Its relation, of the first `size_of::<D>()` bytes of `S`, records nothing.
-  // So the first `size_of::<D>()` bytes of every value of `S` are a valid `D`. This is what
-  // `pun_unchecked` requires.
+  // meets `Need::PART`, as when `Plan::<S, D>::HEAD` compiles. The rest is the proof of the same
+  // call in `crate::head`.
   Some(unsafe { pun_unchecked(value) })
 }
 
@@ -175,13 +165,8 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> Option<D> {
   }
   let shift = const { Plan::<S, D>::TAIL_ANALYSIS.shift };
   // SAFETY: `parts::<S, D>().tail` is `true`, so `check_tail(Need::PART)` is `None`, and the
-  // analysis of the last bytes meets `Need::PART`, as when `Plan::<S, D>::TAIL` compiles. Both
-  // types are sized, `size_of::<S>() >= size_of::<D>()`, and `shift` is `size_of::<S>() -
-  // size_of::<D>()` (`analyze_tail`). The relation records nothing, so the `size_of::<D>()` bytes
-  // of every value of `S` from `shift` are a valid `D`. So `add(shift)` stays within `value`, and
-  // the pointer is valid for reads of `size_of::<D>()` bytes, which end where `value` ends, and
-  // points to a valid `D`. These are the requirements of `add` and of `read_unaligned`, which needs
-  // no alignment.
+  // analysis of the last bytes meets `Need::PART`, as when `Plan::<S, D>::TAIL` compiles. The rest
+  // is the proof of the same call in `crate::tail`.
   Some(unsafe { (&raw const value).cast::<u8>().add(shift).cast::<D>().read_unaligned() })
 }
 
@@ -193,16 +178,7 @@ pub const fn tail_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Option<&D>
   }
   // SAFETY: `parts::<S, D>().tail_ref` is `true`, so `check_tail(Need::PART_REF)` is `None`, and
   // the analysis of the last bytes meets `Need::PART_REF`, as when `Plan::<S, D>::TAIL_REF`
-  // compiles. Both types are sized, and `shift` is `size_of::<S>() - size_of::<D>()`
-  // (`analyze_tail`). `Plan::tail_cast` returns a pointer to the `size_of::<D>()` bytes of `value`
-  // from `shift`, which end where `value` ends. The reference is valid:
-  // - It is not null, because it points within `value`, a reference.
-  // - It is aligned, because the analysis found `D` no more aligned than `S`, and `shift` a
-  //   multiple of the alignment of `D` (`aligned`).
-  // - It is not dangling, because it is within `value`.
-  // - It points to a valid `D`, because the relation of the last bytes records nothing.
-  // The reference has the lifetime of the shared borrow `value`, and neither type holds an
-  // `UnsafeCell` (`Pun`, section Safety).
+  // compiles. The rest is the proof of the same call in `crate::tail_ref`.
   Some(unsafe { &*Plan::<S, D>::tail_cast(value) })
 }
 
@@ -213,23 +189,8 @@ pub fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Option<Result
     return None;
   }
   // SAFETY: `verdict::<S, D>().try_pun_ref` is `true`, so `check(Need::TRY_REF)` is `None`, and the
-  // analysis meets `Need::TRY_REF`, as when `Plan::<S, D>::TRY_REF` compiles. `value` is a
-  // reference, so it points to a valid `S`, valid for reads, as `try_cast` requires. If `try_cast`
-  // returns `Ok`, `target` is the address of `value`, with a tail length that gives it the extent
-  // of `value`, and the reference made from it is valid:
-  // - It is not null, because `value` is a reference at the same address.
-  // - It is aligned. Either the analysis found `D` no more aligned than `S`, or `Plan::try_cast_by`
-  //   checked the address.
-  // - It is not dangling. Its extent is that of `value`. If `D` is unsized and more aligned than
-  //   `S`, `Plan::try_cast_by` checked that its size is at most the size of `value`. Otherwise
-  //   either `D` is sized, and its size is its extent, or `D` is unsized and its extent is rounded
-  //   up to an alignment that divides that of `S`. Either way its size is at most the size of
-  //   `value`.
-  // - It points to a valid `D`. `validate` found every part that the analysis marked to be valid.
-  //   Every other part is valid in every value of `S`, since the relation records no byte read from
-  //   padding, no disjoint part, and nothing that Rust leaves to the compiler.
-  // The reference has the lifetime of the shared borrow `value`, and neither type holds an
-  // `UnsafeCell` (`Pun`, section Safety).
+  // analysis meets `Need::TRY_REF`, as when `Plan::<S, D>::TRY_REF` compiles. The rest is the proof
+  // of the same call in `crate::try_pun_ref`.
   Some(unsafe { Plan::<S, D>::try_cast(value) }.map(|target| unsafe { &*target }))
 }
 
@@ -244,12 +205,7 @@ pub fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(
   let source: *mut S = value;
   // SAFETY: `verdict::<S, D>().try_pun_mut` is `true`, so `check(Need::TRY_REF)` is `None` and
   // `Plan::MUTABLE` is `true`, which is the condition under which `Plan::<S, D>::TRY_MUT` compiles.
-  // `source` is made from a reference, so it points to a valid `S`, valid for reads, as `try_cast`
-  // requires. If `try_cast` returns `Ok`, `target` is not null, is aligned for `D`, is within
-  // `value`, and points to a valid `D`, as in `try_pun_ref` above. It is made from `source`, a
-  // pointer that may write. The reference has the lifetime of the exclusive borrow `value`.
-  // `Plan::MUTABLE` is `true`, so every value of `D`, padding included, is a valid `S`, and `value`
-  // is a valid `S` when the borrow ends.
+  // The rest is the proof of the same call in `crate::try_pun_mut`.
   Some(unsafe { Plan::<S, D>::try_cast(source) }.map(|target| unsafe { &mut *target.cast_mut() }))
 }
 
@@ -260,19 +216,8 @@ pub const fn pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Option<&D> 
     return None;
   }
   // SAFETY: `verdict::<S, D>().pun_ref` is `true`, so `check(Need::REF)` is `None`, and the
-  // analysis meets `Need::REF`, as when `Plan::<S, D>::BY_REF` compiles: the fit is
-  // `Exact::Always`, `D` is no more aligned than `S`, and the relation is infallible. `Plan::cast`
-  // returns a pointer to the address of `value`, with a tail length that gives the target the
-  // extent of `value`. The reference made from it is valid:
-  // - It is not null, because `value` is a reference at the same address.
-  // - It is aligned, because `value` is aligned for `S`, `D` is no more aligned than `S`, and
-  //   alignments are powers of two.
-  // - It is not dangling. The target has the extent of `value` and no greater alignment, so its
-  //   size is at most the size of `value`.
-  // - It points to a valid `D`, because the relation is infallible: every value of `S` is a valid
-  //   `D`.
-  // The reference has the lifetime of the shared borrow `value`, and neither type holds an
-  // `UnsafeCell` (`Pun`, section Safety).
+  // analysis meets `Need::REF`, as when `Plan::<S, D>::BY_REF` compiles. The rest is the proof of
+  // the same call in `crate::pun_ref`.
   Some(unsafe { &*Plan::<S, D>::cast(value) })
 }
 
@@ -283,16 +228,8 @@ pub const fn head_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Option<&D>
     return None;
   }
   // SAFETY: `verdict::<S, D>().head_ref` is `true`, so `check(Need::PART_REF)` is `None`, and the
-  // analysis meets `Need::PART_REF`, as when `Plan::<S, D>::HEAD_REF` compiles. The fit can shrink:
-  // the sized part of `S` is at least that of `D`. So `Plan::cast` returns a pointer to the address
-  // of `value` whose extent is at most that of `value`. The reference is valid:
-  // - It is not null, because `value` is a reference at the same address.
-  // - It is aligned, because `D` is no more aligned than `S` (`aligned`).
-  // - It is not dangling, because a smaller extent and no greater alignment make a size at most the
-  //   size of `value`.
-  // - It points to a valid `D`, because the relation of the bytes of `D` records nothing.
-  // The reference has the lifetime of the shared borrow `value`, and neither type holds an
-  // `UnsafeCell` (`Pun`, section Safety).
+  // analysis meets `Need::PART_REF`, as when `Plan::<S, D>::HEAD_REF` compiles. The rest is the
+  // proof of the same call in `crate::head_ref`.
   Some(unsafe { &*Plan::<S, D>::cast(value) })
 }
 
@@ -304,14 +241,8 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Option
   }
   let source: *mut S = value;
   // SAFETY: `parts::<S, D>().head_mut` is `true`, so `check_head_mut()` is `None`, which is the
-  // condition under which `Plan::<S, D>::HEAD_MUT` compiles: the analysis meets `Need::PART_REF`,
-  // and `mutable_part` found nothing to refuse. As in `head_ref` above, the pointer that
-  // `Plan::cast` returns is not null, is aligned for `D`, is within `value`, and points to a valid
-  // `D`. It is made from `source`, a pointer that may write. The reference has the lifetime of the
-  // exclusive borrow `value`, so nothing else reads or writes the bytes while it lives.
-  // `mutable_part` found that every value of `D` is valid for what `S` has over its bytes, and that
-  // nothing of `S` outside them depends on them. So `value` is a valid `S` when the borrow ends,
-  // whatever `D` is written through the reference.
+  // condition under which `Plan::<S, D>::HEAD_MUT` compiles. The rest is the proof of the same call
+  // in `crate::head_mut`.
   Some(unsafe { &mut *Plan::<S, D>::cast(source).cast_mut() })
 }
 
@@ -323,13 +254,8 @@ pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Option
   }
   let source: *mut S = value;
   // SAFETY: `parts::<S, D>().tail_mut` is `true`, so `check_tail_mut()` is `None`, which is the
-  // condition under which `Plan::<S, D>::TAIL_MUT` compiles: the analysis of the last bytes meets
-  // `Need::PART_REF`, and `mutable_part` found nothing to refuse at `shift`. As in `tail_ref`
-  // above, the pointer that `Plan::tail_cast` returns is not null, is aligned for `D`, is within
-  // `value`, and points to a valid `D`. It is made from `source`, a pointer that may write. The
-  // reference has the lifetime of the exclusive borrow `value`. As in `head_mut` above, any `D`
-  // written through it leaves `value` a valid `S`, by what `mutable_part` found of the bytes from
-  // `shift`.
+  // condition under which `Plan::<S, D>::TAIL_MUT` compiles. The rest is the proof of the same call
+  // in `crate::tail_mut`.
   Some(unsafe { &mut *Plan::<S, D>::tail_cast(source).cast_mut() })
 }
 
@@ -343,16 +269,8 @@ pub const fn from_head<D: ?Sized + Pun>(bytes: &[u8]) -> Option<Result<(&D, &[u8
   // `Plan::front` requires.
   Some(match unsafe { Plan::<[u8], D>::front(bytes.as_ptr(), bytes.len()) } {
     // SAFETY: `verdict::<[u8], D>().try_pun_ref` is `true`, so the analysis of bytes as a `D` meets
-    // `Need::TRY_REF`, as when `Plan::<[u8], D>::TRY_REF` compiles. `Plan::front` returned `Ok`, so
-    // `target` is a `D` at the address of `bytes`, whose size is `size`, at most `bytes.len()`. The
-    // reference is valid:
-    // - It is not null, because `bytes` is a reference at the same address.
-    // - It is aligned. The address was checked if `D` is aligned to more than 1.
-    // - It is not dangling, because it is within `bytes`.
-    // - It points to a valid `D`. `validate` found every part that the analysis marked to be valid.
-    //   The relation records no disjoint part, and nothing that Rust leaves to the compiler, so
-    //   every other part accepts any initialized bytes. The reference has the lifetime of the
-    //   shared borrow `bytes`, and `D` holds no `UnsafeCell` (`Pun`, section Safety).
+    // `Need::TRY_REF`, as when `Plan::<[u8], D>::TRY_REF` compiles. The rest is the proof of the
+    // same call in `crate::from_head`.
     Ok((target, size)) => Ok((unsafe { &*target }, bytes.split_at(size).1)),
     Err(error) => Err(error),
   })
@@ -367,12 +285,9 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Option<Result<(&[u8], &
   // SAFETY: `bytes` is valid for reads of `bytes.len()` initialized bytes. `check_from_tail()` is
   // `None`, and it refuses an unsized `D`. These are the requirements of `Plan::back`.
   Some(match unsafe { Plan::<[u8], D>::back(bytes.as_ptr(), bytes.len()) } {
-    // SAFETY: `check_from_tail()` is `None`, which is the condition under which `Plan::<[u8],
-    // D>::FROM_TAIL` compiles. `Plan::back` returned `Ok`, so `target` is the sized `D` of the last
-    // `size_of::<D>()` bytes of `bytes`. The reference is valid, as in `from_head` above: it is not
-    // null, its address was checked if `D` is aligned to more than 1, it is within `bytes`, and
-    // `validate` found every part that the analysis marked to be valid. It has the lifetime of the
-    // shared borrow `bytes`, and `D` holds no `UnsafeCell` (`Pun`, section Safety).
+    // SAFETY: `check_from_tail()` is `None`, which is the condition under which
+    // `Plan::<[u8], D>::FROM_TAIL` compiles. The rest is the proof of the same call in
+    // `crate::from_tail`.
     Ok((start, target)) => Ok((bytes.split_at(start).0, unsafe { &*target })),
     Err(error) => Err(error),
   })

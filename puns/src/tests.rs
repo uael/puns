@@ -173,7 +173,8 @@ fn unsized_types() {
   assert_eq!(verdict::<[u8; 8], [u16]>(), "infallible, mutable");
   assert_eq!(
     verdict::<[u8; 7], [u16]>(),
-    "infallible (truncated: the size of the source cannot be reached with elements of the tail slice of the target)"
+    "infallible (truncated: the size of the source cannot be reached with elements of the \
+     trailing slice of the target)"
   );
   assert_eq!(verdict::<[u8], u32>(), "infallible, mutable (some lengths)");
   assert_eq!(verdict::<Pair<u16, [u16]>, [u8]>(), "infallible, mutable");
@@ -864,26 +865,37 @@ fn link_labels(text: &str) -> Vec<String> {
 /// The README is the start of the documentation of the crate (`#![doc = include_str!(..)]` in
 /// `lib.rs`), so the links that it defines are defined in all of that documentation. A label that
 /// the README defines and the rest of it also defines or uses would make one of the two links point
-/// to the target of the other, as `[reference]` once sent the Rust Reference to docs.rs.
+/// to the target of the other. The labels that `lib.rs` defines on purpose are those of the links
+/// of the README to the chapters of the reference, which name the files of `docs/` on GitHub:
+/// `lib.rs` defines each before the README, as an intra-doc link, and the first definition counts.
 #[test]
 #[cfg_attr(
   miri,
   ignore = "text of the documentation, without unsafe code: half an hour each under Miri"
 )]
-fn the_readme_defines_no_label_of_the_crate_documentation() {
+fn the_crate_documentation_redefines_only_the_links_of_the_readme_to_chapters() {
+  let chapter = |target: &str| {
+    target
+      .strip_prefix("https://github.com/uael/puns/")
+      .is_some_and(|path| path.split('/').nth(2) == Some("docs") && !path.contains("/docs/charts/"))
+  };
   let readme = include_str!("../README.md");
-  let defined: Vec<String> = readme
+  let defined: Vec<(String, &str)> = readme
     .lines()
     .filter_map(|line| line.strip_prefix('[')?.split_once("]: "))
-    .map(|(label, _)| label.to_lowercase())
+    .map(|(label, target)| (label.to_lowercase(), target))
     .collect();
   let crate_docs = include_str!("lib.rs")
     .lines()
     .filter_map(|line| line.strip_prefix("//!"))
     .collect::<Vec<_>>()
     .join("\n");
-  let shared: Vec<String> =
-    link_labels(&crate_docs).into_iter().filter(|label| defined.contains(label)).collect();
+  let shared: Vec<String> = link_labels(&crate_docs)
+    .into_iter()
+    .filter(|label| {
+      defined.iter().any(|(l, target)| l == label && target.contains("://") && !chapter(target))
+    })
+    .collect();
   assert!(shared.is_empty(), "labels of both the README and `lib.rs`: {shared:?}");
 }
 
@@ -910,8 +922,7 @@ fn heading_ids(text: &str) -> Vec<String> {
 }
 
 /// A README heading with the same id as a heading elsewhere in the crate documentation takes that
-/// id, and the other becomes `id-1`: a link to `#soundness` once led to a short section of the
-/// README instead of the chapter of `lib.rs`.
+/// id, and the other becomes `id-1`, so a link to the other one would lead to the README instead.
 #[test]
 #[cfg_attr(
   miri,
