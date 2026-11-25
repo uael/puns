@@ -78,7 +78,8 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - What a layout is made of depends on no path that the deriving crate can redefine, though the
   generated code names `::core` and the root of `puns` ("What the derive trusts" in the
   documentation of `#[derive(Pun)]`). `Layout::PIN` fixes the types whose functions make a
-  layout, so a new type whose functions the derive calls goes there. `fakecore` in `puns-model`
+  layout, and `Layout::PIN_AIMS` those of the rule of an aim, so a new type whose functions the
+  derive calls goes there. `fakecore` in `puns-model`
   tests that the derive meets it for `::core`, and the cases `crate_path_*` of
   `tests/compile-fail` for the root of `puns`.
 - The derive writes the type of each field once, in a trait of its generated code (`homes` in
@@ -104,9 +105,10 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   own `T` through `Layout::in_place` (`item` in `homes`), which no crate path replaces, so that no
   safe code makes a value of the struct, nor a reference to one but through `puns`: the
   documentation of `InPlace` states this argument, and the obligation of unsafe code that makes
-  such values, as `nearest` does, and the `# Safety` of `Pun` the property that the reads rely on. An `InPlace<T>` is a `T` in the layout. A lazy aim at the cursor
-  requires of the struct only that its pointee fits, and a lazy aim at a stored place nothing, so
-  its type counts in a proof only where the pointee stores its length.
+  such values, as `nearest` does, and the `# Safety` of `Pun` the property that the reads rely
+  on. An `InPlace<T>` is a `T` in the layout. A lazy aim at the cursor requires of the struct only
+  that its pointee fits, and a lazy aim at a stored place nothing, so its type counts in a proof
+  only where the pointee stores its length.
 - Both kinds of start are one rule (`Rule::Aim`), checked in one place (`validate::check_aim`),
   which places the pointee by one step of the cursor (`validate::cursor_step`) or at a stored place
   (`validate::stored_at`), written by the derive in one place (`aim_rule` in `puns-derive`), which
@@ -125,19 +127,19 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   pointees outside the value through a reference (`tests/aim_reads.rs`) run under tree borrows
   only. They name an aim by its name, a field of the constant `AIMS` that the derive writes
   (`AimOf`). The derive writes no method that writes a pointee: such a method would be `unsafe`,
-  and would call a function that the crate path names. The length of a pointee
-  that stores it is read from its sized fields or before its value only, by the check and by the
-  read (`Layout::stores_length`, `validate::own_length`), so the read never meets a length that the
+  and would call a function that the crate path names. The length of a pointee that stores it is
+  read from its sized fields or before its value only, by the check and by the read
+  (`Layout::stores_length`, `validate::own_length`), so the read never meets a length that the
   check accepted and it cannot read.
 - A layout cannot hold itself, so an aim holds the size, the alignment and the identity of its
   pointee, and the pointee is reached through `Pun::Rules` (`Rules::Pointee`), so that the type of
   a pointee is written in one place of the derive. A read names the item of its aim by where it is
   in the list of its struct (`Item`: `First`, `After`, hidden, which the derive counts for
   `AimOf`), never by the item, so the pointee that it reads is the one that the check of the struct
-  found, whatever its identity. `Aim::new` reads no
-  layout of the pointee for this reason; what it cannot assert, `validate::pointee_checked` asserts
-  where the aim is checked or read. The identity of a type is `Pun::ID`, made of the identities of
-  its parameters and never of a layout, which its layout holds too. The pointee is a `Pointee`, a
+  found, whatever its identity. `Aim::new` reads no layout of the pointee for this reason; what it
+  cannot assert, `validate::pointee_checked` asserts where the aim is checked or read. The identity
+  of a type is `Pun::ID`, made of the identities of its parameters and never of a layout, which its
+  layout holds too. The pointee is a `Pointee`, a
   sealed trait: a `Pun` type, or a `Thin<T, M>`, the metadata of a pointer to `T` stored before it
   as an `M` that ends with the length, at which the pointer points, and nothing for a sized `T`
   (`Metadata::Stored`). `Pun::Metadata` is a sealed `Metadata`, `()` exactly when the layout is
