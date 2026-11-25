@@ -6269,6 +6269,11 @@ pub enum Start {
 /// How large the pointee of an [`Aim`] is: how its metadata, the length of its tail if it is
 /// unsized, is found. Its size is the size of its value with that length, as `size_of_val` gives.
 ///
+/// The metadata is at the pointee (`Pointee`), or the aim gives it, as a length (`Length`), or as
+/// the size in bytes that the length makes (`Bytes`, and `Rest` for what remains of the tail).
+/// Regions give their sizes in bytes. A pointer may give one too: every extent applies at either
+/// start, so that an aim is any start, any extent and either check.
+///
 /// # Examples
 ///
 /// ```
