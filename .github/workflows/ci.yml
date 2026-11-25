@@ -29,11 +29,15 @@ jobs:
             run: |
               cargo test -p puns --lib
               cargo test --workspace --exclude puns-model --doc
-          # Apart: trybuild builds each program, about twenty seconds. The cases of
-          # `compile-fail-kept`: the refusals and their messages.
-          - name: compile-fail
-            id: compile-fail
-            run: cargo test -p puns --test compile_fail
+          # Apart: trybuild builds each program, about twenty seconds of each half (the two tests
+          # of `compile_fail.rs`). The cases of `compile-fail-kept`: the refusals and their
+          # messages.
+          - name: compile-fail, 1 of 2
+            id: compile-fail-1
+            run: cargo test -p puns --test compile_fail -- --exact from_a_to_s
+          - name: compile-fail, 2 of 2
+            id: compile-fail-2
+            run: cargo test -p puns --test compile_fail -- --exact the_others
           # The other test files, every other one each. Each example is run through its test
           # (`tests/ethernet.rs`...), which asserts its results.
           - name: integration, 1 of 2
@@ -53,9 +57,12 @@ jobs:
               cargo test -p puns --features unstable --lib $TESTS
               cargo test -p puns --features unstable --doc
               cargo build -p puns --features unstable --example codegen
-          - name: unstable, compile-fail
-            id: unstable-compile-fail
-            run: cargo test -p puns --features unstable --test compile_fail
+          - name: unstable, compile-fail, 1 of 2
+            id: unstable-compile-fail-1
+            run: cargo test -p puns --features unstable --test compile_fail -- --exact from_a_to_s
+          - name: unstable, compile-fail, 2 of 2
+            id: unstable-compile-fail-2
+            run: cargo test -p puns --features unstable --test compile_fail -- --exact the_others
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
