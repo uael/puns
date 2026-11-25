@@ -248,9 +248,10 @@ const LONG_WITH_VALUE: &[&str] = &[
 /// program), as the inputs of its `StableCrateId` name it: the name of the crate, whether it is an
 /// executable, the values of `-C metadata`, and `forced`, the value of
 /// `RUSTC_FORCE_RUSTC_VERSION`, which replaces the version of `rustc` there. `rustc` refuses two
-/// crates of one `StableCrateId` in a program (E0519, E0523), so two crates of a program that give
-/// one string differ in none of these, and are one crate. Each part is behind its length, so that
-/// two lists of parts give two strings.
+/// crates of one `StableCrateId` in a program (E0519 for the crate it compiles and a dependency,
+/// "colliding StableCrateId values" for two dependencies), so two crates of a program that give one
+/// string differ in none of these, and are one crate. Each part is behind its length, so that two
+/// lists of parts give two strings.
 ///
 /// The arguments are read as `rustc` reads them: an `@file` is its lines, an option takes its value
 /// from the same argument or the next one, and `--` ends the options. A crate is an executable with
