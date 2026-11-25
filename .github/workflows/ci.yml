@@ -475,8 +475,9 @@ jobs:
       # borrows, as the times of the test binaries in the logs of the jobs say; the fourth is every
       # other file that Miri runs without the feature, so that a new file runs. A named file that
       # is not there fails the job: `aim_reads`, which stacked borrows does not run, is in the
-      # fourth. The files about the feature run with it, every other one each. Under Miri, the unit
-      # tests run without the feature only: with it, fourteen seconds more.
+      # fourth, and the fourth of a target with stacked borrows runs it with tree borrows, in the
+      # step after. The files about the feature run with it, every other one each. Under Miri, the
+      # unit tests run without the feature only: with it, fourteen seconds more.
       - name: Select the tests that Miri runs
         if: matrix.part
         env:
@@ -513,6 +514,12 @@ jobs:
           ${{ matrix.target && format('--target {0}', matrix.target) }} $TESTS ${{ matrix.filter }}
         env:
           MIRIFLAGS: ${{ matrix.flags }}
+      # The reads of pointees through references, which only tree borrows allows (`tree` in
+      # `.github/tests.sh`), on 32 bits and on a big-endian target too: a few seconds.
+      - if: matrix.target && matrix.part == 4
+        run: cargo miri test -p puns --target ${{ matrix.target }} $(sh .github/tests.sh tree)
+        env:
+          MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-strict-provenance
 
   deny:
     name: Cargo Deny

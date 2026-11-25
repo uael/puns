@@ -74,9 +74,10 @@ fn an_expression_is_read_through_references() {
       Expr::Add(a, b) => sum(a.target()) + sum(b.target()),
     }
   }
-  // `1 + 2`: the tag of `Add` and its pointers at 4 and 8, then two `Lit`s.
+  // `1 + 2`: the tag of `Add` and its pointers at 4 and 8, then two `Lit`s. An `Expr` is 12 bytes
+  // where an `i64` is aligned to 4, as on 32-bit x86.
   let (size, align) = (size_of::<Expr>(), align_of::<Expr>());
-  let mut words = vec![0u64; 3 * size / 8];
+  let mut words = vec![0u64; (3 * size).div_ceil(8)];
   let bytes = puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u64], [u8]>(&mut words[..])).unwrap();
   bytes[0] = 1;
   for (at, to) in [(4, size), (8, 2 * size)] {

@@ -19,6 +19,7 @@ cargo bench -p puns --features unstable --bench checks -- ipv6  # Only the cases
 MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests  # Miri, tree borrows
 MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --lib $(MIRI=1 STACKED=1 sh .github/tests.sh default) --target s390x-unknown-linux-gnu  # Miri, stacked borrows, on a big-endian target: the files that it runs (`.github/tests.sh`)
 MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --lib $(MIRI=1 STACKED=1 sh .github/tests.sh default) --target i686-unknown-linux-gnu  # 32 bits, stacked borrows too
+MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns $(sh .github/tests.sh tree) --target i686-unknown-linux-gnu  # The files of tree borrows only, on 32 bits (and s390x)
 cargo test --profile model -p puns-model --features full  # The full model check (every night in model.yml, also with `full,unstable`); `cargo test` runs a sample
 cargo test -p puns --features verdict  # Without the `unstable` feature, the default: every test that builds without it, the record of verdicts included
 cargo test -p puns --features unstable  # With it: the targets that need it too (`required-features`), the cases of `compile-fail-unstable`
@@ -87,7 +88,8 @@ unsafe path that each pair reaches. Of the examples, only `ethernet` runs under 
 others reach the same unsafe code of the library. A test file that is not for Miri starts with
 `#![cfg(not(miri))]` and says why. One that Miri runs with tree borrows only, since it reads
 through a reference what stacked borrows gives no access to (the safe reads of pointees outside
-their values), is in `tree_borrows_only` of `.github/tests.sh`. CI gives Miri the other ones by
+their values), is in `tree_borrows_only` of `.github/tests.sh`, and the Miri jobs of 32 bits and
+big-endian run it with tree borrows apart (`tests.sh tree`). CI gives Miri the other ones by
 name, since Miri takes a second to start each test binary, even one that runs nothing. Each pair
 of types in a test of the model is an instance of the analysis, about a tenth of a second of build,
 so keep the tests that every push builds small.
