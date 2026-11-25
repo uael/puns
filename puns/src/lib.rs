@@ -656,9 +656,10 @@
 //!   after it.
 //! - A lazy aim, at the cursor, requires only that its pointee fits in the tail, since the next
 //!   one starts where it ends: the type of the pointee plays no part in the value of the struct,
-//!   nor in a proof, unless the pointee stores its length, which places the next one. What reads the pointee checks it then. Where safe code
-//!   wrote the fields of the struct so that a region does not fit, the read truncates it to the
-//!   tail, and a size whose expression fails takes what remains.
+//!   nor in a proof, unless the pointee stores its length, which places the next one. What reads
+//!   the pointee checks it then. Where safe code wrote the fields of the struct so that a region
+//!   does not fit, the read truncates it to the tail, and a size whose expression fails takes what
+//!   remains.
 //!
 //! The derive declares aims through two options ([Aims](macro@Pun#aims)), one for each place where
 //! a pointee is: `pointer(..)` on a field, whose integer is where the pointee is unless an

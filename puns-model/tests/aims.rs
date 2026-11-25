@@ -1,6 +1,6 @@
 //! The model check of aims: every value of small types with eager aims, at a stored place and at
-//! the cursor, and with lazy ones, at the cursor, whose oracles read the pointee in the bytes, as the documentation says, and
-//! the verdicts of the pairs of these types.
+//! the cursor, and with lazy ones, at the cursor, whose oracles read the pointee in the bytes, as
+//! the documentation says, and the verdicts of the pairs of these types.
 //!
 //! The oracles of `puns_model` take a value of a `Copy` type, and a type with an eager aim is
 //! never one, nor made by value: its field is an `InPlace`. So this file has oracles of its own,

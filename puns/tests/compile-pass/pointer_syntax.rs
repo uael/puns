@@ -1,6 +1,7 @@
-//! Every form of `pointer(..)` and `regions(..)` parses: `eager` or `lazy` before a name or a type,
-//! whatever the type starts with, a name that is a keyword of the options, and a pointer without an
-//! expression, whose field says where its pointee is. `AIMS` names each eager aim with a name.
+//! Every form of `pointer(..)` and `regions(..)` parses: `eager` before a name or a type, whatever
+//! the type starts with, `eager` or `lazy` before a region, a name that is a keyword of the
+//! options, and a pointer without an expression, whose field says where its pointee is. `AIMS`
+//! names each eager aim with a name.
 
 use puns::{InPlace, Pun, Thin};
 
