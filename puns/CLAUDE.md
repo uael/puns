@@ -166,9 +166,16 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   window ends, not at each claim (`validate::run`, and `from_tail`, whose pointees end before its
   value). So the pointees form a tree, which `aim_mut` relies on, and a cycle is `Validity`. The
   check of the loops is not in that order: a pointee that waits is claimed where it is found, and
-  its pointees later, in a window from the end of its claim to the start of the next claim in the
-  check of the value that found it, which that claim writes into its entry (`Input::open`,
-  `Waiting::hi`), or else to the end of the window of that value. A pointee at the cursor, or one
+  its pointees later, in a sequence of their own, in a window from the end of its claim to the
+  start of the next claim of the sequence that claimed it, which that claim writes where it waits
+  (`Input::open`, `Waiting::hi`), or else to the end of the window of that sequence. The sequence
+  in which a loop starts is not over where the loop returns, since the value that found its first
+  pointee is still checked: `validate::run` says how it goes on, in the last claim of the loop
+  (`Waiting::OPEN`) and in a pointee that waits for a loop below (`Loops::waits_at`), so the
+  entries of the loops are lists whose entries never move. `tests/aims.rs` compares the check with
+  a walk that claims each pointee where it finds it, on values of two types that point at each
+  other. A claimed pointee takes nothing from the budget of bytes (`Input::spends`), which bounds
+  only what is not claimed. A pointee at the cursor, or one
   that ends with the tail of its struct (`Extent::Rest`), is within the struct and claims nothing,
   and its pointee is never handed to a loop, so that no pointee waits without a claim. The pointee
   of a shared aim (`Aim::shared`), and what it reaches, are checked in place with

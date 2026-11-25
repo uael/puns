@@ -638,9 +638,11 @@
 //!   level deeper. These functions check the pointees of a type that points at itself in place,
 //!   and, in the same pass, hand the deeper ones over to a loop for each type of pointee, so that
 //!   their stack does not grow with the data, in a `const` too, and is small enough for an embedded
-//!   target ([`AIM_PARTS`] says how much). They stop with [`Error::Limit`] past pointees of twice as
-//!   many bytes as they read, so that a check of a cycle through shared aims ends, and where the
-//!   loops cannot take the pointees that wait ([`AIM_PARTS`] says when). They allocate nothing.
+//!   target ([`AIM_PARTS`] says how much). A pointee that is claimed, as the next item says, shares
+//!   no byte with another, so the time of a check grows with the bytes. They stop with
+//!   [`Error::Limit`] where the pointees that are not claimed reach twice as many bytes as they
+//!   read, so that a check of a cycle through shared aims ends, and where the loops cannot take the
+//!   pointees that wait ([`AIM_PARTS`] says when). They allocate nothing.
 //! - The pointees of the aims at a stored place are in the order of a copy: depth first, each value
 //!   before its pointees, the aims of a struct in the order of its fields, the elements of a list in
 //!   order. Each pointee, with what it stores before its value, starts at or after the end of every
@@ -3270,8 +3272,9 @@ pub enum Error {
   Validity,
   /// The check of the pointees of eager aims ([`Check::Eager`](layout::Check::Eager)) stopped at
   /// its limit before it found the bytes valid or not: pointees that its loops cannot take
-  /// ([`AIM_PARTS`]), or pointees of more than twice as many bytes as are checked in all, which
-  /// a cycle through shared aims reaches ("Aims" in the crate documentation).
+  /// ([`AIM_PARTS`]), or pointees that are not claimed, those of shared aims and those within their
+  /// struct, of more than twice as many bytes as are checked in all, which a cycle through shared
+  /// aims reaches ("Aims" in the crate documentation).
   Limit,
 }
 

@@ -155,6 +155,148 @@ fn the_windows_accept_exactly_the_trees() {
   assert!(cfg!(miri) || trees > nodes.len() && refused > trees, "{trees} trees, {refused} refused");
 }
 
+/// A value of the first of two types that point at each other, at themselves and at words.
+#[derive(Pun)]
+#[repr(C)]
+struct Odd {
+  even: Option<Near<Even>>,
+  word: Option<Near<u32>>,
+  same: Option<Near<Odd>>,
+}
+
+/// A value of the second of these types.
+#[derive(Pun)]
+#[repr(C)]
+struct Even {
+  odd: Option<Near<Odd>>,
+  same: Option<Near<Even>>,
+  word: Option<Near<u32>>,
+  last: Option<Near<Odd>>,
+}
+
+/// What a pointer of an [`Odd`] or an [`Even`] points at.
+#[derive(Clone, Copy)]
+enum Aimed {
+  Odd,
+  Even,
+  Word,
+}
+
+impl Aimed {
+  const fn size(self) -> usize {
+    match self {
+      Self::Odd => size_of::<Odd>(),
+      Self::Even => size_of::<Even>(),
+      Self::Word => 4,
+    }
+  }
+
+  /// What each pointer of a value points at, in the order of its fields.
+  const fn pointers(self) -> &'static [Self] {
+    match self {
+      Self::Odd => &[Self::Even, Self::Word, Self::Odd],
+      Self::Even => &[Self::Odd, Self::Even, Self::Word, Self::Odd],
+      Self::Word => &[],
+    }
+  }
+}
+
+/// Numbers that look random, the same on every run.
+struct Numbers(u64);
+
+impl Numbers {
+  const fn next(&mut self) -> u64 {
+    self.0 ^= self.0 << 13;
+    self.0 ^= self.0 >> 7;
+    self.0 ^= self.0 << 17;
+    self.0
+  }
+}
+
+/// Writes the pointees of the value of `kind` at `at`, each after the end of `image`, in the order
+/// of a copy, `depth` levels deep at most, and adds where each of its pointers is to `pointers`.
+fn copy_of(
+  image: &mut Image,
+  at: usize,
+  kind: Aimed,
+  depth: usize,
+  numbers: &mut Numbers,
+  pointers: &mut Vec<usize>,
+) {
+  for (i, &pointee) in kind.pointers().iter().enumerate() {
+    pointers.push(at + 4 * i);
+    let some = match pointee {
+      Aimed::Word => numbers.next().is_multiple_of(2),
+      _ => depth > 0 && numbers.next() % 3 < 2,
+    };
+    if some {
+      let to = image.reserve(pointee.size(), 4);
+      image.aim(at + 4 * i, to);
+      copy_of(image, to, pointee, depth.saturating_sub(1), numbers, pointers);
+    }
+  }
+}
+
+/// Whether the pointees of the value of `kind` at `at` are in the bytes, aligned, and in the order
+/// of a copy from `cursor`, the end of the last pointee: the rule of the check, by a walk that
+/// follows each pointer where it finds it.
+fn in_the_order_of_a_copy(image: &Image, at: usize, kind: Aimed, cursor: &mut usize) -> bool {
+  kind.pointers().iter().enumerate().all(|(i, &pointee)| {
+    let pointer = at + 4 * i;
+    let offset = image.get_i32(pointer);
+    if offset == 0 {
+      return true;
+    }
+    let Some(to) = pointer.checked_add_signed(isize::try_from(offset).unwrap()) else {
+      return false;
+    };
+    let fits = to.is_multiple_of(4)
+      && to.checked_add(pointee.size()).is_some_and(|end| end <= image.bytes.len());
+    if !fits || to < *cursor {
+      return false;
+    }
+    *cursor = to + pointee.size();
+    in_the_order_of_a_copy(image, to, pointee, cursor)
+  })
+}
+
+#[test]
+fn the_check_accepts_exactly_the_order_of_a_copy() {
+  // Copies of values of two types that point at each other and at themselves, deep enough for the
+  // loops of both, with each pointer aimed at each aligned place of the bytes. A pointee of one
+  // type found in a loop of the other waits for the loop below, which checks it after the claims
+  // that follow, so its window must end at the first of them, though that claim is made after the
+  // loop above returns. The check agrees with a walk that claims each pointee where it finds it.
+  // Under Miri, which is there for the unsafe paths, one copy, and a pointer in 7 at a place in 9.
+  let (copies, pointer_step, place_step) = if cfg!(miri) { (1, 7, 36) } else { (10, 1, 4) };
+  let (mut seed, mut done, mut in_order, mut refused) = (0x9e37_79b9_7f4a_7c15_u64, 0, 0, 0);
+  while done < copies {
+    seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+    let mut numbers = Numbers(seed | 1);
+    let depth = 6 + usize::try_from(numbers.next() % 14).unwrap();
+    let mut image = Image::new();
+    let (root, mut pointers) = (image.reserve(size_of::<Odd>(), 4), vec![]);
+    copy_of(&mut image, root, Aimed::Odd, depth, &mut numbers, &mut pointers);
+    if !(200..=500).contains(&image.bytes.len()) {
+      continue;
+    }
+    done += 1;
+    assert_eq!(head::<Odd>(&image), Ok(()), "a copy of {} bytes", image.bytes.len());
+    for &pointer in pointers.iter().step_by(pointer_step) {
+      for to in (0..image.bytes.len()).step_by(place_step).filter(|&to| to != pointer) {
+        let mut aimed = Image { bytes: image.bytes.clone() };
+        aimed.aim(pointer, to);
+        let ordered = in_the_order_of_a_copy(&aimed, root, Aimed::Odd, &mut size_of::<Odd>());
+        let checked = head::<Odd>(&aimed);
+        assert_ne!(checked, Err(Error::Limit), "{seed}: {pointer} to {to}");
+        assert_eq!(checked.is_ok(), ordered, "{seed}: {pointer} to {to}");
+        if ordered { in_order += 1 } else { refused += 1 }
+      }
+    }
+  }
+  assert!(cfg!(miri) || in_order > 1000 && refused > in_order, "{in_order} and {refused}");
+}
+
 #[test]
 fn a_cycle_is_refused() {
   let (mut image, at) = two();
