@@ -161,7 +161,7 @@ note: inside `puns::layout::Layout::enumeration::<Shape>`
    |
    |       let (fields, mut j, mut end) = (variant.fields(), 0, 0);
    |                                       ^^^^^^^^^^^^^^^^
-note: inside `Variant::fields`
+note: inside `puns::layout::Variant::fields`
   --> $RUST/core/src/panic.rs
    |
    = note: the failure occurred here

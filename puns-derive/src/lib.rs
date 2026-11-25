@@ -211,11 +211,13 @@ fn compiled_crate() -> Option<&'static str> {
     .as_deref()
 }
 
-/// The options of `rustc` 1.100, as `rustc -Z unstable-options --help -v` lists them: the short
-/// ones that take a value and those that take none, then the long ones of each kind. An option of
-/// no list is an error of `rustc`, unless another version of `rustc` has it, which the derive cannot
-/// read: either way, it names no crate. The test `the_options_are_those_of_rustc` compares them
-/// with what the `rustc` of the build lists.
+/// The options of `rustc` 1.99 and later, as `rustc -Z unstable-options --help -v` lists them: the
+/// short ones that take a value and those that take none, then the long ones of each kind. An
+/// option of no list is an error of `rustc`, unless a later version of `rustc` has it, which the
+/// derive cannot read: either way, it names no crate. An option that only some of these versions
+/// have is in a list all the same, since the `rustc` of a version without it refuses it, whatever
+/// the derive reads; `VERSIONED_OPTIONS` names them, with the versions that have them. The test
+/// `the_options_are_those_of_rustc` compares the lists with what the `rustc` of the build lists.
 const SHORT_WITH_VALUE: &str = "LloAWDFCjZ";
 const SHORT_FLAGS: &str = "hgOVv";
 const LONG_WITH_VALUE: &[&str] = &[
@@ -248,10 +250,12 @@ const LONG_WITH_VALUE: &[&str] = &[
   "diagnostic-width",
   "remap-path-prefix",
   "remap-path-scope",
+  "env-set",
 ];
 const LONG_FLAGS: &[&str] = &["help", "test", "version", "verbose"];
 
-/// The values of `#![crate_type]` that `rustc` 1.100 knows, and whether each is an executable.
+/// The values of `#![crate_type]` that `rustc` 1.99 and later know, and whether each is an
+/// executable.
 /// `rustc` ignores another value where `unknown_crate_types` is allowed, and refuses it otherwise.
 const CRATE_TYPES: &[(&str, bool)] = &[
   ("bin", true),
@@ -4191,7 +4195,7 @@ mod tests {
   #[test]
   fn an_option_that_rustc_does_not_have_names_no_crate() {
     let typed = ["--crate-name", "x", "--crate-type", "lib"];
-    for other in [&["--env-set", "A=B"][..], &["--unknown"], &["--test=1"], &["-Q"]] {
+    for other in [&["--unknown"][..], &["--unknown=1"], &["--test=1"], &["-Q"]] {
       assert_eq!(compiled(&[&typed[..], other].concat()), None, "{other:?}");
     }
     for known in [&["-j", "4"][..], &["-j4"], &["--jobs=2"], &["--jobs-frontend", "2"], &["-v"]] {
@@ -4199,19 +4203,29 @@ mod tests {
     }
   }
 
+  /// The options of the lists of the derive that only some versions of `rustc` from 1.99 have, and
+  /// the minor versions of `rustc` 1.x that have each: 1.100 removed `--env-set`.
+  const VERSIONED_OPTIONS: &[(&str, std::ops::Range<u32>)] = &[("env-set", 99..100)];
+
   /// Checks that the options of the derive are those of the `rustc` of the build, as it lists them
-  /// with `-Z unstable-options --help -v`: each line names an option, short, long or both, then the
-  /// form of its value, if it takes one.
+  /// with `-Z unstable-options --help -v`, but for those that `VERSIONED_OPTIONS` gives to other
+  /// versions: each line names an option, short, long or both, then the form of its value, if it
+  /// takes one.
   #[test]
   fn the_options_are_those_of_rustc() {
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
-    let output = std::process::Command::new(rustc)
-      .args(["-Z", "unstable-options", "--help", "-v"])
-      .env("RUSTC_BOOTSTRAP", "1")
-      .output()
-      .unwrap();
-    assert!(output.status.success(), "{output:?}");
-    let help = String::from_utf8(output.stdout).unwrap();
+    let run = |args: &[&str]| {
+      let output =
+        std::process::Command::new(&rustc).args(args).env("RUSTC_BOOTSTRAP", "1").output().unwrap();
+      assert!(output.status.success(), "{output:?}");
+      String::from_utf8(output.stdout).unwrap()
+    };
+    // `rustc 1.99.1 (58cf8f9c3 2026-10-13)`, or `rustc 1.101.0-nightly (..)`.
+    let version = run(&["-V"]);
+    let minor = version.split(['.', ' ']).nth(2).and_then(|minor| minor.parse::<u32>().ok());
+    let minor = minor.unwrap_or_else(|| panic!("{version}"));
+    assert!(minor >= 99, "{version}");
+    let help = run(&["-Z", "unstable-options", "--help", "-v"]);
     let (mut short_value, mut short_flags, mut long_value, mut long_flags) =
       (String::new(), String::new(), vec![], vec![]);
     for line in help.lines().filter(|line| line.trim_start().starts_with('-')) {
@@ -4239,12 +4253,30 @@ mod tests {
       list.sort();
       list
     };
-    let chars = |list: &str| sorted(list.chars().map(String::from).collect());
-    let listed = |list: &[&str]| sorted(list.iter().map(|&name| name.to_owned()).collect());
-    assert_eq!(chars(&short_value), chars(super::SHORT_WITH_VALUE));
-    assert_eq!(chars(&short_flags), chars(super::SHORT_FLAGS));
-    assert_eq!(sorted(long_value), listed(super::LONG_WITH_VALUE));
-    assert_eq!(sorted(long_flags), listed(super::LONG_FLAGS));
+    // The names of a list of the derive that this version has.
+    let here = |names: Vec<String>| {
+      for name in &names {
+        assert_eq!(names.iter().filter(|other| *other == name).count(), 1, "{name}");
+      }
+      let has = |name: &String| {
+        VERSIONED_OPTIONS
+          .iter()
+          .find(|(versioned, _)| versioned == name)
+          .is_none_or(|(_, versions)| versions.contains(&minor))
+      };
+      sorted(names.into_iter().filter(has).collect())
+    };
+    let chars = |list: &str| list.chars().map(String::from).collect::<Vec<_>>();
+    let listed = |list: &[&str]| list.iter().map(|&name| name.to_owned()).collect::<Vec<_>>();
+    let all = [super::SHORT_WITH_VALUE, super::SHORT_FLAGS].map(chars).concat();
+    let all = [all, listed(super::LONG_WITH_VALUE), listed(super::LONG_FLAGS)].concat();
+    for (name, _) in VERSIONED_OPTIONS {
+      assert!(all.iter().any(|known| known == name), "{name}");
+    }
+    assert_eq!(sorted(chars(&short_value)), here(chars(super::SHORT_WITH_VALUE)));
+    assert_eq!(sorted(chars(&short_flags)), here(chars(super::SHORT_FLAGS)));
+    assert_eq!(sorted(long_value), here(listed(super::LONG_WITH_VALUE)));
+    assert_eq!(sorted(long_flags), here(listed(super::LONG_FLAGS)));
   }
 
   #[test]

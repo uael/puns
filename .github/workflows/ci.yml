@@ -69,7 +69,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.100.0
+          toolchain: 1.99.1
       - uses: Swatinem/rust-cache@v2
         with:
           # A cache for each job of the matrix: they do not build the same binaries. Not the
@@ -147,7 +147,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.100.0
+          toolchain: 1.99.1
       - uses: Swatinem/rust-cache@v2
         with:
           # Not the name: a key of a cache has no comma.
@@ -171,7 +171,7 @@ jobs:
         include:
           - name: record
             id: stable
-            toolchain: 1.100.0
+            toolchain: 1.99.1
             run: cargo test -p puns --features verdict --test seeds
           - name: seed 1
             id: seed-1
@@ -208,7 +208,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.100.0
+          toolchain: 1.99.1
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --tests --examples --benches -- -D warnings
@@ -224,22 +224,27 @@ jobs:
       # there, the sections of the documentation just built included.
       - run: cargo xtask links --check
 
-  # The `rust-version` of the crates (1.99, the first stable release with `size_of_val_raw` and
-  # `align_of_val_raw` in `const`): the library and its examples, which a build evaluates, refusals
-  # included. `RUSTUP_TOOLCHAIN` takes precedence over `rust-toolchain`.
-  msrv:
-    name: Minimum Rust version
+  # The other jobs run on the pinned toolchain, the `rust-version` of the crates (1.99, the first
+  # stable release with `size_of_val_raw` and `align_of_val_raw` in `const`). `nearest` builds
+  # `puns` and `puns-derive` on 1.100, so this job runs there what depends on the version of
+  # `rustc`: the options of `rustc` that the derive reads (its unit tests), the identities that it
+  # writes from them (`puns_model`), and the library and its examples, which a build evaluates,
+  # refusals included. `RUSTUP_TOOLCHAIN` takes precedence over `rust-toolchain`.
+  rust_1_100:
+    name: Rust 1.100
     runs-on: ubuntu-latest
     env:
-      RUSTUP_TOOLCHAIN: 1.99.0
+      RUSTUP_TOOLCHAIN: 1.100.0
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.99.0
+          toolchain: 1.100.0
       - uses: Swatinem/rust-cache@v2
         with:
-          key: msrv
+          key: rust-1.100
+      - run: cargo test -p puns-derive --lib
+      - run: cargo test -p puns-model --test puns_model
       - run: cargo build -p puns --examples
 
   # A host whose C library gives no arguments to the `std` of a library: musl. The derive, a library
@@ -250,7 +255,7 @@ jobs:
   musl:
     name: Linux with musl
     runs-on: ubuntu-latest
-    container: rust:1.100.0-alpine
+    container: rust:1.99.1-alpine
     steps:
       # What the checkout and the cache actions need, which Alpine does not have.
       - run: apk add --no-cache bash git tar zstd
@@ -268,7 +273,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.100.0
+          toolchain: 1.99.1
           targets: thumbv7em-none-eabihf
       - uses: Swatinem/rust-cache@v2
       # A target without `std`: nothing may need it.

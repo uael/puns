@@ -5,9 +5,9 @@ error[E0080]: evaluation panicked:
     --> src/lib.rs
      |
      |   const TRY_REF: () = Self::require(Self::check(Need::TRY_REF));
-     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8], [(!, u8)]>::TRY_REF` failed inside this call
+     |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8], [(std::convert::Infallible, u8)]>::TRY_REF` failed inside this call
      |
-note: inside `puns::Plan::<[u8], [(!, u8)]>::require`
+note: inside `puns::Plan::<[u8], [(Infallible, u8)]>::require`
  --> src/lib.rs
   |
   |       message.panic();
@@ -34,7 +34,7 @@ note: erroneous constant encountered
   |   const { Plan::<[u8], D>::TRY_REF };
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-note: the above error was encountered while instantiating `fn puns::from_bytes::<[(!, u8)]>`
+note: the above error was encountered while instantiating `fn puns::from_bytes::<[(Infallible, u8)]>`
  --> tests/compile-fail/uninhabited_slice_of_tuples.rs:3:11
   |
 3 |   let _ = puns::from_bytes::<[(core::convert::Infallible, u8)]>(&[1, 2]);

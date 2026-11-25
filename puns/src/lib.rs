@@ -1036,7 +1036,7 @@
 //! struct that ends with a slice or a `str`) in `const`, from a raw pointer with an arbitrary
 //! length. `size_of_val` cannot do this, because it needs a reference, and a reference needs a
 //! valid value. On 1.98, `puns` does not build, because `layout_for_ptr` and its use in `const` are
-//! unstable there. CI builds the crate and its examples on 1.99.
+//! unstable there. CI tests the crate on 1.99, and builds it and its examples on 1.100 too.
 //!
 //! Const evaluation is bounded, since the deny-by-default lint [`long_running_const_eval`] stops it
 //! after 2,000,000 basic blocks ([`LINT_TERMINATOR_LIMIT`] in `rustc`). The analysis therefore
@@ -1190,7 +1190,7 @@
 //!   the containers of CBOR and MessagePack. A chain of types (`Then<A, B>`) is one sequence of
 //!   types.
 //! - **An arbitrary function in a rule.** A getter may call any `const fn`, but a rule may not. The
-//!   validator is `const fn` code, generic over the type it validates, and on stable Rust 1.100
+//!   validator is `const fn` code, generic over the type it validates, and on stable Rust 1.99
 //!   such code cannot call a function that the type chooses. A call through a function pointer is
 //!   refused ("function pointer calls are not allowed in constant functions"), and so is a call of
 //!   a trait method (E0015, "cannot call non-const associated function"). Const traits are unstable
@@ -1808,7 +1808,7 @@ pub use layout::{crc32, sum16};
 ///   may be cut (a length that is a multiple of 4096 bytes, as before Linux 4.2).
 /// - They are not what `rustc` reads: not exactly one `--crate-name`, an argument that is not
 ///   UTF-8, an `@file` that cannot be read, an `@shell:` file after `-Z shell-argfiles`, or an
-///   option that `rustc` 1.100 does not have, such as one of a later version.
+///   option that no `rustc` from 1.99 to 1.100 has, such as one of a later version.
 /// - The crate has neither `--crate-type` nor `--test`, and the derive cannot read the types of its
 ///   root file: it is standard input, it cannot be read or parsed, a `crate_type` is not a string
 ///   of a known type, a comment follows a first `#!`, `-Z crate-attr` adds attributes, or the

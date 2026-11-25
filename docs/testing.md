@@ -38,8 +38,9 @@ feature is off.
 ## Targets
 
 CI builds `puns` for two targets without `std`: `thumbv7em-none-eabihf` and `msp430-none-elf`,
-whose `usize` has 16 bits. It also builds the library and its examples on Rust 1.99, the minimum
-version.
+whose `usize` has 16 bits. Its jobs run on Rust 1.99, the minimum version. One job runs on Rust
+1.100, which `nearest` uses: the tests of the options of `rustc` that the derive reads and of the
+identities that it writes, and a build of the library and its examples.
 
 ## Compile errors
 
