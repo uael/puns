@@ -788,8 +788,9 @@ one_in_each!();
 /// of the other, and they prove nothing of each other.
 #[test]
 fn two_types_at_one_place_are_two() {
-  // The derive names the crate that `rustc` compiles: these tests run under Cargo, Miri and on
-  // every target of CI, where the arguments of `rustc` name it.
+  // The derive names the crate that `rustc` compiles, from the arguments of `rustc`, which it
+  // reads on the hosts of CI (Linux with glibc, macOS here), under Cargo and Miri, for every
+  // target. On Linux with musl, the CI job runs `puns_model` of `puns-model` instead.
   assert!(first().id.known() && second().id.known());
   assert!(!first().id.equals(&second().id));
   if !crate::layout::UNSTABLE {

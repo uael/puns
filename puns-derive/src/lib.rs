@@ -10,6 +10,8 @@ use std::{
   },
 };
 
+mod args;
+
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{
@@ -197,24 +199,25 @@ fn identity(input: &DeriveInput, generics: &syn::Generics, root: &TokenStream) -
 }
 
 /// Returns the crate that the `rustc` process running the derive compiles, named as `rustc` tells
-/// it apart from the other crates of a program (`crate_of`), or `None` where the arguments of the
-/// process do not name it, as where rust-analyzer expands the derive.
+/// it apart from the other crates of a program (`crate_of`), or `None` where the derive cannot read
+/// the arguments of the process as `rustc` does (`args::process`, `crate_of`).
 fn compiled_crate() -> Option<&'static str> {
   static CRATE: OnceLock<Option<String>> = OnceLock::new();
   CRATE
     .get_or_init(|| {
       let forced = std::env::var_os("RUSTC_FORCE_RUSTC_VERSION");
-      crate_of(std::env::args_os().skip(1), forced.as_deref())
+      crate_of(args::process()?.into_iter().skip(1), forced.as_deref())
     })
     .as_deref()
 }
 
-/// The short options of `rustc` that take a value (`rustc --help -v`, and `-Z`), and those that
-/// take none. Another short option is an error of `rustc`.
-const SHORT_WITH_VALUE: &str = "LloAWDFCZ";
+/// The options of `rustc` 1.100, as `rustc -Z unstable-options --help -v` lists them: the short
+/// ones that take a value and those that take none, then the long ones of each kind. An option of
+/// no list is an error of `rustc`, unless another version of `rustc` has it, which the derive cannot
+/// read: either way, it names no crate. The test `the_options_are_those_of_rustc` compares them
+/// with what the `rustc` of the build lists.
+const SHORT_WITH_VALUE: &str = "LloAWDFCjZ";
 const SHORT_FLAGS: &str = "hgOVv";
-
-/// The long options of `rustc` that take a value (`rustc --help -v`, and `--env-set`).
 const LONG_WITH_VALUE: &[&str] = &[
   "cfg",
   "check-cfg",
@@ -233,6 +236,10 @@ const LONG_WITH_VALUE: &[&str] = &[
   "forbid",
   "cap-lints",
   "codegen",
+  "jobs",
+  "jobs-frontend",
+  "jobs-backend",
+  "jobs-linker",
   "extern",
   "sysroot",
   "error-format",
@@ -241,7 +248,20 @@ const LONG_WITH_VALUE: &[&str] = &[
   "diagnostic-width",
   "remap-path-prefix",
   "remap-path-scope",
-  "env-set",
+];
+const LONG_FLAGS: &[&str] = &["help", "test", "version", "verbose"];
+
+/// The values of `#![crate_type]` that `rustc` 1.100 knows, and whether each is an executable.
+/// `rustc` ignores another value where `unknown_crate_types` is allowed, and refuses it otherwise.
+const CRATE_TYPES: &[(&str, bool)] = &[
+  ("bin", true),
+  ("lib", false),
+  ("rlib", false),
+  ("dylib", false),
+  ("cdylib", false),
+  ("staticlib", false),
+  ("proc-macro", false),
+  ("sdylib", false),
 ];
 
 /// Returns the crate that `rustc` compiles with the arguments `args` (without the name of the
@@ -249,41 +269,58 @@ const LONG_WITH_VALUE: &[&str] = &[
 /// executable, the values of `-C metadata`, and `forced`, the value of
 /// `RUSTC_FORCE_RUSTC_VERSION`, which replaces the version of `rustc` there. `rustc` refuses two
 /// crates of one `StableCrateId` in a program (E0519 for the crate it compiles and a dependency,
-/// "colliding `StableCrateId` values" for two dependencies), so two crates of a program that give one
-/// string differ in none of these, and are one crate. Each part is behind its length, so that two
-/// lists of parts give two strings.
+/// "colliding `StableCrateId` values" for two dependencies), so two crates of a program that give
+/// one string differ in none of these, and are one crate. Each part is behind its length, so that
+/// two lists of parts give two strings.
 ///
-/// The arguments are read as `rustc` reads them: an `@file` is its lines, an option takes its value
-/// from the same argument or the next one, and `--` ends the options. A crate is an executable with
-/// `--test`, which makes one whatever `--crate-type` says, or with `bin` among its types. Without
-/// either option, `rustc` makes the type of a `#![crate_type]` of the crate, which the derive does
-/// not see, or an executable: such a crate is named apart from both, as Cargo compiles a test or a
-/// bench without a harness. Returns `None` without exactly one `--crate-name`, with an argument
-/// that is not UTF-8 (which `rustc` refuses), an `@file` that cannot be read, an `@shell:` file, or
-/// a short option that `rustc` does not have.
+/// The arguments are read as `rustc` reads them: an `@file` is its lines (an `@shell:` file after
+/// `-Z shell-argfiles` is not read), an option takes its value from the same argument or the next
+/// one, `--` ends the options, and the argument that no option takes is the root file of the crate.
+/// A crate is an executable with `--test`, which makes one whatever its types, or with `bin` among
+/// the types of `--crate-type`. Without either option, its types are those of the
+/// `#![crate_type]` attributes of its root file (`attributed_types`), and it is an executable
+/// without them, as Cargo compiles a test or a bench without a harness.
+///
+/// Returns `None` where the derive cannot read the arguments as `rustc` does: not exactly one
+/// `--crate-name`, an argument that is not UTF-8 (which `rustc` refuses), an `@file` that cannot be
+/// read, an `@shell:` file after `-Z shell-argfiles`, an option of no list above, or, for a crate
+/// without `--crate-type` nor `--test`, a root file whose attributes cannot be read
+/// (`attributed_types`) or `-Z crate-attr`, which adds attributes.
 fn crate_of(args: impl Iterator<Item = OsString>, forced: Option<&OsStr>) -> Option<String> {
+  // As `rustc_driver_impl::args::Expander`, which sees `-Z shell-argfiles` as it expands.
   let mut expanded = vec![];
+  let shell = |expanded: &[String]| {
+    let mut options = expanded.iter().map(String::as_str);
+    let mut shell = false;
+    while let Some(arg) = options.next() {
+      let option = if arg == "-Z" { options.next() } else { arg.strip_prefix("-Z") };
+      shell |= option == Some("shell-argfiles");
+    }
+    shell
+  };
   for arg in args {
     let arg = arg.into_string().ok()?;
-    if arg.starts_with("@shell:") {
-      return None;
-    }
     match arg.strip_prefix('@') {
-      Some(path) => expanded.extend(std::fs::read_to_string(path).ok()?.lines().map(String::from)),
+      Some(file) if file.starts_with("shell:") && shell(&expanded) => return None,
+      Some(file) => expanded.extend(std::fs::read_to_string(file).ok()?.lines().map(String::from)),
       None => expanded.push(arg),
     }
   }
   let (mut names, mut types, mut test, mut metadata) = (vec![], vec![], false, vec![]);
+  let (mut inputs, mut crate_attr) = (vec![], false);
   let mut args = expanded.iter().map(String::as_str);
   while let Some(arg) = args.next() {
     let (option, value) = if arg == "--" {
+      inputs.extend(args.by_ref());
       break;
     } else if let Some(long) = arg.strip_prefix("--") {
       let (option, value) = long.split_once('=').map_or((long, None), |(o, v)| (o, Some(v)));
-      // Another long option is a flag, or one that `rustc` does not have.
-      if !LONG_WITH_VALUE.contains(&option) {
-        test |= arg == "--test";
+      if LONG_FLAGS.contains(&long) {
+        test |= long == "test";
         continue;
+      }
+      if !LONG_WITH_VALUE.contains(&option) {
+        return None;
       }
       (
         option,
@@ -303,6 +340,7 @@ fn crate_of(args: impl Iterator<Item = OsString>, forced: Option<&OsStr>) -> Opt
       let (option, rest) = short[at..].split_at(option.len_utf8());
       (option, if rest.is_empty() { args.next()? } else { rest })
     } else {
+      inputs.push(arg);
       continue;
     };
     match option {
@@ -313,20 +351,29 @@ fn crate_of(args: impl Iterator<Item = OsString>, forced: Option<&OsStr>) -> Opt
         metadata
           .extend(value.strip_prefix("metadata=").into_iter().flat_map(str::split_whitespace));
       }
+      "Z" => crate_attr |= value.starts_with("crate-attr"),
       _ => {}
     }
   }
   let [name] = names[..] else { return None };
-  let kind = if test || types.contains(&"bin") {
-    "bin"
-  } else if types.is_empty() {
-    "untyped"
+  let executable = if test {
+    true
+  } else if !types.is_empty() {
+    types.contains(&"bin")
   } else {
-    "lib"
+    // `rustc` reads one root file; with another argument, such as the path of `rustc` that a
+    // driver such as `clippy-driver` is given, the derive cannot tell which.
+    let [input] = inputs[..] else { return None };
+    if crate_attr {
+      return None;
+    }
+    let types = attributed_types(input)?;
+    types.is_empty() || types.contains(&true)
   };
   // As `StableCrateId::new`: the values of `-C metadata` in order, each once.
   metadata.sort_unstable();
   metadata.dedup();
+  let kind = if executable { "bin" } else { "lib" };
   let mut parts = vec![format!("{}:{name}", name.len()), kind.to_owned()];
   parts.extend(metadata.iter().map(|value| format!("{}:{value}", value.len())));
   if let Some(forced) = forced {
@@ -334,6 +381,55 @@ fn crate_of(args: impl Iterator<Item = OsString>, forced: Option<&OsStr>) -> Opt
     parts.push(format!("version {}:{forced}", forced.len()));
   }
   Some(parts.join("/"))
+}
+
+/// Returns whether each `#![crate_type]` attribute of the root file `path` makes an executable, as
+/// `rustc` reads them where the arguments give no type: the inner attributes at the start of the
+/// file, after a byte order mark and a first line `#!` that starts no attribute. `rustc` forbids
+/// `crate_type` in `cfg_attr`, so these are all the attributes that give a type.
+///
+/// Returns `None` where the derive cannot read them as `rustc` does: the file is standard input
+/// (`-`) or cannot be read, its attributes do not parse, or a `crate_type` is not a string of
+/// `CRATE_TYPES`.
+fn attributed_types(path: &str) -> Option<Vec<bool>> {
+  if path == "-" {
+    return None;
+  }
+  let source = std::fs::read_to_string(path).ok()?;
+  let mut source = source.strip_prefix('\u{feff}').unwrap_or(&source);
+  // As `rustc_lexer::strip_shebang`: `#!` starts an attribute if the next token, past white space
+  // and comments, is `[`. A comment there gives `None` rather than a lexer of comments.
+  if let Some(tail) = source.strip_prefix("#!") {
+    let next = tail.trim_start();
+    if next.starts_with("//") || next.starts_with("/*") {
+      return None;
+    }
+    if !next.starts_with('[') {
+      source = tail.find('\n').map_or("", |at| &tail[at..]);
+    }
+  }
+  let inner = |input: ParseStream| {
+    let attrs = input.call(Attribute::parse_inner)?;
+    input.parse::<TokenStream>()?;
+    Ok(attrs)
+  };
+  let mut types = vec![];
+  for attr in syn::parse::Parser::parse_str(inner, source).ok()? {
+    if !attr.path().is_ident("crate_type") {
+      continue;
+    }
+    let syn::Meta::NameValue(syn::MetaNameValue {
+      value: Expr::Lit(ExprLit { lit: Lit::Str(value), .. }),
+      ..
+    }) = &attr.meta
+    else {
+      return None;
+    };
+    let value = value.value();
+    let &(_, executable) = CRATE_TYPES.iter().find(|(name, _)| *name == value)?;
+    types.push(executable);
+  }
+  Some(types)
 }
 
 /// Returns a name of this copy of the derive: a hash of the `TypeId` of a type of it, which names
@@ -4066,12 +4162,112 @@ mod tests {
     assert_eq!(compiled(&args).as_deref(), Some("1:x/lib"));
   }
 
+  /// Writes `source` to a file of its own, and returns what `rustc` compiles from it with `args`
+  /// before its path.
+  fn compiled_root(source: &str, args: &[&str]) -> Option<String> {
+    static FILES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = FILES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("puns-derive-root-{}-{n}.rs", std::process::id()));
+    std::fs::write(&path, source).unwrap();
+    let path = path.to_str().unwrap().to_owned();
+    let krate = compiled(&[args, &[path.as_str()]].concat());
+    std::fs::remove_file(&path).unwrap();
+    krate
+  }
+
   #[test]
-  fn a_crate_without_a_type_is_named_apart() {
-    // As Cargo compiles a test or a bench without a harness: an executable, unless a
-    // `#![crate_type]` says otherwise.
-    let bench = compiled(&["--crate-name", "x", "-C", "metadata=a", "--cfg", "test", "b.rs"]);
-    assert_eq!(bench.as_deref(), Some("1:x/untyped/1:a"));
+  fn a_crate_without_a_type_has_the_types_of_its_attributes() {
+    // As Cargo compiles a test or a bench without a harness.
+    let args = ["--crate-name", "x", "-C", "metadata=a", "--cfg", "test"];
+    assert_eq!(compiled_root("fn main() {}", &args).as_deref(), Some("1:x/bin/1:a"));
+    let lib = compiled_root("//! A library.\n#![crate_type = \"lib\"]\npub fn f() {}", &args);
+    assert_eq!(lib.as_deref(), Some("1:x/lib/1:a"));
+    let both = "#![crate_type = \"rlib\"]\n#![crate_type = \"bin\"]\nfn main() {}";
+    assert_eq!(compiled_root(both, &args).as_deref(), Some("1:x/bin/1:a"));
+    // A byte order mark, and a first line `#!` that is not an attribute, come before attributes.
+    let shebang = "\u{feff}#!/usr/bin/env run\n#![crate_type = \"cdylib\"]\n";
+    assert_eq!(compiled_root(shebang, &args).as_deref(), Some("1:x/lib/1:a"));
+    let spaced = "#! \n [crate_type = \"staticlib\"]\n";
+    assert_eq!(compiled_root(spaced, &args).as_deref(), Some("1:x/lib/1:a"));
+    // A type of `--crate-type`, or `--test`, comes before the attributes.
+    let typed = compiled_root("#![crate_type = \"lib\"]", &["--crate-name=x", "--crate-type=bin"]);
+    assert_eq!(typed.as_deref(), Some("1:x/bin"));
+  }
+
+  #[test]
+  fn a_crate_whose_attributes_the_derive_cannot_read_is_none() {
+    let args = ["--crate-name", "x"];
+    assert_eq!(compiled_root("#![crate_type = \"other\"]", &args), None);
+    assert_eq!(compiled_root("#![crate_type = concat!(\"li\", \"b\")]", &args), None);
+    assert_eq!(compiled_root("#![crate_type]", &args), None);
+    assert_eq!(compiled_root("#! /* a comment */ [crate_type = \"lib\"]", &args), None);
+    assert_eq!(compiled_root("#![crate_type = \"lib\"", &args), None);
+    let added =
+      compiled_root("fn main() {}", &["--crate-name", "x", "-Zcrate-attr=crate_type=\"lib\""]);
+    assert_eq!(added, None);
+    // Two files, such as the path of `rustc` that a driver is given, then the root file.
+    assert_eq!(compiled_root("fn main() {}", &["rustc", "--crate-name", "x"]), None);
+    assert_eq!(compiled(&["--crate-name", "x", "-"]), None);
+    assert_eq!(compiled(&["--crate-name", "x", "/nonexistent/main.rs"]), None);
+  }
+
+  #[test]
+  fn an_option_that_rustc_does_not_have_names_no_crate() {
+    let typed = ["--crate-name", "x", "--crate-type", "lib"];
+    for other in [&["--env-set", "A=B"][..], &["--unknown"], &["--test=1"], &["-Q"]] {
+      assert_eq!(compiled(&[&typed[..], other].concat()), None, "{other:?}");
+    }
+    for known in [&["-j", "4"][..], &["-j4"], &["--jobs=2"], &["--jobs-frontend", "2"], &["-v"]] {
+      assert_eq!(compiled(&[&typed[..], known].concat()).as_deref(), Some("1:x/lib"), "{known:?}");
+    }
+  }
+
+  /// Checks that the options of the derive are those of the `rustc` of the build, as it lists them
+  /// with `-Z unstable-options --help -v`: each line names an option, short, long or both, then the
+  /// form of its value, if it takes one.
+  #[test]
+  fn the_options_are_those_of_rustc() {
+    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let output = std::process::Command::new(rustc)
+      .args(["-Z", "unstable-options", "--help", "-v"])
+      .env("RUSTC_BOOTSTRAP", "1")
+      .output()
+      .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let help = String::from_utf8(output.stdout).unwrap();
+    let (mut short_value, mut short_flags, mut long_value, mut long_flags) =
+      (String::new(), String::new(), vec![], vec![]);
+    for line in help.lines().filter(|line| line.trim_start().starts_with('-')) {
+      let mut words = line.split_whitespace().peekable();
+      let mut names = vec![];
+      while let Some(name) = words.next_if(|word| word.starts_with('-')) {
+        names.push(name.trim_end_matches(','));
+      }
+      let next = words.next().unwrap_or("");
+      // `-C help`, `-W help` and `-Z help` print the options of each.
+      if next == "help" {
+        continue;
+      }
+      let value = next.starts_with('<') || next.starts_with('[');
+      for name in names {
+        match (name.strip_prefix("--"), value) {
+          (Some(long), true) => long_value.push(long.to_owned()),
+          (Some(long), false) => long_flags.push(long.to_owned()),
+          (None, true) => short_value.push_str(&name[1..]),
+          (None, false) => short_flags.push_str(&name[1..]),
+        }
+      }
+    }
+    let sorted = |mut list: Vec<String>| {
+      list.sort();
+      list
+    };
+    let chars = |list: &str| sorted(list.chars().map(String::from).collect());
+    let listed = |list: &[&str]| sorted(list.iter().map(|&name| name.to_owned()).collect());
+    assert_eq!(chars(&short_value), chars(super::SHORT_WITH_VALUE));
+    assert_eq!(chars(&short_flags), chars(super::SHORT_FLAGS));
+    assert_eq!(sorted(long_value), listed(super::LONG_WITH_VALUE));
+    assert_eq!(sorted(long_flags), listed(super::LONG_FLAGS));
   }
 
   #[test]
@@ -4086,6 +4282,12 @@ mod tests {
     assert_eq!(compiled(&["--crate-type", "lib", "-C", "metadata=a"]), None);
     assert_eq!(compiled(&["--crate-name", "x", "--crate-name", "y", "--crate-type", "lib"]), None);
     assert_eq!(compiled(&["--crate-name", "x", "--crate-type", "lib", "@/nonexistent/args"]), None);
+    // An `@shell:` file after `-Z shell-argfiles`, which the derive does not read; before it, the
+    // file is named `shell:args`.
+    assert_eq!(
+      compiled(&["--crate-name=x", "--crate-type=lib", "-Z", "shell-argfiles", "@shell:a"]),
+      None
+    );
     assert_eq!(compiled(&["--crate-name", "x", "--crate-type", "lib", "@shell:args"]), None);
     assert_eq!(compiled(&["--crate-name", "x", "--crate-type", "lib", "-Q"]), None);
     assert_eq!(compiled(&["--crate-type", "lib", "--crate-name"]), None);
