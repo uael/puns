@@ -66,8 +66,13 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   own (`Layout::rule_leaf`), proven by the same rule of a struct of the same extent at the same
   place, after the same aims at the cursor if it is one, and checked on its own otherwise.
 - An identity (`layout::Id`, `Pun::ID`) names a type by its declaration and by every parameter but
-  its lifetimes, so two types with one identity are one type. It has two uses only: proving a part
-  that is not `fixed` by the same type at the same place, and naming a type without its layout.
+  its lifetimes, so two types with one identity are one type. The derive writes it as a literal
+  (package, version and crate that Cargo compiles, name, number of the derive) passed to the pinned
+  `Id::new`, never through the crate path, so no crate gives a type the identity of another
+  (`tests/soundness.rs`, `compile-fail/aim_identity_of_another.rs`). It has three uses only:
+  proving a part that is not `fixed` by the same type at the same place, proving an eager aim by the
+  same aim (`Aim::equals`), and naming a type without its layout, which the loops of a check use
+  to take two pointees for one type (`validate::PointeeType`).
   `ManuallyDrop<T>` is `T` only as the whole of a part (`Id::equals`). An identity is made of the
   identities of the parameters, never of their layouts, so that a type that holds itself through a
   generic type has a layout. The derive gives a generic type one only where each type parameter is

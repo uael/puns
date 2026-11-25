@@ -992,22 +992,25 @@ impl Stable {
 /// to the compiler proves only the same type, at the same place.
 ///
 /// Stable Rust cannot compare types in `const`, so an identity is a name, together with the
-/// identities of the parameters that make up the type. `__site!` names a type that derives `Pun` by
-/// where it is declared, and this crate names the types of `core` that it supports. The identity of
-/// an instance of a generic type that derives `Pun` has the identity of each of its type parameters
-/// (their `Pun::ID`, which needs no layout), and the value of each of its const parameters
+/// identities of the parameters that make up the type. The derive names a type by the crate being
+/// compiled (its package, the version of the package and the name of the crate, which Cargo sets),
+/// its name and the number of its derive in that compilation, in a literal that no crate path
+/// changes, and this crate names the types of `core` that it supports. The identity of an instance
+/// of a generic type that derives `Pun` has the identity of each of its type parameters (their
+/// `Pun::ID`, which needs no layout), and the value of each of its const parameters
 /// ([`Id::value`]), in order. Two identities are equal only if both are known, with the same name,
 /// length and parameters, except that a layout of `ManuallyDrop<T>`, which is the layout of `T`, is
 /// of the same type as `T` (`Id::equals`). As a parameter, `ManuallyDrop<T>` is another type than
 /// `T`. No parameter but a lifetime is left out, so two types with the same identity are the same
-/// type, unless a crate redirects the path of `puns` ("What the derive trusts" in the documentation
-/// of `#[derive(Pun)]`).
+/// type ("What the derive trusts" in the documentation of `#[derive(Pun)]`).
 ///
 /// [`Id::NONE`] is the identity of a type that has none: a generic type that derives `Pun` with a
 /// type parameter that is not bounded by `Pun` where the derive sees it, `PhantomData`, or a
 /// `Scalar` implemented by hand. It is equal to no identity, not even itself, and neither is an
-/// identity with a parameter that has none. Where two types have the same identity, the analysis
-/// still requires their layouts to be the same, so an identity can only refuse.
+/// identity with a parameter that has none. Where two parts whose layouts Rust leaves to the
+/// compiler have the same identity, the analysis still requires their layouts to be the same. Two
+/// pointees of the same identity are of one type: the same eager aim of the source proves one of
+/// the target (`Aim::equals`), and a check takes them for one (`validate::PointeeType`).
 #[doc(hidden)]
 #[derive(Copy, Clone, Debug)]
 pub struct Id {
