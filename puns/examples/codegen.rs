@@ -15,9 +15,10 @@
 //! the machine code of most of them. A change of the library must not make any of them longer, so
 //! compare the assembly before and after it, and update the table.
 //!
-//! The table was measured on `x86_64-unknown-linux-gnu` with `rustc` 1.100.0, the release profile
-//! of the workspace (`opt-level = 3`, LTO, one codegen unit) and the `unstable` feature, with the
-//! command above. A count of instructions excludes labels and directives.
+//! The table was measured on `x86_64-unknown-linux-gnu` with `rustc` 1.99.1 and 1.100.0, which give
+//! the same code, the release profile of the workspace (`opt-level = 3`, LTO, one codegen unit) and
+//! the `unstable` feature, with the command above. A count of instructions excludes labels and
+//! directives.
 //!
 //! | Function                                              | Machine code                                  |
 //! |-------------------------------------------------------|-----------------------------------------------|
