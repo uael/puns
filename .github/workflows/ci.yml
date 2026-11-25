@@ -99,6 +99,7 @@ jobs:
             id: model-rules
             tests: >-
               --lib --test core_shadowed --test regressions --test rules --test dst --test views
+              --test aims
           - name: shapes
             id: model-shapes
             tests: --test shapes
@@ -112,7 +113,7 @@ jobs:
             id: model-unstable-rules
             tests: >-
               --features unstable --lib --test core_shadowed --test regressions --test rules
-              --test dst --test views
+              --test dst --test views --test aims
           - name: unstable, shapes
             id: model-unstable-shapes
             tests: --features unstable --test shapes
@@ -439,6 +440,9 @@ jobs:
       # without the feature only: with it, fourteen seconds more.
       - name: Select the tests that Miri runs
         if: matrix.part
+        env:
+          # The targets other than the host run with stacked borrows.
+          STACKED: ${{ matrix.target && '1' || '0' }}
         run: |
           one="--lib --test core_shadowed --test str"
           two="--test ethernet --test checksums --test bytes --test patterns"
@@ -447,7 +451,7 @@ jobs:
             2) tests=$two ;;
             3)
               tests=""
-              for test in $(MIRI=1 sh .github/tests.sh default | sed 's/^--test //'); do
+              for test in $(MIRI=1 STACKED=$STACKED sh .github/tests.sh default | sed 's/^--test //'); do
                 case " $one $two " in
                   *" --test $test "*) ;;
                   *) tests="$tests --test $test" ;;
@@ -455,7 +459,7 @@ jobs:
               done
               ;;
             unstable-*)
-              tests=$(MIRI=1 sh .github/tests.sh unstable)
+              tests=$(MIRI=1 STACKED=$STACKED sh .github/tests.sh unstable)
               half="${{ matrix.part }}"
               tests=$(echo "$tests" | awk -v half="${half#unstable-}" 'NR % 2 == half % 2')
               tests="--features unstable $tests"
