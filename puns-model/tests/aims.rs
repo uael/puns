@@ -1,5 +1,5 @@
-//! The model check of aims: every value of small types with eager and lazy aims, at a stored place
-//! and at the cursor, whose oracles read the pointee in the bytes, as the documentation says, and
+//! The model check of aims: every value of small types with eager aims, at a stored place and at
+//! the cursor, and with lazy ones, at the cursor, whose oracles read the pointee in the bytes, as the documentation says, and
 //! the verdicts of the pairs of these types.
 //!
 //! The oracles of `puns_model` take a value of a `Copy` type, and a type with an eager aim is
@@ -34,16 +34,6 @@ struct Hop {
 struct HopNext {
   #[pun(pointer(bool = off as u128 + 1))]
   off: InPlace<u8>,
-  a: u8,
-  b: u8,
-}
-
-/// The same place, checked when it is read: it requires nothing of the struct.
-#[derive(Pun, Clone, Copy)]
-#[repr(C)]
-struct HopLazy {
-  #[pun(pointer(lazy bool = off as u128))]
-  off: u8,
   a: u8,
   b: u8,
 }
@@ -171,7 +161,6 @@ fn model<T: Pun>(name: &str, oracle: fn(&[u8]) -> bool, eager: bool) {
 fn every_value_of_each_type() {
   model::<Hop>("Hop", hop, true);
   model::<HopNext>("HopNext", hop_next, true);
-  model::<HopLazy>("HopLazy", |_| true, false);
   model::<Flag>("Flag", flag, true);
   model::<FlagLazy>("FlagLazy", flag_lazy, false);
   model::<Bools>("Bools", bools, true);
@@ -204,16 +193,17 @@ fn pair<S: Pun, D: Pun>(name: &str, source: fn(&[u8]) -> bool, target: fn(&[u8])
 
 #[test]
 fn pairs() {
-  // The same aim proves itself, another place or a lazy aim does not prove an eager one, and an
-  // eager aim checks what a lazy one requires.
+  // The same aim proves itself, and an eager aim its bytes. Another place, bytes or a lazy aim do
+  // not prove an eager one, and an eager aim checks what a lazy one requires.
   pair::<Hop, Hop>("Hop -> Hop", hop, hop);
   pair::<Hop, HopNext>("Hop -> HopNext", hop, hop_next);
-  pair::<HopLazy, Hop>("HopLazy -> Hop", |_| true, hop);
-  pair::<Hop, HopLazy>("Hop -> HopLazy", hop, |_| true);
+  pair::<[u8; 3], Hop>("[u8; 3] -> Hop", |_| true, hop);
+  pair::<Hop, [u8; 3]>("Hop -> [u8; 3]", hop, |_| true);
   pair::<Flag, FlagLazy>("Flag -> FlagLazy", flag, flag_lazy);
   pair::<FlagLazy, Flag>("FlagLazy -> Flag", flag_lazy, flag);
   pair::<Bools, Bools>("Bools -> Bools", bools, bools);
   pair::<[u8; 4], Wide>("[u8; 4] -> Wide", |_| true, wide);
   assert!(hook::verdict::<Hop, Hop>().pun_ref, "the same aim proves itself");
-  assert!(!hook::verdict::<HopLazy, Hop>().pun_ref, "a lazy aim proves no eager one");
+  assert!(hook::verdict::<Hop, [u8; 3]>().pun_ref, "an eager aim proves its bytes");
+  assert!(!hook::verdict::<FlagLazy, Flag>().pun_ref, "a lazy aim proves no eager one");
 }

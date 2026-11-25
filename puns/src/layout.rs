@@ -4281,7 +4281,7 @@ impl Layout {
         let mut i = 0;
         while i < rules.len() {
           if let Some(aim) = rules[i].aim()
-            && matches!(aim.check, Check::Eager)
+            && matches!(aim.check(), Check::Eager)
           {
             aims = aims.saturating_add(1);
           }
@@ -4324,7 +4324,7 @@ impl Layout {
         let mut i = 0;
         while i < rules.len() {
           if let Some(aim) = rules[i].aim()
-            && matches!(aim.check, Check::Eager)
+            && matches!(aim.check(), Check::Eager)
             && (!unidentified || !aim.id.known())
           {
             return true;
@@ -6239,7 +6239,9 @@ pub enum Rule {
 ///   the struct, or at the cursor of the tail of the struct, after the pointee of the aim before.
 /// - How large it is ([`Extent`]): what the pointee stores, the length that an expression over the
 ///   struct gives, the size in bytes that one gives, or the rest of the tail of the struct.
-/// - When it is checked ([`Check`]): with the struct, or when it is read.
+/// - When it is checked ([`Check`]): with the struct, or when it is read. A pointee at a stored
+///   place is checked with the struct, so [`Start::Stored`] has no `Check`: only a pointee at the
+///   cursor, [`Start::Next`], says when it is checked.
 ///
 /// The type of the pointee is a [`Pointee`](crate::Pointee): a [`Pun`](crate::Pun) type, or a
 /// [`Thin`](crate::Thin), which stores the length of its value before it. It is named by the item
@@ -6268,11 +6270,11 @@ pub enum Rule {
 /// // The pointee of a self-relative pointer: a `u64` at the address of the struct plus the `u32`
 /// // at its offset 0, checked with the struct.
 /// const AT: [Op; 1] = [Op::load::<u32>(0)];
-/// const POINTER: Aim = Aim::new::<u64>(Start::Stored(&AT), Extent::Pointee, Check::Eager);
+/// const POINTER: Aim = Aim::new::<u64>(Start::Stored(&AT), Extent::Pointee);
 ///
 /// // A region: as many bytes as the `u16` at offset 4 says, from the cursor, checked when read.
 /// const LEN: [Op; 1] = [Op::load::<u16>(4)];
-/// const REGION: Aim = Aim::new::<[u8]>(Start::Next, Extent::Bytes(&LEN), Check::Lazy);
+/// const REGION: Aim = Aim::new::<[u8]>(Start::Next(Check::Lazy), Extent::Bytes(&LEN));
 ///
 /// assert_eq!((POINTER.check(), REGION.check()), (Check::Eager, Check::Lazy));
 /// ```
@@ -6282,8 +6284,6 @@ pub struct Aim {
   pub(crate) start: Start,
   /// How large the pointee is.
   pub(crate) extent: Extent,
-  /// When the pointee is checked.
-  pub(crate) check: Check,
   /// The size of the value of the pointee, without the elements of its tail if it is unsized.
   pub(crate) size: usize,
   /// The alignment of the pointee.
@@ -6297,25 +6297,30 @@ pub struct Aim {
 /// # Examples
 ///
 /// ```
-/// use puns::layout::{Op, Start};
+/// use puns::layout::{Check, Op, Start};
 ///
 /// // At the address of the struct plus the `u32` at its offset 0.
 /// const AT: [Op; 1] = [Op::load::<u32>(0)];
 /// let pointer = Start::Stored(&AT);
-/// // Where the pointee before it ends: a region.
-/// let region = Start::Next;
-/// assert!(matches!((pointer, region), (Start::Stored(_), Start::Next)));
+/// // Where the pointee before it ends, checked when it is read: a region.
+/// let region = Start::Next(Check::Lazy);
+/// assert!(matches!((pointer, region), (Start::Stored(_), Start::Next(Check::Lazy))));
 /// ```
 #[derive(Copy, Clone, Debug)]
 pub enum Start {
   /// At the address of the struct that holds the aim, plus the value of the expression, read as
   /// an `i128` in two's complement, so that a pointee may be before the struct. A
   /// [`Thin`](crate::Thin) is there where its length is, and its value right after it.
+  ///
+  /// The pointee is checked with the struct ([`Check::Eager`]): it may be anywhere in the bytes
+  /// that hold the struct, which a reference to the struct does not bound, so a read from the
+  /// struct alone could not check it.
   Stored(&'static [Op]),
   /// At the cursor of the struct: where the pointee of the aim at the cursor before it ends, or the
   /// start of the tail of the struct for the first one. The value is aligned for the pointee by its
   /// offset from the start of the struct, with what the pointee stores before it right before it.
-  Next,
+  /// The pointee is checked as the [`Check`] says.
+  Next(Check),
 }
 
 /// How large the pointee of an [`Aim`] is: how its metadata, the length of its tail if it is
@@ -6324,7 +6329,7 @@ pub enum Start {
 /// The metadata is at the pointee (`Pointee`), or the aim gives it, as a length (`Length`), or as
 /// the size in bytes that the length makes (`Bytes`, and `Rest` for what remains of the tail).
 /// Regions give their sizes in bytes. A pointer may give one too: every extent applies at either
-/// start, so that an aim is any start, any extent and either check.
+/// start, so that an aim is any start with any extent.
 ///
 /// # Examples
 ///
@@ -6362,15 +6367,16 @@ pub enum Extent {
   Rest,
 }
 
-/// When the pointee of an [`Aim`] is checked.
+/// When the pointee of an [`Aim`] at the cursor ([`Start::Next`]) is checked. A pointee at a
+/// stored place is checked with the struct ([`Start::Stored`]).
 ///
 /// # Examples
 ///
 /// ```
 /// use puns::layout::{Aim, Check, Extent, Start};
 ///
-/// // A region is checked when it is read.
-/// let region = Aim::new::<[u8]>(Start::Next, Extent::Rest, Check::Lazy);
+/// // A region checked when it is read.
+/// let region = Aim::new::<[u8]>(Start::Next(Check::Lazy), Extent::Rest);
 /// assert_eq!(region.check(), Check::Lazy);
 /// ```
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -6382,11 +6388,10 @@ pub enum Check {
   /// value that holds an eager aim, nor gives a `&mut` to one, and only the same aim at the same
   /// place of a source, of a pointee of the same identity, proves one.
   Eager,
-  /// When it is read: what reads the pointee checks it then. A pointee at the cursor must fit in
-  /// the tail of the struct, since the next one starts where it ends, and a pointee at a stored
-  /// place requires nothing of the struct. Where the struct does not keep to this, since safe code
-  /// may write its fields, the reader of a region truncates it to the tail, and a size whose
-  /// expression fails takes what remains.
+  /// When it is read: what reads the pointee checks it then. The pointee must fit in the tail of
+  /// the struct, since the next one starts where it ends. Where the struct does not keep to this,
+  /// since safe code may write its fields, the reader of the region truncates it to the tail, and a
+  /// size whose expression fails takes what remains.
   Lazy,
 }
 
@@ -6412,13 +6417,13 @@ impl Aim {
   /// // The pointee of a self-relative pointer, a `u64` at the address of the struct plus the
   /// // `u32` at its offset 0.
   /// const AT: [Op; 1] = [Op::load::<u32>(0)];
-  /// let _ = Aim::new::<u64>(Start::Stored(&AT), Extent::Pointee, Check::Eager);
-  /// // A list of 4 bytes after the `u32`, checked when read.
+  /// let _ = Aim::new::<u64>(Start::Stored(&AT), Extent::Pointee);
+  /// // A list of 4 bytes at the same place.
   /// const FOUR: [Op; 1] = [Op::Lit(4)];
-  /// let _ = Aim::new::<[u8]>(Start::Stored(&AT), Extent::Length(&FOUR), Check::Lazy);
+  /// let _ = Aim::new::<[u8]>(Start::Stored(&AT), Extent::Length(&FOUR));
   /// ```
   #[must_use]
-  pub const fn new<T: ?Sized + crate::Pointee>(start: Start, extent: Extent, check: Check) -> Self {
+  pub const fn new<T: ?Sized + crate::Pointee>(start: Start, extent: Extent) -> Self {
     // The type of the pointee, not its layout, which may hold this aim.
     let sized = size_of::<<T::Value as crate::Pun>::Metadata>() == 0;
     assert!(!sized || !matches!(extent, Extent::Length(_)), "a sized pointee has no length");
@@ -6426,10 +6431,11 @@ impl Aim {
       T::LENGTH.is_none() || matches!(extent, Extent::Pointee),
       "a `Thin` stores the length of its value, which no expression gives"
     );
-    Self { start, extent, check, size: T::POINTEE_SIZE, align: T::POINTEE_ALIGN, id: T::POINTEE_ID }
+    Self { start, extent, size: T::POINTEE_SIZE, align: T::POINTEE_ALIGN, id: T::POINTEE_ID }
   }
 
-  /// Returns when the pointee is checked.
+  /// Returns when the pointee is checked: with the struct at a stored place, as its start says at
+  /// the cursor.
   ///
   /// # Examples
   ///
@@ -6437,12 +6443,15 @@ impl Aim {
   /// use puns::layout::{Aim, Check, Extent, Op, Start};
   ///
   /// const AT: [Op; 1] = [Op::load::<u32>(0)];
-  /// let pointer = Aim::new::<u64>(Start::Stored(&AT), Extent::Pointee, Check::Eager);
+  /// let pointer = Aim::new::<u64>(Start::Stored(&AT), Extent::Pointee);
   /// assert_eq!(pointer.check(), Check::Eager);
   /// ```
   #[must_use]
   pub const fn check(&self) -> Check {
-    self.check
+    match self.start {
+      Start::Stored(_) => Check::Eager,
+      Start::Next(check) => check,
+    }
   }
 
   /// Returns whether two aims are the same function of the same bytes, and require the same of
@@ -6450,11 +6459,11 @@ impl Aim {
   /// cursor, and, where the type of the pointee counts, of the same size and identity, which must
   /// be known. It counts for an eager aim, whose pointee is checked with the struct, and for an aim
   /// whose pointee stores its length, which the type tells where to find. The pointee of another
-  /// lazy aim is checked when it is read, so its type does not count.
+  /// aim, lazy at the cursor, is checked when it is read, so its type does not count.
   pub(crate) const fn equals(&self, other: &Aim) -> bool {
     let same_start = match (self.start, other.start) {
       (Start::Stored(a), Start::Stored(b)) => same_ops(a, b),
-      (Start::Next, Start::Next) => true,
+      (Start::Next(a), Start::Next(b)) => a as u8 == b as u8,
       _ => false,
     };
     let same_extent = match (self.extent, other.extent) {
@@ -6464,10 +6473,10 @@ impl Aim {
       }
       _ => false,
     };
-    let typed = matches!(self.check, Check::Eager) || matches!(self.extent, Extent::Pointee);
+    let typed = matches!(self.check(), Check::Eager) || matches!(self.extent, Extent::Pointee);
     let same_pointee =
       self.align == other.align && (!typed || self.size == other.size && self.id.equals(&other.id));
-    same_start && same_extent && same_pointee && self.check as u8 == other.check as u8
+    same_start && same_extent && same_pointee
   }
 }
 
@@ -6539,7 +6548,7 @@ impl Rule {
   /// Returns whether the rule is an aim at the cursor, which the aims at the cursor before it
   /// place.
   pub(crate) const fn at_cursor(&self) -> bool {
-    matches!(self, Rule::Aim(Aim { start: Start::Next, .. }))
+    matches!(self, Rule::Aim(Aim { start: Start::Next(_), .. }))
   }
 
   /// Returns whether an expression of the rule reads the bytes of its struct by offset, rather than

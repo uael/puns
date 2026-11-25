@@ -1,6 +1,6 @@
 //! The `M` of a `Thin<T, M>` ends with the length of the `T`: an integer, with no padding after it.
 
-use puns::{Pun, Thin};
+use puns::{InPlace, Pun, Thin};
 
 #[derive(Pun)]
 #[repr(C)]
@@ -12,8 +12,8 @@ struct Flagged {
 #[derive(Pun)]
 #[repr(C)]
 struct Text {
-  #[pun(pointer(lazy text: Thin<str, Flagged> = at as u128))]
-  at: u8,
+  #[pun(pointer(text: Thin<str, Flagged> = at as u128))]
+  at: InPlace<u8>,
 }
 
 fn main() {

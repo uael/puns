@@ -104,7 +104,8 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   crate would declare it.
 - An aim (`layout::Aim`) is where its pointee is (`Start`: stored, or the cursor of the tail),
   how large it is (`Extent`: what the pointee stores, a length, a size in bytes, or the rest of the
-  tail of the struct), and when it is checked (`Check`), and every combination is checked and read.
+  tail of the struct), and, at the cursor, when it is checked (`Check`, in `Start::Next`): a
+  pointee at a stored place is checked with the struct. Every combination is checked and read.
   The size of a pointee is the size of its value with its metadata, as `size_of_val` gives. An
   eager aim is checked with the struct that holds it, its pointee within the bytes that the check
   reads (`validate::Input`), and code reads the pointee without a check, through a safe method.
@@ -118,9 +119,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   safe code makes a value of the struct, nor a reference to one but through `puns`: the
   documentation of `InPlace` states this argument, and the obligation of unsafe code that makes
   such values, as `nearest` does, and the `# Safety` of `Pun` the property that the reads rely
-  on. An `InPlace<T>` is a `T` in the layout. A lazy aim at the cursor requires of the struct only
-  that its pointee fits, and a lazy aim at a stored place nothing, so its type counts in a proof
-  only where the pointee stores its length.
+  on. An `InPlace<T>` is a `T` in the layout. A lazy aim, at the cursor, requires of the struct
+  only that its pointee fits, so its type counts in a proof only where the pointee stores its
+  length.
 - Both kinds of start are one rule (`Rule::Aim`), checked in one place (`validate::check_aim`),
   which places the pointee by one step of the cursor (`validate::cursor_step`) or at a stored place
   (`validate::stored_at`), written by the derive in one place (`aim_rule` in `puns-derive`), which

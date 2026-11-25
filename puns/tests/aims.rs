@@ -551,67 +551,14 @@ struct Record {
   data: [u16],
 }
 
-/// A pointer to a `P`, after its offset, a byte, checked when it is read.
+/// A pointer to a `P`, after its offset, a byte.
 #[derive(Pun)]
 #[pun(bound(P: puns::Pointee))]
 #[repr(C)]
 struct To<P: ?Sized> {
-  #[pun(pointer(lazy pointee: P = at as u128))]
-  at: u8,
+  #[pun(pointer(pointee: P = at as u128))]
+  at: InPlace<u8>,
   _p: PhantomData<P>,
-}
-
-/// The pointee `P` of the `To<P>` at the start of `bytes`, read in `bytes`.
-fn read<P: ?Sized + Pointee>(bytes: &[u8]) -> Result<&P::Value, Error> {
-  puns::from_head::<To<P>>(bytes)?.0.pointee(bytes)
-}
-
-#[test]
-fn a_thin_of_a_struct_with_a_tail() {
-  // An offset of 4, to an `i32` length of 2, then a `Record` of 2 elements: the kind, then the
-  // data.
-  let mut words = [0u32; 4];
-  let bytes =
-    puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u32; 4], [u8; 16]>(&mut words)).unwrap();
-  bytes[0] = 4;
-  bytes[4..8].copy_from_slice(&2i32.to_ne_bytes());
-  bytes[8..10].copy_from_slice(&7u16.to_ne_bytes());
-  bytes[10..14].copy_from_slice(&[1, 0, 2, 0]);
-  let bytes: &[u8] = bytes;
-  let record = read::<Thin<Record, i32>>(bytes).unwrap();
-  assert_eq!((record.kind, record.data.len()), (7, 2));
-  // A length that does not fit: the read refuses it, the pointer being lazy.
-  assert_eq!(read::<Thin<Record, i32>>(&bytes[..12]).err(), Some(Error::Size));
-}
-
-#[test]
-fn the_length_of_a_thin_has_the_sign_of_its_type() {
-  // An offset of 1, to an unsigned length of 200, then 200 bytes.
-  let mut bytes = [0u8; 202];
-  bytes[..2].copy_from_slice(&[1, 200]);
-  assert_eq!(read::<Thin<[u8], u8>>(&bytes).map(<[u8]>::len), Ok(200));
-  // The same byte as a signed length is negative, a size that no bytes have.
-  assert_eq!(read::<Thin<[u8], i8>>(&bytes).err(), Some(Error::Size));
-  // An offset of 2 in the first byte, to a `u16` length of 40,000, in the byte order of the target.
-  let mut words = vec![0u16; 20_002];
-  words[..2].copy_from_slice(&[u16::from_ne_bytes([2, 0]), 40_000]);
-  assert_eq!(read::<Thin<[u8], u16>>(puns::as_bytes(&words[..])).map(<[u8]>::len), Ok(40_000));
-}
-
-#[test]
-fn the_value_of_a_thin_follows_its_length() {
-  // The words of a `Thin<[u32], i16>` are aligned to 4, and its 2-byte length is right before
-  // them, so an offset of 2 leads to one word at 4.
-  let mut words = [0u32; 2];
-  let bytes = puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u32; 2], [u8; 8]>(&mut words)).unwrap();
-  bytes[0] = 2;
-  bytes[2..4].copy_from_slice(&1i16.to_ne_bytes());
-  bytes[4..8].copy_from_slice(&9u32.to_ne_bytes());
-  assert_eq!(read::<Thin<[u32], i16>>(bytes), Ok(&[9][..]));
-  // An offset of 0 leads to a length whose words would be at 2, which is not aligned for them. The
-  // read of a lazy pointer refuses it, as `from_bytes` would.
-  bytes[0] = 0;
-  assert_eq!(read::<Thin<[u32], i16>>(bytes).err(), Some(Error::Alignment));
 }
 
 /// A pointer to a `u16` before it or after it, stored as the distance from its own address.
@@ -774,47 +721,16 @@ fn rows(root: &Pair) -> Vec<(String, Vec<u32>)> {
   out
 }
 
-/// Rows at a stored place, of a given size in bytes, and a text of a given length from another,
-/// both checked when they are read, from the bytes that hold the table.
+/// Rows at a stored place, of a given size in bytes, and a text of a given length from another.
 #[derive(Pun)]
 #[repr(C)]
 struct Table {
-  #[pun(pointer(lazy rows: [u16] = at as u128, size = len as u128))]
-  at: u8,
+  #[pun(pointer(rows: [u16] = at as u128, size = len as u128))]
+  at: InPlace<u8>,
   len: u8,
-  #[pun(pointer(lazy text: str = from as u128, len = count as u128))]
-  from: u8,
+  #[pun(pointer(text: str = from as u128, len = count as u128))]
+  from: InPlace<u8>,
   count: u8,
-}
-
-#[test]
-fn lazy_pointers_are_checked_when_read() {
-  // The table, then two rows, then a text of two bytes.
-  let mut words = [0u16; 5];
-  let bytes =
-    puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u16; 5], [u8; 10]>(&mut words)).unwrap();
-  bytes[..4].copy_from_slice(&[4, 4, 8, 2]);
-  bytes[4..8].copy_from_slice(puns::as_bytes(&[7u16, 9]));
-  bytes[8..].copy_from_slice(b"ok");
-  let bytes: &[u8] = bytes;
-  let table = puns::from_head::<Table>(bytes).unwrap().0;
-  assert_eq!((table.rows(bytes), table.text(bytes)), (Ok(&[7, 9][..]), Ok("ok")));
-  // The table, read from bytes that do not hold it, has no rows.
-  assert_eq!(table.rows(&bytes[1..]).err(), Some(Error::Validity));
-  // A lazy pointer at a stored place requires nothing of the struct: an odd size of rows, and rows
-  // past the bytes, are refused when they are read.
-  for (len, error) in [(3, Error::Size), (8, Error::Size)] {
-    let mut odd = words;
-    puns::pun_mut::<[u16; 5], [u8; 10]>(&mut odd)[1] = len;
-    let odd = puns::as_bytes(&odd);
-    let table = puns::from_head::<Table>(odd).unwrap().0;
-    assert_eq!(table.rows(odd).err(), Some(error));
-  }
-  // A text that is not UTF-8.
-  let mut bad = words;
-  puns::pun_mut::<[u16; 5], [u8; 10]>(&mut bad)[9] = 0xff;
-  let bad = puns::as_bytes(&bad);
-  assert_eq!(puns::from_head::<Table>(bad).unwrap().0.text(bad).err(), Some(Error::Validity));
 }
 
 /// Words at a stored place, of a given size in bytes, and the rest of the tail of the struct from
@@ -946,10 +862,6 @@ fn an_offset_near_the_end_of_an_i128_is_refused() {
   let mut bytes = [0u8; 20];
   bytes[..16].copy_from_slice(&i128::MAX.to_le_bytes());
   assert_eq!(puns::from_head::<Far>(&bytes).err(), Some(Error::Validity));
-  let mut bytes = [0u8; 17];
-  bytes[..16].copy_from_slice(&i128::MAX.to_le_bytes());
-  let far = puns::from_head::<FarLazy>(&bytes).map(|(far, _)| far.text(&bytes));
-  assert_eq!(far, Ok(Err(Error::Validity)));
 }
 
 /// A pointer to a text behind a `u8` length, at an offset of 16 bytes.
@@ -958,15 +870,6 @@ fn an_offset_near_the_end_of_an_i128_is_refused() {
 struct Far {
   #[pun(pointer(Thin<str, u8> = le(0, 16)))]
   off: InPlace<[u8; 16]>,
-}
-
-/// The same, checked when it is read.
-#[derive(Pun)]
-#[repr(C)]
-struct FarLazy {
-  #[pun(pointer(lazy text: Thin<str, u8> = le(0, 16)))]
-  off: [u8; 16],
-  pad: u8,
 }
 
 /// The `InPlace` of an offset, by another name.
@@ -985,18 +888,9 @@ struct Aliased {
 #[derive(Pun)]
 #[repr(C)]
 struct Generic<T: ?Sized> {
-  #[pun(pointer(lazy value: Thin<T, u8> = off as u128))]
-  off: u8,
+  #[pun(pointer(value: Thin<T, u8> = off as u128))]
+  off: InPlace<u8>,
   _t: PhantomData<T>,
-}
-
-#[test]
-fn a_generic_pointee_is_bounded_by_pointee() {
-  let bytes = [1, 2, b'h', b'i'];
-  let generic = puns::from_head::<Generic<str>>(&bytes).unwrap().0;
-  assert_eq!(generic.value(&bytes), Ok("hi"));
-  let generic = puns::from_head::<Generic<u8>>(&bytes).unwrap().0;
-  assert_eq!(generic.value(&bytes), Ok(&2));
 }
 
 /// The tests that read the pointees of eager aims through a reference to the value: `name(&self)`,
@@ -1399,5 +1293,93 @@ mod reads {
     let renamed = puns::from_head::<Renamed>(&bytes).unwrap().0;
     assert_eq!(*renamed.next(), 9);
     assert_eq!(puns::from_head::<Renamed>(&[2, 9]).err(), Some(Error::Validity));
+  }
+
+  /// The pointee `P` of the `To<P>` at the start of `bytes`.
+  fn read<'a, P: ?Sized + Pointee + 'a>(bytes: &'a [u8]) -> Result<&'a P::Value, Error> {
+    puns::from_head::<To<P>>(bytes).map(|(to, _)| to.pointee())
+  }
+
+  #[test]
+  fn a_thin_of_a_struct_with_a_tail() {
+    // An offset of 4, to an `i32` length of 2, then a `Record` of 2 elements: the kind, then the
+    // data.
+    let mut words = [0u32; 4];
+    let bytes =
+      puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u32; 4], [u8; 16]>(&mut words)).unwrap();
+    bytes[0] = 4;
+    bytes[4..8].copy_from_slice(&2i32.to_ne_bytes());
+    bytes[8..10].copy_from_slice(&7u16.to_ne_bytes());
+    bytes[10..14].copy_from_slice(&[1, 0, 2, 0]);
+    let bytes: &[u8] = bytes;
+    let record = read::<Thin<Record, i32>>(bytes).unwrap();
+    assert_eq!((record.kind, record.data.len()), (7, 2));
+    // A length that does not fit: the struct is not valid.
+    assert_eq!(read::<Thin<Record, i32>>(&bytes[..12]).err(), Some(Error::Validity));
+  }
+
+  #[test]
+  fn the_length_of_a_thin_has_the_sign_of_its_type() {
+    // An offset of 1, to an unsigned length of 200, then 200 bytes.
+    let mut bytes = [0u8; 202];
+    bytes[..2].copy_from_slice(&[1, 200]);
+    assert_eq!(read::<Thin<[u8], u8>>(&bytes).map(<[u8]>::len), Ok(200));
+    // The same byte as a signed length is negative, a size that no bytes have.
+    assert_eq!(read::<Thin<[u8], i8>>(&bytes).err(), Some(Error::Validity));
+    // An offset of 2 in the first byte, to a `u16` length of 40,000, in the byte order of the
+    // target.
+    let mut words = vec![0u16; 20_002];
+    words[..2].copy_from_slice(&[u16::from_ne_bytes([2, 0]), 40_000]);
+    assert_eq!(read::<Thin<[u8], u16>>(puns::as_bytes(&words[..])).map(<[u8]>::len), Ok(40_000));
+  }
+
+  #[test]
+  fn the_value_of_a_thin_follows_its_length() {
+    // The words of a `Thin<[u32], i16>` are aligned to 4, and its 2-byte length is right before
+    // them, so an offset of 2 leads to one word at 4.
+    let mut words = [0u32; 2];
+    let bytes =
+      puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u32; 2], [u8; 8]>(&mut words)).unwrap();
+    bytes[0] = 2;
+    bytes[2..4].copy_from_slice(&1i16.to_ne_bytes());
+    bytes[4..8].copy_from_slice(&9u32.to_ne_bytes());
+    assert_eq!(read::<Thin<[u32], i16>>(bytes), Ok(&[9][..]));
+    // An offset of 0 leads to a length whose words would be at 2, which is not aligned for them:
+    // the struct is not valid.
+    bytes[0] = 0;
+    assert_eq!(read::<Thin<[u32], i16>>(bytes).err(), Some(Error::Validity));
+  }
+
+  #[test]
+  fn pointers_of_a_given_size_and_of_a_given_length() {
+    // The table, then two rows, then a text of two bytes.
+    let mut words = [0u16; 5];
+    let bytes =
+      puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u16; 5], [u8; 10]>(&mut words)).unwrap();
+    bytes[..4].copy_from_slice(&[4, 4, 8, 2]);
+    bytes[4..8].copy_from_slice(puns::as_bytes(&[7u16, 9]));
+    bytes[8..].copy_from_slice(b"ok");
+    let bytes: &[u8] = bytes;
+    let table = puns::from_head::<Table>(bytes).unwrap().0;
+    assert_eq!((table.rows(), table.text()), (&[7, 9][..], "ok"));
+    // An odd size of rows, and rows past the bytes: the table is not valid.
+    for len in [3, 8] {
+      let mut odd = words;
+      puns::pun_mut::<[u16; 5], [u8; 10]>(&mut odd)[1] = len;
+      assert_eq!(puns::from_head::<Table>(puns::as_bytes(&odd)).err(), Some(Error::Validity));
+    }
+    // A text that is not UTF-8.
+    let mut bad = words;
+    puns::pun_mut::<[u16; 5], [u8; 10]>(&mut bad)[9] = 0xff;
+    assert_eq!(puns::from_head::<Table>(puns::as_bytes(&bad)).err(), Some(Error::Validity));
+  }
+
+  #[test]
+  fn a_generic_pointee_is_bounded_by_pointee() {
+    let bytes = [1, 2, b'h', b'i'];
+    let generic = puns::from_head::<Generic<str>>(&bytes).unwrap().0;
+    assert_eq!(generic.value(), "hi");
+    let generic = puns::from_head::<Generic<u8>>(&bytes).unwrap().0;
+    assert_eq!(generic.value(), &2);
   }
 }

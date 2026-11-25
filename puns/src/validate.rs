@@ -20,8 +20,8 @@
 //! [`cursor_step`]) or within the bytes that the check reads ([`Input`], [`find_stored`],
 //! [`stored_at`]), and, if the aim is eager, checks what the pointee stores before its value,
 //! measures the value with its length ([`measure`]), and checks it ([`check_value`]) with
-//! [`validate`], which checks the eager aims of the pointee in turn. A lazy aim requires that its
-//! pointee fits in the tail if it is at the cursor, and nothing if it is at a stored place.
+//! [`validate`], which checks the eager aims of the pointee in turn. An aim at a stored place is
+//! eager. A lazy aim, at the cursor, requires that its pointee fits in the tail.
 //!
 //! The `try_` and `from_` functions check a pointee in place, nested in the check of the value that
 //! holds its aim, bounded by the bytes and by the parts of the layouts that [`Input`] counts
@@ -805,9 +805,8 @@ enum Wanted {
 /// Returns where the cursor of the tail of the struct `T` at `base` is after the aim `L`, if the
 /// struct meets what the aim requires of it.
 ///
-/// A pointee at the cursor ([`check_next`]) must fit in the tail, and one at a stored place
-/// requires nothing of the struct if the aim is lazy. The pointee of an eager aim is checked here
-/// ([`check_stored`], [`check_placed`]).
+/// A pointee at the cursor ([`check_next`]) must fit in the tail. The pointee of an eager aim is
+/// checked here ([`check_stored`], [`check_placed`]), and an aim at a stored place is eager.
 ///
 /// # Safety
 ///
@@ -820,22 +819,13 @@ const unsafe fn check_aim<C: Checks, T: ?Sized + Pun, L: Rules>(
   cursor: usize,
   input: &mut Input,
 ) -> Option<usize> {
-  let (eager, next) = const {
+  let next = const {
     let () = AimOf::<T, L>::CHECKED;
-    match T::LAYOUT.rule(L::RULE) {
-      Some(Rule::Aim(Aim { check, start, .. })) => {
-        (matches!(check, Check::Eager), matches!(start, Start::Next))
-      }
-      _ => (false, false),
-    }
+    matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Next(_), .. })))
   };
   if next {
     // SAFETY: The requirements of `check_next` are those of this call.
     return unsafe { check_next::<C, T, L>(base, size, (head, tail), cursor, input) };
-  }
-  // A lazy pointee at a stored place is checked when it is read.
-  if !eager {
-    return Some(cursor);
   }
   // SAFETY: The requirements of `check_stored` are those of this call.
   if unsafe { check_stored::<C, T, L>(base, size, input) } { Some(cursor) } else { None }
@@ -862,7 +852,7 @@ const unsafe fn check_next<C: Checks, T: ?Sized + Pun, L: Rules>(
 ) -> Option<usize> {
   let (eager, align) = const {
     match T::LAYOUT.rule(L::RULE) {
-      Some(Rule::Aim(Aim { check, align, .. })) => (matches!(check, Check::Eager), align),
+      Some(Rule::Aim(aim)) => (matches!(aim.check(), Check::Eager), aim.align),
       _ => (false, 1),
     }
   };
@@ -1475,7 +1465,7 @@ pub const fn pointee_checked<T: ?Sized + Pun, L: Rules>() {
     STORES_LENGTH
   );
   assert!(
-    matches!(aim.check, Check::Lazy)
+    matches!(aim.check(), Check::Lazy)
       || <<L::Pointee as Pointee>::Value as Pun>::LAYOUT.checks_kept()
         && <<L::Pointee as Pointee>::Prefix as Pun>::LAYOUT.checks_kept(),
     "the pointee of an eager aim has a part whose layout Rust leaves to the compiler (a struct, \
@@ -1552,7 +1542,7 @@ pub const unsafe fn cursor_step<T: ?Sized + Pun, L: Rules, const STRICT: bool>(
   let (extent, align, before) = const {
     let before = size_of::<<L::Pointee as Pointee>::Prefix>();
     match T::LAYOUT.rule(L::RULE) {
-      Some(Rule::Aim(Aim { start: Start::Next, extent, align, .. })) => (extent, align, before),
+      Some(Rule::Aim(Aim { start: Start::Next(_), extent, align, .. })) => (extent, align, before),
       _ => (Extent::Rest, 1, before),
     }
   };
@@ -1791,7 +1781,7 @@ pub const fn sized_as<P: ?Sized + Pun>(size: usize) -> Option<usize> {
 /// The caller must ensure that `base` is valid for reads of the `size` bytes of a `T`, which are
 /// within the bytes of `input`, and that the bytes that its rules read are initialized.
 #[cfg_attr(not(debug_assertions), inline(always))]
-pub const unsafe fn stored_at<T: ?Sized + Pun, L: Rules>(
+const unsafe fn stored_at<T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   size: usize,
   input: &Input,
@@ -2219,7 +2209,7 @@ pub const unsafe fn region_at<T: ?Sized + Pun, L: Rules>(
 ) -> Step {
   const { assert!(listed::<T, T::Rules>(0), "not the rules of the struct") };
   let next =
-    const { matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Next, .. }))) };
+    const { matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Next(_), .. }))) };
   assert!(L::RULE != usize::MAX, "no such aim");
   let cursor = if next {
     // SAFETY: The requirements of `cursor_step` are those of this call.

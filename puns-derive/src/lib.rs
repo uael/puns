@@ -503,8 +503,8 @@ fn parse_repr(attrs: &[Attribute]) -> Result<Repr> {
 /// When the pointee of an aim is checked: what an aim of either option starts with, `eager` or
 /// `lazy`, before its name.
 ///
-/// An aim without `eager` or `lazy` is checked as its option says: a `pointer` with the struct, and
-/// a region when it is read ([`Prefix::is_eager`]).
+/// A region without `eager` or `lazy` is checked when it is read ([`Prefix::is_eager`]). A pointer
+/// is checked with the struct: it may say `eager`, and `lazy` is refused ([`AimOption`]).
 struct Prefix {
   /// `Some(true)` for `eager`, `Some(false)` for `lazy`, `None` for neither.
   check: Option<bool>,
@@ -568,9 +568,6 @@ impl Parse for Region {
 /// Whether a region is eager unless it says `lazy` or `eager`: no, it is checked when it is read.
 const REGION_EAGER: bool = false;
 
-/// Whether a pointer is eager unless it says `lazy` or `eager`: yes, it is checked with the struct.
-const POINTER_EAGER: bool = true;
-
 impl Region {
   /// Returns whether the region is eager ([`REGION_EAGER`]).
   const fn eager(&self) -> bool {
@@ -593,13 +590,13 @@ impl Parse for TagOption {
 }
 
 /// The aim of `#[pun(pointer(..))]`: `name: Type = EXPR` or `Type = EXPR`, the name of the methods
-/// that read the pointee, if any, its type and where it is, after the [`Prefix`] of its aim, then
+/// that read the pointee, if any, its type and where it is, after `eager` if it says so, then
 /// `, len = EXPR` for an unsized pointee of a given length, `, size = EXPR` for a pointee of a
 /// given size in bytes, or `, size = ..` for one that takes the rest of the tail of the struct.
 /// Without `= EXPR`, the pointee is as far from the start of the struct as the integer of the field
-/// says, as its layout says (`start`).
+/// says, as its layout says (`start`). A pointer is eager: `lazy` is refused, since a pointee at a
+/// stored place is checked with the struct (`layout::Start::Stored`).
 struct AimOption {
-  prefix: Prefix,
   name: Option<Ident>,
   pointee: Type,
   start: Option<Expr>,
@@ -607,11 +604,6 @@ struct AimOption {
 }
 
 impl AimOption {
-  /// Returns whether the aim is eager ([`POINTER_EAGER`]).
-  const fn eager(&self) -> bool {
-    self.prefix.is_eager(POINTER_EAGER)
-  }
-
   /// Returns where the pointee is from the start of the struct whose field `member` has the aim:
   /// its expression, or the integer of the field, as its layout says, under a cast that
   /// sign-extends a signed one. The cast has the span of the field, so that a refusal of the cast
@@ -641,7 +633,7 @@ fn is_self(expr: &Expr) -> bool {
 
 /// Returns whether the identifier that `input` starts with is the keyword `word` before what
 /// follows it, rather than a name, which a `:`, a `=`, a `,` or nothing follows, or the start of a
-/// path, which a `::` follows: `lazy [u8] = ..`, `eager mut name: u8` and `lazy <T as X>::P = ..`
+/// path, which a `::` follows: `eager [u8] = ..`, `lazy mut name: u8` and `eager <T as X>::P = ..`
 /// start with a keyword, `lazy: u8 = ..` and `regions(eager, rest)` with a name.
 fn keyword(input: ParseStream, word: &str) -> bool {
   let after = input.fork();
@@ -654,7 +646,15 @@ fn keyword(input: ParseStream, word: &str) -> bool {
 
 impl Parse for AimOption {
   fn parse(input: ParseStream) -> Result<Self> {
-    let prefix = input.parse()?;
+    if keyword(input, "lazy") {
+      return Err(Error::new(
+        input.span(),
+        "a `pointer` is eager: its pointee is checked with the struct, since nothing but the \
+         bytes that hold the struct bounds where it is. A region at the cursor may be `lazy`",
+      ));
+    }
+    // `eager` says what a pointer is anyway.
+    input.parse::<Prefix>()?;
     // A name is an identifier then one colon, where a type may start with an identifier then two.
     let name = if input.peek(Ident) && input.peek2(Token![:]) && !input.peek2(Token![::]) {
       let name = input.parse()?;
@@ -691,7 +691,7 @@ impl Parse for AimOption {
     } else {
       AimSize::Pointee
     };
-    Ok(Self { prefix, name, pointee, start, size })
+    Ok(Self { name, pointee, start, size })
   }
 }
 
@@ -2120,17 +2120,25 @@ fn in_place(ty: &Type, root: &TokenStream) -> Type {
 }
 
 /// Returns whether a field with `options` holds an eager aim, and is then an `InPlace<T>`: the
-/// field of an eager `pointer`, or the field of regions of which one is eager.
+/// field of a `pointer`, which is eager, or the field of regions of which one is eager.
 fn in_place_field(options: &Options) -> bool {
-  options.pointer.as_ref().is_some_and(AimOption::eager)
-    || options.regions.iter().flatten().any(Region::eager)
+  options.pointer.is_some() || options.regions.iter().flatten().any(Region::eager)
 }
 
-/// Returns the rule of an aim at a `pointee` that a struct declares, at the place that `start`
-/// gives (`Stored(start)`), or at the cursor (`Next`) without one, as large as `size` says, checked
-/// with the struct if `eager`, and the steps of its two expressions, where its pointee is and how
-/// large it is ([`steps`]). `#[pun(pointer(..))]` gives a start, and `#[pun(regions(..))]` none: both are
-/// one rule, written here.
+/// Where the pointee of an aim is, as `layout::Start` says: at the place that an expression gives,
+/// checked with the struct, or at the cursor, checked with the struct if `eager`.
+#[derive(Clone, Copy)]
+enum AimStart<'a> {
+  /// `#[pun(pointer(..))]`.
+  Stored(&'a Expr),
+  /// `#[pun(regions(..))]`.
+  Next { eager: bool },
+}
+
+/// Returns the rule of an aim at a `pointee` that a struct declares, where `start` says, as large
+/// as `size` says, and the steps of its two expressions, where its pointee is and how large it is
+/// ([`steps`]). `#[pun(pointer(..))]` gives a stored start, and `#[pun(regions(..))]` the cursor:
+/// both are one rule, written here.
 ///
 /// The type is written in the rule and in the list of the rules (`Pun::Rules`), in the one
 /// implementation, where it names one type, and `validate::listed` compares the two.
@@ -2140,8 +2148,7 @@ fn in_place_field(options: &Options) -> bool {
 /// Returns an error if an expression does not compile.
 fn aim_rule(
   pointee: &TokenStream,
-  (start, size): (Option<&Expr>, &AimSize),
-  eager: bool,
+  (start, size): (AimStart, &AimSize),
   fields: &[FieldInfo],
   root: &TokenStream,
 ) -> Result<(TokenStream, TokenStream, TokenStream)> {
@@ -2153,11 +2160,12 @@ fn aim_rule(
     Ok((quote!(const { #ops }), steps))
   };
   let (start, start_steps) = match start {
-    Some(start) => {
+    AimStart::Stored(start) => {
       let (ops, steps) = expression(start)?;
       (quote!(Stored(#ops)), steps)
     }
-    None => (quote!(Next), quote!(())),
+    AimStart::Next { eager: true } => (quote!(Next(#layout::Check::Eager)), quote!(())),
+    AimStart::Next { eager: false } => (quote!(Next(#layout::Check::Lazy)), quote!(())),
   };
   let (extent, extent_steps) = match size {
     AimSize::Pointee => (quote!(Pointee), quote!(())),
@@ -2171,24 +2179,18 @@ fn aim_rule(
       (quote!(Bytes(#ops)), steps)
     }
   };
-  let check = if eager { quote!(Eager) } else { quote!(Lazy) };
   let rule = quote!(#layout::Rule::Aim(#layout::Aim::new::<#pointee>(
     #layout::Start::#start,
     #layout::Extent::#extent,
-    #layout::Check::#check,
   )));
   Ok((rule, start_steps, extent_steps))
 }
 
-/// How the pointee of an aim is read, which follows from where it is, when it is checked, and its
-/// type.
+/// How the pointee of an aim is read, which follows from when it is checked, and its type.
 #[derive(Clone, Copy)]
 enum Read {
   /// An eager aim: `name(&self)`, safe.
   Eager,
-  /// A lazy aim at a stored place: `name(&self, bytes)`, which checks the pointee in the bytes
-  /// that it is given, since a reference to the value covers only its own.
-  Stored,
   /// A lazy region with a type: `name(&self)`, which checks the pointee in the bytes of the value.
   Region,
   /// A lazy region without a type: `name(&self)`, its bytes.
@@ -2239,28 +2241,6 @@ fn read_aim(
         #[inline]
         #vis const fn #name(&self) -> ::core::result::Result<&#value, #root::Error> {
           #root::region_as::<Self, #item>(self)
-        }
-      }
-    }
-    Read::Stored => {
-      let doc = format!(
-        "Returns the pointee of the aim `{name}`, where the value points in `bytes`, which hold \
-         it, checked as `puns::from_bytes` checks bytes, with the pointees of its eager aims in \
-         `bytes`.\n\n# Errors\n\nIf the value is not in `bytes`, if the pointee is not within \
-         them, and the errors of `puns::from_bytes` on its bytes.\n\n# Compile-time errors\n\n\
-         A call compiles only under the compile-time conditions of `puns::from_bytes` for the \
-         pointee. Const evaluation cannot read the addresses of the value and of `bytes` to tell \
-         whether one is within the other, so a call that is evaluated at compile time does not \
-         compile."
-      );
-      quote! {
-        #[doc = #doc]
-        #[inline]
-        #vis const fn #name<'a>(
-          &self,
-          bytes: &'a [::core::primitive::u8],
-        ) -> ::core::result::Result<&'a #value, #root::Error> {
-          #root::aim_in::<Self, #item>(self, bytes)
         }
       }
     }
@@ -2575,21 +2555,17 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     let last = i + 1 == count;
     if let Some(pointer) = &field.options.pointer {
       let pointee = pointer.pointee.to_token_stream();
-      let eager = pointer.eager();
       let start = pointer.start(&field.member);
       let (aim, start, extent) =
-        aim_rule(&pointee, (Some(&start), &pointer.size), eager, &fields, &root)?;
+        aim_rule(&pointee, (AimStart::Stored(&start), &pointer.size), &fields, &root)?;
       let index = rules.len();
       let read_item = item(listed.len());
       listed.push((index, start, Some(pointee.clone()), extent));
       rules.push(aim);
       has_aims = true;
       if let Some(name) = &pointer.name {
-        let read = if eager { Read::Eager } else { Read::Stored };
-        if eager {
-          named_aims.push((name, read_item.clone(), field.vis));
-        }
-        accessors.push(read_aim((name, &pointee, &read_item), read, field.vis, &root));
+        named_aims.push((name, read_item.clone(), field.vis));
+        accessors.push(read_aim((name, &pointee, &read_item), Read::Eager, field.vis, &root));
       }
     }
     if let Some(len) = &field.options.len {
@@ -2618,7 +2594,8 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
           None => AimSize::Pointee,
         };
         let eager = region.eager();
-        let (aim, start, extent) = aim_rule(&pointee, (None, &size), eager, &fields, &root)?;
+        let (aim, start, extent) =
+          aim_rule(&pointee, (AimStart::Next { eager }, &size), &fields, &root)?;
         let read_item = item(listed.len());
         listed.push((rules.len(), start, Some(pointee.clone()), extent));
         rules.push(aim);
