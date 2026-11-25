@@ -242,6 +242,23 @@ jobs:
           key: msrv
       - run: cargo build -p puns --examples
 
+  # A host whose C library gives no arguments to the `std` of a library: musl. The derive, a library
+  # in `rustc`, reads them from `/proc/self/cmdline` there, and the identity of a derived type (the
+  # unit tests of `puns`) depends on them. The toolchain of the image is the musl one.
+  musl:
+    name: Linux with musl
+    runs-on: ubuntu-latest
+    container: rust:1.100.0-alpine
+    steps:
+      # What the cache action needs, which Alpine does not have.
+      - run: apk add --no-cache bash tar zstd
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: musl
+      - run: cargo test -p puns --lib -- two_types_at_one_place_are_two
+      - run: cargo test -p puns-derive --lib
+
   no_std:
     name: No std
     runs-on: ubuntu-latest
