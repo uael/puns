@@ -1974,33 +1974,6 @@ pub use thin::{Metadata, Pointee, Thin};
 pub use validate::{AIM_PARTS, Pending};
 use validate::{Checks, Input, validate};
 
-/// Where the type `$name` is declared, its name, and `$n`, the number of the derive in its crate,
-/// as its identity (`layout::Id`), for `#[derive(Pun)]`, which names `core` through this crate (a
-/// crate may have another `core`). The place is the outermost macro call that declares the type,
-/// which may declare two (one in each of two functions), and the number tells them apart.
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __site {
-  ($name:ident, $n:literal) => {
-    $crate::__core::concat!(
-      $crate::__core::module_path!(),
-      "::",
-      $crate::__core::stringify!($name),
-      "@",
-      $crate::__core::file!(),
-      ":",
-      $crate::__core::line!(),
-      ":",
-      $crate::__core::column!(),
-      "#",
-      $n
-    )
-  };
-}
-
-#[doc(hidden)]
-pub use core as __core;
-
 // -------------------------------------------------------------------------------------------------
 // Traits
 

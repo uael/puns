@@ -23,11 +23,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The unit tests, the doc tests (README included).
+          # The unit tests (those of the derive read the arguments of `rustc`), the doc tests
+          # (README included).
           - name: library, docs
             id: library
             run: |
               cargo test -p puns --lib
+              cargo test -p puns-derive --lib
               cargo test --workspace --exclude puns-model --doc
           # Apart: trybuild builds each program, about twenty seconds of each half (the two tests
           # of `compile_fail.rs`). The cases of `compile-fail-kept`: the refusals and their
