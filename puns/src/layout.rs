@@ -4254,6 +4254,56 @@ impl Layout {
     self.holds_eager(false)
   }
 
+  /// Returns the most eager aims ([`Check::Eager`]) that a value of the layout holds, at any depth:
+  /// those of a struct and of its fields, of the variant that holds the most, and of each element
+  /// of an array, and [`usize::MAX`] for a slice whose elements hold one.
+  pub(crate) const fn most_eager_aims(&self) -> usize {
+    // An aim is a rule, which is a leaf.
+    if self.leaves == 0 {
+      return 0;
+    }
+    match self.kind {
+      Kind::Scalar(_) | Kind::Pattern(_) => 0,
+      Kind::Array(elem, len) => elem.most_eager_aims().saturating_mul(len),
+      Kind::Slice(elem) => {
+        if elem.most_eager_aims() == 0 {
+          0
+        } else {
+          usize::MAX
+        }
+      }
+      Kind::Struct(fields, rules) => {
+        let mut aims = 0usize;
+        let mut i = 0;
+        while i < rules.len() {
+          if let Some(aim) = rules[i].aim()
+            && matches!(aim.check, Check::Eager)
+          {
+            aims = aims.saturating_add(1);
+          }
+          i += 1;
+        }
+        let mut i = 0;
+        while i < fields.len() {
+          aims = aims.saturating_add(fields[i].layout.most_eager_aims());
+          i += 1;
+        }
+        aims
+      }
+      Kind::Enum(layout) => {
+        let (mut most, mut i) = (0, 0);
+        while i < layout.variants.len() {
+          let aims = layout.variants[i].layout.most_eager_aims();
+          if aims > most {
+            most = aims;
+          }
+          i += 1;
+        }
+        most
+      }
+    }
+  }
+
   /// Returns whether a struct of the layout, at any depth, has an eager aim
   /// ([`Check::Eager`]), and, if `unidentified`, one whose pointee has no identity, which nothing
   /// proves ([`Aim::equals`]). The variants of an enum count, and the elements of an array or a

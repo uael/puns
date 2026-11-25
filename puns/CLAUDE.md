@@ -144,18 +144,26 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   as an `M` that ends with the length, at which the pointer points, and nothing for a sized `T`
   (`Metadata::Stored`). `Pun::Metadata` is a sealed `Metadata`, `()` exactly when the layout is
   sized (`Layout::measured` asserts it of every struct).
-- The functions that check in place (`from_head` and the others) check, in one pass, a pointee
-  whose type holds an eager aim and has an identity in a loop of its type (`validate::run`), not
-  within the check of the struct whose aim leads to it: the first in a register, the others in 64
-  entries in the frame of the first loop, one above another, and one whose type has a loop lower
-  on the path is put on top of the entries of that loop (`Loops::wait_below`). So the frames are
-  one for each type on the path, in `const` too, whatever the data. What a loop does not take (its
-  values, the pointees without an eager aim or an identity, those past the entries) is checked in
-  place, a recursion that the parts of the layouts bound (`AIM_PARTS`, `Layout::parts`), and
-  `Error::Limit` is where that nests too deep. Leaves are checked with `All` whatever the loop
-  (`validate::check_whole`), so that they have one instance. Optimized, the first loop is inlined
-  into the function that holds the `Input` (`validate::start`), whose fields then stay in
-  registers across the calls of the check: `benches/checks.rs` times it, with wide and deep data.
+- The functions that check in place (`from_head` and the others) check a pointee in place, nested
+  in the check of the struct whose aim leads to it, as a check without loops does, and in one pass
+  hand a pointee whose type holds an eager aim and has an identity over to a loop of its type
+  (`validate::run`, `validate::check_value`): where its parts are not left (`AIM_PARTS`), and where
+  it is a link of a chain nested in a value of its type past `IN_PLACE` parts, so that a `const`
+  check of a chain stays within 128 frames. Such a pointee is checked in place with
+  `validate::InPlace`, which tells that a pointee of its type is nested in it. So data that the
+  check in place takes is checked as before, at its speed. In the value of a loop, every such
+  pointee waits for a loop: the first in a register, the others in 64 entries in the frame of the
+  first loop, one above another, and one whose type has a loop lower on the path is put below the
+  entries of that loop (`Loops::wait_below`). So the frames are one for each type on the path,
+  whatever the data. What a loop does not take (its values, the pointees without an eager aim or
+  an identity, those past the entries) is checked in place, a recursion that the parts of the
+  layouts bound (`AIM_PARTS` again in the loops, `Layout::parts`), and `Error::Limit` is where that
+  nests too deep. Leaves are checked with `All` (`validate::check_whole`), so that they have one
+  instance. Whether a loop runs is a constant of the checks (`Checks::LOOP`), so that a check in
+  place holds no code of the loops, and the first loop is never inlined (`validate::start`), so
+  that a check that takes no loop holds neither its entries nor a copy of its `Input`:
+  `benches/checks.rs` times it, with wide and deep data. A loop takes two pointees for one type
+  where a proof of an aim does (`PointeeType`, `Aim::equals`): an identity, a size and an alignment.
   So the stack does not depend on the bytes, and stays within what an embedded target has:
   `AIM_PARTS` holds the one statement of the measured figures and how they were measured. Each
   part nests a few calls of the validation, and `tests/aims.rs` runs data of each shape past

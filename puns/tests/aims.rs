@@ -122,8 +122,8 @@ const LONG: usize = if cfg!(miri) { 40 } else { 100_000 };
 
 #[test]
 fn a_chain_is_followed_at_any_depth_on_a_small_stack() {
-  // The loop of pairs of `from_head` takes the next pair of each, so its stack does not grow with
-  // the chain.
+  // Past the pairs that `from_head` checks in place, its loop of pairs takes the next pair of
+  // each, so its stack does not grow with the chain.
   let results = on_a_small_stack(|| {
     let read = |n: usize| {
       let image = chain(n).aligned();
@@ -323,8 +323,8 @@ fn json_list(image: &mut Image, at: usize, kind: u8, n: usize) -> usize {
 }
 
 /// `[{"k": {"k": null}, "k": {"k": null}, "k": [..]}]`, `n` levels of arrays and objects in turn,
-/// the first at 0. In the check with loops, the array of each object waits for the loop of arrays,
-/// below the loop of objects, after the second object waits above it.
+/// the first at 0. Past the levels that the check takes in place, an object waits for the loop of
+/// objects, below the second object of the object before it, and an array for the loop of arrays.
 fn json(n: usize) -> Image {
   let mut image = Image::new();
   let mut at = image.reserve(size_of::<Json>(), 4);
@@ -485,8 +485,9 @@ const fn chain_rest(bytes: &[u8]) -> Result<usize, Error> {
   }
 }
 
-/// The check of the list when compiling: `from_head` is a `const fn`, and its loop of links nests no
-/// frame for each link, so the evaluation stays within the frames that Rust allows by default.
+/// The check of the list when compiling: `from_head` is a `const fn`, and past the links that it
+/// checks in place (`IN_PLACE`), its loop of links nests no frame for each link, so the evaluation
+/// stays within the frames that Rust allows by default.
 const LIST: Result<usize, Error> = chain_rest(&LINKS);
 
 /// The same list, whose last link points back at the first: a cycle.
@@ -505,6 +506,9 @@ const CYCLE: Result<usize, Error> = {
 fn a_deep_list_is_checked_when_compiling() {
   assert_eq!(LIST, Ok(6_006 - size_of::<Chain>()));
   assert_eq!(CYCLE, Err(Error::Limit));
+  // The same checks when running, which hand a link of the chain over to its loop from the check
+  // in place of a link.
+  assert_eq!(chain_rest(core::hint::black_box(&LINKS)), LIST);
 }
 
 /// The value of an expression, in `image`.

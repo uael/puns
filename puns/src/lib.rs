@@ -634,12 +634,12 @@
 //!   pointee must be within them, aligned for its type, of a size that its type has, and every part
 //!   of it is checked, what it stores before its value first, its own eager aims included, one
 //!   level deeper. A pointee may be before the struct, and may be shared by several aims. These
-//!   functions check the pointees of a type that points at itself, in one pass, with a loop for
-//!   each type of pointee, so that their stack does not grow with the data, in a `const` too, and
-//!   is small enough for an embedded target ([`AIM_PARTS`] says how much). They stop with
-//!   [`Error::Limit`] past pointees of twice as many bytes as they read, so that a check of a cycle
-//!   ends, and where the loops cannot take the pointees that wait ([`AIM_PARTS`] says when). They
-//!   allocate nothing.
+//!   functions check the pointees of a type that points at itself in place, and, in the same pass,
+//!   hand the deeper ones over to a loop for each type of pointee, so that their stack does not
+//!   grow with the data, in a `const` too, and is small enough for an embedded target
+//!   ([`AIM_PARTS`] says how much). They stop with [`Error::Limit`] past pointees of twice as many
+//!   bytes as they read, so that a check of a cycle ends, and where the loops cannot take the
+//!   pointees that wait ([`AIM_PARTS`] says when). They allocate nothing.
 //! - [`check`] and [`check_compact`] check bytes for a value at any depth, with a stack that does
 //!   not grow with the data: the pointees wait in a [`Worklist`] that the caller gives, each value
 //!   before its pointees, depth first. They make no reference, so the bytes may be at any address,
