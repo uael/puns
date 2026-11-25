@@ -34,8 +34,8 @@ fn leb128() {
   let (field, rest) = from_head::<Delimited>(&bytes).unwrap();
   assert_eq!((field.bytes.len(), rest), (134, &[9][..]));
   // Not of wire type 2, or a length that is not over.
-  assert_eq!(from_head::<Delimited>(b"\x08\x03abc").err(), Some(Error::Validity));
-  assert_eq!(from_head::<Delimited>(b"\x0a\x83").err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Delimited>(b"\x08\x03abc"), Err(Error::Validity { .. })));
+  assert!(matches!(from_head::<Delimited>(b"\x0a\x83"), Err(Error::Validity { .. })));
 
   let (packet, rest) = from_head::<Mqtt>(&[0x30, 2, 1, 2, 3]).unwrap();
   assert_eq!((&packet.rest, rest), (&[2, 1, 2][..], &[3][..]));
@@ -64,12 +64,12 @@ fn leb128_of_more_than_128_bits() {
   assert_eq!(from_head::<Leb128>(&bytes).map(|(value, _)| value.bytes.len()), Ok(19));
   // A third bit in the 19th byte.
   *bytes.last_mut().unwrap() = 0x04;
-  assert_eq!(from_head::<Leb128>(&bytes).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Leb128>(&bytes), Err(Error::Validity { .. })));
   // A 20th byte, whatever it holds, and even after bytes of no bits.
   for last in [0x00, 0x01] {
     let mut bytes = vec![0x80; 19];
     bytes.push(last);
-    assert_eq!(from_head::<Leb128>(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(from_head::<Leb128>(&bytes), Err(Error::Validity { .. })));
   }
 }
 

@@ -464,7 +464,7 @@ pub fn main() {
   for at in [0, 1, 10, 30, 43] {
     let mut bytes = MESH_DATA;
     bytes[at] ^= 0x04;
-    assert_eq!(try_pun_ref::<_, DataFrame>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, DataFrame>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // Information elements, which fill a beacon.
   let beacon: &Beacon = try_pun_ref(&BEACON[..]).unwrap();
@@ -476,14 +476,14 @@ pub fn main() {
   let mut bytes = BEACON[..46].to_vec();
   bytes[37] = 5;
   bytes.extend(puns::crc32(&bytes).to_le_bytes());
-  assert_eq!(try_pun_ref::<_, Beacon>(&bytes[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Beacon>(&bytes[..]), Err(Error::Validity { .. })));
   // An SSID of 33 bytes.
   let long = [&[0, 33][..], &[b'x'; 33]].concat();
-  assert_eq!(try_pun_ref::<_, Ssid>(&long[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Ssid>(&long[..]), Err(Error::Validity { .. })));
   assert!(try_pun_ref::<_, Ack>(&ACK[..]).is_ok());
   let mut bytes = ACK;
   bytes[5] = 0;
-  assert_eq!(try_pun_ref::<_, Ack>(&bytes[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Ack>(&bytes[..]), Err(Error::Validity { .. })));
 
   // ---- Bluetooth: packets distinguished by their indicator.
   let (packet, rest) = Packet::from_head(&HCI).unwrap();
@@ -511,9 +511,9 @@ pub fn main() {
   for (at, value) in [(16, 4), (13, 0x30), (18, 0)] {
     let mut bytes = HCI;
     bytes[at] = value;
-    assert_eq!(Packet::from_bytes(&bytes[11..]).err(), Some(Error::Validity));
+    assert!(matches!(Packet::from_bytes(&bytes[11..]), Err(Error::Validity { .. })));
   }
-  assert_eq!(Packet::from_bytes(&[0x05, 0, 0, 0]).err(), Some(Error::Validity));
+  assert!(matches!(Packet::from_bytes(&[0x05, 0, 0, 0]), Err(Error::Validity { .. })));
 
   // ---- CAN: flags and an identifier in a word, a length of 0 to 8.
   let can: &CanFrame = try_pun_ref(&CAN).unwrap();
@@ -523,7 +523,7 @@ pub fn main() {
   for (at, value) in [(4, 9), (1, 0x08), (7, 9)] {
     let mut bytes = CAN;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, CanFrame>(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, CanFrame>(&bytes), Err(Error::Validity { .. })));
   }
   // Extended: 29 bits.
   let mut extended = CAN;
@@ -538,10 +538,10 @@ pub fn main() {
   let frame: &CanFdFrame = try_pun_ref(&fd).unwrap();
   assert_eq!((frame.len, frame.bit_rate_switch()), (48, true));
   fd[4] = 40;
-  assert_eq!(try_pun_ref::<_, CanFdFrame>(&fd).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, CanFdFrame>(&fd), Err(Error::Validity { .. })));
   fd[4] = 48;
   fd[3] = 0x40;
-  assert_eq!(try_pun_ref::<_, CanFdFrame>(&fd).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, CanFdFrame>(&fd), Err(Error::Validity { .. })));
 
   // ---- Modbus RTU: a CRC-16 over the frame.
   let frame: &RtuFrame = try_pun_ref(&READ[..]).unwrap();
@@ -556,7 +556,7 @@ pub fn main() {
     for bit in 0..8 {
       let mut bytes = READ;
       bytes[at] ^= 1 << bit;
-      assert_eq!(try_pun_ref::<_, RtuFrame>(&bytes[..]).err(), Some(Error::Validity));
+      assert!(matches!(try_pun_ref::<_, RtuFrame>(&bytes[..]), Err(Error::Validity { .. })));
     }
   }
   let frame: &RtuFrame = try_pun_ref(&REGISTERS[..]).unwrap();
@@ -568,8 +568,8 @@ pub fn main() {
   largest.extend(0x454f_u16.to_le_bytes());
   assert!(try_pun_ref::<_, RtuFrame>(&largest[..]).is_ok());
   largest.insert(0, 1);
-  assert_eq!(try_pun_ref::<_, RtuFrame>(&largest[..]).err(), Some(Error::Validity));
-  assert_eq!(try_pun_ref::<_, RtuFrame>(&READ[..3]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, RtuFrame>(&largest[..]), Err(Error::Validity { .. })));
+  assert!(matches!(try_pun_ref::<_, RtuFrame>(&READ[..3]), Err(Error::Validity { .. })));
 
   // ---- Modbus TCP: a header, then the same PDU.
   let (adu, rest) = from_head::<TcpAdu>(&ADU).unwrap();
@@ -577,7 +577,8 @@ pub fn main() {
   let request: &ReadHoldingRegisters = try_pun_ref(&adu.data).unwrap();
   assert_eq!((request.start.get(), request.count.get()), (0x6b, 3));
   // A protocol identifier; a length below 2; a length beyond the bytes.
-  for (at, value, error) in [(3, 1, Error::Validity), (5, 1, Error::Validity), (5, 9, Error::Size)]
+  for (at, value, error) in
+    [(3, 1, Error::Validity { at: 2 }), (5, 1, Error::Validity { at: 0 }), (5, 9, Error::Size)]
   {
     let mut bytes = ADU;
     bytes[at] = value;
@@ -587,7 +588,7 @@ pub fn main() {
   let mut bytes = ADU;
   bytes[11] = 0;
   let (adu, _) = from_head::<TcpAdu>(&bytes).unwrap();
-  assert_eq!(try_pun_ref::<_, ReadHoldingRegisters>(&adu.data).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, ReadHoldingRegisters>(&adu.data), Err(Error::Validity { .. })));
 
   // ---- SLIP and PPP: escaped frames.
   assert!(try_pun_ref::<_, Slip>(&SLIP[..]).is_ok());
@@ -595,15 +596,15 @@ pub fn main() {
   for (at, value) in [(2, 0xc0), (2, 0x01), (7, 0x00)] {
     let mut bytes = SLIP;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Slip>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Slip>(&bytes[..]), Err(Error::Validity { .. })));
   }
-  assert_eq!(try_pun_ref::<_, Slip>(&[1u8, 0xdb, 0xc0][..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Slip>(&[1u8, 0xdb, 0xc0][..]), Err(Error::Validity { .. })));
   assert!(try_pun_ref::<_, Ppp>(&LCP[..]).is_ok());
   // An address; a flag inside.
   for (at, value) in [(1, 0xfe), (5, 0x7e)] {
     let mut bytes = LCP;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Ppp>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Ppp>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // A corrupted FCS is not seen: the FCS is over the unescaped bytes.
   let mut bytes = LCP;

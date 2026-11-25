@@ -242,19 +242,19 @@ pub fn main() {
   let mut bytes = WAVE;
   bytes[28] = 1;
   let (file, _) = from_head::<Wave>(&bytes).unwrap();
-  assert_eq!(
-    from_head::<Chunk<Format>>(&file.chunks).unwrap().0.data().err(),
-    Some(Error::Validity)
-  );
+  assert!(matches!(
+    from_head::<Chunk<Format>>(&file.chunks).unwrap().0.data(),
+    Err(Error::Validity { .. })
+  ));
   // Data of 7 bytes (and padded): not whole frames.
   let mut bytes = WAVE.to_vec();
   bytes[52] = 7;
-  assert_eq!(from_head::<Wave>(&bytes).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Wave>(&bytes), Err(Error::Validity { .. })));
   // A chunk that extends beyond the file; "fmt " not first; not RIFF; a RIFF size beyond the bytes.
   for (at, value, error) in [
-    (40, 9, Error::Validity),
-    (12, b'g', Error::Validity),
-    (0, b'r', Error::Validity),
+    (40, 9, Error::Validity { at: 0 }),
+    (12, b'g', Error::Validity { at: 0 }),
+    (0, b'r', Error::Validity { at: 0 }),
     (4, 0x39, Error::Size),
   ] {
     let mut bytes = WAVE;
@@ -288,7 +288,7 @@ pub fn main() {
   assert!(AnyBox::from_head(&[0, 0, 0, 7, b'f', b'r', b'e', b'e']).is_err());
   let short = [&[0, 0, 0, 1][..], b"mdat", &15u64.to_be_bytes(), &[0; 8]].concat();
   assert!(AnyBox::from_head(&short).is_err());
-  assert_eq!(from_head::<Box32<FileType>>(&MP4[24..]).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Box32<FileType>>(&MP4[24..]), Err(Error::Validity { .. })));
   // A movie header, version 0: one minute at 1000 units a second.
   let mut header = [
     &[0, 0, 0, 108][..],
@@ -303,11 +303,11 @@ pub fn main() {
   assert_eq!((movie.payload.timescale.get(), movie.payload.seconds()), (1000, 60));
   // Version 1 (its times are of 64 bits: another struct); a timescale of 0.
   header[8] = 1;
-  assert_eq!(from_head::<Box32<MovieHeader>>(&header).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Box32<MovieHeader>>(&header), Err(Error::Validity { .. })));
   header[8] = 0;
   header[23] = 0;
   header[22] = 0;
-  assert_eq!(from_head::<Box32<MovieHeader>>(&header).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Box32<MovieHeader>>(&header), Err(Error::Validity { .. })));
 
   println!("ok");
 }

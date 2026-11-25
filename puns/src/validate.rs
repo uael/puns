@@ -51,6 +51,22 @@
 //! so it never waits, which would give it a window without a claim. The pointee of a shared aim is
 //! checked with [`Shared`], under which nothing is claimed and nothing waits.
 //!
+//! # Where a check fails
+//!
+//! A check returns where it found a part that is not valid, as its address, or null if every part
+//! that it checks is valid ([`Fault`]): a scalar, a pattern, an enum whose tag is the tag of no
+//! variant, a union none of whose fields fits, a struct one of whose rules does not hold or one of
+//! whose aims leads to no pointee that fits (out of the bytes, not aligned, of no size of its type,
+//! or before the end of the claims), or a pointee whose own pointees end past its window. Where a
+//! variant, a field or a pointee is not valid, it is the part within it that is not. The functions
+//! that check bytes turn the address into the place of [`Error::Validity`]. It is returned, not
+//! written into [`Input`]: a check of a type without eager aims then reads and writes nothing of
+//! `Input`, which the optimizer drops, where a write on each failure made the check of an IPv6
+//! packet build it, 19 instructions more. Elements checked in blocks keep no address, so that a
+//! block has no branch, and a block that fails is checked again one element at a time.
+//!
+//! [`Error::Validity`]: crate::Error::Validity
+//!
 //! # The stack of a check
 //!
 //! A check nests the frames of the validation of each pointee that it checks in place in those of
@@ -201,9 +217,16 @@ impl Checks for Shared {
   type Whole = Self;
 }
 
-/// Returns whether every part of the `T` at `ptr` is valid: [`validate`] with `C::Whole`, as the
-/// check of an enum, a union and a pointee checks them: [`All`], or [`Looped`] or [`InPlace`] in
-/// the value of a pointee.
+/// Where a check failed: the address of the part that is not valid, or null if every part that
+/// it checks is valid ("Where a check fails" in the module documentation).
+pub type Fault = *const u8;
+
+/// No failure: every part that a check checks is valid.
+pub const VALID: Fault = core::ptr::null();
+
+/// Returns where a part of the `T` at `ptr` is not valid ([`Fault`]): [`validate`] with
+/// `C::Whole`, as the check of an enum, a union and a pointee checks them: [`All`], or [`Looped`]
+/// or [`InPlace`] in the value of a pointee.
 ///
 /// # Safety
 ///
@@ -212,13 +235,13 @@ impl Checks for Shared {
 const unsafe fn validate_whole<C: Checks, T: ?Sized + Pun>(
   ptr: *const T,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   // SAFETY: The requirements of `validate` are those of this call, and `C::Whole` marks every
   // part.
   unsafe { validate::<C::Whole, Root, T>(ptr, input) }
 }
 
-/// Returns whether the parts of the `T` at `ptr` that `C` marks are valid.
+/// Returns where a part of the `T` at `ptr` that `C` marks is not valid ([`Fault`]).
 ///
 /// `P` is where `T` is in the target, which tells the indexes of its leaves. Parts that `C` does
 /// not mark are not checked, and their checks are not compiled. An enum and a union are checked
@@ -244,10 +267,12 @@ const unsafe fn validate_whole<C: Checks, T: ?Sized + Pun>(
 pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
   ptr: *const T,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   if const { !C::MARKS.any(P::LEAF, T::LAYOUT.leaves) } {
-    return true;
+    return VALID;
   }
+  // Where a part of `T` itself is not valid: a scalar, a pattern, an enum, a union or a struct.
+  let here = ptr.cast::<u8>();
   // SAFETY: `ptr` is valid for reads of a `T`, and every byte that a marked check reads is
   // initialized, by contract on the caller. A leaf of `T` is marked, since the function did not
   // return above. `T::LAYOUT` is the layout of `T`, and `T::Elem`, `T::Fields` and `T::Variants`
@@ -273,18 +298,30 @@ pub const unsafe fn validate<C: Checks, P: Path, T: ?Sized + Pun>(
   // optimizations ("The stack of a check" in the module documentation).
   unsafe {
     match const { T::LAYOUT.shape() } {
-      Shape::Scalar(_) => validate_scalar::<T>(ptr),
+      Shape::Scalar(_) => fails(validate_scalar::<T>(ptr), here),
       Shape::Array(len) => validate_elems::<C, P, T::Elem>(ptr.cast(), len, input),
       Shape::Slice => validate_elems::<C, P, T::Elem>(ptr.cast(), ptr::metadata(ptr), input),
       Shape::Struct => {
-        validate_fields::<C, P, T, T::Fields>(ptr, input)
-          && (const { !rules_marked::<C, P, T>() } || check_rules::<C, P, T>(ptr, input))
+        let fault = validate_fields::<C, P, T, T::Fields>(ptr, input);
+        if !fault.is_null() || const { !rules_marked::<C, P, T>() } {
+          fault
+        } else {
+          check_rules::<C, P, T>(ptr, input)
+        }
       }
-      Shape::Pattern(_) => validate_pattern::<T>(ptr),
-      Shape::Enum(layout) if layout.union => validate_union::<C, T, T::Variants>(ptr, input),
+      Shape::Pattern(_) => fails(validate_pattern::<T>(ptr), here),
+      Shape::Enum(layout) if layout.union => {
+        fails(validate_union::<C, T, T::Variants>(ptr, input), here)
+      }
       Shape::Enum(_) => validate_enum::<C, T>(ptr, input),
     }
   }
+}
+
+/// Returns [`VALID`] if `valid`, or else `at`, where the part that is not valid is.
+#[cfg_attr(not(debug_assertions), inline(always))]
+const fn fails(valid: bool, at: *const u8) -> Fault {
+  if valid { VALID } else { at }
 }
 
 /// Returns whether the scalar `T` at `ptr` has one of its values.
@@ -340,8 +377,8 @@ const unsafe fn validate_pattern<T: ?Sized + Pun>(ptr: *const T) -> bool {
   }
 }
 
-/// Returns whether the enum at `ptr` has the tag of one of its variants, and the fields of that
-/// variant are valid.
+/// Returns where the enum at `ptr` is not valid ([`Fault`]): the enum, if it has the tag of none
+/// of its variants, or else where the fields of that variant are not.
 ///
 /// Every part of the variant is checked, since nothing is known of what is in an enum.
 ///
@@ -361,7 +398,7 @@ const unsafe fn validate_pattern<T: ?Sized + Pun>(ptr: *const T) -> bool {
 const unsafe fn validate_enum<C: Checks, T: ?Sized + Pun>(
   ptr: *const T,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   // SAFETY: `T` is an enum, by contract on the caller, and its tag is initialized, as `tag_of`
   // requires. What the checks of the fields of the variant of that tag read is initialized, by
   // contract on the caller, as `validate_variants` requires, with `T::Variants` the list of the
@@ -401,11 +438,11 @@ const unsafe fn tag_of<T: ?Sized + Pun>(ptr: *const T) -> u128 {
   unsafe { load(ptr.cast::<u8>().add(offset), size, endian) }
 }
 
-/// Returns whether the variant of tag `tag`, among `V` and the ones after it, has valid fields
-/// in the enum at `ptr`.
+/// Returns where the fields of the variant of tag `tag`, among `V` and the ones after it, are not
+/// valid in the enum at `ptr` ([`Fault`]).
 ///
-/// Returns `false` if no such variant has the tag. A variant whose tag is a range of values (the
-/// variant of a niche) has the tag if `tag` is in that range. Returns `false` too, without reading
+/// Returns the enum if no such variant has the tag. A variant whose tag is a range of values (the
+/// variant of a niche) has the tag if `tag` is in that range. Returns the enum too, without reading
 /// anything, if the variant that has the tag has no value, because one of its fields has none.
 ///
 /// # Safety
@@ -420,9 +457,9 @@ const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
   ptr: *const T,
   tag: u128,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   if const { V::TAG.is_none() } {
-    return false;
+    return ptr.cast();
   }
   let this = has_tag::<V>(tag);
   // SAFETY: `ptr` is valid for reads of a `T`, and `V` is in the list of the variants of `T`, by
@@ -434,7 +471,11 @@ const unsafe fn validate_variants<C: Checks, T: ?Sized + Pun, V: Variants>(
     if this {
       // No value is a variant of which a field has no value, so nothing of it is read. The
       // analysis does not look at such a variant either (`Variant::is_present`).
-      (const { inhabited::<V::Fields>() }) && validate_variant::<C, T, V::Fields>(ptr, input)
+      if const { inhabited::<V::Fields>() } {
+        validate_variant::<C, T, V::Fields>(ptr, input)
+      } else {
+        ptr.cast()
+      }
     } else {
       validate_variants::<C, T, V::Next>(ptr, tag, input)
     }
@@ -454,8 +495,8 @@ const fn has_tag<V: Variants>(tag: u128) -> bool {
   }
 }
 
-/// Returns whether every part of the fields `F` of a variant of the enum at `ptr` is valid:
-/// [`validate_fields`] with `C::Whole`.
+/// Returns where a part of the fields `F` of a variant of the enum at `ptr` is not valid
+/// ([`Fault`]): [`validate_fields`] with `C::Whole`.
 ///
 /// # Safety
 ///
@@ -464,7 +505,7 @@ const fn has_tag<V: Variants>(tag: u128) -> bool {
 const unsafe fn validate_variant<C: Checks, T: ?Sized + Pun, F: Fields>(
   ptr: *const T,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   // SAFETY: The requirements of `validate_fields` are those of this call, and `C::Whole` marks
   // every part.
   unsafe { validate_fields::<C::Whole, Root, T, F>(ptr, input) }
@@ -506,15 +547,17 @@ const unsafe fn validate_union<C: Checks, T: ?Sized + Pun, V: Variants>(
   // call. Nothing is read of a field that has no value, which no bytes are, as in
   // `validate_variants`.
   unsafe {
-    (const { inhabited::<V::Fields>() } && validate_variant::<C, T, V::Fields>(ptr, input))
+    (const { inhabited::<V::Fields>() }
+      && validate_variant::<C, T, V::Fields>(ptr, input).is_null())
       || validate_union::<C, T, V::Next>(ptr, input)
   }
 }
 
-/// Returns whether the parts that `C` marks of the `len` elements at `ptr` are valid.
+/// Returns where a part that `C` marks of the `len` elements at `ptr` is not valid ([`Fault`]).
 ///
 /// Elements whose checks are a few comparisons are checked in blocks of about 64 bytes, without a
-/// branch within a block. The result is the same as one element at a time.
+/// branch within a block, and a block that fails is checked again one element at a time, to find
+/// where. The result is the same as one element at a time.
 ///
 /// # Safety
 ///
@@ -525,23 +568,28 @@ const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(
   ptr: *const T,
   len: usize,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   let mut i = 0;
   // Without a stop within a block, the optimizer can vectorize the checks, which it cannot do in a
   // loop that may stop at each element.
   let block = const { T::LAYOUT.block() };
   if block > 1 {
-    while len - i >= block {
+    // The elements in whole blocks. A bound computed once gave a loop of fewer instructions than
+    // a comparison with what is left of `len`.
+    let blocks = len - len % block;
+    while i < blocks {
       let (mut valid, mut j) = (true, 0);
       while j < block {
-        // SAFETY: `i + j < len`, since `len - i >= block` and `j < block`. `ptr` is valid for
+        // SAFETY: `i + j < len`, since `i < blocks`, both multiples of `block`, so
+        // `i + block <= blocks <= len`, and `j < block`. `ptr` is valid for
         // reads of `len` elements, by contract on the caller, so `add(i + j)` stays within them
         // and points to an element that meets the requirements of `validate`.
-        valid &= unsafe { validate::<C, P, T>(ptr.add(i + j), input) };
+        valid &= unsafe { validate::<C, P, T>(ptr.add(i + j), input) }.is_null();
         j += 1;
       }
       if !valid {
-        return false;
+        // The loop below checks the block again, one element at a time, and finds where.
+        break;
       }
       i += block;
     }
@@ -550,16 +598,17 @@ const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(
     // SAFETY: `i < len`. `ptr` is valid for reads of `len` elements, by contract on the caller,
     // so `add(i)` stays within them and points to an element that meets the requirements of
     // `validate`.
-    if !unsafe { validate::<C, P, T>(ptr.add(i), input) } {
-      return false;
+    let fault = unsafe { validate::<C, P, T>(ptr.add(i), input) };
+    if !fault.is_null() {
+      return fault;
     }
     i += 1;
   }
-  true
+  VALID
 }
 
-/// Returns whether the parts that `C` marks of the field `F` of the `T` at `ptr`, and of the
-/// fields after it, are valid.
+/// Returns where a part that `C` marks of the field `F` of the `T` at `ptr`, or of the fields after
+/// it, is not valid ([`Fault`]).
 ///
 /// A field restricted by `#[pun(valid(..))]` is checked against its restriction, not against its
 /// type.
@@ -579,9 +628,9 @@ const unsafe fn validate_elems<C: Checks, P: Path, T: Pun>(
 const unsafe fn validate_fields<C: Checks, P: Path, T: ?Sized + Pun, F: Fields>(
   ptr: *const T,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   if const { F::FIELD.is_none() } {
-    return true;
+    return VALID;
   }
   // The field as constants: its offset, and whether it is restricted. A copy of `F::FIELD` would be
   // a local of this function, which is on the stack while the field is checked, in a build without
@@ -604,12 +653,16 @@ const unsafe fn validate_fields<C: Checks, P: Path, T: ?Sized + Pun, F: Fields>(
   //   field meets the requirements of `validate`.
   // The requirements of the call for the next fields are those of this call.
   unsafe {
-    let valid = if restricted {
-      validate_restricted::<C, P, T, F>(ptr)
+    let field = ptr::field::<T, F::Type>(ptr, offset);
+    let fault = if restricted {
+      fails(validate_restricted::<C, P, T, F>(ptr), field.cast())
     } else {
-      validate::<C, F::Path<P>, F::Type>(ptr::field::<T, F::Type>(ptr, offset), input)
+      validate::<C, F::Path<P>, F::Type>(field, input)
     };
-    valid && validate_fields::<C, P, T, F::Next>(ptr, input)
+    if !fault.is_null() {
+      return fault;
+    }
+    validate_fields::<C, P, T, F::Next>(ptr, input)
   }
 }
 
@@ -691,8 +744,9 @@ const fn step_needed<C: Checks, P: Path, T: ?Sized + Pun>(r: usize) -> bool {
   false
 }
 
-/// Returns whether the struct at `ptr` meets the rules of the layout of `T` that `C` marks at the
-/// place `P`, and the pointees of those of its eager aims are valid within the bytes of `input`.
+/// Returns where the struct at `ptr` does not meet the rules of the layout of `T` that `C` marks at
+/// the place `P`, or the pointees of those of its eager aims are not valid within the bytes of
+/// `input` ([`Fault`]): the struct, or where a pointee is not valid.
 ///
 /// # Safety
 ///
@@ -715,7 +769,7 @@ const fn step_needed<C: Checks, P: Path, T: ?Sized + Pun>(r: usize) -> bool {
 pub const unsafe fn check_rules<C: Checks, P: Path, T: ?Sized + Pun>(
   ptr: *const T,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   const { RulesOf::<T>::LISTED };
   let (len, tail, size) = tail_of(ptr);
   let head = const { T::LAYOUT.tail_shape().start };
@@ -726,8 +780,9 @@ pub const unsafe fn check_rules<C: Checks, P: Path, T: ?Sized + Pun>(
   unsafe { check_listed::<C, P, T, T::Rules>(ptr.cast(), size, (head, tail), len, 0, input) }
 }
 
-/// Returns whether the struct at `base` meets the rule `L` of `T` and the ones after it, those that
-/// `C` marks at the place `P`.
+/// Returns where the struct at `base` does not meet the rule `L` of `T` or one after it, of those
+/// that `C` marks at the place `P` ([`Fault`]): `base`, or where the pointee of an aim is not
+/// valid.
 ///
 /// The struct is `size` bytes, and its tail is the `tail` bytes from `head`, of `len` elements.
 /// The aims before `L` at the cursor end at `cursor` in the tail. A `size` rule must be `size`, a
@@ -751,9 +806,9 @@ const unsafe fn check_listed<C: Checks, P: Path, T: ?Sized + Pun, L: Rules>(
   len: usize,
   cursor: usize,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   if const { L::RULE == usize::MAX } {
-    return true;
+    return VALID;
   }
   // What the rule is, as constants, which a copy of the rule would be a local of this function,
   // on the stack while a pointee is checked, in a build without optimizations: whether it is an
@@ -774,14 +829,14 @@ const unsafe fn check_listed<C: Checks, P: Path, T: ?Sized + Pun, L: Rules>(
       // SAFETY: The requirements of `cursor_step` are those of this call.
       match unsafe { cursor_step::<T, L, true>(base, size, (head, tail), cursor) } {
         Some(Step { end, .. }) => end,
-        None => return false,
+        None => return base,
       }
     }
   } else if aim {
     // SAFETY: The requirements of `check_aim` are those of this call.
     match unsafe { check_aim::<C, T, L>(base, size, (head, tail), cursor, input) } {
-      Some(cursor) => cursor,
-      None => return false,
+      Ok(cursor) => cursor,
+      Err(fault) => return fault,
     }
   } else {
     {
@@ -790,7 +845,7 @@ const unsafe fn check_listed<C: Checks, P: Path, T: ?Sized + Pun, L: Rules>(
       // bytes that the rule reads are initialized, by contract on the caller. This is what `eval`
       // requires.
       let Some(value) = (unsafe { eval::<InRule<T, L>, L::Expr>(base, size) }) else {
-        return false;
+        return base;
       };
       let holds = match wanted {
         Wanted::Size => value == size as u128,
@@ -798,7 +853,7 @@ const unsafe fn check_listed<C: Checks, P: Path, T: ?Sized + Pun, L: Rules>(
         Wanted::NotZero => value != 0,
       };
       if !holds {
-        return false;
+        return base;
       }
       cursor
     }
@@ -829,7 +884,8 @@ enum Wanted {
 }
 
 /// Returns where the cursor of the tail of the struct `T` at `base` is after the aim `L`, if the
-/// struct meets what the aim requires of it.
+/// struct meets what the aim requires of it, or else where it does not ([`Fault`]): `base`, or
+/// where the pointee is not valid.
 ///
 /// A pointee at the cursor ([`check_next`]) must fit in the tail. The pointee of an eager aim is
 /// checked here ([`check_stored`], [`check_placed`]), and an aim at a stored place is eager.
@@ -844,7 +900,7 @@ const unsafe fn check_aim<C: Checks, T: ?Sized + Pun, L: Rules>(
   (head, tail): (usize, usize),
   cursor: usize,
   input: &mut Input,
-) -> Option<usize> {
+) -> Result<usize, Fault> {
   let next = const {
     let () = AimOf::<T, L>::CHECKED;
     matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Next(_), .. })))
@@ -854,12 +910,14 @@ const unsafe fn check_aim<C: Checks, T: ?Sized + Pun, L: Rules>(
     return unsafe { check_next::<C, T, L>(base, size, (head, tail), cursor, input) };
   }
   // SAFETY: The requirements of `check_stored` are those of this call.
-  if unsafe { check_stored::<C, T, L>(base, size, input) } { Some(cursor) } else { None }
+  let fault = unsafe { check_stored::<C, T, L>(base, size, input) };
+  if fault.is_null() { Ok(cursor) } else { Err(fault) }
 }
 
 /// Returns where the cursor of the tail of the struct `T` at `base` is after the aim at the cursor
 /// `L`, if its pointee fits ([`cursor_step`]), and, if the aim is eager, its pointee is aligned for
-/// its type, has a size that its type has, and is valid ([`check_placed`]).
+/// its type, has a size that its type has, and is valid ([`check_placed`]), or else where it is not
+/// ([`Fault`]): `base`, or where the pointee is not valid.
 ///
 /// It is a function of its own in a build without optimizations, so that the frames of the
 /// recursion of eager aims do not hold what it computes.
@@ -875,7 +933,7 @@ const unsafe fn check_next<C: Checks, T: ?Sized + Pun, L: Rules>(
   (head, tail): (usize, usize),
   cursor: usize,
   input: &mut Input,
-) -> Option<usize> {
+) -> Result<usize, Fault> {
   let (eager, align) = const {
     match T::LAYOUT.rule(L::RULE) {
       Some(Rule::Aim(aim)) => (matches!(aim.check(), Check::Eager), aim.align),
@@ -886,29 +944,30 @@ const unsafe fn check_next<C: Checks, T: ?Sized + Pun, L: Rules>(
   let Some(Step { value, end, len, .. }) =
     (unsafe { cursor_step::<T, L, true>(base, size, (head, tail), cursor) })
   else {
-    return None;
+    return Err(base);
   };
   if !eager {
-    return Some(end);
+    return Ok(end);
   }
   // SAFETY: `value <= head + tail <= size` (`cursor_step`), within the bytes of the `T`.
   let addr = unsafe { base.add(value) };
   // An eager pointee is aligned for its type, which its read relies on, and has a size that its
   // type has.
-  let Some(len) = len else { return None };
+  let Some(len) = len else { return Err(base) };
   if !aligned(addr, align) {
-    return None;
+    return Err(base);
   }
   // SAFETY: The value of the pointee is at `addr` with the length `len`, and its prefix before it,
   // within the bytes of the `T` (`cursor_step`), which are valid for reads and initialized, by
   // contract on the caller, and within those of `input` if the `T` is, as `check_placed` requires.
-  if unsafe { check_placed::<C, L::Pointee>(addr, len, input) } { Some(end) } else { None }
+  let fault = unsafe { check_placed::<C, L::Pointee>(addr, len, input) };
+  if fault.is_null() { Ok(end) } else { Err(fault) }
 }
 
-/// Returns whether the pointee of the eager aim at a stored place `L` of the struct `T` at `base`,
-/// of `size` bytes, is where it must be ([`find_stored`]), and is valid: what is stored before its
-/// value first ([`Pointee::Prefix`]), then its length ([`measure`]), then its value
-/// ([`check_value`]).
+/// Returns where the pointee of the eager aim at a stored place `L` of the struct `T` at `base`, of
+/// `size` bytes, is not where it must be ([`find_stored`]), or not valid ([`Fault`]): `base` where
+/// the aim leads to no pointee that fits, or else what is stored before its value
+/// ([`Pointee::Prefix`]), then its length ([`measure`]), then its value ([`check_value`]).
 ///
 /// # Safety
 ///
@@ -921,28 +980,30 @@ const unsafe fn check_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
   base: *const u8,
   size: usize,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   let before = const { size_of::<<L::Pointee as Pointee>::Prefix>() };
   // SAFETY: The requirements of `find_stored` are those of this call.
   let Some((to, wanted)) = (unsafe { find_stored::<T, L>(base, size, input) }) else {
-    return false;
+    return base;
   };
   // SAFETY: `before <= to <= input.len` (`find_stored`), so `add` stays within the bytes of
   // `input`, in one allocation, and so does `sub`.
   let (addr, start) = unsafe { (input.start.add(to), input.start.add(to - before)) };
-  if before > 0
+  if before > 0 {
     // SAFETY: The `before` bytes of the prefix are at `start`, within the bytes of `input`, which
     // are valid for reads and initialized, as `validate` requires.
-    && !unsafe { validate_whole::<C, <L::Pointee as Pointee>::Prefix>(start.cast(), input) }
-  {
-    return false;
+    let fault =
+      unsafe { validate_whole::<C, <L::Pointee as Pointee>::Prefix>(start.cast(), input) };
+    if !fault.is_null() {
+      return fault;
+    }
   }
   // SAFETY: The `input.len - to` bytes at `addr` are the end of the bytes of `input`, which are
   // valid for reads and initialized, and the prefix of the pointee is before them, as `measure`
   // requires. The size of the value is at most these bytes, so `to + size` does not overflow.
   let Some((Some(len), size)) = (unsafe { measure::<L::Pointee>(wanted, addr, input.len - to) })
   else {
-    return false;
+    return base;
   };
   let (shared, within) = const {
     match T::LAYOUT.rule(L::RULE) {
@@ -962,7 +1023,7 @@ const unsafe fn check_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
     return unsafe { check_value::<C, L::Pointee, false>(addr, (len, size), input) };
   }
   if !input.claim(to - before, to + size) {
-    return false;
+    return base;
   }
   // SAFETY: The value is at `addr` with the length `len`, within the bytes of `input`, which are
   // valid for reads and initialized, as `check_value` requires.
@@ -1007,9 +1068,9 @@ const unsafe fn find_stored<T: ?Sized + Pun, L: Rules>(
   Some((to, wanted))
 }
 
-/// Returns whether the pointee `P` whose value is at `addr`, the length of whose tail is `len`, is
-/// valid: what is stored before its value, then its value ([`check_value`]). The pointee of an
-/// eager aim at the cursor is checked so.
+/// Returns where the pointee `P` whose value is at `addr`, the length of whose tail is `len`, is
+/// not valid ([`Fault`]): what is stored before its value, then its value ([`check_value`]). The
+/// pointee of an eager aim at the cursor is checked so.
 ///
 /// # Safety
 ///
@@ -1020,23 +1081,26 @@ const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
   addr: *const u8,
   len: usize,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   let before = const { size_of::<P::Prefix>() };
   let start = addr.wrapping_sub(before);
-  // SAFETY: The `before` bytes of the prefix are at `start`, within the bytes of `input` or of a
-  // value within them, which are valid for reads and initialized, as `validate` requires.
-  if before > 0 && !unsafe { validate_whole::<C, P::Prefix>(start.cast(), input) } {
-    return false;
+  if before > 0 {
+    // SAFETY: The `before` bytes of the prefix are at `start`, within the bytes of `input` or of a
+    // value within them, which are valid for reads and initialized, as `validate` requires.
+    let fault = unsafe { validate_whole::<C, P::Prefix>(start.cast(), input) };
+    if !fault.is_null() {
+      return fault;
+    }
   }
   // The value exists in the bytes: its size does not overflow.
-  let Some(size) = const { <P::Value as Pun>::LAYOUT }.size_of_val(len) else { return false };
+  let Some(size) = const { <P::Value as Pun>::LAYOUT }.size_of_val(len) else { return addr };
   // SAFETY: The requirements of `check_value` are those of this call.
   unsafe { check_value::<C, P, false>(addr, (len, size), input) }
 }
 
-/// Returns whether the value of the pointee `P` at `addr`, the length of whose tail is `len` and
-/// whose size is `size`, is valid, every part of it checked, its own eager aims included. The
-/// caller computes the size, which a claim needs first.
+/// Returns where the value of the pointee `P` at `addr`, the length of whose tail is `len` and
+/// whose size is `size`, is not valid ([`Fault`]), every part of it checked, its own eager aims
+/// included. The caller computes the size, which a claim needs first.
 ///
 /// A pointee is checked in place, nested in the check of the value that holds its aim: it takes
 /// its parts from the budget of [`AIM_PARTS`] while it runs, and its size from the budget of bytes
@@ -1064,7 +1128,7 @@ const unsafe fn check_value<C: Checks, P: ?Sized + Pointee, const WAITS: bool>(
   addr: *const u8,
   (len, size): (usize, usize),
   input: &mut Input,
-) -> bool {
+) -> Fault {
   let (before, parts, nested) = const {
     let parts =
       <P::Value as Pun>::LAYOUT.parts().saturating_add(<P::Prefix as Pun>::LAYOUT.parts());
@@ -1088,7 +1152,7 @@ const unsafe fn check_value<C: Checks, P: ?Sized + Pointee, const WAITS: bool>(
   // An empty slice has no part to check: it only takes its size, so that no check of it is called
   // where a check of its type is not inlined, as for the leaves of a tree.
   if is_empty {
-    return input.spends(size.saturating_add(before));
+    return fails(input.spends(size.saturating_add(before)), addr);
   }
   // A pointee that holds no eager aim nests the check of no other pointee: its check is as deep as
   // its own parts, a constant of its type, as the check of a value at the top of the bytes is, so
@@ -1096,18 +1160,18 @@ const unsafe fn check_value<C: Checks, P: ?Sized + Pointee, const WAITS: bool>(
   // the last value fitted in the parts and its list did not.
   let parts = if const { !holds_aims::<P>() } { 0 } else { parts };
   if !input.enter(size.saturating_add(before), parts) {
-    return false;
+    return addr;
   }
   // SAFETY: The value of `P` at `addr` is within the bytes of `input` or of a value within them,
   // which are valid for reads and initialized, by contract on the caller, so every byte that a
   // check reads is. These are the requirements of `validate`, and the pointees of its aims are
   // within `input` too.
-  let valid = unsafe { check_whole::<C, P>(value, input) };
+  let fault = unsafe { check_whole::<C, P>(value, input) };
   input.leave(parts);
-  valid
+  fault
 }
 
-/// Returns whether every part of the value of the pointee `P` at `value` is valid:
+/// Returns where a part of the value of the pointee `P` at `value` is not valid ([`Fault`]):
 /// [`validate_whole`], but with [`All`] where the value holds no eager aim, whatever the loop, so
 /// that a value without pointees has one instance of its check.
 ///
@@ -1118,7 +1182,7 @@ const unsafe fn check_value<C: Checks, P: ?Sized + Pointee, const WAITS: bool>(
 const unsafe fn check_whole<C: Checks, P: ?Sized + Pointee>(
   value: *const P::Value,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   // SAFETY: The requirements of `validate_whole` and `validate` are those of this call.
   unsafe {
     if const { C::SHARED } {
@@ -1163,9 +1227,10 @@ const fn holds_aims<P: ?Sized + Pointee>() -> bool {
   <P::Value as Pun>::LAYOUT.holds_eager_aims() || <P::Prefix as Pun>::LAYOUT.holds_eager_aims()
 }
 
-/// Returns whether `pointee`, of the type `P` and of `size` bytes with what it stores before it,
-/// is valid, found by the check of a value with `C`: it takes its size from the budget of bytes
-/// now, and waits for the loop of its type, or starts one.
+/// Returns where `pointee`, of the type `P` and of `size` bytes with what it stores before it, is
+/// not valid ([`Fault`]), found by the check of a value with `C`: it takes its size from the budget
+/// of bytes now, and waits for the loop of its type, or starts one. A pointee that waits is valid
+/// here, and checked by its loop.
 ///
 /// Where no loop runs, which `C` says, it starts the first loop ([`start`]), out of line, which
 /// takes its size. In a value of a loop, it waits for the innermost loop if that loop is
@@ -1183,7 +1248,7 @@ const unsafe fn waits<C: Checks, P: ?Sized + Pointee>(
   pointee: Waiting,
   size: usize,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   // A loop runs only where a value of a loop is checked, with `Looped`, which the checks within it
   // keep, so whether one runs is a constant. The first loop takes the size of its first pointee, so
   // that the check in place, which seldom starts a loop, reads nothing more for it.
@@ -1192,7 +1257,7 @@ const unsafe fn waits<C: Checks, P: ?Sized + Pointee>(
     return unsafe { start::<P>(pointee, size, input) };
   }
   if !input.spends(size) {
-    return false;
+    return pointee.value;
   }
   // The types of `P` and of the loop are constants, so that the check of a value of a loop compares
   // nothing to put a pointee of its type in it.
@@ -1213,24 +1278,24 @@ const unsafe fn waits<C: Checks, P: ?Sized + Pointee>(
       Wait::Waits(window) => {
         // It waits since its claim, the last one, so the next claim ends its window.
         input.open = window;
-        true
+        VALID
       }
       Wait::NoLoop => {
         // The loop of a type takes its parts from a budget of its own, as the first loop does: the
         // loops that run at once are of different types, one frame each.
         let parts = input.parts;
         input.parts = AIM_PARTS;
-        let valid = run::<P>(pointee, input);
+        let fault = run::<P>(pointee, input);
         input.parts = parts;
-        valid
+        fault
       }
       Wait::Full => full::<C, P>(pointee, input),
     }
   }
 }
 
-/// Returns whether `pointee`, of the type `P`, is valid, checked in place with `C`, where no entry
-/// is left for it ([`waits`]).
+/// Returns where `pointee`, of the type `P`, is not valid ([`Fault`]), checked in place with `C`,
+/// where no entry is left for it ([`waits`]).
 ///
 /// It is never inlined, and cold, so that the check of a value of a loop, which holds the call,
 /// keeps a small frame where it puts its pointees in entries, as it does but for very wide data.
@@ -1241,17 +1306,17 @@ const unsafe fn waits<C: Checks, P: ?Sized + Pointee>(
 /// whose value `C` checks.
 #[cold]
 #[inline(never)]
-const unsafe fn full<C: Checks, P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) -> bool {
+const unsafe fn full<C: Checks, P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) -> Fault {
   let parts =
     const { <P::Value as Pun>::LAYOUT.parts().saturating_add(<P::Prefix as Pun>::LAYOUT.parts()) };
   if !input.nest(parts) {
-    return false;
+    return pointee.value;
   }
   let value = ptr::from_raw_parts::<P::Value>(pointee.value, pointee.len);
   // SAFETY: The requirements of `check_whole` are those of this call.
-  let valid = unsafe { check_whole::<C, P>(value, input) };
+  let fault = unsafe { check_whole::<C, P>(value, input) };
   input.leave(parts);
-  valid
+  fault
 }
 
 /// Whether a pointee waits for a loop ([`Loops::wait`], [`Loops::wait_below`]).
@@ -1421,10 +1486,10 @@ struct Running {
   outer: *mut Running,
 }
 
-/// Returns whether `pointee`, of the type `P` and of `size` bytes with what it stores before it,
-/// is valid ([`run`]), with the loops of the check and their entries in this frame, which the loops
-/// that run within this one share: the first loop of a check. It takes the size of `pointee` from
-/// the budget of bytes, as [`waits`] does in a loop.
+/// Returns where `pointee`, of the type `P` and of `size` bytes with what it stores before it, is
+/// not valid ([`run`]), with the loops of the check and their entries in this frame, which the
+/// loops that run within this one share: the first loop of a check. It takes the size of `pointee`
+/// from the budget of bytes, as [`waits`] does in a loop.
 ///
 /// It is never inlined, and cold, so that the 1 KiB of entries is on the stack only while loops
 /// run, and that a check in place, which may start a loop, is laid out as one that may not: its
@@ -1442,9 +1507,9 @@ const unsafe fn start<P: ?Sized + Pointee>(
   pointee: Waiting,
   size: usize,
   input: &mut Input,
-) -> bool {
+) -> Fault {
   if !input.spends(size) {
-    return false;
+    return pointee.value;
   }
   let mut entries = [MaybeUninit::<Waiting>::uninit(); WAITING];
   let mut loops = Loops {
@@ -1460,15 +1525,15 @@ const unsafe fn start<P: ?Sized + Pointee>(
   input.parts = AIM_PARTS;
   // SAFETY: `entries` holds `WAITING` entries, of which none is in use, since no loop ran before
   // this one, and the requirements of `run` for `pointee` are those of this call.
-  let valid = unsafe { run::<P>(pointee, input) };
+  let fault = unsafe { run::<P>(pointee, input) };
   input.parts = parts;
   input.loops = core::ptr::null_mut();
-  valid
+  fault
 }
 
-/// Returns whether `pointee`, of the type `P`, is valid, and every pointee of its type that waits
-/// for this loop: the next one that the check of a value finds, first, then the entries of the
-/// loop, the last first.
+/// Returns where `pointee`, of the type `P`, or a pointee of its type that waits for this loop, is
+/// not valid ([`Fault`]): the next one that the check of a value finds, first, then the entries of
+/// the loop, the last first. A pointee whose own pointees end past its window is not valid there.
 ///
 /// A value of `P` is checked with [`Looped<P>`], under which a pointee of its type waits for this
 /// loop ([`waits`]), so that a chain of values of `P` takes one frame, whatever its length. A
@@ -1486,7 +1551,7 @@ const unsafe fn start<P: ?Sized + Pointee>(
 /// The caller must ensure that the entries of `input` are in use up to `top`, within those of the
 /// first loop ([`start`]), and the requirements of [`check_value`] for `pointee`, a `P`.
 #[cfg_attr(not(debug_assertions), inline(always))]
-const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) -> bool {
+const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) -> Fault {
   let parts =
     const { <P::Value as Pun>::LAYOUT.parts().saturating_add(<P::Prefix as Pun>::LAYOUT.parts()) };
   let of = const { &Looped::<P>::LOOP };
@@ -1510,8 +1575,8 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
   let mut pointee = pointee;
   // Each value takes the same parts while it is checked, and gives them back.
   let nested = input.nest(parts);
-  let valid = nested
-    && loop {
+  let fault = if nested {
+    loop {
       let value = ptr::from_raw_parts::<P::Value>(pointee.value, pointee.len);
       // The pointee is checked in its window, from the end of its own claim. Where it waited, the
       // claims of what follows it were made, before its window, and the cursor goes back to them
@@ -1531,15 +1596,17 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
       // caller for the first, and as `waits` put the others, and this loop is the innermost one, as
       // `Looped<P>` requires of the pointees that wait for it. The claims of the window, whose
       // largest end is the cursor, end in it.
-      let valid =
-        unsafe { validate::<Looped<P>, Root, P::Value>(value, input) } && input.cursor <= input.hi;
+      let mut fault = unsafe { validate::<Looped<P>, Root, P::Value>(value, input) };
+      if fault.is_null() && input.cursor > input.hi {
+        fault = pointee.value;
+      }
       // The pointee that waits since the last claim of the value ends its window where this one
       // does, as it was put, and nothing that follows changes it.
       input.open = core::ptr::null_mut();
       input.cursor = if around.0 > input.cursor { around.0 } else { input.cursor };
       input.hi = around.1;
-      if !valid {
-        break false;
+      if !fault.is_null() {
+        break fault;
       }
       // SAFETY: `this` points to this loop, in this frame, and `loops` to the loops, as above.
       let (first, loops) = unsafe { ((*this).first, &mut *loops) };
@@ -1553,9 +1620,12 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
         // SAFETY: `top < WAITING`, an entry of this loop, which `wait` or `wait_below` wrote.
         unsafe { loops.entries.add(loops.top).read() }
       } else {
-        break true;
+        break VALID;
       };
-    };
+    }
+  } else {
+    pointee.value
+  };
   if nested {
     input.leave(parts);
   }
@@ -1566,7 +1636,7 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
     (*loops).running = running.outer;
     (*loops).next = outer;
   }
-  valid
+  fault
 }
 
 /// What the pointee of the aim `L` of `T` must be, asserted where it is checked or read: one whose
@@ -2050,7 +2120,7 @@ pub struct Input {
   /// How many more parts of the layouts of values the check may nest ([`AIM_PARTS`]).
   parts: usize,
   /// Whether the check stopped at a budget, rather than at an invalid value.
-  pub(crate) limit: bool,
+  limit: bool,
   /// The loops of the check, in which the pointees that hold eager aims wait ([`waits`]), in the
   /// frame of the first loop ([`start`]), or null while no loop runs.
   loops: *mut Loops,
@@ -2084,6 +2154,23 @@ impl Input {
       hi: len,
       open: core::ptr::null_mut(),
     }
+  }
+
+  /// Returns the error of a check of these bytes that found `fault` ([`Fault`], not null):
+  /// [`Error::Limit`] if it stopped at a budget, or else [`Error::Validity`] at the place of
+  /// `fault`, in bytes from `start`.
+  ///
+  /// [`Error::Limit`]: crate::Error::Limit
+  /// [`Error::Validity`]: crate::Error::Validity
+  #[inline(always)]
+  pub const fn error(&self, fault: Fault) -> crate::Error {
+    if self.limit {
+      return crate::Error::Limit;
+    }
+    // SAFETY: A check returns the address of a part that it read, a value, a struct or a pointee,
+    // within the bytes of `input`, at or after `start`, in their allocation, as
+    // `offset_from_unsigned` requires.
+    crate::Error::Validity { at: unsafe { fault.offset_from_unsigned(self.start) } }
   }
 
   /// Claims the bytes of a pointee, from `from` to `to` in bytes from `start`, with what it stores

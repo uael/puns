@@ -95,8 +95,8 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |           && (const { !rules_marked::<C, P, T>() } || check_rules::<C, P, T>(ptr, input))
-  |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         if !fault.is_null() || const { !rules_marked::<C, P, T>() } {
+  |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs

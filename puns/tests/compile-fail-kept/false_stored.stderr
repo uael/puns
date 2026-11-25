@@ -94,14 +94,14 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |       Shape::Enum(layout) if layout.union => validate_union::<C, T, T::Variants>(ptr, input),
+  |       Shape::Enum(layout) if layout.union => {
   |                   ^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |           && (const { !rules_marked::<C, P, T>() } || check_rules::<C, P, T>(ptr, input))
-  |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         if !fault.is_null() || const { !rules_marked::<C, P, T>() } {
+  |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
@@ -549,7 +549,7 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     (const { inhabited::<V::Fields>() } && validate_variant::<C, T, V::Fields>(ptr, input))
+  |     (const { inhabited::<V::Fields>() }
   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
@@ -717,5 +717,5 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |       (const { inhabited::<V::Fields>() }) && validate_variant::<C, T, V::Fields>(ptr, input)
-  |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |       if const { inhabited::<V::Fields>() } {
+  |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -129,8 +129,9 @@ pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Option<Result<D,
   // of a `D`, which `validate` does not need aligned. The relation records no byte that may be
   // padding in `S` and that `D` requires to be initialized, or that a check marked by the analysis
   // reads. So every byte that `validate` reads is initialized.
-  if !unsafe { validate::<Plan<S, D>, Root, D>((&raw const value).cast(), &mut input) } {
-    return Some(Err(Error::Validity));
+  let fault = unsafe { validate::<Plan<S, D>, Root, D>((&raw const value).cast(), &mut input) };
+  if !fault.is_null() {
+    return Some(Err(input.error(fault)));
   }
   // SAFETY: `S` and `D` have the same size. `validate` found every part of `D` that the analysis
   // marked to be valid in `value`. Every part that it did not mark is valid in every value of `S`,

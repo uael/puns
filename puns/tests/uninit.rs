@@ -59,7 +59,7 @@ fn maybe_uninit_proves_nothing() {
 fn maybe_uninit_scalar() {
   // As a target: required to be 0, checked from what is not known to be.
   assert_eq!(puns::try_pun::<u8, Zero>(0).map(|_| ()), Ok(()));
-  assert_eq!(puns::try_pun::<u8, Zero>(1).map(|_| ()), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<u8, Zero>(1).map(|_| ()), Err(Error::Validity { .. })));
   assert!(puns::from_bytes::<Zero>(&[0]).is_ok());
   assert!(puns::from_bytes::<Zero>(&[3]).is_err());
   // Proven by what is known to be 0.
@@ -109,7 +109,7 @@ fn unions() {
   let _: Choice = puns::pun(puns::num::u8in::<1, 2>::new(1).unwrap());
   // Checked, field by field, when no field is proven: 2 is no `bool`, but is a `small`.
   assert!(puns::try_pun::<u8, Choice>(2).is_ok());
-  assert_eq!(puns::try_pun::<u8, Choice>(4).map(|_| ()), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<u8, Choice>(4).map(|_| ()), Err(Error::Validity { .. })));
   // Its first field takes one byte: the rest may be padding in the source.
   let _: Padded = puns::pun((1u8, 2u16));
   // As a source, nothing: only what takes anything.
@@ -199,7 +199,7 @@ fn packed_unions() {
     // SAFETY: the check found `nz` valid. Copying a field reads it at any address.
     assert_eq!(unsafe { packed.nz }.get().to_ne_bytes(), [0, 0, 0, 9]);
     bytes[at + 3] = 0;
-    assert_eq!(puns::from_bytes::<Packed>(&bytes[at..at + 4]).err(), Some(Error::Validity));
+    assert!(matches!(puns::from_bytes::<Packed>(&bytes[at..at + 4]), Err(Error::Validity { .. })));
     bytes[at..at + 4].fill(1);
     assert!(puns::from_bytes::<Packed>(&bytes[at..at + 4]).is_ok());
 
@@ -217,7 +217,7 @@ fn packed_unions() {
     }
     // Neither field: not a `u64` other than 0, nor a 7.
     bytes[at + 2..at + 10].fill(0);
-    let wrong = if at % 2 == 0 { Error::Validity } else { Error::Alignment };
+    let wrong = if at % 2 == 0 { Error::Validity { at: 2 } } else { Error::Alignment };
     assert_eq!(puns::from_bytes::<Framed>(&bytes[at..at + 10]).err(), Some(wrong));
     bytes[at + 9] = 0x80;
     assert_eq!(puns::from_bytes::<Framed>(&bytes[at..at + 10]).is_ok(), at % 2 == 0);
@@ -232,7 +232,10 @@ fn packed_unions() {
     assert_eq!(unsafe { packed.ones }.map(u8c::get), [1; 4]);
     // Neither field of the second.
     bytes[at + 6..at + 10].fill(0);
-    assert_eq!(puns::from_bytes::<[Record]>(&bytes[at..at + 10]).err(), Some(Error::Validity));
+    assert!(matches!(
+      puns::from_bytes::<[Record]>(&bytes[at..at + 10]),
+      Err(Error::Validity { .. })
+    ));
     // `nz` is valid, though `ones` is not.
     bytes[at + 9] = 2;
     assert!(puns::from_bytes::<[Record]>(&bytes[at..at + 10]).is_ok());
@@ -281,11 +284,11 @@ fn a_variant_without_values_is_not_read() {
   let source = |byte| Source { byte, rest: MaybeUninit::uninit() };
   // The tag of `Never`: no value, whatever its `bool` would be, which is not read.
   assert!(puns::try_pun::<Source, Tagged>(source(0)).is_ok());
-  assert_eq!(puns::try_pun::<Source, Tagged>(source(1)).err(), Some(Error::Validity));
-  assert_eq!(puns::try_pun::<Source, Tagged>(source(2)).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<Source, Tagged>(source(1)), Err(Error::Validity { .. })));
+  assert!(matches!(puns::try_pun::<Source, Tagged>(source(2)), Err(Error::Validity { .. })));
   // The field `absent` is first, and its `bool` is at the byte that is not written.
   assert!(puns::try_pun::<Source, Either>(source(3)).is_ok());
-  assert_eq!(puns::try_pun::<Source, Either>(source(4)).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<Source, Either>(source(4)), Err(Error::Validity { .. })));
 }
 
 /// Checks that a variant of a source that holds a union none of whose fields has values is related
@@ -328,7 +331,10 @@ fn a_union_of_a_source_may_hold_a_value() {
   // shows that `puns` is sound under that rule too: a pun that relies on a union without values
   // being impossible would make an invalid `Target5` here.
   let hollow: Hollow = unsafe { MaybeUninit::<Hollow>::uninit().assume_init() };
-  assert_eq!(puns::try_pun::<Source5, Target5>(Source5::A(hollow)), Err(Error::Validity));
+  assert!(matches!(
+    puns::try_pun::<Source5, Target5>(Source5::A(hollow)),
+    Err(Error::Validity { .. })
+  ));
   assert_eq!(puns::try_pun::<Source5, Target5>(Source5::B(7)), Ok(Target5::B(7)));
   assert_eq!(puns::try_pun::<Source5, Target5>(Source5::C), Ok(Target5::C));
   // A variant whose field truly has no value: no value is it, and the pun is proven.
@@ -378,7 +384,7 @@ fn a_hollow_variant_has_a_tag_from_its_declaration() {
   assert!(matches!(pun(3), Ok(Declared::Next(0))));
   assert!(matches!(pun(9), Ok(Declared::Expression(0))));
   for tag in [0, 2, 4, 10, 12] {
-    assert_eq!(pun(tag).err(), Some(Error::Validity));
+    assert!(matches!(pun(tag), Err(Error::Validity { .. })));
   }
   // SAFETY: The language has not settled the validity of unions. The compiler and Miri accept any
   // bytes as a union today, and a `Hollow` has none, so this value is accepted, as in

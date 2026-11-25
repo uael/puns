@@ -84,11 +84,14 @@ fn proven_at_compile_time() {
   };
   assert_eq!(pun_ref::<Get<[Ascii]>, str>(get), "GET /a");
   // A restriction that the type system does not enforce is checked when the value comes in...
-  assert_eq!(try_pun_ref::<u8, Unchecked>(&0x80), Err(Error::Validity));
+  assert!(matches!(try_pun_ref::<u8, Unchecked>(&0x80), Err(Error::Validity { .. })));
   // ... but proves nothing of a value that safe code made: this is checked.
   let unchecked = [Unchecked(0xff)];
-  assert_eq!(try_pun_ref::<[Unchecked], str>(&unchecked[..]), Err(Error::Validity));
-  assert_eq!(try_pun_ref::<[Unchecked], [Ascii]>(&unchecked[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<[Unchecked], str>(&unchecked[..]), Err(Error::Validity { .. })));
+  assert!(matches!(
+    try_pun_ref::<[Unchecked], [Ascii]>(&unchecked[..]),
+    Err(Error::Validity { .. })
+  ));
   // A `str` is a `str`, even behind a `&mut`.
   let mut text = String::from("abc");
   pun_mut::<str, str>(&mut text).make_ascii_uppercase();
@@ -102,12 +105,12 @@ fn checked_at_run_time() {
   assert_eq!(utf8(b"caf\xc3\xa9 \xe2\x82\xac \xf0\x9f\xa6\x80"), Ok("café € 🦀"));
   // Truncated, overlong, surrogate, too large, stray continuation byte.
   for bytes in [&b"caf\xc3"[..], b"\xc0\x80", b"\xed\xa0\x80", b"\xf4\x90\x80\x80", b"\x80"] {
-    assert_eq!(utf8(bytes), Err(Error::Validity));
+    assert!(matches!(utf8(bytes), Err(Error::Validity { .. })));
     assert!(core::str::from_utf8(bytes).is_err());
   }
   // From an array, from a struct.
   assert_eq!(try_pun_ref::<[u8; 2], str>(&[0xc3, 0xa9]), Ok("é"));
-  assert_eq!(try_pun_ref::<[u8; 2], str>(&[0xc3, 0x29]), Err(Error::Validity));
+  assert!(matches!(try_pun_ref::<[u8; 2], str>(&[0xc3, 0x29]), Err(Error::Validity { .. })));
   assert_eq!(
     try_pun_ref::<Get<[u8]>, str>(&Get::<[u8; 2]> {
       method: Default::default(),
@@ -116,7 +119,7 @@ fn checked_at_run_time() {
       space: u8c::default(),
       path: [b'/', 0xff],
     } as &Get<[u8]>),
-    Err(Error::Validity)
+    Err(Error::Validity { at: 0 })
   );
   // In a struct.
   assert!(try_pun_ref::<[u8], Named>(b"\0\0\0\x07\xff").is_err());
@@ -175,35 +178,35 @@ fn checked_after_what_is_not_proven() {
   let two = |a, b| try_pun_ref::<TwoBytes, str>(&TwoBytes { a, b }).map(str::to_owned);
   assert_eq!(two(b'o', b'k'), Ok("ok".to_owned()));
   assert_eq!(two(0xc3, 0xa9), Ok("é".to_owned()));
-  assert_eq!(two(b'o', 0xff), Err(Error::Validity));
-  assert_eq!(two(0xc3, 0x29), Err(Error::Validity));
+  assert!(matches!(two(b'o', 0xff), Err(Error::Validity { .. })));
+  assert!(matches!(two(0xc3, 0x29), Err(Error::Validity { .. })));
   let wide = |wide: u16, narrow, last| {
     let source = WideThenByte { wide, narrow, last };
     try_pun_ref::<WideThenByte, str>(&source).map(str::to_owned)
   };
   let ab = u16::from_ne_bytes(*b"ab");
   assert_eq!(wide(ab, b'c', b'd'), Ok("abcd".to_owned()));
-  assert_eq!(wide(ab, b'c', 0x80), Err(Error::Validity));
+  assert!(matches!(wide(ab, b'c', 0x80), Err(Error::Validity { .. })));
   // A scalar that is not all UTF-8, then a byte.
   let scalar = |first, second| {
     let source = ScalarThenByte { first: NonZero::new(first).unwrap(), second };
     try_pun_ref::<ScalarThenByte, str>(&source).map(str::to_owned)
   };
   assert_eq!(scalar(b'o', b'k'), Ok("ok".to_owned()));
-  assert_eq!(scalar(0xff, b'k'), Err(Error::Validity));
+  assert!(matches!(scalar(0xff, b'k'), Err(Error::Validity { .. })));
   // Behind a field, in a struct that ends with a `str`.
   let text = |kind, a, b| {
     let source = KindThenText { kind, text: TwoBytes { a, b } };
     try_pun_ref::<KindThenText, Text>(&source).map(|text| (text.kind, text.text.to_owned()))
   };
   assert_eq!(text(1, b'o', b'k'), Ok((1, "ok".to_owned())));
-  assert_eq!(text(1, b'o', 0xff), Err(Error::Validity));
+  assert!(matches!(text(1, b'o', 0xff), Err(Error::Validity { .. })));
   // A slice of elements whose bytes are all initialized.
   let slice = |pairs: &[TwoBytes]| try_pun_ref::<[TwoBytes], str>(pairs).map(str::to_owned);
   assert_eq!(slice(&[]), Ok(String::new()));
   let pairs = [TwoBytes { a: b'h', b: b'i' }, TwoBytes { a: 0xc3, b: 0xa9 }];
   assert_eq!(slice(&pairs), Ok("hié".to_owned()));
-  assert_eq!(slice(&[TwoBytes { a: b'h', b: 0xc3 }]), Err(Error::Validity));
+  assert!(matches!(slice(&[TwoBytes { a: b'h', b: 0xc3 }]), Err(Error::Validity { .. })));
 }
 
 #[test]

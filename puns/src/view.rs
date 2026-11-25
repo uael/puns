@@ -38,8 +38,8 @@
 //! `try_pun_ref` checks exactly what the variant requires beyond it. What it leaves unchecked is
 //! implied by the requirements of the source, which the model check checks of every pair. A base is
 //! a later variant. It is decided before its turn only as a step of an earlier variant, and it is
-//! returned only in its turn. The error is `Error::Validity`. A view does not tell why no variant
-//! fits.
+//! returned only in its turn. The error is `Error::Validity` at 0. A view does not tell why no
+//! variant fits, nor where.
 //!
 //! # Soundness
 //!

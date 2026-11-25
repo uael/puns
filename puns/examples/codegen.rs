@@ -30,7 +30,7 @@
 //! | `&[u8] -> Option<&Header>`                            | the size, a 4-byte compare, `bt`, `cmp`       |
 //! | `from_head::<Frame<Ipv4>>(&[u8])`                     | 29 instructions, no loop, no call             |
 //! | `Ipv4::options()` (a region)                          | 10 instructions, no branch                    |
-//! | `&[u8] -> Option<&[bool]>`                            | 64 bytes at a time, no branch in a block, 46 instructions |
+//! | `&[u8] -> Option<&[bool]>`                            | 64 bytes at a time, no branch in a block, 40 instructions |
 //! | `&[Shape] -> &[Drawing]` (enums with fields)          | `mov rdx, rsi; mov rax, rdi; ret`             |
 //! | `&Drawing -> Option<&Shape>`                          | the tag, then one `cmp` for a `bool`, 12 instructions |
 //! | `[u8; 4] -> Option<Shape>`                            | 14 instructions, no loop, no call             |
@@ -40,7 +40,7 @@
 //! | `&[u8] -> Option<&Ipv6>` (a walk, two checksums)      | 207 instructions, no call                     |
 //! | `head_ref::<Ipv6, [u8; 40]>`                          | `mov rax, rdi; ret`                           |
 //! | `tail_ref::<[u32; 4], u32>`                           | `lea rax, [rdi + 12]; ret`                    |
-//! | `from_head::<Position>(&[u8])`                        | the size, one `cmp` for the `bool`, 7 instructions |
+//! | `from_head::<Position>(&[u8])`                        | the size, one `cmp` for the `bool`, 6 instructions |
 //! | `from_head::<Udp>(&[u8])` (a size in the value)       | 15 instructions                               |
 //! | `from_tail::<Trailer>(&[u8])` (an enum, a magic)      | the size, `bt`, one `cmp`, 18 instructions, no loop |
 //!

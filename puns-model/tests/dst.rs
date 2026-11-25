@@ -393,9 +393,9 @@ fn check<D: ?Sized + Pun + core::fmt::Debug>(oracle: &Oracle, errors: &mut Vec<S
         let room = padded(len, oracle.align) <= len;
         let aligned = start % oracle.align == 0;
         let want = match () {
-          () if !aligned => Err(Error::Alignment),
-          () if !fits || !room => Err(Error::Size),
-          () if !(oracle.valid)(&bytes) => Err(Error::Validity),
+          () if !aligned => Err("Alignment"),
+          () if !fits || !room => Err("Size"),
+          () if !(oracle.valid)(&bytes) => Err("Validity"),
           () => Ok(()),
         };
         if hook::pun_ref::<[u8], D>(source).is_some() && want.is_err() {

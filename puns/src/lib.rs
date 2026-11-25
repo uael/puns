@@ -72,7 +72,7 @@
 //! // Reinterpret an `f32` as its bits. A `u32` is a `char` only if it is a Unicode scalar value.
 //! assert_eq!(puns::pun::<f32, u32>(1.0), 0x3f80_0000);
 //! assert_eq!(puns::try_pun::<u32, char>(0xe9), Ok('é'));
-//! assert_eq!(puns::try_pun::<u32, char>(0xd800), Err(puns::Error::Validity));
+//! assert_eq!(puns::try_pun::<u32, char>(0xd800), Err(puns::Error::Validity { at: 0 }));
 //!
 //! // The low half of a big-endian number is its last two bytes.
 //! assert_eq!(puns::tail::<u32be, u16be>(0x1234_5678.into()).get(), 0x5678);
@@ -539,7 +539,7 @@
 //!
 //! ```
 //! assert_eq!(puns::try_pun_ref::<[u8; 4], str>(b"text"), Ok("text"));
-//! assert_eq!(puns::try_pun_ref::<[u8; 4], str>(&[0xff; 4]), Err(puns::Error::Validity));
+//! assert_eq!(puns::try_pun_ref::<[u8; 4], str>(&[0xff; 4]), Err(puns::Error::Validity { at: 0 }));
 //! ```
 //!
 //! **A value that is not valid for the source could be written through a `&mut`.** Here, that value
@@ -1371,7 +1371,7 @@ pub use layout::{crc32, sum16};
 /// - `from_bytes(bytes: &[u8]) -> Result<Self, Error>` returns the first variant that `bytes` are
 ///   as a whole.
 ///
-/// Both return [`Error::Validity`] if no variant fits. They return what trying the variants in
+/// Both return [`Error::Validity`] at 0 if no variant fits. They return what trying the variants in
 /// order would return, but they check each variant at most once, and only for what is not already
 /// known about it. A variant is skipped as soon as the bytes do not match its first constrained
 /// scalar, such as an EtherType. A variant whose values are all values of a later variant is
@@ -2101,7 +2101,7 @@ use validate::{All, Checks, Input, validate};
 /// use percent::Percent;
 ///
 /// assert_eq!(puns::from_bytes::<Percent>(&[42]).unwrap().get(), 42);
-/// assert_eq!(puns::from_bytes::<Percent>(&[101]).err(), Some(puns::Error::Validity));
+/// assert_eq!(puns::from_bytes::<Percent>(&[101]).err(), Some(puns::Error::Validity { at: 0 }));
 /// // Proven: every `Percent` is a `u8`.
 /// assert_eq!(puns::pun::<Percent, u8>(Percent::new(7).unwrap()), 7);
 /// ```
@@ -3251,8 +3251,11 @@ impl_signed_non_zero!(i8 i16 i32 i64 i128 isize);
 /// assert_eq!(puns::from_bytes::<u32>(&bytes[..4]), Ok(&0));
 /// assert_eq!(puns::from_bytes::<u32>(&bytes[..3]), Err(Error::Size));
 /// assert_eq!(puns::from_bytes::<u32>(&bytes[1..5]), Err(Error::Alignment));
-/// assert_eq!(puns::from_bytes::<bool>(&[2]), Err(Error::Validity));
-/// assert_eq!(Error::Validity.to_string(), "value is not valid for the target type");
+/// assert_eq!(puns::from_bytes::<[bool; 2]>(&[1, 2]), Err(Error::Validity { at: 1 }));
+/// assert_eq!(
+///   Error::Validity { at: 1 }.to_string(),
+///   "value is not valid for the target type, at byte 1"
+/// );
 /// ```
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -3267,7 +3270,19 @@ pub enum Error {
   /// pointee of an aim does not fit, the pointee of an eager aim is not a valid value within the
   /// bytes, or a pointee is not in the order of a copy after the ones before it ("Aims" in the
   /// crate documentation): shared with another aim, overlapping a value, or reached by a cycle.
-  Validity,
+  Validity {
+    /// Where the check found the bytes not valid, in bytes from the start of what it checks: the
+    /// value of a `try_` function, the bytes of a `from_` function, the value that holds the
+    /// region of a read of a region. It is the start of the first part that the check found not
+    /// valid: a scalar, a pattern such as a `str`, an enum whose tag is the tag of no variant, a
+    /// union none of whose fields fits, a struct one of whose rules does not hold or one of whose
+    /// aims leads to no pointee that fits there, or a pointee whose own pointees end past the
+    /// start of what follows it in the order of a copy. The `size` or `len` rule of a value read
+    /// from the head of bytes is at 0, and so is a view enum that no variant fits. The check
+    /// visits the pointees that wait for a loop after the ones that follow them, so the first
+    /// that it finds is not always the one with the lowest place.
+    at: usize,
+  },
   /// The check of the pointees of eager aims ([`Check::Eager`](layout::Check::Eager)) stopped at
   /// its limit before it found the bytes valid or not: pointees that its loops cannot take
   /// ([`AIM_PARTS`]), or pointees of more than twice as many bytes as are checked in all, which
@@ -3277,12 +3292,12 @@ pub enum Error {
 
 impl core::fmt::Display for Error {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    f.write_str(match self {
-      Error::Alignment => "value is not aligned for the target type",
-      Error::Size => "value does not have the size of the target type",
-      Error::Validity => "value is not valid for the target type",
-      Error::Limit => "the pointees of the value are too deep or too large to check",
-    })
+    match self {
+      Error::Alignment => f.write_str("value is not aligned for the target type"),
+      Error::Size => f.write_str("value does not have the size of the target type"),
+      Error::Validity { at } => write!(f, "value is not valid for the target type, at byte {at}"),
+      Error::Limit => f.write_str("the pointees of the value are too deep or too large to check"),
+    }
   }
 }
 
@@ -3711,8 +3726,9 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
     // or it is unsized and its extent is rounded up to an alignment that divides that of `S`. So
     // `target` is valid for reads of a `D`, by contract on the caller. Every byte that a marked
     // check reads is initialized, by contract on the caller, and the bytes of `input` hold it.
-    if !unsafe { validate::<C, Root, D>(target, input) } {
-      return Err(if input.limit { Error::Limit } else { Error::Validity });
+    let fault = unsafe { validate::<C, Root, D>(target, input) };
+    if !fault.is_null() {
+      return Err(input.error(fault));
     }
     Ok(target)
   }
@@ -3960,7 +3976,7 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 ///
 /// ```
 /// assert_eq!(puns::try_pun::<u8, bool>(1), Ok(true));
-/// assert_eq!(puns::try_pun::<u8, bool>(2), Err(puns::Error::Validity));
+/// assert_eq!(puns::try_pun::<u8, bool>(2), Err(puns::Error::Validity { at: 0 }));
 /// ```
 ///
 /// ```compile_fail,E0080
@@ -3979,8 +3995,9 @@ pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Result<D, Error>
   // valid for reads of a `D`, which `validate` does not need aligned. The relation records no byte
   // that may be padding in `S` and that `D` requires to be initialized, or that a check marked by
   // the analysis reads. So every byte that `validate` reads is initialized.
-  if !unsafe { validate::<Plan<S, D>, Root, D>((&raw const value).cast(), &mut input) } {
-    return Err(Error::Validity);
+  let fault = unsafe { validate::<Plan<S, D>, Root, D>((&raw const value).cast(), &mut input) };
+  if !fault.is_null() {
+    return Err(input.error(fault));
   }
   // SAFETY: `S` and `D` have the same size. `validate` found every part of `D` that the analysis
   // marked to be valid in `value`. Every part that it did not mark is valid in every value of `S`,
@@ -4511,7 +4528,7 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
 /// assert_eq!(byte, 0);
 ///
 /// let mut two = 2u8;
-/// assert_eq!(puns::try_pun_mut::<u8, bool>(&mut two), Err(puns::Error::Validity));
+/// assert_eq!(puns::try_pun_mut::<u8, bool>(&mut two), Err(puns::Error::Validity { at: 0 }));
 /// ```
 ///
 /// ```compile_fail,E0080
@@ -4698,7 +4715,7 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 /// }
 ///
 /// assert_eq!(puns::from_bytes(&[7, 1]), Ok(&Position { x: 7, visible: true }));
-/// assert_eq!(puns::from_bytes::<Position>(&[7, 2]), Err(Error::Validity));
+/// assert_eq!(puns::from_bytes::<Position>(&[7, 2]), Err(Error::Validity { at: 1 }));
 /// assert_eq!(puns::from_bytes::<Position>(&[7, 1, 0]), Err(Error::Size));
 /// assert_eq!(puns::from_bytes::<str>(b"caf\xc3\xa9"), Ok("caf\u{e9}"));
 /// ```
@@ -4865,7 +4882,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
         // checked above, and the sized fields of `D`, and of the struct in it that has the rule,
         // are in the first `head` bytes. `D` has such a rule: `length_rule` returned it.
         let Some(value) = (unsafe { validate::length::<D>(addr, n) }) else {
-          return Err(Error::Validity);
+          return Err(Error::Validity { at: 0 });
         };
         // From the size of the struct that has the rule, down to a number of elements: in a
         // `usize` (where the value is a field, the optimizer knows that it fits one), else a
@@ -4873,7 +4890,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
         let before = head - rule.base;
         if value > usize::MAX as u128 {
           let whole = rule.elements || (value - before as u128).is_multiple_of(stride as u128);
-          return Err(if whole { Error::Size } else { Error::Validity });
+          return Err(if whole { Error::Size } else { Error::Validity { at: 0 } });
         }
         let value = value as usize;
         let len = match () {
@@ -4881,7 +4898,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
           () if value >= before && (value - before).is_multiple_of(stride) => {
             (value - before) / stride
           }
-          () => return Err(Error::Validity),
+          () => return Err(Error::Validity { at: 0 }),
         };
         if len > (n - head) / stride {
           return Err(Error::Size);
@@ -4891,7 +4908,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     };
     // At most the `n` bytes: no overflow.
     if extent != usize::MAX && head + len * stride != extent {
-      return Err(Error::Validity);
+      return Err(Error::Validity { at: 0 });
     }
     // With its trailing padding, if any.
     let size = match layout.size_of_val(len) {
@@ -4905,8 +4922,9 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     // size, `size`, is at most `n`, which is checked above. So it is valid for reads of a `D`, by
     // contract on the caller. Every one of the `n` bytes is initialized, by contract on the
     // caller, so every byte that a check reads is.
-    if !unsafe { validate::<C, Root, D>(target, &mut input) } {
-      return Err(if input.limit { Error::Limit } else { Error::Validity });
+    let fault = unsafe { validate::<C, Root, D>(target, &mut input) };
+    if !fault.is_null() {
+      return Err(input.error(fault));
     }
     Ok((target, size))
   }
@@ -4937,8 +4955,12 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     // SAFETY: This satisfies the safety contract of `validate`. `D` is `Sized`, by contract on the
     // caller, and `target` is the `size_of::<D>()` bytes from `start`, which end at `n`. So it is
     // valid for reads of a `D`, and its bytes are initialized, by contract on the caller.
-    if !unsafe { validate::<Self, Root, D>(target, &mut input) } || input.cursor > start {
-      return Err(if input.limit { Error::Limit } else { Error::Validity });
+    let fault = unsafe { validate::<Self, Root, D>(target, &mut input) };
+    // Its pointees end before it: a pointee past its start is not valid, as it would be past its
+    // window in a loop.
+    let fault = if fault.is_null() && input.cursor > start { addr } else { fault };
+    if !fault.is_null() {
+      return Err(input.error(fault));
     }
     Ok((start, target))
   }

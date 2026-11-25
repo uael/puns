@@ -3020,7 +3020,8 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         ///
         /// # Errors
         ///
-        /// Returns `Err(Error::Validity)` if `bytes` start with a value of no variant's type.
+        /// Returns `Err(Error::Validity { at: 0 })` if `bytes` start with a value of no variant's
+        /// type.
         ///
         /// # Compile-time errors
         ///
@@ -3029,7 +3030,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         #vis const fn from_head(bytes: #bytes) -> #result<(Self, #bytes), #root::Error> {
           let mut known = #root::view::Known::<Self, #count, true>::new(bytes);
           #(#from_heads)*
-          #result::Err(#root::Error::Validity)
+          #result::Err(#root::Error::Validity { at: 0 })
         }
 
         /// Returns the first variant, in order, such that `bytes` as a whole are a valid value of
@@ -3037,7 +3038,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         ///
         /// # Errors
         ///
-        /// Returns `Err(Error::Validity)` if `bytes` are a value of no variant's type.
+        /// Returns `Err(Error::Validity { at: 0 })` if `bytes` are a value of no variant's type.
         ///
         /// # Compile-time errors
         ///
@@ -3046,7 +3047,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
         #vis const fn from_bytes(bytes: #bytes) -> #result<Self, #root::Error> {
           let mut known = #root::view::Known::<Self, #count, false>::new(bytes);
           #(#wholes)*
-          #result::Err(#root::Error::Validity)
+          #result::Err(#root::Error::Validity { at: 0 })
         }
       }
     });

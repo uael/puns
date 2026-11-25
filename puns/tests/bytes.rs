@@ -47,14 +47,14 @@ fn whole() {
   // The same as `try_pun_ref::<[u8], _>`, without naming the source.
   assert_eq!(from_bytes(&[7, 1]), Ok(&Position { x: 7, visible: true }));
   assert_eq!(from_bytes::<Position>(&[7, 1]), try_pun_ref::<[u8], Position>(&[7, 1]));
-  assert_eq!(from_bytes::<Position>(&[7, 2]), Err(Error::Validity));
+  assert!(matches!(from_bytes::<Position>(&[7, 2]), Err(Error::Validity { .. })));
   assert_eq!(from_bytes::<Position>(&[7]), Err(Error::Size));
   assert_eq!(from_bytes::<str>(b"caf\xc3\xa9"), Ok("caf\u{e9}"));
-  assert_eq!(from_bytes::<str>(b"caf\xc3"), Err(Error::Validity));
+  assert!(matches!(from_bytes::<str>(b"caf\xc3"), Err(Error::Validity { .. })));
   let chunk: &Chunk = from_bytes(&[1, 0, 5, b'h', b'i']).unwrap();
   assert_eq!((chunk.kind, &chunk.data), (1, &b"hi"[..]));
   // The whole: the rule says 5 bytes, not 6.
-  assert_eq!(from_bytes::<Chunk>(&[1, 0, 5, b'h', b'i', 0]).err(), Some(Error::Validity));
+  assert!(matches!(from_bytes::<Chunk>(&[1, 0, 5, b'h', b'i', 0]), Err(Error::Validity { .. })));
   // Alignment.
   let words = Aligned([0u8, 0, 0, 1, 0, 0, 0, 2]);
   assert_eq!(
@@ -64,7 +64,7 @@ fn whole() {
   assert_eq!(from_bytes::<Word>(&words.0[1..5]).err(), Some(Error::Alignment));
   assert_eq!(from_bytes::<[Word]>(&words.0[..]).map(<[Word]>::len), Ok(2));
   assert_eq!(from_bytes::<Magic>(&[0xca, 0xfe, 1]).map(|m| m.flag), Ok(true));
-  assert_eq!(from_bytes::<Magic>(&[0xca, 0xff, 1]).err(), Some(Error::Validity));
+  assert!(matches!(from_bytes::<Magic>(&[0xca, 0xff, 1]), Err(Error::Validity { .. })));
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn whole_mut() {
   position.visible = false;
   position.x = 9;
   assert_eq!(bytes, [9, 0, 0]);
-  assert_eq!(from_bytes_mut::<Position>(&mut [7, 2]).err(), Some(Error::Validity));
+  assert!(matches!(from_bytes_mut::<Position>(&mut [7, 2]), Err(Error::Validity { .. })));
   assert_eq!(from_bytes_mut::<Position>(&mut [7, 1, 0]).err(), Some(Error::Size));
   let mut same = [7u8, 1];
   assert!(from_bytes_mut::<Position>(&mut same).is_ok());
@@ -98,7 +98,7 @@ fn back() {
   assert_eq!((rest, position), (&[1, 2, 3][..], &Position { x: 7, visible: true }));
   let (rest, position) = from_tail::<Position>(&[7, 0]).unwrap();
   assert_eq!((rest.len(), position.visible), (0, false));
-  assert_eq!(from_tail::<Position>(&[1, 7, 2]).err(), Some(Error::Validity));
+  assert!(matches!(from_tail::<Position>(&[1, 7, 2]), Err(Error::Validity { .. })));
   assert_eq!(from_tail::<Position>(&[7]).err(), Some(Error::Size));
   assert_eq!(from_tail::<[u8; 0]>(&[1, 2]), Ok((&[1, 2][..], &[])));
   // The address of the last bytes.
@@ -107,7 +107,7 @@ fn back() {
   assert_eq!((rest.len(), word.value), (4, u32::from_ne_bytes([0, 0, 0, 2])));
   assert_eq!(from_tail::<Word>(&words.0[..7]).err(), Some(Error::Alignment));
   assert_eq!(from_tail::<Magic>(&[9, 0xca, 0xfe, 0]).map(|(rest, _)| rest), Ok(&[9][..]));
-  assert_eq!(from_tail::<Magic>(&[0xca, 0xfe, 0, 9]).err(), Some(Error::Validity));
+  assert!(matches!(from_tail::<Magic>(&[0xca, 0xfe, 0, 9]), Err(Error::Validity { .. })));
   // Front and back of the same bytes.
   let bytes = [7u8, 0, 5, b'h', b'i', 0xca, 0xfe, 1];
   let (rest, magic) = from_tail::<Magic>(&bytes).unwrap();
@@ -128,8 +128,8 @@ fn front_and_back_mut() {
   assert_eq!(bytes, [9, 0, 5, b'H', b'I', 0xca, 0xff, 0]);
   // The same checks as by shared reference.
   assert_eq!(from_head_mut::<Chunk>(&mut [1, 0, 9, 0]).err(), Some(Error::Size));
-  assert_eq!(from_head_mut::<Position>(&mut [1, 2]).err(), Some(Error::Validity));
-  assert_eq!(from_tail_mut::<Position>(&mut [1, 2]).err(), Some(Error::Validity));
+  assert!(matches!(from_head_mut::<Position>(&mut [1, 2]), Err(Error::Validity { .. })));
+  assert!(matches!(from_tail_mut::<Position>(&mut [1, 2]), Err(Error::Validity { .. })));
   assert_eq!(from_tail_mut::<Position>(&mut [1]).err(), Some(Error::Size));
   let mut words = Aligned([0u8, 0, 0, 1, 0, 0, 0, 2]);
   assert_eq!(from_tail_mut::<Word>(&mut words.0[..7]).err(), Some(Error::Alignment));
@@ -183,7 +183,7 @@ struct Ordered {
 }
 
 /// Checks that an invalid element is found at any position of a slice whose elements are checked
-/// a block at a time, inside the blocks and after them.
+/// a block at a time, inside the blocks and after them, and that the error is where it is.
 #[test]
 fn an_invalid_element_anywhere() {
   // Under Miri, lengths around the blocks (of about 64 bytes) and places around their ends;
@@ -202,14 +202,15 @@ fn an_invalid_element_anywhere() {
     for at in places {
       let mut bytes = valid.clone();
       bytes[at] = 2;
-      assert!(from_bytes::<[bool]>(&bytes[..len]).is_err(), "{len} {at}");
+      let fails = |at: usize| Err(Error::Validity { at });
+      assert_eq!(from_bytes::<[bool]>(&bytes[..len]).map(|_| ()), fails(at), "{len} {at}");
       bytes[at] = 4;
-      assert!(from_bytes::<[Few]>(&bytes[..len]).is_err(), "{len} {at}");
+      assert_eq!(from_bytes::<[Few]>(&bytes[..len]).map(|_| ()), fails(at), "{len} {at}");
       let mut bytes = valid.clone();
       bytes[2 * at] = 2;
-      assert!(from_bytes::<[Ordered]>(&bytes).is_err(), "{len} {at}");
+      assert_eq!(from_bytes::<[Ordered]>(&bytes).map(|_| ()), fails(2 * at), "{len} {at}");
       (bytes[2 * at], bytes[2 * at + 1]) = (4, 5);
-      assert!(from_bytes::<[Ordered]>(&bytes).is_err(), "{len} {at}");
+      assert_eq!(from_bytes::<[Ordered]>(&bytes).map(|_| ()), fails(2 * at), "{len} {at}");
     }
   }
 }

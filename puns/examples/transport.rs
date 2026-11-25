@@ -802,15 +802,15 @@ pub fn main() {
   for (at, value) in [(0, 23), (0, 19), (2, 5), (5, 2), (8, 0), (4, 0), (43, 33), (77, 8)] {
     let mut bytes = CLIENT_HELLO;
     bytes[at] = value;
-    assert_eq!(
-      try_pun_ref::<_, Record<Handshake<ClientHello>>>(&bytes[..]).err(),
-      Some(Error::Validity)
-    );
+    assert!(matches!(
+      try_pun_ref::<_, Record<Handshake<ClientHello>>>(&bytes[..]),
+      Err(Error::Validity { .. })
+    ));
   }
   // An odd number of bytes of cipher suites, in a chain that still fills the message: the
   // message is valid, its typed region is not, when read.
   let odd: &Record<Handshake<ClientHello>> = try_pun_ref(&ODD_HELLO[..]).unwrap();
-  assert_eq!(odd.fragment.body.session.rest().err(), Some(Error::Validity));
+  assert!(matches!(odd.fragment.body.session.rest(), Err(Error::Validity { .. })));
   // A server name that is not UTF-8.
   let mut bytes = CLIENT_HELLO;
   bytes[107] = 0xff;
@@ -818,11 +818,11 @@ pub fn main() {
   let session = &record.fragment.body.session;
   let extensions = session.rest().unwrap().rest().unwrap().rest().unwrap();
   let (extension, _) = from_head::<TlsExtension>(extensions.items()).unwrap();
-  assert_eq!(try_pun_ref::<_, ServerName>(&extension.data).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, ServerName>(&extension.data), Err(Error::Validity { .. })));
   // A record too long for TLS.
   let mut long = vec![23u8, 3, 3, 0x48, 0x01];
   long.resize(5 + 0x4801, 0);
-  assert_eq!(try_pun_ref::<_, Record>(&long[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Record>(&long[..]), Err(Error::Validity { .. })));
 
   // ---- QUIC: connection IDs, then variable-length integers.
   let packet: &Initial = try_pun_ref(&INITIAL[..]).unwrap();
@@ -847,7 +847,7 @@ pub fn main() {
   for (at, value) in [(0, 0x43), (0, 0xd3), (4, 2), (5, 21), (14, 21), (17, 0x10), (17, 0x30)] {
     let mut bytes = INITIAL;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Initial>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Initial>(&bytes[..]), Err(Error::Validity { .. })));
   }
 
   // ---- HTTP/2: the preface, then frames of typed payloads.
@@ -855,7 +855,7 @@ pub fn main() {
   assert!(try_pun_ref::<_, Preface>(&preface[..]).is_ok());
   let mut wrong = *preface;
   wrong[4] = b'X';
-  assert_eq!(try_pun_ref::<_, Preface>(&wrong[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Preface>(&wrong[..]), Err(Error::Validity { .. })));
   let (frame, rest) = from_head::<Frame<Settings>>(&SETTINGS).unwrap();
   let settings: Vec<_> = frame.payload.0.iter().map(|s| (s.id.get(), s.value.get())).collect();
   assert_eq!((settings, frame.stream_id()), (vec![(3, 100), (4, 65535)], 0));
@@ -870,11 +870,11 @@ pub fn main() {
   for at in [8, 4] {
     let mut bytes = SETTINGS;
     bytes[at] = 1;
-    assert_eq!(from_head::<SettingsFrame>(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(from_head::<SettingsFrame>(&bytes), Err(Error::Validity { .. })));
   }
   let mut other = SETTINGS;
   other[3] = 5;
-  assert_eq!(from_head::<Frame<Settings>>(&other).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Frame<Settings>>(&other), Err(Error::Validity { .. })));
   assert_eq!(from_head::<Frame>(&other).unwrap().0.kind, FrameType(5));
   // DATA, padded and not.
   let (data, rest) = from_head::<DataFrame>(&DATA).unwrap();
@@ -890,7 +890,7 @@ pub fn main() {
   for (at, value) in [(9, 9), (8, 0)] {
     let mut bytes = DATA;
     bytes[at] = value;
-    assert_eq!(from_head::<DataFrame>(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(from_head::<DataFrame>(&bytes), Err(Error::Validity { .. })));
   }
   // HEADERS, with a priority and padding.
   let (headers, _) = from_head::<HeadersFrame>(&HEADERS).unwrap();
@@ -924,14 +924,14 @@ pub fn main() {
   masked.resize(8 + 256, 7);
   assert_eq!(unmask(from_bytes::<ClientFrame>(&masked).unwrap()), [7; 256]);
   // Masked from a server, not masked from a client.
-  assert_eq!(from_bytes::<ServerFrame>(&MASKED_HELLO).err(), Some(Error::Validity));
-  assert_eq!(from_bytes::<ClientFrame>(&HELLO).err(), Some(Error::Validity));
+  assert!(matches!(from_bytes::<ServerFrame>(&MASKED_HELLO), Err(Error::Validity { .. })));
+  assert!(matches!(from_bytes::<ClientFrame>(&HELLO), Err(Error::Validity { .. })));
   // RSV bits, a reserved opcode, a fragmented control frame; a length that is not the one of
   // the bytes.
   for value in [0xc1, 0x83, 0x09] {
     let mut bytes = HELLO;
     bytes[0] = value;
-    assert_eq!(from_bytes::<ServerFrame>(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(from_bytes::<ServerFrame>(&bytes), Err(Error::Validity { .. })));
   }
   assert!(from_bytes::<ServerFrame>(&HELLO[..6]).is_err());
   // Not the shortest form; a control frame of a long form; a length whose first bit is set.
@@ -970,14 +970,14 @@ pub fn main() {
   assert!(from_head::<SshPacket<8, 32>>(&bytes).is_err());
   let mut bytes = KEXINIT;
   bytes[4] = 3;
-  assert_eq!(from_head::<SshPacket<8, 32>>(&bytes).err(), Some(Error::Validity));
-  assert_eq!(try_pun_ref::<_, SshPacket<8, 20>>(&KEXINIT[..]).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<SshPacket<8, 32>>(&bytes), Err(Error::Validity { .. })));
+  assert!(matches!(try_pun_ref::<_, SshPacket<8, 20>>(&KEXINIT[..]), Err(Error::Validity { .. })));
   // A name with a space in it: the typed region is checked when it is read.
   let mut bytes = KEXINIT;
   bytes[5 + 21 + 3] = b' ';
   let (packet, _) = from_head::<SshPacket<8, 32>>(&bytes).unwrap();
   let kex: &KexInit = try_pun_ref(packet.payload()).unwrap();
-  assert_eq!(kex.lists.names().err(), Some(Error::Validity));
+  assert!(matches!(kex.lists.names(), Err(Error::Validity { .. })));
 
   // ---- MQTT: a remaining length of 1 to 4 bytes, a typed body.
   let connect = from_bytes::<Packet<Connect>>(&CONNECT).unwrap();
@@ -1010,7 +1010,7 @@ pub fn main() {
     let mut bytes = CONNECT;
     bytes[16] = value;
     let connect = from_bytes::<Packet<Connect>>(&bytes).unwrap();
-    assert_eq!(connect.body().err(), Some(Error::Validity));
+    assert!(matches!(connect.body(), Err(Error::Validity { .. })));
   }
   // PUBLISH of QoS 1 and 200 bytes (two bytes of length), then DISCONNECT.
   let mut publish = vec![0x32, 0xc8, 0x01];
@@ -1034,7 +1034,7 @@ pub fn main() {
   for bytes in
     [&[0x30, 0x80, 0x00][..], &[0x36, 0x00], &[0x80, 0x00], &[0x30, 0xff, 0xff, 0xff, 0xff, 0x01]]
   {
-    assert_eq!(from_bytes::<Packet>(bytes).err(), Some(Error::Validity));
+    assert!(matches!(from_bytes::<Packet>(bytes), Err(Error::Validity { .. })));
   }
   assert!(from_bytes::<Packet>(&[0x82, 0x00]).is_ok());
 
@@ -1065,16 +1065,16 @@ pub fn main() {
   for (at, value) in [(0, 0x81), (0, 0x49), (1, 0x21), (1, 0x00)] {
     let mut bytes = GET;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Coap>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Coap>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // An option that extends beyond the message.
   let mut bytes = GET;
   bytes[5] = 0xbc;
-  assert_eq!(try_pun_ref::<_, Coap>(&bytes[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Coap>(&bytes[..]), Err(Error::Validity { .. })));
   // A payload marker, and no payload.
   let mut bytes = GET.to_vec();
   bytes.push(0xff);
-  assert_eq!(try_pun_ref::<_, Coap>(&bytes[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Coap>(&bytes[..]), Err(Error::Validity { .. })));
   bytes.push(b'!');
   assert!(try_pun_ref::<_, Coap>(&bytes[..]).is_ok());
 
@@ -1085,10 +1085,10 @@ pub fn main() {
   assert_eq!((chunk.kind, chunk.value.len(), rest.len()), (1, 16, 0));
   let (chunk, rest) = from_head::<Chunk>(&[0, 3, 0, 5, 9, 0, 0, 0, 0xee]).unwrap();
   assert_eq!((chunk.value.len(), rest), (4, &[0xee][..]));
-  assert_eq!(from_head::<Chunk>(&[0, 3, 0, 3, 9, 0, 0, 0]).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Chunk>(&[0, 3, 0, 3, 9, 0, 0, 0]), Err(Error::Validity { .. })));
   let mut bytes = SCTP;
   bytes[20] ^= 1;
-  assert_eq!(try_pun_ref::<_, Sctp>(&bytes[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Sctp>(&bytes[..]), Err(Error::Validity { .. })));
 
   println!("ok");
 }

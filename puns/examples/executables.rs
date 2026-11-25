@@ -782,18 +782,18 @@ pub fn main() {
   {
     let mut bytes = ELF64_LE;
     bytes[at] = value;
-    assert_eq!(AnyElf::from_bytes(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(AnyElf::from_bytes(&bytes), Err(Error::Validity { .. })));
   }
   // A program header of an alignment that is not a power of two: a typed region, checked when
   // it is read.
   let mut bytes = ELF64_LE;
   bytes[64 + 48] = 3;
   let elf: &Elf64Le = try_pun_ref(&bytes[..]).unwrap();
-  assert_eq!(elf.program_headers().err(), Some(Error::Validity));
+  assert!(matches!(elf.program_headers(), Err(Error::Validity { .. })));
   // Section headers out of the file.
   let mut bytes = ELF64_LE;
   bytes[40] = 0xf0;
-  assert_eq!(AnyElf::from_bytes(&bytes).err(), Some(Error::Validity));
+  assert!(matches!(AnyElf::from_bytes(&bytes), Err(Error::Validity { .. })));
 
   // ---- PE: headers where the DOS header says, an optional header of the kind its magic gives.
   let Ok(AnyPe::Pe64(pe)) = AnyPe::from_bytes(&PE64) else { panic!() };
@@ -829,7 +829,7 @@ pub fn main() {
   let mut bytes = PE64;
   bytes[0x98 + 36..0x98 + 38].copy_from_slice(&[0x01, 0x03]);
   let Ok(AnyPe::Pe64(pe)) = AnyPe::from_bytes(&bytes) else { panic!() };
-  assert_eq!(pe.headers().err(), Some(Error::Validity));
+  assert!(matches!(pe.headers(), Err(Error::Validity { .. })));
 
   // ---- Mach-O: load commands that fill `sizeofcmds` bytes.
   let file: &MachO64 = try_pun_ref(&MACHO[..]).unwrap();
@@ -848,12 +848,12 @@ pub fn main() {
   for (at, value) in [(16, 3), (188, 20), (20, 0xf8)] {
     let mut bytes = MACHO;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, MachO64>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, MachO64>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // A segment whose size does not count its sections.
   let mut bytes = MACHO;
   bytes[32 + 4] = 160;
-  assert_eq!(try_pun_ref::<_, Segment64>(&bytes[32..32 + 152]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Segment64>(&bytes[32..32 + 152]), Err(Error::Validity { .. })));
 
   // ---- Java: a constant pool of entries of their own sizes.
   let class: &Class = try_pun_ref(&CLASS[..]).unwrap();
@@ -865,7 +865,7 @@ pub fn main() {
   for (at, value) in [(9, 8), (10, 2), (CLASS.len() - 11, 9), (9, 6), (7, 71)] {
     let mut bytes = CLASS;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Class>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Class>(&bytes[..]), Err(Error::Validity { .. })));
   }
 
   // ---- WebAssembly: sections of a size in LEB128, in order.
@@ -881,12 +881,12 @@ pub fn main() {
   let (types, _) = from_head::<Section>(&wasm.sections).unwrap();
   let (function, _) = from_head::<FuncType>(&types.payload()[1..]).unwrap();
   assert_eq!(function.types, [ValueType::I32, ValueType::I32]);
-  assert_eq!(from_head::<FuncType>(&[0x60, 1, 0x7a]).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<FuncType>(&[0x60, 1, 0x7a]), Err(Error::Validity { .. })));
   // An id that is not one; a size past the end; sections out of order.
   for (at, value) in [(8, 14), (29, 0xc9), (24, 1)] {
     let mut bytes = module.clone();
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Module>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Module>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // A section of 16 KiB: 3 bytes of LEB128.
   let mut large = [&WASM[..8], &[0, 0x80, 0x80, 0x01]].concat();

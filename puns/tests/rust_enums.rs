@@ -37,10 +37,10 @@ enum Void {}
 fn uninhabited() {
   assert_eq!(puns::try_pun::<[u8; 2], Never>([0, 5]), Ok(Never::A(5)));
   // The tag of `B`, whose field has no value.
-  assert_eq!(puns::try_pun::<[u8; 2], Never>([1, 5]), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 2], Never>([1, 5]), Err(Error::Validity { .. })));
   // Variant by variant: `A` is proven, `B` is never a `Never`.
   assert_eq!(puns::try_pun::<Unit, Never>(Unit::A(3)), Ok(Never::A(3)));
-  assert_eq!(puns::try_pun::<Unit, Never>(Unit::B(())), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<Unit, Never>(Unit::B(())), Err(Error::Validity { .. })));
   // A `Never` is always a `Unit`: its `B` is never there.
   assert_eq!(puns::pun::<Never, Unit>(Never::A(3)), Unit::A(3));
   // A source without values proves anything, as nothing is ever made of one.
@@ -130,7 +130,7 @@ fn direct() {
   assert_eq!(puns::try_pun::<[u8; 4], Direct>([0, 7, 0xaa, 0xbb]), Ok(Direct::A(7)));
   let [lo, hi] = bytes::<2>(0x0102);
   assert_eq!(puns::try_pun::<[u8; 4], Direct>([1, 0xaa, lo, hi]), Ok(Direct::B(0x0102)));
-  assert_eq!(puns::try_pun::<[u8; 4], Direct>([2, 0, 0, 0]), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 4], Direct>([2, 0, 0, 0]), Err(Error::Validity { .. })));
   // Proven between enums of the same layout.
   assert_eq!(puns::pun::<Direct, Direct>(Direct::B(3)), Direct::B(3));
   // The widened tag is two bytes, both read.
@@ -154,14 +154,14 @@ fn niche() {
   assert_eq!(puns::try_pun::<u8, MaybeFlag>(nothing), Ok(MaybeFlag::Nothing));
   for byte in 2..=255u8 {
     if byte != nothing {
-      assert_eq!(puns::try_pun::<u8, MaybeFlag>(byte), Err(Error::Validity));
+      assert!(matches!(puns::try_pun::<u8, MaybeFlag>(byte), Err(Error::Validity { .. })));
     }
   }
   // A `char` and two more values.
   let end: u32 = puns::pun(Letter::End);
   assert_eq!(puns::try_pun::<u32, Letter>(end), Ok(Letter::End));
   assert_eq!(puns::try_pun::<u32, Letter>(0x41), Ok(Letter::Char('A')));
-  assert_eq!(puns::try_pun::<u32, Letter>(0xd800), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<u32, Letter>(0xd800), Err(Error::Validity { .. })));
   assert_eq!(puns::pun::<Letter, u32>(Letter::Char('A')), 0x41);
   // Proven: each variant of the source is the variant of the target of the same tags.
   assert_eq!(puns::pun::<Mixed, Mixed>(Mixed::Byte(4)), Mixed::Byte(4));
@@ -565,7 +565,7 @@ fn from_other_than_enums() {
   assert_eq!(puns::pun::<(bool, u8), Opt>((false, 7)), Opt::None);
   assert_eq!(puns::pun::<(bool, u8), Opt>((true, 7)), Opt::Some(7));
   // Not every byte is a tag: checked.
-  assert_eq!(puns::try_pun::<[u8; 2], Opt>([2, 0]), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 2], Opt>([2, 0]), Err(Error::Validity { .. })));
 }
 
 // --- `Option` and `Result` -----------------------------------------------------------------------
@@ -581,7 +581,7 @@ fn option_and_result() {
   assert_eq!(puns::pun::<Option<bool>, u8>(None), 2);
   assert_eq!(puns::try_pun::<u8, Option<bool>>(2), Ok(None));
   assert_eq!(puns::try_pun::<u8, Option<bool>>(1), Ok(Some(true)));
-  assert_eq!(puns::try_pun::<u8, Option<bool>>(3), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<u8, Option<bool>>(3), Err(Error::Validity { .. })));
   assert_eq!(puns::pun::<bool, Option<bool>>(false), Some(false));
   // Two niches in one byte: `Some(None)` is 2, `None` where `rustc` put it (255 today, below the
   // valid values rather than after them), which is found, not assumed.
@@ -589,7 +589,10 @@ fn option_and_result() {
   assert!(none > 2);
   assert_eq!(puns::try_pun::<u8, Option<Option<bool>>>(none), Ok(None));
   assert_eq!(puns::try_pun::<u8, Option<Option<bool>>>(2), Ok(Some(None)));
-  assert_eq!(puns::try_pun::<u8, Option<Option<bool>>>(none ^ 1), Err(Error::Validity));
+  assert!(matches!(
+    puns::try_pun::<u8, Option<Option<bool>>>(none ^ 1),
+    Err(Error::Validity { .. })
+  ));
   // A niche in a `char`.
   let none: u32 = puns::pun(None::<char>);
   assert_eq!(puns::try_pun::<u32, Option<char>>(none), Ok(None));
@@ -624,8 +627,8 @@ fn a_niche_in_an_array_is_in_its_first_element() {
   assert_eq!(puns::pun::<[NonZero<u8>; 4], Four>(four([1, 2, 3, 4])), Some(four([1, 2, 3, 4])));
   // Checked: each element of `Some`, and nothing but the tag of `None`.
   assert_eq!(puns::try_pun::<[u8; 4], Four>([1, 2, 3, 4]), Ok(Some(four([1, 2, 3, 4]))));
-  assert_eq!(puns::try_pun::<[u8; 4], Four>([1, 0, 0, 0]), Err(Error::Validity));
-  assert_eq!(puns::try_pun::<[u8; 4], Four>([1, 2, 3, 0]), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 4], Four>([1, 0, 0, 0]), Err(Error::Validity { .. })));
+  assert!(matches!(puns::try_pun::<[u8; 4], Four>([1, 2, 3, 0]), Err(Error::Validity { .. })));
   assert_eq!(puns::try_pun::<[u8; 4], Four>([0, 0, 0, 0]), Ok(None));
   assert_eq!(puns::try_pun::<[u8; 4], Four>([0, 9, 9, 9]), Ok(None));
   let bytes = [[1u8, 2], [3, 0]];

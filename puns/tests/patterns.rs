@@ -164,7 +164,7 @@ unsafe impl Pun for AnyBytes {
 /// it, if its automaton does not accept the empty string. `NonEmpty` takes at least one byte.
 #[test]
 fn the_empty_string_is_checked() {
-  assert_eq!(from_bytes::<NonEmpty>(&[]).map(|bytes| &bytes.0), Err(Error::Validity));
+  assert!(matches!(from_bytes::<NonEmpty>(&[]).map(|bytes| &bytes.0), Err(Error::Validity { .. })));
   assert_eq!(from_bytes::<NonEmpty>(&[7]).map(|bytes| &bytes.0), Ok(&[7][..]));
   // The kind, and no byte of the body.
   assert!(from_bytes::<Msg>(&[7]).is_err());
@@ -183,7 +183,7 @@ fn the_empty_string_is_checked() {
   // A slice of elements whose bytes are all initialized, which may have no element: checked, every
   // byte of it.
   let pairs = |pairs: &[Pair]| try_pun_ref::<[Pair], NonEmpty>(pairs).map(|bytes| bytes.0.to_vec());
-  assert_eq!(pairs(&[]), Err(Error::Validity));
+  assert!(matches!(pairs(&[]), Err(Error::Validity { .. })));
   assert_eq!(pairs(&[Pair { a: 7, b: true }]), Ok(vec![7, 1]));
 }
 
