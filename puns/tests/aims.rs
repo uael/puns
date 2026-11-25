@@ -390,7 +390,8 @@ fn head<T: Pun>(image: &Image) -> Result<(), Error> {
 fn deep_data_is_checked_on_a_small_stack() {
   // A loop for each type on the path: deep on either side, balanced, of types that point at each
   // other, the stack of the check does not grow with the data.
-  let (levels, json_levels) = if cfg!(miri) { (6, 20) } else { (20, 10_000) };
+  // Under Miri, 5 levels of `Expr` pass the 4 that a check takes in place (`AIM_PARTS`).
+  let (levels, json_levels) = if cfg!(miri) { (5, 20) } else { (20, 10_000) };
   let results = on_a_small_stack(move || {
     let mut image = Image::new();
     balanced(&mut image, levels);
@@ -506,9 +507,15 @@ const CYCLE: Result<usize, Error> = {
 fn a_deep_list_is_checked_when_compiling() {
   assert_eq!(LIST, Ok(6_006 - size_of::<Chain>()));
   assert_eq!(CYCLE, Err(Error::Limit));
-  // The same checks when running, which hand a link of the chain over to its loop from the check
-  // in place of a link.
-  assert_eq!(chain_rest(core::hint::black_box(&LINKS)), LIST);
+  // The same check when running, which hands a link of the chain over to its loop from the check
+  // in place of a link. Under Miri, which is there for that path, 40 links reach it: the 41st is the
+  // end.
+  let mut links = LINKS;
+  let n = if cfg!(miri) { 40 } else { 1_000 };
+  if n < 1_000 {
+    links[6 * n] = 0;
+  }
+  assert_eq!(chain_rest(core::hint::black_box(&links)), LIST);
 }
 
 /// The value of an expression, in `image`.
