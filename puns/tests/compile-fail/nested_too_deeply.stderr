@@ -101,14 +101,14 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let valid = (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || spec.matches(at);
-  |                           ^^^^^^^^
+  |   (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
+  |             ^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let valid = (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) }) || spec.matches(at);
-  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   (const { !C::MARKS.any(<F::Path<P> as Path>::LEAF, 1) })
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
