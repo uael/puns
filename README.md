@@ -209,8 +209,8 @@ only on nightly.
 - `from_bytes` and the other functions that follow the pointers of a struct check what they point
   at to any depth, with a stack that the types bound, not the data. They return `Error::Validity`
   for a pointee that two pointers share, that overlaps a value, or that a cycle reaches, unless
-  the pointer is `shared`, and `Error::Limit` for nesting that this stack cannot hold
-  ([`AIM_PARTS`][aim-parts]).
+  the pointer is `shared`: its pointees are checked in place, so a cycle through them ends with
+  `Error::Limit`, as does nesting that this stack cannot hold ([`AIM_PARTS`][aim-parts]).
 
 ## Performance
 
