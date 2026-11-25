@@ -59,16 +59,13 @@ are in [Commands](docs/testing.md#commands), and the other commands of each crat
 
 Every check that CI runs on a push must take at most a minute, build included, since CI builds the
 crates of the workspace each time. Check what matters, and time a check before adding one. The time
-that counts is the one of the job on GitHub, which a local run does not measure. In the three runs
-of CI on `main` of 2026-11-23 (commits `c92ebf2`, `5ce6f30` and `9e02b3f`), with the caches, a job
-spent 11 to 47 seconds before its work started, 15 at the median, and the longest of the three
-times of a job was, at the median, a quarter more than the shortest. So aim at 45 seconds, and read
-the times of the jobs after a change of the workflow. The first run after a change of a cache key
-has nothing cached. Split a job again rather than let it pass 45 seconds. In these three runs, the
-four jobs of the sample of the model check that build `parts` or `miri_sample` took 34 to 64
-seconds, and more than 45 in 9 of their 12 runs.
+that counts is the one of the job on GitHub, which a local run does not measure. A job spends time
+before its work starts, even with the caches, and the time of a job varies from one run to the
+next. So aim at 45 seconds, and read the times of the jobs after a change of the workflow. The
+first run after a change of a cache key has nothing cached. Split a job again rather than let it
+pass 45 seconds.
 
-This is why `cargo test --all` is twenty jobs there: the tests of `puns` in eight, five without the
+So `cargo test --all` is twenty jobs there: the tests of `puns` in eight, five without the
 `unstable` feature and three with it (the cases of `compile-fail` in two halves each way), and the
 sample of the model check in twelve, six each way (the native samples of pairs and of parts are in
 two files each, `sample_by_size_*` and `parts_by_size_*`).
