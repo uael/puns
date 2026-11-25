@@ -76,7 +76,8 @@ The `from_` functions check the address only if the target needs an alignment gr
 address, then the extent that its rules give. [`from_tail`] and [`from_tail_mut`] check the size
 first, since it decides where the last bytes start, then the address. All of them then check the
 values of the target that the bytes do not prove, requirements included, and the pointees of its
-eager [aims][aims] in the same bytes, a few levels deep. [`check`] and [`check_compact`] check data
+eager [aims][aims] in the same bytes, up to a bound ([Bounds of the
+checks][limits#bounds-of-the-checks]). [`check`] and [`check_compact`] check data
 whose pointees lead deeper, with a list of the pointees still to check that you give. A view has a
 `from_bytes` and a `from_head` of its own ([Reading one of several
 types][crate#reading-one-of-several-types]).
@@ -344,5 +345,6 @@ check looks for its pointee in the bytes of the source.
 [crate#going-further]: ../README.md#going-further
 [crate#reading-one-of-several-types]: ../README.md#reading-one-of-several-types
 [errors]: errors.md
+[limits#bounds-of-the-checks]: limits.md#bounds-of-the-checks
 [limits#limits-of-rust]: limits.md#limits-of-rust
 [limits#not-yet]: limits.md#not-yet

@@ -16,7 +16,6 @@
 //! [`pun_ref`]: pun_ref
 //! [`tail_mut`]: tail_mut
 //! [`tail`]: tail
-//! [`Worklist`]: Worklist
 //! [aims]: super::aims
 //! [concepts#why-the-pair-decides]: super::concepts#why-the-pair-decides
 //! [errors]: super::errors

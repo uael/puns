@@ -130,10 +130,8 @@ pub use layout::{crc32, sum16};
 /// assumes](crate::reference::layouts#what-puns-assumes)). Otherwise the enum proves only the same
 /// type, and only the same type proves it.
 ///
-/// A `repr(transparent)` enum is read as one of the `Rust` representation, so it has an
-/// unspecified layout too, though Rust gives it the layout of its only field of nonzero size ([not
-/// decided](crate::reference::limits#not-decided)). Without the `unstable` feature, `puns` assumes
-/// its layout where the assumption applies, as for a variant of one field.
+/// A `repr(transparent)` enum is read as one of the `Rust` representation, as [Not
+/// decided](crate::reference::limits#not-decided) explains.
 ///
 /// The derive finds where the fields of a variant are, and its tag, on the *sample* of the variant:
 /// its least value, which holds the least value of each field. The least value of an enum is that

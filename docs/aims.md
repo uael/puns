@@ -1,8 +1,8 @@
 # Aims
 
-An *aim* is a value at a place of the checked bytes that a struct points at, its *pointee*
-([`layout::Aim`], a [rule][concepts#layouts-and-rules] of the struct). An aim says three things,
-and every combination of them is an aim that `puns` checks and reads:
+This chapter says how `puns` checks and reads an [aim][concepts#aims] and its pointee. An aim
+([`layout::Aim`]) says three things, and every combination of them is an aim that `puns` checks
+and reads:
 
 - Where the pointee is ([`layout::Start`]): at the address of the struct plus an offset that an
   expression over the struct gives, an `i128` in two's complement, as for the self-relative
@@ -31,18 +31,15 @@ through which a read names the type that it returns.
   The pointee must be within them, aligned for its type, of a size that its type has, and every
   part of it is checked, what it stores before its value first, its own eager aims included, one
   level deeper. A pointee may be before the struct, and may be shared by several aims. These
-  functions check the pointees in place, one within another, and stop with [`Error::Limit`] past
-  [`AIM_PARTS`] parts of their layouts, a few levels of a type that points at itself, which bounds
-  their stack whatever the bytes, small enough for an embedded target ([`AIM_PARTS`] says how
-  much), or past pointees of twice as many bytes as they read, so that a check of a cycle ends.
-  They allocate nothing. Deeper data is for [`check`].
+  functions check the pointees in place, one within another, and allocate nothing. They stop at a
+  bound ([Bounds of the checks][limits#bounds-of-the-checks]). Deeper data is for [`check`].
 - [`check`] and [`check_compact`] check bytes for a value at any depth, with a stack that does not
-  grow with the data: the pointees wait in a [`Worklist`] that the caller gives, each value before
-  its pointees, depth first. They make no reference, so the bytes may be at any address, and are
-  checked as they will be once copied to an address of a given alignment. [`check_compact`]
-  requires the bytes to be the compact image of the value, each pointee right after the one
-  before it in that order, as a writer that copies the value makes them. Both say where bytes stop
-  being a value ([`Failure`]).
+  grow with the data. The caller gives a [`Worklist`], which holds the pointees still to check,
+  each value before its pointees, depth first. They make no reference, so the bytes may be at any
+  address, and are checked as they will be once copied to an address of a given alignment.
+  [`check_compact`] requires the bytes to be the compact image of the value, each pointee right
+  after the one before it in that order, as a writer that copies the value makes them. Both say
+  where bytes stop being a value ([`Failure`]).
 - So a reference to a struct with an eager aim is a reference to a valid pointee, which code reads
   without a check, through a safe method that the derive writes. No function makes a value that
   holds an eager aim ([`pun`], [`try_pun`], [`zeroed`] and the other functions that return a
@@ -116,12 +113,10 @@ assert!(puns::from_head::<Ptr>(puns::as_bytes(&[(-4i32).cast_unsigned(), 7])).is
 [support]: https://github.com/uael/puns/blob/v0.2.4/puns/tests/support/aims.rs
 
 [`AimOf`]: https://docs.rs/puns/0.2.4/puns/struct.AimOf.html
-[`AIM_PARTS`]: https://docs.rs/puns/0.2.4/puns/constant.AIM_PARTS.html
 [`aim_mut`]: https://docs.rs/puns/0.2.4/puns/fn.aim_mut.html
 [`aim`]: https://docs.rs/puns/0.2.4/puns/fn.aim.html
 [`check_compact`]: https://docs.rs/puns/0.2.4/puns/fn.check_compact.html
 [`check`]: https://docs.rs/puns/0.2.4/puns/fn.check.html
-[`Error::Limit`]: https://docs.rs/puns/0.2.4/puns/enum.Error.html#variant.Limit
 [`Failure`]: https://docs.rs/puns/0.2.4/puns/struct.Failure.html
 [`from_bytes_mut`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes_mut.html
 [`from_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes.html
@@ -142,7 +137,8 @@ assert!(puns::from_head::<Ptr>(puns::as_bytes(&[(-4i32).cast_unsigned(), 7])).is
 [`try_pun`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
 [`Worklist`]: https://docs.rs/puns/0.2.4/puns/trait.Worklist.html
 [`zeroed`]: https://docs.rs/puns/0.2.4/puns/fn.zeroed.html
-[concepts#layouts-and-rules]: concepts.md#layouts-and-rules
+[concepts#aims]: concepts.md#aims
 [layouts#the-same-type]: layouts.md#the-same-type
+[limits#bounds-of-the-checks]: limits.md#bounds-of-the-checks
 [macro@Pun#aims]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#aims
 [rust#the-provenance-of-a-reference-to-a-value-with-an-eager-aim]: rust.md#the-provenance-of-a-reference-to-a-value-with-an-eager-aim

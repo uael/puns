@@ -32,9 +32,7 @@
 //!
 //! `misaligned` checks that an address is rejected for its alignment (`try_pun_ref`, `from_tail`).
 //! The parts (`head*`, `tail*`) are in `parts.rs`, slices and unsized tails in `dst.rs`, and view
-//! enums in `views.rs`. The model does not check `pun`, `pun_mut`, `try_pun_mut`,
-//! `from_head_mut`, `from_tail_mut` and the regions, which the tests of `puns` run under Miri. It
-//! calls `pun_mut` only to fill a buffer (`src/views.rs`, `tests/dst.rs`).
+//! enums in `views.rs`. What the model does not run under Miri is in "Miri" of `docs/testing.md`.
 
 use puns::{Error, hook};
 use puns_model::types::*;

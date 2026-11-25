@@ -80,11 +80,10 @@ evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions].
 ## Bounds of the checks
 
 - **Pointees within pointees.** The `try_` and `from_` functions check the pointees of eager
-  [aims] in place, one within another, up to [`AIM_PARTS`] parts of their layouts, a few levels of
-  a type that points at itself, and pointees of at most twice the bytes that they read, and return
-  [`Error::Limit`] past either. This bounds their stack whatever the bytes, and ends the check of a
-  cycle. [`check`] and [`check_compact`] have no such bound: their stack does not grow with the
-  data, and the pointees still to check wait in a [`Worklist`] that the caller gives.
+  [aims] in place, one within another, and return [`Error::Limit`] past the bound that it states:
+  [`AIM_PARTS`] parts of the layouts of the pointees, one within another, or pointees of twice as
+  many bytes as the function reads. [`check`] and [`check_compact`] check deeper data, with a stack
+  that does not grow with it.
 
 ## Not yet
 
@@ -214,7 +213,6 @@ What could be done, where whether to do it is not decided.
 [`pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.pun_ref.html
 [`tail_mut`]: https://docs.rs/puns/0.2.4/puns/fn.tail_mut.html
 [`tail`]: https://docs.rs/puns/0.2.4/puns/fn.tail.html
-[`Worklist`]: https://docs.rs/puns/0.2.4/puns/trait.Worklist.html
 [aims]: aims.md
 [concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
 [errors]: errors.md

@@ -1,12 +1,10 @@
 // The chapter is docs/aims.md, read on GitHub as well. Rustdoc keeps the first
 // definition of a link, so these, before it, make its links to items and chapters intra-doc.
 //! [`AimOf`]: AimOf
-//! [`AIM_PARTS`]: AIM_PARTS
 //! [`aim_mut`]: aim_mut
 //! [`aim`]: aim
 //! [`check_compact`]: check_compact
 //! [`check`]: check
-//! [`Error::Limit`]: Error::Limit
 //! [`Failure`]: Failure
 //! [`from_bytes_mut`]: from_bytes_mut
 //! [`from_bytes`]: from_bytes
@@ -27,8 +25,9 @@
 //! [`try_pun`]: try_pun
 //! [`Worklist`]: Worklist
 //! [`zeroed`]: zeroed
-//! [concepts#layouts-and-rules]: super::concepts#layouts-and-rules
+//! [concepts#aims]: super::concepts#aims
 //! [layouts#the-same-type]: super::layouts#the-same-type
+//! [limits#bounds-of-the-checks]: super::limits#bounds-of-the-checks
 //! [macro@Pun#aims]: macro@Pun#aims
 //! [rust#the-provenance-of-a-reference-to-a-value-with-an-eager-aim]: super::rust#the-provenance-of-a-reference-to-a-value-with-an-eager-aim
 #![doc = include_str!("../../docs/aims.md")]

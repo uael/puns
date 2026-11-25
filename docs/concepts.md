@@ -31,7 +31,7 @@ trailing slice, or the size of a region. The *extent* of a value is its size up 
 trailing slice. [`size_of_val`] also counts the padding that may follow that slice, and the extent
 does not. A `size` rule gives the extent. A *[region][rules#regions]* is a named range of bytes of
 the last field of a struct. A rule gives its size, or its type does, and a method of the same name
-reads it. A region is one kind of [aim](#aims), a rule that points at a place of the bytes.
+reads it. A region is one kind of [aim](#aims).
 
 ## What is a valid value?
 
@@ -174,10 +174,10 @@ feature][layouts] lists these choices, and what `puns` does about them.
 
 ## Aims
 
-An *aim* is a value at a place of the checked bytes that a struct points at, its *pointee*, such
-as the value that a self-relative pointer points at, or a region of the trailing bytes of the
-struct. A check of the struct checks the pointee of an eager aim with it, and a read checks the
-pointee of a lazy one. [Aims][aims] says how.
+An *aim* is a rule of a struct that points at a place of the checked bytes. The value there is its
+*pointee*, such as the value that a self-relative pointer points at, or a region of the trailing
+bytes of the struct. A check of the struct checks the pointee of an eager aim with it, and a read
+checks the pointee of a lazy one. [Aims][aims] says how.
 
 ## Uninhabited types
 
