@@ -684,8 +684,9 @@
 //! pointee. It reads the pointee through the reference to the value, which has the provenance of
 //! the bytes of the pointee under the tree borrows model of Miri, which `puns` relies on there. A
 //! pointee outside the value is outside what a reference to the value gives access to under stacked
-//! borrows, where code reads it with [`aim`] from a pointer to the bytes that hold both. A lazy one
-//! checks the pointee when it reads it.
+//! borrows, where code reads it with [`aim`] from a pointer to the bytes that hold both, or writes
+//! it with [`aim_mut`]. These name the aim by its name, a field of the constant `AIMS` that the
+//! derive writes ([`AimOf`]). A lazy one checks the pointee when it reads it.
 //!
 //! ```
 //! use puns::{InPlace, Pun};
@@ -1439,18 +1440,18 @@ pub use layout::{crc32, sum16};
 /// [`Pointee`]: a `Pun` type, or a [`Thin<T, M>`](Thin), which stores the length of an unsized `T`
 /// before it.
 ///
-/// Both options write an aim the same way: `eager` or `lazy`, then `mut`, then the name and the
-/// type of the pointee. An eager aim is checked with the struct, and its field is an
-/// [`InPlace<T>`](InPlace), a `T` in the layout and in rules, which may name it. No code makes an
-/// `InPlace`, so no safe code makes a value of the struct, and code reads the pointee of a value
-/// without a check. A lazy aim is checked when it is read, and its field is of any type. Without
-/// `eager` or `lazy`, a pointer is eager and a region is lazy. With a name, a method reads the
-/// pointee, as visible as the field:
+/// Both options write an aim the same way: `eager` or `lazy`, then the name and the type of the
+/// pointee. An eager aim is checked with the struct, and its field is an [`InPlace<T>`](InPlace),
+/// a `T` in the layout and in rules, which may name it. No code makes an `InPlace`, so no safe code
+/// makes a value of the struct, and code reads the pointee of a value without a check. A lazy aim
+/// is checked when it is read, and its field is of any type. Without `eager` or `lazy`, a pointer
+/// is eager and a region is lazy. With a name, a method reads the pointee, as visible as the field:
 ///
-/// - eager: `fn name(&self) -> &Type`, and, with `mut`, `unsafe fn name_mut(&mut self) -> &mut
-///   Type` too, whose `# Safety` says what the caller ensures. `name` reads through the reference
-///   to the value, which has the provenance of the bytes of the pointee under the tree borrows
-///   model of Miri; [`aim`] reads it from a pointer.
+/// - eager: `fn name(&self) -> &Type`, safe, which reads through the reference to the value, which
+///   has the provenance of the bytes of the pointee under the tree borrows model of Miri. The
+///   struct also has a constant `AIMS`, whose field `name`, as visible as the field of the aim,
+///   names the aim for [`aim`] and [`aim_mut`], which read the pointee from a pointer, to read or
+///   to write ([`AimOf`]).
 /// - lazy, at a pointer: `fn name(&self, bytes: &[u8]) -> Result<&Type, Error>`, which finds the
 ///   value in the `bytes` that hold it, and checks the pointee there as [`from_bytes`] checks
 ///   bytes.
@@ -1459,8 +1460,7 @@ pub use layout::{crc32, sum16};
 ///   aims within the bytes of the struct; and, for a region without a type, `fn name(&self) ->
 ///   &[u8]`, its bytes.
 ///
-/// `mut` is refused on a lazy aim, whose read checks bytes, and on an aim without a name. The
-/// options are:
+/// The options are:
 ///
 /// - `#[pun(pointer(name: Type = EXPR))]`, on a field: the struct points at a `Type` that is `EXPR`
 ///   bytes from the start of the struct, where a `Thin` has its length. `EXPR` is a rule whose
@@ -1717,8 +1717,9 @@ pub use layout::{crc32, sum16};
 ///   [`layout::Enum`], [`layout::Variant`], [`layout::Crc`], [`layout::Checksum`],
 ///   [`layout::Varint`], [`layout::Aim`], [`layout::Start`], [`layout::Extent`],
 ///   [`layout::Check`] and the identity of a type, and methods of the values that they return.
-///   Hidden constants of `Layout` fix these types, and [`InPlace`], with `fn(T)` types that no path
-///   can replace, so a path that names a module or another type for one of them does not compile.
+///   Hidden constants of `Layout` fix these types with `fn(T)` types that no path can replace, so a
+///   path that names a module or another type for one of them does not compile. `Layout` itself is
+///   the type of `LAYOUT` in the implementation of [`Pun`](trait@Pun).
 ///   The description of an enum of the `Rust` representation, whose type the generated code names,
 ///   is what a function of `Layout` returns, so only the real type compiles.
 /// - The offsets of the fields do not come from `offset_of!`, which is a macro named by a path.
@@ -1751,10 +1752,13 @@ pub use layout::{crc32, sum16};
 /// - The trait that says where a field is (`Path`) is sealed, and the leaf at which a list of
 ///   fields places a field is checked against the layout.
 /// - The field of each eager aim has the type [`InPlace<T>`](InPlace), where `T` is its type in the
-///   layout, `<F as InPlaceOf>::Inner` for a field of type `F`, which compiles only for an
-///   `InPlace<T>` (a sealed trait). The function that ties the fields to the type as compiled
-///   requires it too, below, as it requires the type of every field. So a struct to which the
-///   derive gives an eager aim has no value that safe code makes.
+///   layout, `<F as InPlaceOf>::Inner` for a field of type `F`. A trait is named by a path, which
+///   may name another trait than the one of `puns`, and a path may name a type `InPlace<T>` that
+///   safe code makes for some `T`. So the function that ties the fields to the type as compiled,
+///   below, gives a function of `Layout` a `&mut` to a pointer to the field, which compiles only if
+///   the field is the `InPlace<T>` of `puns` for that very `T`, since a `&mut` to a raw pointer
+///   admits no coercion. So a struct to which the derive gives an eager aim has no value that safe
+///   code makes, as the `# Safety` of `Pun` requires of a type with an eager aim.
 /// - The type of each field is written once, as an associated type of a trait that the derive
 ///   declares and implements for the type, where `Self` is the type, as in its declaration. The
 ///   rest of the generated code names the type of a field there. A function that is never called
@@ -1775,10 +1779,15 @@ pub use layout::{crc32, sum16};
 ///
 /// Nothing else that the derive names through the path of `puns` makes a layout. A trait that it
 /// implements through the path is the trait of `puns`: otherwise the type does not implement that
-/// trait of `puns`, or the implementation of `Pun` does not compile. The lists of fields and of rules that it writes as types are checked against the layout. The
-/// functions of a view, the accessors of the regions and the getters call functions named through
-/// the path, in code that holds no `unsafe` block. A path that names other functions there changes
-/// what they return, but whatever it is, it is a valid value of its type.
+/// trait of `puns`, or the implementation of `Pun` does not compile. The lists of fields and of
+/// rules that it writes as types are checked against the layout. The functions of a view, the
+/// methods that read the pointees of aims and the getters call functions named through the path,
+/// in code that holds no `unsafe` block. A path that names other functions there changes what they
+/// return, but whatever it is, it is a valid value of its type, and an `unsafe` function does not
+/// compile there. The read of an eager pointee is a safe function of `puns`, whose soundness rests
+/// on the `# Safety` of `Pun` alone, which the field of the aim meets. The constant `AIMS` holds
+/// values of a type named through the path, which [`aim`] and [`aim_mut`] take only if it is the
+/// [`AimOf`] of `puns`.
 ///
 /// The rest of `::core` that the derive names (`Option`, `PhantomData`, `usize`, and so on) is
 /// checked by the types of the traits it implements. `::core::ptr::null()` is the probe of a sized
@@ -2111,6 +2120,12 @@ pub unsafe trait Scalar {
 /// sized, and `usize` otherwise. No byte of `Self` is inside an
 /// [`UnsafeCell`](core::cell::UnsafeCell).
 ///
+/// If the layout has an eager [aim](crate#aims), a reference to a value of `Self` that safe code
+/// can reach meets the requirements of [`aim`] for each eager aim, the reference itself being the
+/// holder: where the aim says, there is a valid pointee, which the reference has the provenance
+/// of, and which is not written while it lives. The derive meets this with the [`InPlace`] of the
+/// aim, which no safe code makes ("Values made by unsafe code" in its documentation).
+///
 /// If `T: Pun`, unsafe code may assume that the layout of `T` is exact in this sense, and that `T`
 /// holds no `UnsafeCell`. The functions of `puns` are sound only under this assumption.
 ///
@@ -2302,7 +2317,9 @@ impl<T: ?Sized + core::fmt::Debug> core::fmt::Debug for InPlace<T> {
 /// The `T` of an [`InPlace<T>`](InPlace), which the derive names for the field of an eager aim,
 /// whatever the spelling of its type (an alias, a path).
 ///
-/// Sealed: `InPlace<T>` is the one type that implements it, so the field of an eager aim is one.
+/// Sealed: `InPlace<T>` is the one type that implements it. The derive names it through the path
+/// of `puns`, which may name another trait, so it does not rely on it alone: `Layout::in_place`
+/// ties the field to the `InPlace<T>` of `puns` for the `T` that this trait gives.
 #[doc(hidden)]
 #[diagnostic::on_unimplemented(
   message = "the field of an eager aim is an `InPlace<T>`, not `{Self}`",
@@ -2451,7 +2468,7 @@ impl<const R: usize, E: Steps, N: Rules, P: ?Sized + Pointee, X: Steps> Rules
 /// The reads of a pointee ([`aim`], [`aim_mut`], and those of regions) name the item of its aim by
 /// where it is in the list of the rules of its struct, never by the item itself, so that the
 /// pointee that they read is the one of that struct, which its check found, and not a type that
-/// the caller names. Sealed.
+/// the caller names. The derive counts the rules for each aim ([`AimOf`]). Sealed.
 #[doc(hidden)]
 pub trait Item<L: Rules>: sealed::Sealed {
   /// The item.
@@ -2459,57 +2476,14 @@ pub trait Item<L: Rules>: sealed::Sealed {
 }
 
 /// The first item of a list of rules, which is the first rule of a struct that has an expression
-/// or is an aim: where [`aim`] and [`aim_mut`] find the item of an aim.
-///
-/// # Examples
-///
-/// ```
-/// use puns::{InPlace, Pun};
-///
-/// #[derive(Pun)]
-/// #[repr(C)]
-/// struct Two {
-///   #[pun(pointer(u8 = 2))]
-///   first: InPlace<u8>,
-///   #[pun(pointer(u8 = 3))]
-///   second: InPlace<u8>,
-/// }
-///
-/// let bytes = [0, 0, 7, 9];
-/// let two = puns::from_head::<Two>(&bytes).unwrap().0;
-/// let holder = bytes.as_ptr().with_addr(core::ptr::from_ref(two).addr()).cast();
-/// // SAFETY: `puns` checked `two` with its pointees, and the pointer has the provenance of the
-/// // bytes that hold them, which are not written while it is used.
-/// let first = unsafe { puns::aim::<Two, puns::First>(holder) };
-/// assert_eq!(*first, 7);
-/// ```
+/// or is an aim. Only the derive names it ([`AimOf`]).
+#[doc(hidden)]
 pub struct First;
 
 /// The item after the one that `K` names, in a list of rules: `After<First>` is the second rule of
-/// a struct that has an expression or is an aim, `After<After<First>>` the third, and so on.
-///
-/// # Examples
-///
-/// ```
-/// use puns::{InPlace, Pun};
-///
-/// #[derive(Pun)]
-/// #[repr(C)]
-/// struct Two {
-///   #[pun(pointer(u8 = 2))]
-///   first: InPlace<u8>,
-///   #[pun(pointer(u8 = 3))]
-///   second: InPlace<u8>,
-/// }
-///
-/// let bytes = [0, 0, 7, 9];
-/// let two = puns::from_head::<Two>(&bytes).unwrap().0;
-/// let holder = bytes.as_ptr().with_addr(core::ptr::from_ref(two).addr()).cast();
-/// // SAFETY: `puns` checked `two` with its pointees, and the pointer has the provenance of the
-/// // bytes that hold them, which are not written while it is used.
-/// let second = unsafe { puns::aim::<Two, puns::After<puns::First>>(holder) };
-/// assert_eq!(*second, 9);
-/// ```
+/// a struct that has an expression or is an aim, `After<After<First>>` the third, and so on. Only
+/// the derive names it ([`AimOf`]).
+#[doc(hidden)]
 pub struct After<K>(PhantomData<K>);
 
 impl<L: Rules> Item<L> for First {
@@ -2518,6 +2492,61 @@ impl<L: Rules> Item<L> for First {
 
 impl<L: Rules, K: Item<L::Next>> Item<L> for After<K> {
   type Of = K::Of;
+}
+
+/// An eager [aim](crate#aims) of the struct `S`, by its name, for [`aim`] and [`aim_mut`].
+///
+/// A struct that derives [`Pun`](macro@Pun) with an eager aim that has a name has a constant
+/// `AIMS`, which holds one `AimOf` for each such aim, a field of that name, as visible as the
+/// field of the aim. So `Next::AIMS.next` is the aim `next` of `Next`, whatever the other rules of
+/// the struct, and names no aim of another type. `K` is where the aim is among the rules of `S`,
+/// which the derive counts.
+///
+/// # Examples
+///
+/// ```
+/// use puns::{InPlace, Pun};
+///
+/// #[derive(Pun)]
+/// #[repr(C)]
+/// #[pun(assert(first < second))]
+/// struct Two {
+///   #[pun(pointer(left: u8 = 2))]
+///   first: InPlace<u8>,
+///   #[pun(pointer(right: u8 = 3))]
+///   second: InPlace<u8>,
+/// }
+///
+/// let bytes = [0, 1, 7, 9];
+/// let two = puns::from_head::<Two>(&bytes).unwrap().0;
+/// let holder = bytes.as_ptr().with_addr(core::ptr::from_ref(two).addr()).cast();
+/// // SAFETY: `puns` checked `two` with its pointees, and the pointer has the provenance of the
+/// // bytes that hold them, which are not written while it is used.
+/// let left = unsafe { puns::aim(holder, Two::AIMS.left) };
+/// // SAFETY: As above.
+/// let right = unsafe { puns::aim(holder, Two::AIMS.right) };
+/// assert_eq!((*left, *right), (7, 9));
+/// ```
+pub struct AimOf<S: ?Sized, K>(PhantomData<fn() -> (*const S, K)>);
+
+impl<S: ?Sized, K> AimOf<S, K> {
+  /// The aim, which the derive writes in `AIMS`.
+  #[doc(hidden)]
+  pub const NEW: Self = Self(PhantomData);
+}
+
+impl<S: ?Sized, K> Clone for AimOf<S, K> {
+  fn clone(&self) -> Self {
+    *self
+  }
+}
+
+impl<S: ?Sized, K> Copy for AimOf<S, K> {}
+
+impl<S: ?Sized, K> core::fmt::Debug for AimOf<S, K> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    f.write_str("AimOf")
+  }
 }
 
 /// The pointee of the item that `K` names in the list of the rules of `S`.
@@ -5714,23 +5743,44 @@ const unsafe fn pointee<S: ?Sized + Pun, L: Rules>(
 }
 
 /// Returns the value of the pointee of the eager aim that `K` names in the list of the rules of
-/// `S`, for the value of `S` at `holder`, as a reference.
+/// `S`, for `value`: the read of the method `name(&self)` that the derive writes for an eager aim
+/// with a name ([`macro@Pun`]).
 ///
-/// This is the read of the pointee of an eager aim, which the methods that the derive writes for a
-/// named aim call ([`macro@Pun`]). The pointee is where the check of the struct found it: at the
-/// address of `holder`, plus the value of the expression of the aim, an `i128` in two's
-/// complement, or at the cursor of the tail of the struct, with the length that it stores, that the
-/// aim gives, or of the size that the aim gives, or of what remains of the tail of the struct.
+/// It is safe because `S` is a [`Pun`](trait@Pun) type, whose `# Safety` requires every value of
+/// `S` that safe code reaches to hold the pointee of each of its eager aims, as [`aim`] requires
+/// of its holder, with a reference to the value for its provenance: the tree borrows model of Miri
+/// gives a reference the provenance of the bytes of the pointee, and `puns` relies on it here
+/// ([Aims](crate#aims)). The derive meets that `# Safety` with the [`InPlace`] of the aim, which
+/// no safe code makes, and which no path that `#[pun(crate = ..)]` names replaces ("What the
+/// derive trusts" in [`macro@Pun`]). The method calls this function with no `unsafe` block, so a
+/// path that names another function there calls safe code.
 ///
-/// The method `name(&self)` that the derive writes is safe, and calls this function with a pointer
-/// made from the reference: no safe code makes a value with an eager aim ([`InPlace`]). This
-/// function takes a pointer, so that a caller can give it the provenance of the bytes of the
-/// pointee, which a reference to the holder has under the tree borrows model of Miri, but not under
-/// stacked borrows ("Aims" in the crate documentation).
+/// # Compile-time errors
 ///
-/// `K` names the aim by where it is among the rules of the struct that have an expression or are
-/// aims, in the order of the derive: [`First`] for the first, `After<First>` for the second, and so
-/// on. The pointee is then the one of that rule of `S`, which the check of `S` found.
+/// As for [`aim`].
+#[doc(hidden)]
+#[inline(always)]
+#[must_use]
+pub const fn aim_of<S: ?Sized + Pun, K: Item<S::Rules>>(value: &S) -> &ValueOf<S, K> {
+  // SAFETY: `value` is a reference to a value of `S`, a `Pun` type, so by the `# Safety` of `Pun`,
+  // it meets the requirements of `aim` for the eager aims of `S`, one of which `K` names, which
+  // `pointee` asserts. The pointee is not written while `value` lives, which the result borrows.
+  unsafe { aim(value, AimOf::<S, K>::NEW) }
+}
+
+/// Returns the value of the pointee of the eager aim of `S` that the second argument names, for
+/// the value of `S` at `holder`, as a reference.
+///
+/// The pointee is where the check of the struct found it: at the address of `holder`, plus the
+/// value of the expression of the aim, an `i128` in two's complement, or at the cursor of the tail
+/// of the struct, with the length that it stores, that the aim gives, or of the size that the aim
+/// gives, or of what remains of the tail of the struct. The aim is named by a field of the
+/// constant `AIMS` that the derive writes ([`AimOf`]).
+///
+/// The method `name(&self)` that the derive writes for the aim reads the same pointee through the
+/// reference to the value, which has the provenance of the bytes of the pointee under the tree
+/// borrows model of Miri, but not under stacked borrows ("Aims" in the crate documentation). This
+/// function takes a pointer, so that a caller can give it that provenance under either model.
 ///
 /// # Safety
 ///
@@ -5754,9 +5804,9 @@ const unsafe fn pointee<S: ?Sized + Pun, L: Rules>(
 ///
 /// # Compile-time errors
 ///
-/// A call compiles only if the rule that `K` names is an eager aim, and a pointee whose extent is
-/// what it stores is sized, a `Thin`, or stores the length of its tail in its sized fields, as the
-/// check of the aim requires.
+/// A call compiles only if the aim is eager, and a pointee whose extent is what it stores is sized,
+/// a `Thin`, or stores the length of its tail in its sized fields, as the check of the aim
+/// requires.
 ///
 /// # Examples
 ///
@@ -5777,13 +5827,14 @@ const unsafe fn pointee<S: ?Sized + Pun, L: Rules>(
 /// let holder = bytes.as_ptr().with_addr(core::ptr::from_ref(next).addr()).cast();
 /// // SAFETY: `puns` checked `next` with its pointee, and the pointer has the provenance of the
 /// // bytes that hold both, which are not written while it is used.
-/// let pointee = unsafe { puns::aim::<Next, puns::First>(holder) };
+/// let pointee = unsafe { puns::aim(holder, Next::AIMS.next) };
 /// assert_eq!(*pointee, 9);
 /// ```
 #[inline(always)]
 #[must_use]
 pub const unsafe fn aim<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
   holder: *const S,
+  _: AimOf<S, K>,
 ) -> &'a ValueOf<S, K> {
   // SAFETY: The requirements of `pointee` are those of this call, and `K::Of` is an item of the
   // list of `S` (`Item`). The pointee at the address that it returns, with its length, is valid
@@ -5792,8 +5843,8 @@ pub const unsafe fn aim<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
   unsafe { &*pointee::<S, K::Of>(holder) }
 }
 
-/// Returns the value of the pointee of the eager aim that `K` names in the list of the rules of
-/// `S`, for the value of `S` at `holder`, as a mutable reference: what [`aim`] returns, to write.
+/// Returns the value of the pointee of the eager aim of `S` that the second argument names, for
+/// the value of `S` at `holder`, as a mutable reference: what [`aim`] returns, to write.
 ///
 /// # Safety
 ///
@@ -5827,13 +5878,14 @@ pub const unsafe fn aim<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
 /// // SAFETY: `puns` checked the `Next` at the start of `bytes` with its pointee. The pointer has
 /// // the provenance of both, the pointee is accessed only through the result while it is used,
 /// // and a `u8` stays one.
-/// unsafe { *puns::aim_mut::<Next, puns::First>(holder) += 1 };
+/// unsafe { *puns::aim_mut(holder, Next::AIMS.next) += 1 };
 /// assert_eq!(bytes, [1, 10]);
 /// ```
 #[inline(always)]
 #[must_use]
 pub const unsafe fn aim_mut<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
   holder: *mut S,
+  _: AimOf<S, K>,
 ) -> &'a mut ValueOf<S, K> {
   // SAFETY: The requirements of `pointee` are those of this call, and `K::Of` is an item of the
   // list of `S` (`Item`). The pointee at the address that it returns, with its length, is valid

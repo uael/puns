@@ -230,17 +230,14 @@ fn parse_repr(attrs: &[Attribute]) -> Result<Repr> {
   Ok(repr)
 }
 
-/// When the pointee of an aim is checked, and whether a method reads it to write: what an aim of
-/// either option starts with, `eager` or `lazy`, then `mut`, before its name.
+/// When the pointee of an aim is checked: what an aim of either option starts with, `eager` or
+/// `lazy`, before its name.
 ///
 /// An aim without `eager` or `lazy` is checked as its option says: a `pointer` with the struct, and
-/// a region when it is read ([`Prefix::eager`]). `mut` adds a method that reads an eager pointee to
-/// write, and is refused on a lazy one, whose read checks bytes that it is given, or on one without
-/// a name, since it names that method.
+/// a region when it is read ([`Prefix::is_eager`]).
 struct Prefix {
   /// `Some(true)` for `eager`, `Some(false)` for `lazy`, `None` for neither.
   check: Option<bool>,
-  mutable: Option<Token![mut]>,
 }
 
 impl Parse for Prefix {
@@ -255,8 +252,7 @@ impl Parse for Prefix {
     if check.is_some() {
       input.parse::<Ident>()?;
     }
-    let mutable = input.parse()?;
-    Ok(Self { check, mutable })
+    Ok(Self { check })
   }
 }
 
@@ -266,26 +262,6 @@ impl Prefix {
     match self.check {
       Some(eager) => eager,
       None => by_default,
-    }
-  }
-
-  /// Returns whether the aim is eager ([`Prefix::is_eager`]), and checks that `mut` is on an eager
-  /// aim with a name.
-  ///
-  /// # Errors
-  ///
-  /// Returns an error at `mut` if the aim is lazy or has no name.
-  fn eager(&self, by_default: bool, named: bool) -> Result<bool> {
-    let eager = self.is_eager(by_default);
-    match &self.mutable {
-      Some(mutable) if !eager => Err(Error::new_spanned(
-        mutable,
-        "a lazy aim is read by a check of bytes: write it without `mut`",
-      )),
-      Some(mutable) if !named => {
-        Err(Error::new_spanned(mutable, "`mut` names the method that it adds"))
-      }
-      _ => Ok(eager),
     }
   }
 }
@@ -327,12 +303,8 @@ const POINTER_EAGER: bool = true;
 
 impl Region {
   /// Returns whether the region is eager ([`REGION_EAGER`]).
-  ///
-  /// # Errors
-  ///
-  /// As [`Prefix::eager`].
-  fn eager(&self) -> Result<bool> {
-    self.prefix.eager(REGION_EAGER, true)
+  const fn eager(&self) -> bool {
+    self.prefix.is_eager(REGION_EAGER)
   }
 }
 
@@ -366,12 +338,8 @@ struct AimOption {
 
 impl AimOption {
   /// Returns whether the aim is eager ([`POINTER_EAGER`]).
-  ///
-  /// # Errors
-  ///
-  /// As [`Prefix::eager`].
-  fn eager(&self) -> Result<bool> {
-    self.prefix.eager(POINTER_EAGER, self.name.is_some())
+  const fn eager(&self) -> bool {
+    self.prefix.is_eager(POINTER_EAGER)
   }
 
   /// Returns where the pointee is from the start of the struct whose field `member` has the aim:
@@ -1886,7 +1854,9 @@ fn variant_homes(input: &DeriveInput, data: &DataEnum) -> (TokenStream, Vec<Vec<
 // Structs
 
 /// Returns the `T` of the type `ty` of the field of an eager aim, an `InPlace<T>`, however it is
-/// spelled: `<ty as InPlaceOf>::Inner`, which compiles only for an `InPlace<T>`.
+/// spelled: `<ty as InPlaceOf>::Inner`. Rust names a trait only by a path, which a crate path may
+/// redirect, so this projection alone does not make the field an `InPlace<T>`: `item` of [`homes`]
+/// ties the field to the `InPlace<T>` of `puns` for this `T` (`Layout::in_place`).
 fn in_place(ty: &Type, root: &TokenStream) -> Type {
   let span = ty.span();
   syn::parse_quote_spanned!(span=> <#ty as #root::InPlaceOf>::Inner)
@@ -1895,8 +1865,8 @@ fn in_place(ty: &Type, root: &TokenStream) -> Type {
 /// Returns whether a field with `options` holds an eager aim, and is then an `InPlace<T>`: the
 /// field of an eager `pointer`, or the field of regions of which one is eager.
 fn in_place_field(options: &Options) -> bool {
-  options.pointer.as_ref().is_some_and(|pointer| pointer.prefix.is_eager(POINTER_EAGER))
-    || options.regions.iter().flatten().any(|region| region.prefix.is_eager(REGION_EAGER))
+  options.pointer.as_ref().is_some_and(AimOption::eager)
+    || options.regions.iter().flatten().any(Region::eager)
 }
 
 /// Returns the rule of an aim at a `target` that a struct declares, at the place that `start` gives
@@ -1957,8 +1927,8 @@ fn aim_rule(
 /// type.
 #[derive(Clone, Copy)]
 enum Read {
-  /// An eager aim: `name(&self)`, safe, and, with `mut`, `name_mut(&mut self)`, unsafe.
-  Eager { mutable: bool },
+  /// An eager aim: `name(&self)`, safe.
+  Eager,
   /// A lazy aim at a stored place: `name(&self, bytes)`, which checks the pointee in the bytes
   /// that it is given, since a reference to the value covers only its own.
   Stored,
@@ -2035,62 +2005,69 @@ fn read_aim(
         }
       }
     }
-    Read::Eager { mutable } => {
+    Read::Eager => {
       let doc = format!(
         "Returns the pointee of the aim `{name}`, where the value points, which `puns` checked \
          with the value, or which unsafe code that made the value put there: no safe code makes \
          a value with an eager aim.\n\nThe pointee is read through the reference to the value, \
          which has the provenance of its bytes under the tree borrows model of Miri, but not \
          under stacked borrows, where `puns::aim` reads it from a pointer to the bytes that hold \
-         both.\n\n# Compile-time errors\n\nA call compiles only if the pointee is sized, a \
-         `Thin`, or stores the length of its tail in its sized fields, where its extent is what \
-         it stores."
+         both, with `Self::AIMS.{name}`.\n\n# Compile-time errors\n\nA call compiles only if \
+         the pointee is sized, a `Thin`, or stores the length of its tail in its sized fields, \
+         where its extent is what it stores."
       );
-      let doc_mut = format!(
-        "Returns the pointee of the aim `{name}`, to write, where the value points.\n\n# Safety\n\n\
-         The caller must ensure that, for the lifetime of the result, the bytes of the pointee \
-         are accessed only through it: the pointees of a check that is not compact may be shared, \
-         and a reference that `puns` returned is shared. What is written is what later reads of \
-         the pointee rely on, safe ones included, so it is a valid pointee of the aim (see \
-         `puns::aim_mut`).\n\n# Compile-time errors\n\nAs for `{name}`."
-      );
-      let name_mut = format_ident!("{name}_mut");
-      let read_mut = mutable.then(|| {
-        quote! {
-          #[doc = #doc_mut]
-          #[inline]
-          #vis const unsafe fn #name_mut(&mut self) -> &mut #target {
-            // SAFETY: `self` is a value of `Self`, whose aim leads to a valid pointee, as for
-            // `#name`. The caller ensures that the bytes of the pointee are accessed only through
-            // the result while it lives, and `self` is borrowed for as long, so the requirements of
-            // `aim_mut` hold, under tree borrows, where the reference has the provenance of the
-            // bytes that hold both.
-            unsafe { #root::aim_mut::<Self, #item>(self) }
-          }
-        }
-      });
+      // No `unsafe` block: the function that the path names is called as safe code, whatever it
+      // is ("What the derive trusts" in the documentation of the derive).
       quote! {
         #[doc = #doc]
         #[inline]
         #vis const fn #name(&self) -> &#target {
-          // SAFETY: A value of `Self` holds an eager aim, whose field is an `InPlace`, which no
-          // code makes, so a reference to it is one that `puns` gave where it checked its pointee
-          // or proved it by the same aim, or one that unsafe code gave, which upholds the same
-          // ("Values made by unsafe code" in the documentation of `InPlace`): its aim leads to a
-          // valid pointee, which is not written while `self` lives. The reference has the
-          // provenance of the bytes of the pointee under tree borrows. These are the requirements
-          // of `aim`.
-          unsafe { #root::aim::<Self, #item>(self) }
+          #root::aim_of::<Self, #item>(self)
         }
-
-        #read_mut
       }
     }
   }
 }
 
+/// Returns the constant `AIMS` of a struct whose eager aims `aims` have a name, with the item of
+/// each in the list of the rules of the struct, and the visibility of its field: a value whose
+/// fields, named as the aims, are their `puns::AimOf`, for `puns::aim` and `puns::aim_mut`. Nothing
+/// without such an aim.
+fn aims_constant(
+  input: &DeriveInput,
+  aims: &[(&Ident, TokenStream, &Visibility)],
+  root: &TokenStream,
+) -> Option<TokenStream> {
+  if aims.is_empty() {
+    return None;
+  }
+  let (ident, vis) = (&input.ident, &input.vis);
+  let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+  let this = quote!(#ident #ty_generics);
+  let fields = aims.iter().map(|(name, item, vis)| {
+    let doc = format!("The aim `{name}`.");
+    quote!(#[doc = #doc] #vis #name: #root::AimOf<#this, #item>)
+  });
+  let names = aims.iter().map(|(name, ..)| name);
+  let doc = format!(
+    "The eager aims of `{ident}` that have a name, for `puns::aim` and `puns::aim_mut`: the field \
+     `name` is the aim `name`."
+  );
+  Some(quote! {
+    #[doc = #doc]
+    #vis struct __PunAims #impl_generics #where_clause {
+      #(#fields),*
+    }
+
+    impl #impl_generics #this #where_clause {
+      #[doc = #doc]
+      #vis const AIMS: __PunAims #ty_generics = __PunAims { #(#names: #root::AimOf::NEW),* };
+    }
+  })
+}
+
 /// Returns the constant that pins the types whose functions the generated code calls to make the
-/// aims of a struct, and the type of the field of an eager aim, as [`pin`] pins the others.
+/// aims of a struct, as [`pin`] pins the others.
 fn pin_aims(root: &TokenStream) -> TokenStream {
   let layout = quote!(#root::layout);
   quote! {
@@ -2099,7 +2076,6 @@ fn pin_aims(root: &TokenStream) -> TokenStream {
       fn(#layout::Start),
       fn(#layout::Extent),
       fn(#layout::Check),
-      fn(#root::InPlace<()>),
     ) = #layout::Layout::PIN_AIMS;
   }
 }
@@ -2331,11 +2307,13 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   }
   let mut accessors = vec![];
   let mut has_aims = false;
+  // The eager aims that have a name, which `AIMS` names: the name, the item, the visibility.
+  let mut named_aims = vec![];
   for (i, field) in fields.iter().enumerate() {
     let last = i + 1 == count;
     if let Some(pointer) = &field.options.pointer {
       let target = pointer.target.to_token_stream();
-      let eager = pointer.eager()?;
+      let eager = pointer.eager();
       let start = pointer.start(&field.member);
       let (aim, start, extent) =
         aim_rule(&target, (Some(&start), &pointer.size), eager, &fields, &root)?;
@@ -2345,8 +2323,10 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       rules.push(aim);
       has_aims = true;
       if let Some(name) = &pointer.name {
-        let mutable = pointer.prefix.mutable.is_some();
-        let read = if eager { Read::Eager { mutable } } else { Read::Stored };
+        let read = if eager { Read::Eager } else { Read::Stored };
+        if eager {
+          named_aims.push((name, read_item.clone(), field.vis));
+        }
         accessors.push(read_aim((name, &target, &read_item), read, field.vis, &root));
       }
     }
@@ -2375,14 +2355,17 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
           None if index + 1 == regions.len() => AimSize::Rest,
           None => AimSize::Pointee,
         };
-        let eager = region.eager()?;
+        let eager = region.eager();
         let (aim, start, extent) = aim_rule(&target, (None, &size), eager, &fields, &root)?;
         let read_item = item(listed.len());
         listed.push((rules.len(), start, Some(target.clone()), extent));
         rules.push(aim);
         has_aims = true;
+        if eager {
+          named_aims.push((&region.name, read_item.clone(), field.vis));
+        }
         let read = match (eager, &region.ty) {
-          (true, _) => Read::Eager { mutable: region.prefix.mutable.is_some() },
+          (true, _) => Read::Eager,
           (false, Some(_)) => Read::Region,
           (false, None) => Read::Bytes,
         };
@@ -2392,6 +2375,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
   }
 
   let aims_pin = has_aims.then(|| pin_aims(&root));
+  let aims_constant = aims_constant(input, &named_aims, &root);
 
   // Getters.
   for getter in &options.getters {
@@ -2520,11 +2504,16 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     let member = &field.member;
     let written = home(&this, &format_ident!("F{}", i), &declared.ty);
     let same = same_type(&quote!((*p).#member), &written, &declared.ty);
-    // The field of an eager aim is an `InPlace<T>`, which no code makes, where `T` is its type in
-    // the layout.
+    // The field of an eager aim is the `InPlace<T>` of `puns`, which no safe code makes, where `T`
+    // is its type in the layout, tied by a function of `Layout`, which the type of `LAYOUT` fixes,
+    // and not by a path, which could name another type `InPlace<T>` for some `T`.
     let home = &field.home;
-    let in_place = in_place_field(&field.options)
-      .then(|| same_type(&quote!((*p).#member), &quote!(#root::InPlace<#home>), &declared.ty));
+    let in_place = in_place_field(&field.options).then(|| {
+      located(
+        quote!(#root::layout::Layout::in_place::<#home>(&mut (&raw mut (*p).#member));),
+        declared.ty.span(),
+      )
+    });
     quote!(#same #in_place)
   });
   let homes = homes(
@@ -2612,6 +2601,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       }
 
       #accessors
+      #aims_constant
       #aims_pin
 
       #(#tags)*

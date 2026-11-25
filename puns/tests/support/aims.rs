@@ -44,9 +44,8 @@ impl<T: ?Sized + Pun> Near<T> {
     let this = image.as_ptr().with_addr(ptr::from_ref(self).addr()).cast::<Self>();
     // SAFETY: A `Near` exists only where `puns` checked it with its pointee, and `image` holds
     // both (the caller's contract), so `this` has the provenance of the bytes of both, which are
-    // not written while `image` is borrowed. The aim of a `Near` is its one rule, the first item
-    // of its list of rules.
-    unsafe { puns::aim::<Self, puns::First>(this) }
+    // not written while `image` is borrowed.
+    unsafe { puns::aim(this, Self::AIMS.target) }
   }
 }
 

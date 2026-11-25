@@ -2009,18 +2009,31 @@ impl Layout {
   );
 
   /// The types whose functions the code of `#[derive(Pun)]` calls to make the aims of a struct with
-  /// regions or an eager aim, and the type of the field of an eager aim ([`InPlace`]), pinned as
-  /// [`Layout::PIN`] pins the others. It is a constant of its own, which the derive writes only for
-  /// such a struct.
-  ///
-  /// [`InPlace`]: crate::InPlace
+  /// regions or an eager aim, pinned as [`Layout::PIN`] pins the others. It is a constant of its
+  /// own, which the derive writes only for such a struct.
   #[doc(hidden)]
   #[expect(
     clippy::type_complexity,
     reason = "the derive writes this tuple of `fn` types out, with the paths it is told"
   )]
-  pub const PIN_AIMS: (fn(Aim), fn(Start), fn(Extent), fn(Check), fn(crate::InPlace<()>)) =
-    (pin::<Aim>, pin::<Start>, pin::<Extent>, pin::<Check>, pin::<crate::InPlace<()>>);
+  pub const PIN_AIMS: (fn(Aim), fn(Start), fn(Extent), fn(Check)) =
+    (pin::<Aim>, pin::<Start>, pin::<Extent>, pin::<Check>);
+
+  /// Ties the field of an eager aim to the [`InPlace<T>`] of this crate, where `T` is the type of
+  /// the field in the layout, for `#[derive(Pun)]`: the function that the derive never calls (`item`
+  /// of `homes`) gives it a `&mut` to a pointer to the field, which compiles only if the field is an
+  /// `InPlace<T>`, since a `&mut` to a raw pointer admits no coercion.
+  ///
+  /// The derive names this function through `Layout`, which the type of [`Pun::LAYOUT`] fixes in an
+  /// implementation of the `Pun` of this crate, and not through a path of the crate that
+  /// `#[pun(crate = ..)]` names, which could make `InPlace<T>` another type for some `T`. So the
+  /// field of an eager aim of a `Pun` type is the `InPlace` that no safe code makes, for the `T` of
+  /// each instance, as the `# Safety` of `Pun` requires of a type with an eager aim.
+  ///
+  /// [`InPlace<T>`]: crate::InPlace
+  /// [`Pun::LAYOUT`]: crate::Pun::LAYOUT
+  #[doc(hidden)]
+  pub const fn in_place<T: ?Sized>(_: &mut *mut crate::InPlace<T>) {}
 
   /// Returns an uninitialized `T`, for `#[derive(Pun)]`, which measures the offsets of the fields
   /// of a struct by projecting a pointer into it.

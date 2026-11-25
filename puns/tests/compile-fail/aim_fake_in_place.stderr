@@ -42,7 +42,10 @@ error[E0308]: mismatched types
    |          --------- in this derive macro expansion
 ...
 11 |   off: InPlace<i32>,
-   |        ^^^^^^^ expected `&mut *mut InPlace<_>`, found `&mut *mut InPlace<i32>`
+   |        ^^^^^^^
+   |        |
+   |        expected `&mut *mut InPlace<_>`, found `&mut *mut InPlace<i32>`
+   |        arguments to this function are incorrect
    |
    = note: `InPlace<i32>` and `puns::InPlace<_>` have similar names, but are actually distinct types
 note: `InPlace<i32>` is defined in the current crate
@@ -55,4 +58,9 @@ note: `puns::InPlace<_>` is defined in crate `puns`
    |
    | pub struct InPlace<T: ?Sized>(T);
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: associated function defined here
+  --> src/layout.rs
+   |
+   |   pub const fn in_place<T: ?Sized>(_: &mut *mut crate::InPlace<T>) {}
+   |                ^^^^^^^^
    = note: this error originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

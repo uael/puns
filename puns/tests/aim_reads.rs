@@ -1,5 +1,5 @@
-//! The safe reads of the pointees of eager aims, which the derive writes: `name(&self)`, through
-//! the reference to the value, and `name_mut(&mut self)`.
+//! The reads of the pointees of eager aims through a reference to the value: `name(&self)`, which
+//! the derive writes, and is safe, and `puns::aim_mut` from a pointer made from a `&mut`.
 //!
 //! Miri runs this file with tree borrows only (`tree_borrows_only` in `.github/tests.sh`). A
 //! reference to a value gives the provenance of the bytes of a pointee outside it under tree
@@ -94,7 +94,7 @@ fn an_expression_is_read_through_references() {
 #[derive(Pun)]
 #[repr(transparent)]
 struct Text {
-  #[pun(pointer(mut text: Thin<str, i16> = off as u128))]
+  #[pun(pointer(text: Thin<str, i16> = off as u128))]
   off: InPlace<NonZero<i16>>,
 }
 
@@ -108,9 +108,34 @@ fn a_pointee_is_written_through_a_mutable_reference_to_its_value() {
   // still one.
   let text = unsafe {
     assert!(puns::from_head::<Text>(puns::as_bytes(&*at.cast::<[i16; 3]>())).is_ok());
-    (&mut *at).text_mut()
+    puns::aim_mut(core::ptr::from_mut(&mut *at), Text::AIMS.text)
   };
   text.make_ascii_uppercase();
   assert_eq!(&puns::as_bytes(&words)[4..], b"HI");
   assert_eq!(puns::from_head::<Text>(puns::as_bytes(&[2i16, -1, 0])).err(), Some(Error::Validity));
+}
+
+/// The path of `puns`, renamed: what the derive names through `#[pun(crate = ..)]`.
+mod renamed {
+  pub use puns::*;
+}
+
+/// A pointer to the byte after it, derived through another path of `puns`.
+#[derive(Pun)]
+#[pun(crate = renamed)]
+#[repr(transparent)]
+struct Renamed {
+  #[pun(pointer(next: u8 = off as u128))]
+  off: renamed::InPlace<u8>,
+}
+
+#[test]
+fn a_crate_path_that_names_puns_reads_the_same_pointee() {
+  let bytes = [1, 9];
+  let renamed = puns::from_head::<Renamed>(&bytes).unwrap().0;
+  assert_eq!(*renamed.next(), 9);
+  // SAFETY: `puns` checked `renamed` with its pointee, in `bytes`, which are not written, and the
+  // reference has the provenance of both under tree borrows.
+  assert_eq!(unsafe { *puns::aim(renamed, Renamed::AIMS.next) }, 9);
+  assert_eq!(puns::from_head::<Renamed>(&[2, 9]).err(), Some(Error::Validity));
 }

@@ -18,16 +18,11 @@ help: the trait `puns::sealed::Sealed` is not implemented for `Nothing`
   |
 4 | struct Nothing;
   | ^^^^^^^^^^^^^^
-help: the following other types implement trait `puns::sealed::Sealed`
+help: the trait `puns::sealed::Sealed` is implemented for `()`
  --> src/lib.rs
   |
   |   impl Sealed for () {}
-  |   ^^^^^^^^^^^^^^^^^^ `()`
-...
-  |   impl Sealed for super::First {}
-  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `First`
-  |   impl<K> Sealed for super::After<K> {}
-  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `After<K>`
+  |   ^^^^^^^^^^^^^^^^^^
 note: required by a bound in `puns::Rules`
  --> src/lib.rs
   |

@@ -100,10 +100,11 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   the same place proves one (`Aim::equals`, with a known identity of the pointee), and a union does
   not hold one (`Layout::union`). The derive gives an eager aim only to a struct whose field of the
   aim (the offset of a pointer, or the bytes of eager regions) is an `InPlace<T>`, which no code
-  makes and which is not `Pun`, and checks that the field has this type (`item` in `homes`), so
-  that no safe code makes a value of the struct, nor a reference to one but through `puns`: the
+  makes and which is not `Pun`, and checks that the field is the `InPlace<T>` of `puns` for its
+  own `T` through `Layout::in_place` (`item` in `homes`), which no crate path replaces, so that no
+  safe code makes a value of the struct, nor a reference to one but through `puns`: the
   documentation of `InPlace` states this argument, and the obligation of unsafe code that makes
-  such values, as `nearest` does. An `InPlace<T>` is a `T` in the layout. A lazy aim at the cursor
+  such values, as `nearest` does, and the `# Safety` of `Pun` the property that the reads rely on. An `InPlace<T>` is a `T` in the layout. A lazy aim at the cursor
   requires of the struct only that its pointee fits, and a lazy aim at a stored place nothing, so
   its type counts in a proof only where the pointee stores its length.
 - Both kinds of start are one rule (`Rule::Aim`), checked in one place (`validate::check_aim`),
@@ -114,21 +115,26 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   expression (`validate::pointer_at`, `validate::value_of`, whose arithmetic is checked). A struct
   may have both, and the pointee of a region may hold eager aims, which its read looks for in the
   bytes of the struct (`tests/aims.rs`).
-- The read of the pointee of an eager aim (`name`, from `&self`) is safe: it relies on the argument
-  of `InPlace`, and on the reference having the provenance of the bytes of the pointee, which tree
-  borrows gives and stacked borrows does not. `aim` and `aim_mut` take a pointer, so that a caller
-  under stacked borrows gives the provenance of the checked bytes, as the tests that Miri runs with
-  stacked borrows do (`tests/aims.rs`); the tests of the safe reads of pointees outside the value
-  (`tests/aim_reads.rs`) run under tree borrows only. `name_mut` is `unsafe`: a `&mut` to the
-  value does not make the pointee exclusive, since pointees may be shared. The length of a pointee
+- The read of the pointee of an eager aim (`name`, from `&self`) is safe: the derive writes a call
+  of `aim_of`, a safe function of `puns`, with no `unsafe` block, so a crate path that names
+  another function there calls safe code. `aim_of` relies on the `# Safety` of `Pun`, which the
+  `InPlace` of the aim meets, and on the reference having the provenance of the bytes of the
+  pointee, which tree borrows gives and stacked borrows does not. `aim` and `aim_mut` take a
+  pointer, so that a caller under stacked borrows gives the provenance of the checked bytes, as the
+  tests that Miri runs with stacked borrows do (`tests/aims.rs`); the tests of the reads of
+  pointees outside the value through a reference (`tests/aim_reads.rs`) run under tree borrows
+  only. They name an aim by its name, a field of the constant `AIMS` that the derive writes
+  (`AimOf`). The derive writes no method that writes a pointee: such a method would be `unsafe`,
+  and would call a function that the crate path names. The length of a pointee
   that stores it is read from its sized fields or before its value only, by the check and by the
   read (`Layout::stores_length`, `validate::own_length`), so the read never meets a length that the
   check accepted and it cannot read.
 - A layout cannot hold itself, so an aim holds the size, the alignment and the identity of its
   pointee, and the pointee is reached through `Pun::Rules` (`Rules::Pointee`), so that the type of
   a pointee is written in one place of the derive. A read names the item of its aim by where it is
-  in the list of its struct (`Item`: `First`, `After`), never by the item, so the pointee that it
-  reads is the one that the check of the struct found, whatever its identity. `Aim::new` reads no
+  in the list of its struct (`Item`: `First`, `After`, hidden, which the derive counts for
+  `AimOf`), never by the item, so the pointee that it reads is the one that the check of the struct
+  found, whatever its identity. `Aim::new` reads no
   layout of the pointee for this reason; what it cannot assert, `validate::pointee_checked` asserts
   where the aim is checked or read. The identity of a type is `Pun::ID`, made of the identities of
   its parameters and never of a layout, which its layout holds too. The pointee is a `Pointee`, a

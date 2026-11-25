@@ -295,7 +295,7 @@ struct Counted {
 #[repr(C)]
 #[pun(assert(count < 5))]
 struct CountedBelow {
-  #[pun(pointer(u32 = off as u128))]
+  #[pun(pointer(pointee: u32 = off as u128))]
   off: InPlace<i32>,
   count: u32,
 }
@@ -339,8 +339,7 @@ fn each_rule_is_proven_or_checked_on_its_own() {
   let below = puns::try_pun_ref::<Counted, CountedBelow>(counted).unwrap();
   // SAFETY: `puns` checked the value in `bytes`, which hold its pointee and are not written, and
   // the pointer has their provenance.
-  let pointee =
-    unsafe { puns::aim::<CountedBelow, puns::After<puns::First>>(within(below, bytes)) };
+  let pointee = unsafe { puns::aim(within(below, bytes), CountedBelow::AIMS.pointee) };
   assert_eq!((below.count, *pointee), (1, 7));
   let words = [8u32, 5, 7];
   let counted = puns::from_head::<Counted>(puns::as_bytes(&words)).unwrap().0;
@@ -469,13 +468,13 @@ fn within<T>(value: &T, bytes: &[u8]) -> *const T {
   bytes.as_ptr().with_addr(core::ptr::from_ref(value).addr()).cast()
 }
 
-/// The pointee of the eager aim of `value`, its first rule, which `puns` checked in `bytes`, read
-/// with their provenance.
-macro_rules! first {
-  ($ty:ty, $value:expr, $bytes:expr) => {
+/// The pointee of the eager aim `aim` of `value`, which `puns` checked in `bytes`, read with their
+/// provenance.
+macro_rules! pointee {
+  ($aim:expr, $value:expr, $bytes:expr) => {
     // SAFETY: `puns` checked the value in `$bytes`, which hold its pointee and are not written,
     // and the pointer has their provenance.
-    unsafe { puns::aim::<$ty, puns::First>(within($value, $bytes)) }
+    unsafe { puns::aim(within($value, $bytes), $aim) }
   };
 }
 
@@ -486,7 +485,7 @@ fn a_target_before_the_pointer() {
   let bytes = puns::as_bytes(&words);
   let (_, back) = puns::from_tail::<Back>(&bytes[..4]).unwrap();
   assert_eq!(back.off.get(), -2);
-  assert_eq!(first!(Back, back, bytes), &7);
+  assert_eq!(pointee!(Back::AIMS.back, back, bytes), &7);
   // The target is not in the bytes that are checked.
   assert_eq!(puns::from_bytes::<Back>(&bytes[2..4]).err(), Some(Error::Validity));
   // One byte before the target is not aligned for a `u16`.
@@ -511,7 +510,7 @@ fn where_a_target_starts_is_a_rule() {
   let bytes = puns::as_bytes(&words);
   let second = puns::from_head::<Second>(bytes).unwrap().0;
   assert_eq!(second.off.get().get(), 8);
-  assert_eq!(first!(Second, second, bytes), &[1, 2]);
+  assert_eq!(pointee!(Second::AIMS.pair, second, bytes), &[1, 2]);
   // At 4: the pair at 0, which holds the pointer, as a target may.
   assert!(puns::from_head::<Second>(puns::as_bytes(&at(4))).is_ok());
   // At 12: the pair at 8 ends past the bytes.
@@ -548,7 +547,8 @@ fn regions_and_eager_aims_compose() {
   // The two doors read through one place: the word that the message points at is the header,
   // within the message, which a reference to it covers, and the pointees of the pointers of the
   // body are their words, read with the provenance of the bytes, which hold them all.
-  let (first, second) = (first!(Back, &body[0], bytes), first!(Back, &body[1], bytes));
+  let (first, second) =
+    (pointee!(Back::AIMS.back, &body[0], bytes), pointee!(Back::AIMS.back, &body[1], bytes));
   assert_eq!((*read.word(), *first, *second), (0x1234, (-2i16).cast_unsigned(), 2));
   // The eager aim is checked with the message, and the pointers of the body when it is read,
   // within the bytes of the message: one may point at the header, another region of the message,
@@ -558,7 +558,7 @@ fn regions_and_eager_aims_compose() {
   let bytes = puns::as_bytes(&words);
   let read = puns::from_bytes::<Message>(bytes).unwrap();
   let body = read.body().unwrap();
-  assert_eq!(*first!(Back, &body[1], bytes), 0x1234);
+  assert_eq!(*pointee!(Back::AIMS.back, &body[1], bytes), 0x1234);
   let words = message(-10);
   let read = puns::from_bytes::<Message>(puns::as_bytes(&words)).unwrap();
   assert_eq!(read.body().err(), Some(Error::Validity));
@@ -580,7 +580,7 @@ struct Text {
 #[derive(Pun)]
 #[repr(transparent)]
 struct ToText {
-  #[pun(pointer(mut text: Text = off as u128))]
+  #[pun(pointer(text: Text = off as u128))]
   off: InPlace<i16>,
 }
 
@@ -590,13 +590,13 @@ fn an_unsized_target_is_read_with_its_length() {
   let mut words = [2, 3, u16::from_ne_bytes(*b"ab"), u16::from_ne_bytes([b'c', 0])];
   let bytes = puns::as_bytes(&words);
   let to = puns::from_head::<ToText>(bytes).unwrap().0;
-  let text = first!(ToText, to, bytes);
+  let text = pointee!(ToText::AIMS.text, to, bytes);
   assert_eq!((text.len, &text.data), (3, "abc"));
   // To write, through a pointer to the bytes that `puns` checked, with their provenance.
   let to = words.as_mut_ptr().cast::<ToText>();
   // SAFETY: `puns` checked the `ToText` at `to` with its pointee, and neither changed. The bytes
   // are accessed only through `text` while it lives, and an uppercase ASCII text is still one.
-  let text = unsafe { puns::aim_mut::<ToText, puns::First>(to) };
+  let text = unsafe { puns::aim_mut(to, ToText::AIMS.text) };
   text.data.make_ascii_uppercase();
   assert_eq!(&puns::as_bytes(&words)[4..7], b"ABC");
 }
@@ -787,7 +787,7 @@ fn lazy_pointers_are_checked_when_read() {
 #[derive(Pun)]
 #[repr(C)]
 struct Spans {
-  #[pun(pointer(mut words: [u16] = off as u128, size = len as u128))]
+  #[pun(pointer(words: [u16] = off as u128, size = len as u128))]
   off: InPlace<i8>,
   len: u8,
   #[pun(pointer(rest: [u8] = from as u128, size = ..))]
@@ -814,7 +814,7 @@ fn eager_pointers_of_a_given_size_and_of_the_rest() {
   // to it, has the same metadata, and the provenance of the bytes.
   let holder = core::ptr::slice_from_raw_parts(bytes.as_ptr(), spans.tail.len()) as *const Spans;
   // SAFETY: `puns` checked `spans` with its pointees, in `bytes`, which are not written.
-  let all = unsafe { puns::aim::<Spans, puns::First>(holder) };
+  let all = unsafe { puns::aim(holder, Spans::AIMS.words) };
   assert_eq!(all, &[5][..]);
   // A size of 3 bytes is no size of a `[u16]`, and an eager pointee is checked with the struct.
   let mut odd = words;
@@ -915,9 +915,6 @@ fn a_region_is_read_as_the_pointee_of_its_struct() {
   assert_eq!(regions.unnamed().map(|unnamed| unnamed.a), Ok(5));
   assert_eq!(regions.words(), Ok(&[7][..]));
   assert_eq!(regions.rest(), puns::as_bytes(&[9u64]));
-  // The same through the read of a region, named by where it is.
-  let words = puns::region_as::<Unnamed2, puns::After<puns::First>>(regions);
-  assert_eq!(words, Ok(&[7][..]));
 }
 
 /// A list behind a header: its capacity then its length, which a rule requires to be equal.
@@ -933,7 +930,7 @@ struct Header {
 #[derive(Pun)]
 #[repr(transparent)]
 struct ToList {
-  #[pun(pointer(Thin<[u32], Header> = off as u128))]
+  #[pun(pointer(list: Thin<[u32], Header> = off as u128))]
   off: InPlace<i32>,
 }
 
@@ -958,7 +955,7 @@ fn a_thin_ends_its_header_with_the_length() {
   assert_eq!(check(&image(3, 3)), at(4));
   let words = image(2, 2);
   let list = puns::from_head::<ToList>(puns::as_bytes(&words)).unwrap().0;
-  assert_eq!(first!(ToList, list, puns::as_bytes(&words)), &[7, 9][..]);
+  assert_eq!(pointee!(ToList::AIMS.list, list, puns::as_bytes(&words)), &[7, 9][..]);
 }
 
 /// Entries on the heap, as many as a check needs.
@@ -1173,7 +1170,7 @@ fn the_field_of_an_eager_aim_is_an_in_place_of_any_spelling() {
   let bytes = [1, 7];
   let aliased = puns::from_head::<Aliased>(&bytes).unwrap().0;
   assert_eq!(format!("{aliased:?}"), "Aliased { off: InPlace(1) }");
-  assert_eq!(first!(Aliased, aliased, &bytes), &7);
+  assert_eq!(pointee!(Aliased::AIMS.next, aliased, &bytes), &7);
 }
 
 /// A pointer to a `Thin` of a type parameter, without `#[pun(bound(..))]`: the derive bounds the

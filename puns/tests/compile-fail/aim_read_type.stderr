@@ -1,17 +1,11 @@
 error[E0277]: the trait bound `puns::RuleAt<0, puns::steps::One<0>, (), u32>: puns::Item<puns::RuleAt<0, puns::steps::One<0>, (), u16>>` is not satisfied
-  --> tests/compile-fail/aim_read_type.rs:45:38
+  --> tests/compile-fail/aim_read_type.rs:46:36
    |
-45 |   let _ = unsafe { puns::aim::<Next, puns::RuleAt<0, puns::steps::One<0>, (), u32>>(next) };
-   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `puns::Item<puns::RuleAt<0, puns::steps::One<0>, (), u16>>` is not implemented for `puns::RuleAt<0, puns::steps::One<0>, (), u32>`
+46 |   let _ = unsafe { puns::aim(next, item) };
+   |                    ---------       ^^^^ the trait `puns::Item<puns::RuleAt<0, puns::steps::One<0>, (), u16>>` is not implemented for `puns::RuleAt<0, puns::steps::One<0>, (), u32>`
+   |                    |
+   |                    required by a bound introduced by this call
    |
-help: the following other types implement trait `puns::Item<L>`
-  --> src/lib.rs
-   |
-   | impl<L: Rules> Item<L> for First {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `First`
-...
-   | impl<L: Rules, K: Item<L::Next>> Item<L> for After<K> {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `After<K>`
 note: required by a bound in `aim`
   --> src/lib.rs
    |
@@ -19,20 +13,12 @@ note: required by a bound in `aim`
    |                                                 ^^^^^^^^^^^^^^ required by this bound in `aim`
 
 error[E0277]: the trait bound `puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, puns::Thin<U, u64>>: puns::Item<puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, G<u8>>>` is not satisfied
-  --> tests/compile-fail/aim_read_type.rs:48:38
+  --> tests/compile-fail/aim_read_type.rs:49:38
    |
-48 |   let _ = puns::region_as::<Regions, Fake>(regions);
+49 |   let _ = puns::region_as::<Regions, Fake>(regions);
    |                                      ^^^^ unsatisfied trait bound
    |
    = help: the trait `puns::Item<puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, G<u8>>>` is not implemented for `puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, puns::Thin<U, u64>>`
-help: the following other types implement trait `puns::Item<L>`
-  --> src/lib.rs
-   |
-   | impl<L: Rules> Item<L> for First {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `First`
-...
-   | impl<L: Rules, K: Item<L::Next>> Item<L> for After<K> {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `After<K>`
 note: required by a bound in `puns::region_as`
   --> src/lib.rs
    |
@@ -40,32 +26,15 @@ note: required by a bound in `puns::region_as`
    |                                            ^^^^^^^^^^^^^^ required by this bound in `region_as`
 
 error[E0277]: the trait bound `puns::RuleAt<0, puns::steps::One<0>, (), u32>: puns::Item<puns::RuleAt<0, puns::steps::One<0>, (), u16>>` is not satisfied
-  --> tests/compile-fail/aim_read_type.rs:45:20
+  --> tests/compile-fail/aim_read_type.rs:46:20
    |
-45 |   let _ = unsafe { puns::aim::<Next, puns::RuleAt<0, puns::steps::One<0>, (), u32>>(next) };
-   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `puns::Item<puns::RuleAt<0, puns::steps::One<0>, (), u16>>` is not implemented for `puns::RuleAt<0, puns::steps::One<0>, (), u32>`
-   |
-help: the following other types implement trait `puns::Item<L>`
-  --> src/lib.rs
-   |
-   | impl<L: Rules> Item<L> for First {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `First`
-...
-   | impl<L: Rules, K: Item<L::Next>> Item<L> for After<K> {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `After<K>`
+46 |   let _ = unsafe { puns::aim(next, item) };
+   |                    ^^^^^^^^^^^^^^^^^^^^^ the trait `puns::Item<puns::RuleAt<0, puns::steps::One<0>, (), u16>>` is not implemented for `puns::RuleAt<0, puns::steps::One<0>, (), u32>`
 
 error[E0277]: the trait bound `puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, puns::Thin<U, u64>>: puns::Item<puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, G<u8>>>` is not satisfied
-  --> tests/compile-fail/aim_read_type.rs:48:11
+  --> tests/compile-fail/aim_read_type.rs:49:11
    |
-48 |   let _ = puns::region_as::<Regions, Fake>(regions);
+49 |   let _ = puns::region_as::<Regions, Fake>(regions);
    |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
    |
    = help: the trait `puns::Item<puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, G<u8>>>` is not implemented for `puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, puns::Thin<U, u64>>`
-help: the following other types implement trait `puns::Item<L>`
-  --> src/lib.rs
-   |
-   | impl<L: Rules> Item<L> for First {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `First`
-...
-   | impl<L: Rules, K: Item<L::Next>> Item<L> for After<K> {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `After<K>`
