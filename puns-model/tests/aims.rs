@@ -4,10 +4,10 @@
 //!
 //! The oracles of `puns_model` take a value of a `Copy` type, and a type with an eager aim is
 //! never one, nor made by value: its field is an `InPlace`. So this file has oracles of its own,
-//! over the bytes of a value, which hold its pointees: those of `try_pun_ref` from bytes, and of
-//! `check`. Each type is checked over every value of an alphabet of bytes against its oracle, and
-//! each pair against the oracle of its target: a pun that is proven must make a valid target of
-//! every valid source, and none makes a value with an eager aim, or a `&mut` to one.
+//! over the bytes of a value, which hold its pointees: those of `try_pun_ref` from bytes. Each type
+//! is checked over every value of an alphabet of bytes against its oracle, and each pair against
+//! the oracle of its target: a pun that is proven must make a valid target of every valid source,
+//! and none makes a value with an eager aim, or a `&mut` to one.
 //!
 //! This file is not built under Miri: it checks verdicts and every value, whose unsafe paths the
 //! tests of `puns` on aims (`puns/tests/aims.rs`) reach under Miri.
@@ -16,7 +16,7 @@
 
 use core::num::NonZero;
 
-use puns::{InPlace, Pending, Pun, Thin, hook};
+use puns::{InPlace, Pun, Thin, hook};
 
 /// A pointer to a `bool` in the struct, at the offset that its first byte holds.
 #[derive(Pun)]
@@ -146,16 +146,15 @@ fn rest(b: &[u8]) -> bool {
   at <= b.len() && b[at..].iter().all(|byte| *byte != 0)
 }
 
-/// Checks every value of `T` with `from_bytes` and `check` against `oracle`, and that `T` is
-/// never made by value or reached through a `&mut` if it holds an eager aim.
+/// Checks every value of `T` with `from_bytes` against `oracle`, and that `T` is never made by
+/// value or reached through a `&mut` if it holds an eager aim.
 fn model<T: Pun>(name: &str, oracle: fn(&[u8]) -> bool, eager: bool) {
   let mut wrong = vec![];
   for value in values(size_of::<T>()) {
     let expected = oracle(&value);
     let from = puns::from_bytes::<T>(&value).is_ok();
-    let checked = puns::check::<T, 1, _>(&value, &mut [Pending::default(); 4]).is_ok();
-    if from != expected || checked != expected {
-      wrong.push(format!("{value:?}: from_bytes {from}, check {checked}, oracle {expected}"));
+    if from != expected {
+      wrong.push(format!("{value:?}: from_bytes {from}, oracle {expected}"));
     }
   }
   assert!(wrong.is_empty(), "{name}: {wrong:#?}");

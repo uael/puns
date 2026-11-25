@@ -191,19 +191,6 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   assertion of a type that a check makes in `const` is an associated constant of its own
   (`validate::AimOf`, `FieldAt`, `RulesOf`), so that a refusal is reported once, whatever
   instances check it.
-- `check` and `check_compact` check with `validate::Work`: every pointee of an eager aim waits in
-  the worklist (`Pending`, a stage and where it applies), and `validate::drive`, one function for
-  every type (its steps are function pointers, the worklist a trait object), runs them depth
-  first, reversing those that each step adds, so that the parts of each value are checked before
-  its pointees, in the order that `nearest` 0.8 checked an image. Once an element of a slice put a
-  pointee in the worklist, the rest of the slice waits in one entry (`validate_elems`), so the
-  worklist grows with the depth of the data. Before a step, the driver grows the worklist to the
-  most entries that the step may add (`Layout::defers`), so no step is made twice, and a worklist
-  that cannot grow stops the check where an entry does not fit. Where the check fails is recorded
-  as it runs (`Input::fail`). A compact check claims each pointee where `check_stored` checks it
-  (`Input::claim`), so in the order of a copy. Alignment is by offset from a base alignment there
-  (`Input::aligned`), since the bytes are checked before they are copied. `Worklist` is an
-  `unsafe` trait: the driver keeps its entries in the memory that it gives.
 
 ## Not done yet
 

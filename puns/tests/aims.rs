@@ -12,7 +12,7 @@ mod aims;
 
 use aims::{Expr, Near, Pair, Tree};
 use puns::{
-  Error, Failure, InPlace, Pending, Pointee, Pun, Thin, Worklist,
+  Error, InPlace, Pointee, Pun, Thin,
   num::{i32be, i32le, u8c},
 };
 
@@ -132,10 +132,6 @@ fn a_chain_is_followed_at_any_depth_on_a_small_stack() {
     (read(4), read(5), read(LONG))
   });
   assert_eq!(results, (Ok(4), Ok(5), Ok(LONG)));
-  let image = chain(LONG);
-  let words = image.words8(0);
-  let bytes = &puns::as_bytes(&words[..])[..image.bytes.len()];
-  assert_eq!(puns::check::<Pair, 8, _>(bytes, &mut Grows(Vec::new())), Ok(()));
 }
 
 /// A deep struct: each field is a struct of the next, down to a pointer, so that the check of one
@@ -990,42 +986,18 @@ impl Image {
     (image, at)
   }
 
-  /// Writes a chain of pairs as a writer that copies the first one depth first does: each pair,
-  /// then its name, its values, and the next pair, each at the next place aligned for it.
-  fn compact(rows: &[(&str, &[u32])]) -> Self {
-    let mut image = Self::new();
-    let mut next = None;
-    for (name, values) in rows {
-      let at = image.reserve(size_of::<Pair>(), 4);
-      if let Some(next) = next {
-        image.aim(next, at);
-      }
-      let text = image.text(name);
-      image.aim(at, text);
-      let words = image.words(values);
-      image.aim(at + 4, words);
-      next = Some(at + 8);
-    }
-    image
-  }
-
-  /// A copy of the bytes, at an address aligned to 8, of any length, after `skip` zeros.
-  fn words8(&self, skip: usize) -> Vec<u64> {
-    let mut bytes = vec![0; skip];
-    bytes.extend_from_slice(&self.bytes);
-    bytes
+  /// A copy of the bytes at an address aligned to 8.
+  fn aligned(&self) -> Aligned {
+    let words = self
+      .bytes
       .chunks(8)
       .map(|chunk| {
         let mut word = [0; 8];
         word[..chunk.len()].copy_from_slice(chunk);
         u64::from_ne_bytes(word)
       })
-      .collect()
-  }
-
-  /// A copy of the bytes at an address aligned to 8.
-  fn aligned(&self) -> Aligned {
-    Aligned(self.words8(0), self.bytes.len())
+      .collect();
+    Aligned(words, self.bytes.len())
   }
 }
 
@@ -1249,185 +1221,15 @@ struct ToList {
 fn a_thin_ends_its_prefix_with_the_length() {
   // The pointer at 0, to the length at 8, after the capacity at 4: the words at 12.
   let image = |cap: i32, len: i32| [4 + 4, cap.cast_unsigned(), len.cast_unsigned(), 7, 9];
-  let check = |words: &[u32; 5]| {
-    let image = Image { bytes: puns::as_bytes(words).to_vec() };
-    let words = image.words8(0);
-    puns::check_compact::<ToList, 8, _>(
-      &puns::as_bytes(&words[..])[..20],
-      &mut [Pending::default()],
-    )
-  };
-  assert_eq!(check(&image(2, 2)), Ok(()));
-  // A capacity that is not the length: where the list starts, at its capacity.
-  let at = |at| Err(Failure { error: Error::Validity, at });
-  assert_eq!(check(&image(3, 2)), at(4));
-  // A negative length, and one past the end: where the list starts too.
-  assert_eq!(check(&image(-1, -1)), at(4));
-  assert_eq!(check(&image(3, 3)), at(4));
+  let check = |words: &[u32; 5]| puns::from_head::<ToList>(puns::as_bytes(words)).err();
+  assert_eq!(check(&image(2, 2)), None);
+  // A capacity that is not the length, a negative length, and one past the end.
+  assert_eq!(check(&image(3, 2)), Some(Error::Validity));
+  assert_eq!(check(&image(-1, -1)), Some(Error::Validity));
+  assert_eq!(check(&image(3, 3)), Some(Error::Validity));
   let words = image(2, 2);
   let list = puns::from_head::<ToList>(puns::as_bytes(&words)).unwrap().0;
   assert_eq!(pointee!(ToList::AIMS.list, list, puns::as_bytes(&words)), &[7, 9][..]);
-}
-
-/// Entries on the heap, as many as a check needs.
-struct Grows(Vec<Pending>);
-
-// SAFETY: `items` is the vector, which only `grow` changes, and `grow` makes it longer, keeping its
-// elements.
-unsafe impl Worklist for Grows {
-  fn items(&mut self) -> &mut [Pending] {
-    &mut self.0
-  }
-
-  fn grow(&mut self) -> bool {
-    self.0.resize(self.0.len().max(4) * 2, Pending::default());
-    true
-  }
-}
-
-/// `puns::check` of a `Pair` at the start of `bytes`, as at an address aligned to 8, compact or
-/// not, with a worklist that grows.
-fn image_of(bytes: &[u8], compact: bool) -> Result<(), Failure> {
-  let work = &mut Grows(Vec::new());
-  if compact {
-    puns::check_compact::<Pair, 8, _>(bytes, work)
-  } else {
-    puns::check::<Pair, 8, _>(bytes, work)
-  }
-}
-
-#[test]
-fn a_worklist_goes_as_deep_as_the_loops() {
-  // A chain of pairs past `AIM_PARTS`, each with a name and values, which `from_head` follows with
-  // a loop, and `check` with a worklist.
-  let n = if cfg!(miri) { 20 } else { 2_000 };
-  let names = (0..n).map(|i| format!("{i}")).collect::<Vec<_>>();
-  let rows = names.iter().map(|name| (name.as_str(), &[1, 2][..])).collect::<Vec<_>>();
-  let image = Image::compact(&rows);
-  let words = image.words8(0);
-  let bytes = &puns::as_bytes(&words[..])[..image.bytes.len()];
-  assert_eq!(puns::from_head::<Pair>(bytes).err(), None);
-  assert_eq!(image_of(bytes, true), Ok(()));
-  assert_eq!(image_of(bytes, false), Ok(()));
-  // A worklist that cannot grow. The check of a pair puts its name, its values and the next pair
-  // in it, and the next pair is checked once the other two are: three entries are enough, and two
-  // too few.
-  let full = Failure { error: Error::Limit, at: 0 };
-  assert_eq!(puns::check_compact::<Pair, 8, _>(bytes, &mut []), Err(full));
-  assert_eq!(puns::check_compact::<Pair, 8, _>(bytes, &mut [Pending::default(); 2]), Err(full));
-  assert_eq!(puns::check_compact::<Pair, 8, _>(bytes, &mut [Pending::default(); 3]), Ok(()));
-}
-
-#[test]
-fn the_rest_of_a_slice_waits_in_one_entry() {
-  // A tree of a root with many children, each with a list of one child: the check of the list of
-  // children puts the list of the first in the worklist, then the rest of the list, and so on, so
-  // that two entries are enough, however many children.
-  let n = if cfg!(miri) { 4 } else { 100 };
-  let mut image = Image::new();
-  let root = image.reserve(8, 4);
-  let kids = image.list(n);
-  image.aim(root + 4, kids);
-  let empty = image.list(0);
-  for i in 0..n {
-    let grandkids = image.list(1);
-    image.aim(kids + 4 + 8 * i + 4, grandkids);
-    image.aim(grandkids + 4 + 4, empty);
-  }
-  let words = image.words8(0);
-  let bytes = &puns::as_bytes(&words[..])[..image.bytes.len()];
-  let check =
-    |room: usize| puns::check::<Tree, 8, _>(bytes, &mut vec![Pending::default(); room][..]);
-  assert_eq!((check(1), check(2)), (Err(Failure { error: Error::Limit, at: 0 }), Ok(())));
-}
-
-#[test]
-fn a_compact_image_is_in_the_order_of_a_copy() {
-  let written: &[(&str, &[u32])] = &[("a", &[1, 2, 3]), ("bcd", &[4]), ("", &[])];
-  let image = Image::compact(written);
-  let words = image.words8(0);
-  let bytes = &puns::as_bytes(&words[..])[..image.bytes.len()];
-  assert_eq!(image_of(bytes, true), Ok(()));
-  let root = puns::from_head::<Pair>(bytes).unwrap().0;
-  assert_eq!(rows(root, bytes), [row("a", &[1, 2, 3]), row("bcd", &[4]), row("", &[])]);
-  // The pairs first, then the names and values: valid, but not compact. The first pointee in the
-  // order of a copy is the name of the first pair, which is not right after it.
-  let (spread, _) = Image::pairs(written);
-  let spread_words = spread.words8(0);
-  let spread_bytes = &puns::as_bytes(&spread_words[..])[..spread.bytes.len()];
-  assert_eq!(image_of(spread_bytes, false), Ok(()));
-  assert_eq!(image_of(spread_bytes, true), Err(Failure { error: Error::Validity, at: 0 }));
-  // A byte more: a compact image ends where its last pointee does.
-  let mut long = image.bytes.clone();
-  long.push(0);
-  let long = Image { bytes: long };
-  let long_words = long.words8(0);
-  let long_bytes = &puns::as_bytes(&long_words[..])[..long.bytes.len()];
-  let end = Failure { error: Error::Validity, at: image.bytes.len() };
-  assert_eq!(image_of(long_bytes, true), Err(end));
-  assert_eq!(image_of(long_bytes, false), Ok(()));
-}
-
-#[test]
-fn a_check_says_where_the_bytes_stop_being_a_value() {
-  let image = Image::compact(&[("ab", &[1, 2]), ("c", &[3])]);
-  let at = |near: usize| near + usize::try_from(image.get_i32(near)).unwrap();
-  let failed = |place: usize, value: i32| {
-    let mut bad = Image { bytes: image.bytes.clone() };
-    bad.put_i32(place, value);
-    let words = bad.words8(0);
-    image_of(&puns::as_bytes(&words[..])[..bad.bytes.len()], true).map_err(|f| f.at)
-  };
-  let invalid = |place: usize, byte: u8| {
-    let mut bad = image.bytes.clone();
-    bad[place] = byte;
-    let bad = Image { bytes: bad };
-    let words = bad.words8(0);
-    image_of(&puns::as_bytes(&words[..])[..bad.bytes.len()], true).map_err(|f| f.at)
-  };
-  let (name, values) = (at(0), at(4));
-  // A pointer that is zero, where it is, and one that leads elsewhere, where it is.
-  assert_eq!(failed(4, 0), Err(4));
-  assert_eq!(failed(4, image.get_i32(4) + 4), Err(4));
-  // A name that is not UTF-8, and a length past the end: where the name starts, at its length.
-  assert_eq!(invalid(name + 4, 0xff), Err(name));
-  assert_eq!(failed(name, 1000), Err(name));
-  // A negative length: where the list starts, at its length.
-  assert_eq!(failed(values, -2), Err(values));
-  // Cut where the next pair starts: what does not fit even its sized part is refused at the
-  // pointer that leads to it. Cut within the first name, "ab": where the name starts, at its
-  // length.
-  let cut = |len: usize| {
-    let words = image.words8(0);
-    image_of(&puns::as_bytes(&words[..])[..len], false).map_err(|f| f.at)
-  };
-  assert_eq!(cut(at(8)), Err(8));
-  assert_eq!(cut(name + 5), Err(name));
-  // The same in the second pair, behind the first.
-  let second = at(8);
-  assert_eq!(invalid(at(second) + 4, 0xff), Err(at(second)));
-  assert_eq!(failed(second + 8, 0), Ok(()));
-  assert_eq!(failed(second, 0), Err(second));
-  // Two faults: the parts of a value come before its pointees, so a pointer of the root that is
-  // zero is found before a bad name that the root points at.
-  let mut two = image.bytes.clone();
-  two[name + 4] = 0xff;
-  let mut two = Image { bytes: two };
-  two.put_i32(4, 0);
-  let words = two.words8(0);
-  let result = image_of(&puns::as_bytes(&words[..])[..two.bytes.len()], true);
-  assert_eq!(result.map_err(|f| f.at), Err(4));
-}
-
-#[test]
-fn a_check_takes_bytes_at_any_address() {
-  let image = Image::compact(&[("ab", &[1, 2])]);
-  // The bytes one byte after an address aligned to 8, checked as they will be once copied to an
-  // address aligned to 8.
-  let words = image.words8(1);
-  let bytes = &puns::as_bytes(&words[..])[1..=image.bytes.len()];
-  assert_eq!(puns::from_head::<Pair>(bytes).err(), Some(Error::Alignment));
-  assert_eq!(image_of(bytes, true), Ok(()));
 }
 
 #[test]
@@ -1437,10 +1239,6 @@ fn an_offset_near_the_end_of_an_i128_is_refused() {
   let mut bytes = [0u8; 20];
   bytes[..16].copy_from_slice(&i128::MAX.to_le_bytes());
   assert_eq!(puns::from_head::<Far>(&bytes).err(), Some(Error::Validity));
-  assert_eq!(
-    puns::check::<Far, 1, _>(&bytes, &mut [Pending::default(); 1]),
-    Err(Failure { error: Error::Validity, at: 0 })
-  );
   let mut bytes = [0u8; 17];
   bytes[..16].copy_from_slice(&i128::MAX.to_le_bytes());
   let far = puns::from_head::<FarLazy>(&bytes).map(|(far, _)| far.text(&bytes));

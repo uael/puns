@@ -3812,7 +3812,7 @@ impl Layout {
         assert!(field.offset == 0 && field.layout.size <= size, "the fields of a union are at 0");
         assert!(!field.layout.unsized_, "the fields of a union are sized");
         // A check of a union checks its fields until one is valid, and would have to check the
-        // pointees of a field to tell, where a check with a worklist checks them later.
+        // pointees of a field to tell, where a pointee that waits for a loop is checked later.
         assert!(
           !field.layout.holds_eager(false),
           "a field of a union holds an eager aim, whose pointee is checked after the value that \
@@ -4382,49 +4382,6 @@ impl Layout {
       }
     }
     parts
-  }
-
-  /// Returns the most pointees that the validation of a value of the layout puts in the worklist
-  /// of [`check`](crate::check): one for each eager aim of a struct of it, in its fields, the
-  /// elements of an array and the variant of an enum that has the most, and, for a slice whose
-  /// elements hold eager aims, those of one element and the rest of the slice, which waits in one
-  /// entry once an element has put one there.
-  pub(crate) const fn defers(&self) -> usize {
-    match self.kind {
-      Kind::Scalar(_) | Kind::Pattern(_) => 0,
-      Kind::Array(elem, len) => elem.defers().saturating_mul(len),
-      Kind::Slice(elem) => match elem.defers() {
-        0 => 0,
-        one => one.saturating_add(1),
-      },
-      Kind::Struct(fields, rules) => {
-        let mut defers = 0usize;
-        let mut i = 0;
-        while i < rules.len() {
-          if matches!(rules[i], Rule::Aim(Aim { check: Check::Eager, .. })) {
-            defers = defers.saturating_add(1);
-          }
-          i += 1;
-        }
-        let mut i = 0;
-        while i < fields.len() {
-          defers = defers.saturating_add(fields[i].layout.defers());
-          i += 1;
-        }
-        defers
-      }
-      Kind::Enum(layout) => {
-        let (mut most, mut i) = (0, 0);
-        while i < layout.variants.len() {
-          let defers = layout.variants[i].layout.defers();
-          if defers > most {
-            most = defers;
-          }
-          i += 1;
-        }
-        most
-      }
-    }
   }
 
   /// Returns the rule that tells how long a value is from its first bytes, if there is one.

@@ -640,13 +640,6 @@
 //!   ([`AIM_PARTS`] says how much). They stop with [`Error::Limit`] past pointees of twice as many
 //!   bytes as they read, so that a check of a cycle ends, and where the loops cannot take the
 //!   pointees that wait ([`AIM_PARTS`] says when). They allocate nothing.
-//! - [`check`] and [`check_compact`] check bytes for a value at any depth, with a stack that does
-//!   not grow with the data: the pointees wait in a [`Worklist`] that the caller gives, each value
-//!   before its pointees, depth first. They make no reference, so the bytes may be at any address,
-//!   and are checked as they will be once copied to an address of a given alignment.
-//!   [`check_compact`] requires the bytes to be the compact image of the value, each pointee right
-//!   after the one before it in that order, as a writer that copies the value makes them. Both say
-//!   where bytes stop being a value ([`Failure`]).
 //! - So a reference to a struct with an eager aim is a reference to a valid pointee, which code
 //!   reads without a check, through a safe method that the derive writes. No function makes a value
 //!   that holds an eager aim (`pun`, `try_pun`, `zeroed` and the other functions that return a
@@ -1109,7 +1102,6 @@
 //!   [`Error::Limit`] past pointees of twice the bytes that it reads, and where its loops cannot
 //!   take the pointees that wait: a chain of a type without an identity, a chain each of whose
 //!   values has several pointees of its type, or a path through many types ([`AIM_PARTS`]).
-//!   [`check`] has no such bound.
 //! - A union does not hold an eager aim.
 //! - The build time of a view enum whose variants overlap grows with the square of the number of
 //!   variants, or faster.
@@ -2017,7 +2009,7 @@ pub use layout::{crc32, sum16};
 /// ```
 pub use puns_derive::Pun;
 pub use thin::{Metadata, Pointee, Thin};
-pub use validate::{AIM_PARTS, Pending};
+pub use validate::AIM_PARTS;
 use validate::{All, Checks, Input, validate};
 
 // -------------------------------------------------------------------------------------------------
@@ -3258,8 +3250,7 @@ pub enum Error {
   Validity,
   /// The check of the pointees of eager aims ([`Check::Eager`](layout::Check::Eager)) stopped at
   /// its limit before it found the bytes valid or not: pointees that its loops cannot take
-  /// ([`AIM_PARTS`]), pointees of more than twice as many bytes as are checked in all, or, for
-  /// [`check`], a [`Worklist`] that was full and could not grow.
+  /// ([`AIM_PARTS`]), or pointees of more than twice as many bytes as are checked in all.
   Limit,
 }
 
@@ -5003,274 +4994,6 @@ pub const fn from_head<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&D, &[u8]), Err
   }
 }
 
-/// Where and why [`check`] or [`check_compact`] found that bytes are not a value.
-///
-/// # Examples
-///
-/// ```
-/// use puns::{Error, Failure, Pun};
-///
-/// #[derive(Pun)]
-/// #[repr(C)]
-/// struct Flags {
-///   a: bool,
-///   b: bool,
-/// }
-///
-/// // The second byte is no `bool`.
-/// let failure = puns::check::<Flags, 1, _>(&[1, 2], &mut []).unwrap_err();
-/// assert_eq!(failure, Failure { error: Error::Validity, at: 1 });
-/// ```
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Failure {
-  /// Why: [`Error::Validity`] if the bytes are not a value, [`Error::Size`] if they are fewer than
-  /// its size, or [`Error::Limit`], which says nothing about the bytes, if the worklist was full
-  /// and could not grow, or the pointees took more than twice the bytes.
-  pub error: Error,
-  /// Where, in bytes from the start of the bytes: for [`Error::Validity`], where the check first
-  /// fails, in the order of [`check`]. That is the innermost scalar, enum or struct whose own check
-  /// fails (its valid values, its tag, its rules), or else the pointee that holds it, from the
-  /// start of what is stored before its value ([`Pointee`]), the struct whose eager aim does not
-  /// lead to a pointee, or, in a compact check, where the bytes should have ended. A pointee whose
-  /// length is not one of its type, such as a negative length, fails where it starts. 0 for another
-  /// error.
-  pub at: usize,
-}
-
-/// Where a [`check`] keeps the pointees that are still to be checked: a slice of [`Pending`]
-/// entries, or a vector that grows.
-///
-/// A check needs at most one entry for each eager aim at a stored place in the bytes, and one for
-/// each slice whose elements hold such aims, `bytes.len() / 4` for pointers of 4 bytes, and usually
-/// as many as wait at once while the check goes down its deepest path.
-///
-/// # Safety
-///
-/// The check keeps entries in the slice that [`Worklist::items`] returns, and reads them back, so
-/// an implementation must ensure that:
-///
-/// - `items` returns the same entries each time it is called, unchanged, unless `grow` was called
-///   in between.
-/// - After a call of `grow`, `items` returns the entries that it returned before, unchanged, as its
-///   first ones, and more entries than before if `grow` returned `true`.
-///
-/// A slice and an array, which cannot grow, meet these. So does a vector that `grow` resizes,
-/// since a resize keeps its elements.
-///
-/// # Examples
-///
-/// ```
-/// use puns::{Pending, Worklist};
-///
-/// /// Entries on the heap, as many as the check needs.
-/// struct Grows(Vec<Pending>);
-///
-/// // SAFETY: `items` is the vector, which only `grow` changes, and `grow` makes it longer, keeping
-/// // its elements.
-/// unsafe impl Worklist for Grows {
-///   fn items(&mut self) -> &mut [Pending] {
-///     &mut self.0
-///   }
-///
-///   fn grow(&mut self) -> bool {
-///     self.0.resize(self.0.len().max(8) * 2, Pending::default());
-///     true
-///   }
-/// }
-/// ```
-pub unsafe trait Worklist {
-  /// Returns the entries, every one of which the check may write.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::{Pending, Worklist};
-  ///
-  /// let mut work = [Pending::default(); 4];
-  /// assert_eq!(work.items().len(), 4);
-  /// ```
-  fn items(&mut self) -> &mut [Pending];
-
-  /// Makes room for more entries, keeping the ones of [`Worklist::items`] at the start, and returns
-  /// whether it did. A slice cannot.
-  ///
-  /// # Examples
-  ///
-  /// ```
-  /// use puns::{Pending, Worklist};
-  ///
-  /// let mut work = [Pending::default(); 4];
-  /// assert!(!work.grow());
-  /// ```
-  fn grow(&mut self) -> bool {
-    false
-  }
-}
-
-// SAFETY: `items` returns the slice, which only the check writes, and `grow` does not grow it.
-unsafe impl Worklist for [Pending] {
-  fn items(&mut self) -> &mut [Pending] {
-    self
-  }
-}
-
-// SAFETY: As for a slice.
-unsafe impl<const N: usize> Worklist for [Pending; N] {
-  fn items(&mut self) -> &mut [Pending] {
-    self
-  }
-}
-
-/// A worklist of [`check`] as a trait object, which it may not be itself (a slice), so that one
-/// driver of the check serves every worklist.
-struct Dyn<'w, W: ?Sized>(&'w mut W);
-
-// SAFETY: The calls are those of `W`, which meets the `# Safety` of `Worklist`.
-unsafe impl<W: Worklist + ?Sized> Worklist for Dyn<'_, W> {
-  fn items(&mut self) -> &mut [Pending] {
-    self.0.items()
-  }
-
-  fn grow(&mut self) -> bool {
-    self.0.grow()
-  }
-}
-
-/// Checks that `bytes` start with a `D`, with the pointees of its eager aims, as they will be at
-/// an address aligned to `ALIGN`.
-///
-/// The check makes no reference to the bytes, which may be at any address, and the pointees may be
-/// nested at any depth.
-///
-/// The bytes are checked as they will be once copied to an address aligned to `ALIGN`: the `D`
-/// and the types of each eager pointee must be aligned to at most `ALIGN`, and each pointee is
-/// aligned by its offset in the bytes, to the alignment of its aim, which may be higher (that of a
-/// [`Thin`] counts the size of its length). The check makes no recursion that grows with the data:
-/// the pointees wait in `work` ([`Worklist`]), so it goes as deep as the data does, with a stack
-/// that the types bound, where [`from_head`] stops at [`AIM_PARTS`].
-///
-/// The order of the check is that of a depth-first walk in which the parts of each value come
-/// before its pointees: the `D`, then the pointees of its eager aims, in the order of the aims,
-/// each with its own pointees before the next. The elements of a slice whose elements hold eager
-/// aims are each a value of its own, so the pointees of one come before the next element. Where
-/// the bytes stop being a `D` is where this order first meets a part that is not valid
-/// ([`Failure`]).
-///
-/// # Errors
-///
-/// Returns a [`Failure`] with [`Error::Size`] if `bytes` is shorter than a `D`,
-/// [`Error::Validity`] if the bytes are not a `D` with its pointees, and [`Error::Limit`] if `work`
-/// was full and could not grow, or the pointees took more than twice the bytes, which says nothing
-/// about the bytes.
-///
-/// # Compile-time errors
-///
-/// A call compiles only under the compile-time conditions of [`from_head`], and if `ALIGN` is a
-/// power of two, at least the alignment of `D`.
-///
-/// # Examples
-///
-/// ```
-/// use core::num::NonZero;
-///
-/// use puns::{Error, Failure, InPlace, Pending, Pun, Thin};
-///
-/// /// A pointer to a text: an `i16` from its own address to an `i16` length, then the bytes.
-/// #[derive(Pun)]
-/// #[repr(transparent)]
-/// struct Text {
-///   #[pun(pointer(Thin<str, i16> = off as u128))]
-///   off: InPlace<NonZero<i16>>,
-/// }
-///
-/// // The pointer, the length, then "hi", at an odd address.
-/// let mut image = [0u8; 7];
-/// image[1..3].copy_from_slice(&2i16.to_ne_bytes());
-/// image[3..5].copy_from_slice(&2i16.to_ne_bytes());
-/// image[5..7].copy_from_slice(b"hi");
-/// let mut work = [Pending::default(); 1];
-/// assert_eq!(puns::check::<Text, 2, _>(&image[1..], &mut work), Ok(()));
-/// // A text that is not UTF-8, refused where its length is.
-/// image[6] = 0xff;
-/// let failure = Failure { error: Error::Validity, at: 2 };
-/// assert_eq!(puns::check::<Text, 2, _>(&image[1..], &mut work), Err(failure));
-/// ```
-pub fn check<D: Pun, const ALIGN: usize, W: Worklist + ?Sized>(
-  bytes: &[u8],
-  work: &mut W,
-) -> Result<(), Failure> {
-  checked::<D, ALIGN>(bytes, false, &mut Dyn(work))
-}
-
-/// Checks that `bytes` are the compact image of a `D` once at an address aligned to `ALIGN`.
-///
-/// It checks what [`check`] checks, and that each pointee at a stored place starts at the first
-/// offset after the one before it, in the order of the check, where it is aligned (after the `D`
-/// for the first), with what is stored before its value ([`Pointee`]) right before it, and that
-/// the last one ends where the bytes end.
-///
-/// Such bytes are what a writer that copies a value depth first, each pointee at the next aligned
-/// place, makes, and no pointee in them is shared: no two aims lead to one, and none leads back.
-///
-/// # Errors
-///
-/// As for [`check`]. A pointee that is not where a compact image has it fails where the struct
-/// whose aim leads to it is, and bytes that go on after the last pointee fail where it ends.
-///
-/// # Compile-time errors
-///
-/// As for [`check`].
-///
-/// # Examples
-///
-/// ```
-/// use core::num::NonZero;
-///
-/// use puns::{Error, Failure, InPlace, Pending, Pun};
-///
-/// /// A pointer to a `u16`, stored as the distance from its own address.
-/// #[derive(Pun)]
-/// #[repr(transparent)]
-/// struct Ptr {
-///   #[pun(pointer(u16 = off as u128))]
-///   off: InPlace<NonZero<i16>>,
-/// }
-///
-/// let mut work = [Pending::default(); 1];
-/// // The pointer, then its pointee right after it.
-/// assert_eq!(puns::check_compact::<Ptr, 2, _>(puns::as_bytes(&[2i16, 7]), &mut work), Ok(()));
-/// // A byte more, past the pointee: no longer the compact image.
-/// let failure = Failure { error: Error::Validity, at: 4 };
-/// let longer = puns::check_compact::<Ptr, 2, _>(puns::as_bytes(&[2i16, 7, 0]), &mut work);
-/// assert_eq!(longer, Err(failure));
-/// ```
-pub fn check_compact<D: Pun, const ALIGN: usize, W: Worklist + ?Sized>(
-  bytes: &[u8],
-  work: &mut W,
-) -> Result<(), Failure> {
-  checked::<D, ALIGN>(bytes, true, &mut Dyn(work))
-}
-
-/// [`check`], or [`check_compact`] if `compact`, with one driver for every worklist.
-fn checked<D: Pun, const ALIGN: usize>(
-  bytes: &[u8],
-  compact: bool,
-  work: &mut dyn Worklist,
-) -> Result<(), Failure> {
-  const {
-    let () = Plan::<[u8], D>::TRY_REF;
-    assert!(ALIGN.is_power_of_two(), "the alignment of the bytes is a power of two");
-    assert!(align_of::<D>() <= ALIGN, "the target needs a greater alignment than the bytes have");
-  };
-  if bytes.len() < size_of::<D>() {
-    return Err(Failure { error: Error::Size, at: 0 });
-  }
-  let root = (size_of::<D>(), validate::root_stage::<D>());
-  // SAFETY: `bytes` is valid for reads of its initialized bytes, at least the size of `D`, and the
-  // root is that of `D`, as `drive` requires.
-  unsafe { validate::drive(bytes.as_ptr(), bytes.len(), (ALIGN, compact), root, work) }
-}
-
 /// Returns `true` if `bytes` can neither be nor start with a `D`, as the first scalar that `D`
 /// restricts tells (an EtherType, a version), in which case [`from_bytes`] and [`from_head`] would
 /// check it, and fail.
@@ -5873,9 +5596,9 @@ pub const unsafe fn aim<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
 /// The caller must ensure the requirements of [`aim`] but the last, and that for `'a`, the bytes of
 /// the pointee are accessed only through the result, and the bytes of the value are not written.
 /// The bytes of a value that `puns` checked may hold pointees that several aims share, since a
-/// check that is not compact allows it, and a reference that `puns` returned is shared, so these
-/// bytes are not for this function: it is for the bytes that unsafe code owns, as `nearest` owns a
-/// region, whose pointees it does not share. What is written through the result is what later
+/// check allows it, and a reference that `puns` returned is shared, so these bytes are not for this
+/// function: it is for the bytes that unsafe code owns, as `nearest` owns a region, whose pointees
+/// it does not share. What is written through the result is what later
 /// reads of the pointee rely on, safe ones included.
 ///
 /// # Compile-time errors
