@@ -93,7 +93,7 @@
 //! rules over other fields, another rule, and another extent. They put these rules in a struct, an
 //! enum of a primitive representation and of the `Rust` representation, an array, a union, and a
 //! struct with a byte that may be uninitialized. The model reports a rule proven by another (a
-//! `same_rules` that compares nothing) and a `&mut` part over a rule that the target does not have
+//! `has_rule` that compares nothing) and a `&mut` part over a rule that the target does not have
 //! (a `cut` without its test). Both faults were tried.
 //!
 //! The types include enums of the `Rust` representation: a niche in a `bool`, in a `NonZero` and in
@@ -111,23 +111,11 @@
 //! values, in a struct and in a variant of a source. Their oracles read nothing of a part without
 //! values. The shapes of the model put a part that a check need not read next to a part that it
 //! checks: the same union in an array, a union in an enum checked as a whole, an array of small
-//! unions under an enum of the target whose first run accepts every value of 2 bytes, and a tuple,
-//! whose layout Rust leaves to the compiler, in a field of a union and in a variant next to a
-//! scalar that a pun never makes, a struct with a rule that loads its field, in a union in an
-//! enum, and a union whose first field the source proves only through a requirement, which a
-//! value of the source may break: the values of a source are what the type guarantees, not what
-//! it requires. `tests/shapes.rs` has a sample of each, and runs under Miri.
-//!
-//! A scalar that a pun never makes (`Opaque`, made with `Spec::never`) is in the model alone, in a
-//! struct, and in a variant of an enum. Its oracle reads an initialized byte as a source, and as a
-//! target requires what no byte meets, without reading it. A check that accepts it is found
-//! incorrect, which was tried. A check that rejects its variant need not read its byte, which may
-//! be uninitialized in the source (`ByteZero -> MaybeOpaque`): only the value of a decision that
-//! needs an uninitialized byte in both modes is unsound to check (`check_pair`), and Miri runs the
-//! pair. `OpaqueNz` is such a byte with a niche at zero, and `Option<OpaqueNz>` is such a scalar
-//! too, alone and in a struct (`HoldsOptOpaque`). That the same type does not prove it is not a
-//! verdict that the oracle can judge, since a source that does not meet its own requirements
-//! implies any requirement: the compile-fail case `never_same_type` of `puns` holds it.
+//! unions under an enum of the target whose first run accepts every value of 2 bytes, a tuple,
+//! whose layout Rust leaves to the compiler, in a field of a union, a struct with a rule that loads
+//! its field, in a union in an enum, and a union whose first field the source proves only through
+//! a requirement, which a value of the source may break: the values of a source are what the type
+//! guarantees, not what it requires. `tests/shapes.rs` has a sample of each, and runs under Miri.
 //!
 //! # Parts
 //!
@@ -528,41 +516,30 @@ impl<T: Oracle> Oracle for core::mem::ManuallyDrop<T> {
   }
 }
 
-impl<A: Oracle> Oracle for (A,) {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    A::check(b, off + core::mem::offset_of!(Self, 0), reads, mode)
-  }
+/// Implements `Oracle` for the tuple of the elements `$all`, whose indexes are `$index`: each
+/// element where `rustc` put it. `puns` implements `Pun` for tuples of up to 12 elements.
+macro_rules! tuple {
+  ($($all:ident $index:tt)+) => {
+    impl<$($all: Oracle),+> Oracle for ($($all,)+) {
+      fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
+        all(&[$($all::check(b, off + core::mem::offset_of!(Self, $index), reads, mode)),+])
+      }
+    }
+  };
 }
 
-impl<A: Oracle, B: Oracle> Oracle for (A, B) {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    all(&[
-      A::check(b, off + core::mem::offset_of!(Self, 0), reads, mode),
-      B::check(b, off + core::mem::offset_of!(Self, 1), reads, mode),
-    ])
-  }
-}
-
-impl<A: Oracle, B: Oracle, C: Oracle> Oracle for (A, B, C) {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    all(&[
-      A::check(b, off + core::mem::offset_of!(Self, 0), reads, mode),
-      B::check(b, off + core::mem::offset_of!(Self, 1), reads, mode),
-      C::check(b, off + core::mem::offset_of!(Self, 2), reads, mode),
-    ])
-  }
-}
-
-impl<A: Oracle, B: Oracle, C: Oracle, D: Oracle> Oracle for (A, B, C, D) {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    all(&[
-      A::check(b, off + core::mem::offset_of!(Self, 0), reads, mode),
-      B::check(b, off + core::mem::offset_of!(Self, 1), reads, mode),
-      C::check(b, off + core::mem::offset_of!(Self, 2), reads, mode),
-      D::check(b, off + core::mem::offset_of!(Self, 3), reads, mode),
-    ])
-  }
-}
+tuple!(A 0);
+tuple!(A 0 B 1);
+tuple!(A 0 B 1 C 2);
+tuple!(A 0 B 1 C 2 D 3);
+tuple!(A 0 B 1 C 2 D 3 E 4);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8 J 9);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8 J 9 K 10);
+tuple!(A 0 B 1 C 2 D 3 E 4 F 5 G 6 H 7 I 8 J 9 K 10 L 11);
 
 /// Returns the values that each byte takes in the enumeration of the values of a type of `size`
 /// bytes.
@@ -866,10 +843,9 @@ pub fn check_pair<S: Oracle, D: Oracle>(limit: usize) {
   // the source.
   let claims: Vec<bool> = if ds <= ss { implied::<S, D>(&source, 0) } else { vec![] };
   // A value whose decision needs an uninitialized byte: what the type system guarantees reads one,
-  // and so does what the target requires, which is what a check decides. Every oracle reads in
-  // target mode what it reads without it, but that of a scalar that a pun never makes, whose
-  // requirement holds of no byte and reads none: a check rejects its variant unread.
-  let any_uninit = truths.iter().any(|t| t.hard.is_err() && t.soft.is_err());
+  // and so does what the target requires, which is what a check decides, since every oracle reads
+  // in target mode what it reads without it.
+  let any_uninit = truths.iter().any(|t| t.hard.is_err());
   // A requirement that reads uninitialized bytes is unsound to check: only one that the source
   // implies may be read so, as it is then not checked.
   let soft_uninit = truths.iter().zip(&claims).any(|(t, c)| t.soft.is_err() && !c);

@@ -75,8 +75,11 @@ The `from_` functions check the address only if the target needs an alignment gr
 [`from_head_mut`] check that the bytes hold the fields of the target before its slice, then the
 address, then the extent that its rules give. [`from_tail`] and [`from_tail_mut`] check the size
 first, since it decides where the last bytes start, then the address. All of them then check the
-values of the target that the bytes do not prove, requirements included. A view has a `from_bytes`
-and a `from_head` of its own ([Reading one of several types][crate#reading-one-of-several-types]).
+values of the target that the bytes do not prove, requirements included, and the pointees of its
+eager [aims][aims] in the same bytes, a few levels deep. [`check`] and [`check_compact`] check data
+whose pointees lead deeper, with a list of the pointees still to check that you give. A view has a
+`from_bytes` and a `from_head` of its own ([Reading one of several
+types][crate#reading-one-of-several-types]).
 
 ## Taking the front or the back
 
@@ -294,13 +297,22 @@ meets the `valid(..)` ranges of the source, though not always its rules ([Writin
 - For [`from_bytes_mut`], [`from_head_mut`] and [`from_tail_mut`], every byte of every value of
   `D` is initialized, as bytes are.
 
-### No opaque scalar
+### No eager aim
 
-`D` holds no [opaque scalar][concepts#opaque-scalars],
-since no function makes one. A variant of an enum that holds one is allowed, and a check never
-accepts it. For a `&mut`, the covered bytes of `S` hold none either, since a write would make one.
+`D` holds no eager [aim][aims], since no function makes a value that holds one: its pointee was
+checked where the value was. For a `&mut`, `S` holds none either: no function gives a `&mut` to
+or from a value that holds one, since a write could move it away from its pointee. A reference to
+a value that holds one is made by the functions that return a `&D`, which check its pointee, or
+prove it by the same aim at the same place of the source.
+
+### Bytes for a pointee
+
+If `D` holds an eager [aim][aims], every byte of every value of `S` is initialized, since the
+check looks for its pointee in the bytes of the source.
 
 [`as_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.as_bytes.html
+[`check_compact`]: https://docs.rs/puns/0.2.4/puns/fn.check_compact.html
+[`check`]: https://docs.rs/puns/0.2.4/puns/fn.check.html
 [`from_bytes_mut`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes_mut.html
 [`from_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes.html
 [`from_head_mut`]: https://docs.rs/puns/0.2.4/puns/fn.from_head_mut.html
@@ -319,10 +331,10 @@ accepts it. For a `&mut`, the covered bytes of `S` hold none either, since a wri
 [`try_pun_mut`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_mut.html
 [`try_pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_ref.html
 [`try_pun`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
+[aims]: aims.md
 [concepts#layouts-and-rules]: concepts.md#layouts-and-rules
 [concepts#proven-checked-and-refused]: concepts.md#proven-checked-and-refused
 [concepts#requirements]: concepts.md#requirements
-[concepts#opaque-scalars]: concepts.md#opaque-scalars
 [concepts#what-is-a-valid-value]: concepts.md#what-is-a-valid-value
 [concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
 [core::mem::transmute#transmutation-between-pointers-and-integers]: https://doc.rust-lang.org/1.99.0/core/mem/fn.transmute.html#transmutation-between-pointers-and-integers

@@ -17,7 +17,7 @@ macro_rules! asserting {
   };
 }
 
-const LOAD: Op = Op::Load { offset: 1, size: 1, big: false };
+const LOAD: Op = Op::Load { offset: 1, size: 1, big: false, signed: false };
 // A walk nested `n` deep, as `WALK_n`.
 const WALK_1: &[Op] = &[Op::Lit(0), Op::Walk { var: 0, cond: &[Op::Lit(0)], next: &[Op::Lit(0)] }];
 const WALK_2: &[Op] = &[Op::Lit(0), Op::Walk { var: 0, cond: WALK_1, next: WALK_1 }];

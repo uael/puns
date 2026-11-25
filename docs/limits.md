@@ -77,6 +77,15 @@ evaluator][rules#limits-of-the-evaluator] and [Functions][rules#functions].
   a check may test: its scalars with restricted values, strings, enums, unions and rules. Those
   after them share one mark, so if one of them needs a check, all of them are checked.
 
+## Bounds of the checks
+
+- **Pointees within pointees.** The `try_` and `from_` functions check the pointees of eager
+  [aims] in place, one within another, up to [`AIM_PARTS`] parts of their layouts, a few levels of
+  a type that points at itself, and pointees of at most twice the bytes that they read, and return
+  [`Error::Limit`] past either. This bounds their stack whatever the bytes, and ends the check of a
+  cycle. [`check`] and [`check_compact`] have no such bound: their stack does not grow with the
+  data, and the pointees still to check wait in a [`Worklist`] that the caller gives.
+
 ## Not yet
 
 What is planned, each with what it would allow.
@@ -97,7 +106,7 @@ What is planned, each with what it would allow.
   condition `|i| i < count`, is computed on 128 bits, unless the expression also reads the value
   at that offset (`be(i, 1)`), and so is the state of a walk inside two other walks. The check is
   then longer. Planned: ranges from the conditions.
-- **Rules implied by other rules.** A rule of the target is proven only by the same rules
+- **Rules implied by other rules.** A rule of the target is proven only by the same rule
   ([Why the pair decides][concepts#why-the-pair-decides]), and is otherwise checked: `v % 6 == 0`
   does not prove `v % 3 == 0`, and `a != b` in a struct of 2 bytes does not prove it in a struct
   of 3, though it does not read the [extent][concepts#layouts-and-rules]. Nor does the analysis
@@ -135,12 +144,20 @@ What is planned, each with what it would allow.
 
 What could be done, where whether to do it is not decided.
 
+- **More enums of the `Rust` representation assumed.** `puns` does not
+  [assume][layouts#what-puns-assumes] the layout of an enum with a variant whose fields have
+  different alignments, since the width of the tag follows the field that `rustc` puts first, nor
+  one with a niche that ties with another, since `rustc` chooses by where they are, nor one with a
+  niche in a part whose fields `rustc` may reorder. Each would need the choice of `rustc` measured
+  and stated as part of the assumption.
 - **`Wrapping` and `Saturating`.** They are `repr(transparent)` around their integer, and `puns`
   does not implement `Pun` for them.
 - **`repr(transparent)` enums with fields.** Rust gives such an enum the layout of its only field
   of nonzero size ([`r-layout.repr.transparent.layout-abi`]), but the derive reads it as an enum
   of the `Rust` representation ([Enums with fields][macro@Pun#enums-with-fields]). So without the
-  `unstable` feature, a pun that reads its field is refused for an unspecified layout.
+  `unstable` feature, a pun that reads its field compiles only where `puns`
+  [assumes][layouts#what-puns-assumes] the layout of the enum, as it does for a variant of one
+  field, and is refused for an unspecified layout otherwise.
 - **A rule that two variants of a [view][macro@Pun#views] share, where neither accepts every
   value of the other.** For bytes that fail the rule, each variant computes it, unless a later
   variant computes it once for both ([What the view functions
@@ -157,11 +174,11 @@ What could be done, where whether to do it is not decided.
   constant type of [`num`], such as `u8c<7>`, hold their value, and whose fields that a `size` or
   `len` rule reads hold the length of the value. Each field is written by hand, as
   `Default::default()` for a field of a constant type.
-- **Fields of fields, and signed and floating-point fields, in rules.** A rule reads them with
-  `le` or `be` at their offsets ([Fields in a rule][rules#fields-in-a-rule]). Naming a field of a
-  field (`header.length`) or an element of an array (`magic[0]`) would be sound if its offset
-  were checked against the layout of the field, as a scalar of that size there, as it is for the
-  fields of the struct.
+- **Fields of fields, and floating-point fields, in rules.** A rule reads them with `le` or `be` at
+  their offsets, and a signed field under a cast ([Fields in a rule][rules#fields-in-a-rule]).
+  Naming a field of a field (`header.length`) or an element of an array (`magic[0]`) would be sound
+  if its offset were checked against the layout of the field, as a scalar of that size there, as it
+  is for the fields of the struct.
 - **The functions of rules in getters.** A getter has none of the functions of rules, so a value
   that only the bytes hold, such as a variable-length integer, is decoded by a `const fn` of the
   user. A rule reads one ([`leb128`][rules#functions] and others), but only to check a value or to
@@ -181,6 +198,10 @@ What could be done, where whether to do it is not decided.
 [`r-layout.repr.transparent.layout-abi`]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi
 [`UnsafeCell`]: https://doc.rust-lang.org/1.99.0/core/cell/struct.UnsafeCell.html#memory-layout
 
+[`AIM_PARTS`]: https://docs.rs/puns/0.2.4/puns/constant.AIM_PARTS.html
+[`check_compact`]: https://docs.rs/puns/0.2.4/puns/fn.check_compact.html
+[`check`]: https://docs.rs/puns/0.2.4/puns/fn.check.html
+[`Error::Limit`]: https://docs.rs/puns/0.2.4/puns/enum.Error.html#variant.Limit
 [`Error`]: https://docs.rs/puns/0.2.4/puns/enum.Error.html
 [`from_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes.html
 [`from_head`]: https://docs.rs/puns/0.2.4/puns/fn.from_head.html
@@ -193,6 +214,8 @@ What could be done, where whether to do it is not decided.
 [`pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.pun_ref.html
 [`tail_mut`]: https://docs.rs/puns/0.2.4/puns/fn.tail_mut.html
 [`tail`]: https://docs.rs/puns/0.2.4/puns/fn.tail.html
+[`Worklist`]: https://docs.rs/puns/0.2.4/puns/trait.Worklist.html
+[aims]: aims.md
 [concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
 [errors]: errors.md
 [errors#values-and-padding]: errors.md#values-and-padding
@@ -201,6 +224,7 @@ What could be done, where whether to do it is not decided.
 [functions#writes-leave-a-valid-source]: functions.md#writes-leave-a-valid-source
 [kinds]: concepts.md#proven-checked-and-refused
 [layouts#the-same-type]: layouts.md#the-same-type
+[layouts#what-puns-assumes]: layouts.md#what-puns-assumes
 [layouts#what-a-check-may-read]: layouts.md#what-a-check-may-read
 [macro@Pun]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
 [macro@Pun#enums-with-fields]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields

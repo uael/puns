@@ -1,11 +1,12 @@
 # The language of rules
 
 The [rules][concepts#layouts-and-rules] of a struct are the expressions of its
-[`size`][macro@Pun#size] and [`assert`][macro@Pun#assert] attributes, and of [`len`][macro@Pun#len]
-and [`regions`][macro@Pun#regions] on its last field. They give the
-[extent][concepts#layouts-and-rules] of a value, the length of its trailing slice, the size of a
-[region](#regions), or a condition such as a checksum, the relations that binary formats store in
-their headers. [In practice][formats] shows them in use.
+[`size`][macro@Pun#size] and [`assert`][macro@Pun#assert] attributes, of [`len`][macro@Pun#len]
+and [`regions`][macro@Pun#regions] on its last field, and of [`pointer`][macro@Pun#pointer] on a
+field. They give the [extent][concepts#layouts-and-rules] of a value, the length of its trailing
+slice, the size of a [region](#regions), the place of a pointee, or a condition such as a
+checksum, the relations that binary formats store in their headers. [In practice][formats] shows
+them in use, and [Aims][aims] says how the pointees of `regions` and `pointer` are checked.
 
 A rule is a [requirement][concepts#requirements]. It is checked when a value of the
 struct is made from another type, as by [`try_pun`] or [`from_head`], unless the source proves
@@ -25,9 +26,10 @@ of a CRC or the steps of a walk, is data of the operations.
 
 ## Regions
 
-The methods of [regions][concepts#layouts-and-rules] ([`regions`][macro@Pun#regions]) do not trust
-the fields that give the sizes, which are [requirements][concepts#requirements]. A region that does
-not fit in the field is truncated, and a region whose expression fails takes the rest of the field.
+The methods of lazy [regions][concepts#layouts-and-rules] ([`regions`][macro@Pun#regions]) do not
+trust the fields that give the sizes, which are [requirements][concepts#requirements]. A region that
+does not fit in the field is truncated, and a region whose expression fails takes the rest of the
+field. An eager region was checked with its struct, which no safe code writes ([Aims][aims]).
 
 ## Values and types
 
@@ -36,28 +38,28 @@ checks were on, whatever the build profile ([How a rule fails](#how-a-rule-fails
 refused. The one exception is `size_of_val(self)`, which is the extent ([Fields in a
 rule](#fields-in-a-rule)). It is typed as Rust types it: arithmetic is on integers, the operands of
 `&&` and `||` and the condition of an `if` are `bool`s, an `assert` is a `bool`, and a `size`, a
-`len` or a region is an integer. Rust does not convert an integer to a `bool`, so `flags & 1` is not
-an assertion, but `flags & 1 != 0` is.
+`len`, a region or an aim is an integer. Rust does not convert an integer to a `bool`, so
+`flags & 1` is not an assertion, but `flags & 1 != 0` is.
 
 ## Fields in a rule
 
-A rule reads the fields of its struct that are unsigned integers (`u8`, `u16be`,
-`NonZero<u32>`...), or sized structs whose only field with a size is one of these and is as
-large as the struct. A field is named by its name, or as `self.name` (`self.0` in a tuple
-struct). A rule does not name the fields of a field or the elements of an array, but reads them
-with `le` and `be`.
+A rule reads the fields of its struct that are integers (`u8`, `u16be`, `NonZero<u32>`, `i32`...),
+or sized structs whose only field with a size is one of these and is as large as the struct. A
+field is named by its name, or as `self.name` (`self.0` in a tuple struct). A rule does not name
+the fields of a field or the elements of an array, but reads them with `le` and `be`.
 
-A signed or floating-point number, a `bool`, a `char` or an enum is refused, since its bits are
-not its value as an unsigned integer, and so is an [opaque
-scalar][concepts#opaque-scalars], which is not
-a number:
+A signed integer is named only under a cast, as in `off as u128` or `delta as u16`, which means
+what it means in Rust: the value sign-extended to 128 bits, then truncated to the type of the
+cast, so that `-1 as u128` is `u128::MAX`. Alone, it is refused, since a negative value is not a
+`u128`. A floating-point number, a `bool`, a `char` or an enum is refused, since its bits are not
+its value:
 
 ```rust,compile_fail,E0080
 use puns::Pun;
 
 #[derive(Pun)]
 #[repr(C)]
-#[pun(assert(level < 8))] // Refused: the bits of an `i8` are not its value as a `u128`.
+#[pun(assert(level < 8))] // Refused: a negative `i8` is not a `u128`.
 struct Level {
   level: i8,
 }
@@ -65,11 +67,27 @@ let _ = puns::from_bytes::<Level>(&[1]);
 ```
 
 ```text
-error[E0080]: evaluation panicked: a rule reads the unsigned integer fields of its struct, and this field is not one (a signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes with `le(offset, size)` or `be(offset, size)`
+error[E0080]: evaluation panicked: a rule reads the unsigned integer fields of its struct, and this field is not one: read a signed integer under a cast (`field as u128`), which sign-extends it, and the bytes of a floating-point number, a `bool`, a `char` or an enum with `le(offset, size)` or `be(offset, size)`
 ```
 
-A rule that reads bytes at an offset reads the bytes of such a field like any others. To fix
-this rule, read the bits of `level` as a byte, in which the negative levels are 128 to 255:
+Under a cast, the field means what it means in Rust, so that a level of -1 is not less than 8:
+
+```rust
+use puns::Pun;
+
+#[derive(Pun)]
+#[repr(C)]
+#[pun(assert((level as u128) < 8))]
+struct Level {
+  level: i8,
+}
+
+assert!(puns::from_bytes::<Level>(&[7]).is_ok());
+assert!(puns::from_bytes::<Level>(&[(-1i8).cast_unsigned()]).is_err());
+```
+
+A rule that reads bytes at an offset reads the bytes of any field like any others. To keep the
+negative levels, which are 128 to 255 as a byte, read the bits of `level` as a byte:
 
 ```rust
 use puns::Pun;
@@ -106,8 +124,8 @@ Besides its fields, a rule is made of:
 - the operators `+ - * / % & | ^ << >> == != < <= > >= && || !`. On an integer, `!` is a bitwise
   not (`!3` is `0xffff..fffc`). On a `bool`, it is a logical not.
 - casts: `as u8`, `as u16`, `as u32`, `as u64` and `as usize` keep the low bits, with the width
-  of `usize` on the target, `as u128` keeps them all, and `true as u8` is `1`. A cast to another
-  type is refused.
+  of `usize` on the target, `as u128` keeps them all, and `true as u8` is `1`. A signed field is
+  sign-extended first. A cast to another type is refused.
 - blocks that name values, `{ let a = EXPR; let b = EXPR; EXPR }`. `let name: u128` and `let
   name: bool` state the type.
 - choices, `if EXPR { EXPR } else { EXPR }`.
@@ -346,9 +364,9 @@ numbers. The steps of a walk are bounded too ([Walks](#walks)).
 [`layout::Dfa`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Dfa.html
 [`layout::Op`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Op.html
 [`try_pun`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
+[aims]: aims.md
 [concepts#layouts-and-rules]: concepts.md#layouts-and-rules
 [concepts#requirements]: concepts.md#requirements
-[concepts#opaque-scalars]: concepts.md#opaque-scalars
 [concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
 [fn@crc32]: https://docs.rs/puns/0.2.4/puns/layout/fn.crc32.html
 [fn@sum16]: https://docs.rs/puns/0.2.4/puns/layout/fn.sum16.html
@@ -358,5 +376,6 @@ numbers. The steps of a walk are bounded too ([Walks](#walks)).
 [limits#limits-of-rust]: limits.md#limits-of-rust
 [macro@Pun#assert]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#assert
 [macro@Pun#len]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#len
+[macro@Pun#pointer]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#pointer
 [macro@Pun#regions]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#regions
 [macro@Pun#size]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#size

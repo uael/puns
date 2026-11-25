@@ -1,7 +1,8 @@
 // The chapter is docs/testing.md, read on GitHub as well. Rustdoc keeps the first
 // definition of a link, so these, before it, make its links to chapters intra-doc.
+//! [aims]: super::aims
 //! [layouts]: super::layouts
-//! [opaque]: super::concepts#opaque-scalars
+//! [layouts#what-puns-assumes]: super::layouts#what-puns-assumes
 //! [rust#errors-of-const-evaluation]: super::rust#errors-of-const-evaluation
 //! [rust#the-tag-of-an-enum-of-the-rust-representation]: super::rust#the-tag-of-an-enum-of-the-rust-representation
 //! [soundness]: super::soundness

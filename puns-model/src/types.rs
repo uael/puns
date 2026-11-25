@@ -593,111 +593,6 @@ impl Oracle for Zero {
   }
 }
 
-// --- Scalars that a pun never makes -------------------------------------------------------------
-
-/// A byte whose validity is not in its bytes, as the offset of a self-relative pointer of another
-/// crate: a pun reads it as an initialized byte, and never makes it.
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct Opaque(pub u8);
-
-// SAFETY: `Opaque` is `repr(transparent)` over a `u8`, so `SPEC`, of a `u8`, has its size. The
-// items of the `# Safety` of `Scalar` hold:
-// - `SPEC` is made with `Spec::never`, and every byte of every value of `Opaque` is initialized.
-// - `SPEC` accepts no value.
-// - `Opaque` holds no `UnsafeCell`.
-unsafe impl puns::Scalar for Opaque {
-  const SPEC: puns::layout::Spec = puns::layout::Spec::never::<u8>();
-}
-
-impl Oracle for Opaque {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    // As a target, a requirement that no byte meets, which reads none: only the crate of the
-    // scalar makes one. As a source, an initialized byte.
-    if mode.required {
-      return require(off, "Opaque", Ok(false));
-    }
-    int(b, off, 1, true, reads)?;
-    Ok(true)
-  }
-}
-
-/// A byte that a pun never makes, as `Opaque`, with a niche at zero, as an offset that is never
-/// zero. Its `Option` is one too, `None` as zero.
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct OpaqueNz(pub NonZero<u8>);
-
-// SAFETY: `OpaqueNz` is `repr(transparent)` over a `NonZero<u8>`, so `SPEC`, of a `u8`, has its
-// size. The items of the `# Safety` of `Scalar` hold:
-// - `SPEC` is made with `Spec::never`, and every byte of every value of `OpaqueNz` is initialized.
-// - `SPEC` accepts no value.
-// - `OpaqueNz` holds no `UnsafeCell`.
-unsafe impl puns::Scalar for OpaqueNz {
-  const SPEC: puns::layout::Spec = puns::layout::Spec::never::<u8>();
-}
-
-impl Oracle for OpaqueNz {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    // As `Opaque`; as a source, a byte that is not zero.
-    if mode.required {
-      return require(off, "OpaqueNz", Ok(false));
-    }
-    Ok(int(b, off, 1, true, reads)? != 0)
-  }
-}
-
-impl Oracle for Option<OpaqueNz> {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    // As `Opaque`: `None` is zero and `Some` any other byte, so as a source, any initialized byte.
-    const { assert!(size_of::<Option<OpaqueNz>>() == 1, "`None` is the niche of `OpaqueNz`") };
-    if mode.required {
-      return require(off, "Option<OpaqueNz>", Ok(false));
-    }
-    int(b, off, 1, true, reads)?;
-    Ok(true)
-  }
-}
-
-model_struct!(
-  /// A struct of a `bool`, then a byte that a pun never makes, or zero.
-  #[repr(C)]
-  struct HoldsOptOpaque {
-    b: bool,
-    o: Option<OpaqueNz>,
-  }
-);
-
-model_struct!(
-  /// A struct of a `bool`, then a byte that a pun never makes.
-  #[repr(C)]
-  struct HoldsOpaque {
-    b: bool,
-    o: Opaque,
-  }
-);
-
-/// An enum whose second variant holds a byte that a pun never makes.
-///
-/// A check accepts `Empty` only.
-#[derive(Pun, Clone, Copy)]
-#[repr(u8)]
-pub enum MaybeOpaque {
-  Empty,
-  Full(Opaque),
-}
-
-impl Oracle for MaybeOpaque {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    // The tag, then the byte of `Full`; the second byte of `Empty` is padding.
-    match int(b, off, 1, true, reads)? {
-      0 => Ok(true),
-      1 => Opaque::check(b, off + 1, reads, mode),
-      _ => Ok(false),
-    }
-  }
-}
-
 impl<T: Pun + Copy + 'static> Oracle for core::mem::MaybeUninit<T> {
   fn check(_: &Bytes, _: usize, _: &mut [bool], _: Mode) -> Valid {
     Ok(true)
@@ -1613,27 +1508,6 @@ impl Oracle for HoldsTuple {
   fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
     match int(b, off, 1, true, reads)? {
       0 => TupleOrUnits::check(b, off + 1, reads, mode),
-      1 => Ok(true),
-      _ => Ok(false),
-    }
-  }
-}
-
-/// An enum whose first variant holds a tuple of a `bool` and of a byte that a pun never makes.
-///
-/// No bytes are a target `A`, and a check need not read its `bool`.
-#[derive(Pun, Clone, Copy)]
-#[repr(u8)]
-pub enum TupleNever {
-  A((bool, Opaque)),
-  B,
-}
-
-impl Oracle for TupleNever {
-  fn check(b: &Bytes, off: usize, reads: &mut [bool], mode: Mode) -> Valid {
-    const { assert!(size_of::<TupleNever>() == 3, "the tuple is at offset 1") };
-    match int(b, off, 1, true, reads)? {
-      0 => <(bool, Opaque)>::check(b, off + 1, reads, mode),
       1 => Ok(true),
       _ => Ok(false),
     }

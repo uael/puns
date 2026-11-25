@@ -1,0 +1,40 @@
+error[E0080]: evaluation panicked: the pointee of an eager aim has a part whose layout Rust leaves to the compiler (a struct, a tuple or an enum of the `Rust` representation), and something to check in it.
+              Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`
+    --> src/validate.rs
+     |
+     |     pointee_checked::<T, L>();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::validate::check_aim::<puns::Plan<[u8], aims::Near<Rusty>>, aims::Near<Rusty>, puns::RuleAt<0, puns::steps::One<0>, (), puns::Thin<Rusty, i32>>>::{constant#0}` failed inside this call
+     |
+note: inside `puns::validate::pointee_checked::<Near<Rusty>, puns::RuleAt<0, puns::steps::One<0>, (), puns::Thin<Rusty, i32>>>`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/validate.rs
+  |
+  | /   assert!(
+  | |     matches!(aim.check, Check::Lazy)
+  | |       || <<L::Pointee as Pointee>::Value as Pun>::LAYOUT.checks_kept()
+  | |         && <<L::Pointee as Pointee>::Prefix as Pun>::LAYOUT.checks_kept(),
+... |
+  | |      `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`"
+  | |   );
+  | |___- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let (eager, next) = const {
+  |  _______________________^
+  | |     pointee_checked::<T, L>();
+  | |     match T::LAYOUT.rule(L::RULE) {
+  | |       Some(Rule::Aim(Aim { check, start, .. })) => {
+... |
+  | |   };
+  | |___^
+
+note: the above error was encountered while instantiating `fn puns::validate::check_aim::<puns::Plan<[u8], Near<Rusty>>, Near<Rusty>, puns::RuleAt<0, puns::steps::One<0>, (), puns::Thin<Rusty, i32>>>`
+ --> src/validate.rs
+  |
+  |     match unsafe { check_aim::<C, T, L>(base, size, (head, tail), cursor, input) } {
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

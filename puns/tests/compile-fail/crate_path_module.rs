@@ -12,7 +12,7 @@ mod fake {
     pub mod Op {
       pub use puns::layout::Op::*;
       pub const fn load<T>(_: usize) -> puns::layout::Op {
-        puns::layout::Op::Load { offset: 1, size: 1, big: false }
+        puns::layout::Op::Load { offset: 1, size: 1, big: false, signed: false }
       }
     }
   }

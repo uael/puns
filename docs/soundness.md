@@ -68,6 +68,14 @@ under every one of these proposals:
   fields. Such a union, and a variant or a struct that holds it, is not uninhabited as a source, and
   [`Layout::is_inhabited`] answers for a target only.
 
+A `repr(C)` union may be `packed` or `packed(N)`. Packing lowers its alignment to at most `N`, which
+may lower its size, and moves no field: every field stays at offset 0
+([`r-layout.repr.c.union.size-align`][c union], [`r-layout.repr.alignment.packed-fields`][packed
+fields]). `puns` takes the size and the alignment from the compiler. A field may then be at an
+address that is not aligned for its type. `puns` checks such a field by reading its bytes, which
+needs no alignment, and makes no reference to a field. Safe code reads it by copy, since a reference
+to a field that may be unaligned does not compile.
+
 A target union that no field proves is checked field by field only if no field requires a byte to
 be initialized that may be padding in the source. Otherwise the pun is refused ([Not
 yet][limits#not-yet] says what would lift this).
@@ -161,6 +169,8 @@ assert_eq!(odd.get(), 3);
 ```
 
 [union validity]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.union
+[c union]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.union.size-align
+[packed fields]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.alignment.packed-fields
 
 [`Layout::is_inhabited`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Layout.html#method.is_inhabited
 [`Layout::padding`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Layout.html#method.padding

@@ -30,7 +30,8 @@ bytes that its values must meet. A rule is an assertion, the size of a value, th
 trailing slice, or the size of a region. The *extent* of a value is its size up to the end of its
 trailing slice. [`size_of_val`] also counts the padding that may follow that slice, and the extent
 does not. A `size` rule gives the extent. A *[region][rules#regions]* is a named range of bytes of
-the last field of a struct. A rule gives its size, and a method of the same name returns its bytes.
+the last field of a struct. A rule gives its size, or its type does, and a method of the same name
+reads it. A region is one kind of [aim](#aims), a rule that points at a place of the bytes.
 
 ## What is a valid value?
 
@@ -90,10 +91,12 @@ on one value, such as its bytes or a length that a rule reads from them, is left
 time.
 
 A `#[pun(valid(..))]` of the target is proven by any source whose values it accepts, as a `bool`
-proves `#[pun(valid(0..=1))]`. The rules of a struct are proven only by the rules of the source:
-the two structs must have at least one rule, the same rules in the same order, the same sized
-part and the same trailing slice, and, without the `unstable` feature, either be the same type or
-both have a layout that Rust specifies. The names of their fields do not matter:
+proves `#[pun(valid(0..=1))]`. A rule of a struct is proven only by the same rule of the source, at
+the same place, each rule on its own: the two structs must have the same sized part and the same
+trailing slice, and, without the `unstable` feature, either be the same type or both have a layout
+that Rust specifies. Their other rules do not matter, except before an [aim](#aims) at the cursor,
+which the aims at the cursor before it place: the source must have the same ones first. The names
+of their fields do not matter either:
 
 ```rust
 use puns::Pun;
@@ -169,11 +172,12 @@ choose differently in its next version, or at random under `-Zrandomize-layout`.
 Reference lists is guaranteed ([`r-layout.guarantees`]). [Unspecified layouts and the `unstable`
 feature][layouts] lists these choices, and what `puns` does about them.
 
-## Opaque scalars
+## Aims
 
-An *[opaque scalar][opaque-scalars]* is a scalar whose validity is not in its bytes,
-such as the offset of a self-relative pointer. `puns` reads it as initialized bytes, and never
-makes one.
+An *aim* is a value at a place of the checked bytes that a struct points at, its *pointee*, such
+as the value that a self-relative pointer points at, or a region of the trailing bytes of the
+struct. A check of the struct checks the pointee of an eager aim with it, and a read checks the
+pointee of a lazy one. [Aims][aims] says how.
 
 ## Uninhabited types
 
@@ -196,8 +200,8 @@ without variants are uninhabited.
 [crate]: ../README.md
 [num::u16bec]: https://docs.rs/puns/0.2.4/puns/num/struct.u16bec.html
 [num::u8in]: https://docs.rs/puns/0.2.4/puns/num/struct.u8in.html
-[opaque-scalars]: https://docs.rs/puns/0.2.4/puns/trait.Scalar.html#opaque-scalars
 [properly aligned]: https://doc.rust-lang.org/1.99.0/core/ptr/index.html#alignment
+[aims]: aims.md
 [rules]: rules.md
 [rules#regions]: rules.md#regions
 [soundness#what-deriving-pun-means]: soundness.md#what-deriving-pun-means

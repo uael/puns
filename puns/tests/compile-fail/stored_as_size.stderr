@@ -1,0 +1,30 @@
+error[E0080]: evaluation panicked: the type that the bytes of a scalar are must have the size of the scalar
+  --> tests/compile-fail/stored_as_size.rs:12:22
+   |
+12 |   const SPEC: Spec = Spec::any::<Short>().stored_as::<u32>();
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<Short as puns::Scalar>::SPEC` failed inside this call
+   |
+note: inside `Spec::stored_as::<u32>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   | /     assert!(
+   | |       size_of::<T>() == self.size,
+   | |       "the type that the bytes of a scalar are must have the size of the scalar"
+   | |     );
+   | |_____- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  |     let layout = Layout::scalar::<T>(T::SPEC).identified(T::ID);
+  |                                      ^^^^^^^
+
+note: erroneous constant encountered
+  --> tests/compile-fail/stored_as_size.rs:16:11
+   |
+16 |   let _ = <Short as Pun>::LAYOUT;
+   |           ^^^^^^^^^^^^^^^^^^^^^^

@@ -9,8 +9,8 @@
 //! [crate]: crate
 //! [num::u16bec]: num::u16bec
 //! [num::u8in]: num::u8in
-//! [opaque-scalars]: trait@Scalar#opaque-scalars
 //! [properly aligned]: core::ptr#alignment
+//! [aims]: super::aims
 //! [rules]: super::rules
 //! [rules#regions]: super::rules#regions
 //! [soundness#what-deriving-pun-means]: super::soundness#what-deriving-pun-means

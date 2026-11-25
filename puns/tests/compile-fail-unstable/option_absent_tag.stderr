@@ -1,11 +1,8 @@
 error[E0080]: evaluation panicked: the tag of a variant is a value of the scalar that holds it: unsupported layout
  --> src/std_enums.rs
   |
-  | /     crate::discover::discover::<Self, 2>(
-  | |       &<Self as Found>::SAMPLES,
-  | |       &[&[], &[Field::new(<Self as Found>::OFFSETS[1], &T::LAYOUT)]],
-  | |     )
-  | |_____^ evaluation of `<std::option::Option<Shape> as puns::std_enums::Found>::DESC` failed inside this call
+  |     crate::discover::discover::<Self, 2>(&<Self as Found>::SAMPLES, &<Self as Found>::FIELDS)
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `<std::option::Option<Shape> as puns::std_enums::Found>::DESC` failed inside this call
   |
 note: inside `puns::discover::discover::<Option<Shape>, 2>`
  --> src/discover.rs
@@ -34,14 +31,14 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/std_enums.rs
   |
-  |   let layout = Layout::enumeration::<Option<T>>(const { &<Option<T> as Found>::ENUM })
-  |                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     let layout = Layout::enumeration::<Self>(const { &<Self as Found>::ENUM }).identified(Self::ID);
+  |                                                       ^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/std_enums.rs
   |
-  |   let layout = Layout::enumeration::<Option<T>>(const { &<Option<T> as Found>::ENUM })
-  |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |     let layout = Layout::enumeration::<Self>(const { &<Self as Found>::ENUM }).identified(Self::ID);
+  |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
   --> tests/compile-fail-unstable/option_absent_tag.rs:14:11

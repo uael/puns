@@ -1,5 +1,5 @@
 error[E0080]: evaluation panicked:
-              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+              cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct or a tuple of the `Rust` representation, or an enum of it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
               Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
               This is at byte 0 of the target.
 

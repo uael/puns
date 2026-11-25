@@ -55,9 +55,13 @@
 //! values has no sample either, but a value of it may exist, with a tag that no experiment can
 //! find, so the enum is refused. The lists of fields and variants are the declared ones. A
 //! field of a variant without values is not in the layout, and its entry in the list says so (its
-//! `FIELD` is `None`). The sample of a variant cannot hold a scalar that a pun never makes, because
-//! `puns` cannot make a value of one ([`sample`]). `Option<T>` and `Result<T, E>` are found the
-//! same way (`std_enums.rs`).
+//! `FIELD` is `None`). `Option<T>` and `Result<T, E>` are found the same way (`std_enums.rs`).
+//!
+//! Without the `unstable` feature, the layout found is compared with the one that `puns` assumes
+//! of such an enum ([`assume`](crate::assume)), where the assumption applies. The two must be the
+//! same, or the build fails, and the layout is then used as a layout that does not depend on the
+//! choices of the compiler. Where the assumption does not apply, it is a layout that Rust leaves
+//! to the compiler, which only the same type proves.
 //!
 //! # What the experiments rely on
 //!
@@ -144,8 +148,7 @@ use crate::layout::{Endian, Field, Kind, Layout, Spec, Valid, load, max_value};
 ///
 /// # Panics
 ///
-/// Panics if `T` has no value, or if its sample holds a scalar that a pun never makes, since no
-/// value of one is made of nothing.
+/// Panics if `T` has no value.
 pub const fn sample<T: crate::Pun>() -> MaybeUninit<T> {
   assert!(T::LAYOUT.is_inhabited(), "a type without values has no sample");
   let mut value = MaybeUninit::<T>::uninit();
@@ -155,46 +158,11 @@ pub const fn sample<T: crate::Pun>() -> MaybeUninit<T> {
   value
 }
 
-/// Returns whether [`sample`] makes a value of the type of `layout` rather than panic: whether the
-/// type has values, and its sample holds no scalar that a pun never makes.
-pub const fn has_sample(layout: &Layout) -> bool {
-  layout.is_inhabited() && writes(layout)
-}
-
-/// Returns whether `write` of `layout` writes a value rather than panic.
-const fn writes(layout: &Layout) -> bool {
-  match layout.kind {
-    Kind::Scalar(spec) => !matches!(spec.valid, Valid::Never),
-    Kind::Array(elem, len) => len == 0 || elem.size == 0 || writes(elem),
-    Kind::Struct(fields, _) => {
-      let mut i = 0;
-      while i < fields.len() {
-        if !writes(fields[i].layout) {
-          return false;
-        }
-        i += 1;
-      }
-      true
-    }
-    Kind::Enum(layout) => {
-      let mut i = 0;
-      while i < layout.variants.len() {
-        if layout.variants[i].is_present() {
-          return writes(layout.variants[i].layout);
-        }
-        i += 1;
-      }
-      false
-    }
-    Kind::Slice(_) | Kind::Pattern(_) => false,
-  }
-}
-
 /// Writes the least value of `layout` at `ptr`, and leaves its padding as it is.
 ///
 /// # Panics
 ///
-/// Panics if the value that it writes holds a scalar that a pun never makes, a slice or a pattern.
+/// Panics if the value that it writes holds a slice or a pattern.
 ///
 /// # Safety
 ///
@@ -225,7 +193,6 @@ const unsafe fn write(layout: &Layout, ptr: *mut u8) {
         Valid::Uninit => {}
         Valid::Any => store(ptr, spec.size, spec.endian, 0),
         Valid::In(ranges) => store(ptr, spec.size, spec.endian, ranges[0].0),
-        Valid::Never => panic!("a scalar that a pun never makes has no sample value"),
       },
       Kind::Array(elem, len) => {
         if len == 0 || elem.size == 0 {
@@ -482,6 +449,16 @@ impl<const V: usize> Desc<V> {
     self.tag.0
   }
 
+  /// Returns the size of the tag, 0 if there is none.
+  pub(crate) const fn tag_size(&self) -> usize {
+    self.tag.1
+  }
+
+  /// Returns the tag of the `variant`th variant, if it has values and does not hold the tag.
+  pub(crate) const fn tag_of(&self, variant: usize) -> u128 {
+    self.tags[variant].0
+  }
+
   /// Returns whether the `variant`th variant holds the tag in a niche.
   #[must_use]
   pub const fn holds_tag(&self, variant: usize) -> bool {
@@ -630,7 +607,7 @@ const unsafe fn decided_by<E>(
 /// uninitialized, and reading them is undefined behavior at run time. Const evaluation reports an
 /// error instead ([const evaluation fails on what is not a
 /// value](crate::discover#const-evaluation-fails-on-what-is-not-a-value)).
-pub const unsafe fn read<E>(sample: &MaybeUninit<E>, offset: usize, len: usize) -> u128 {
+const unsafe fn read<E>(sample: &MaybeUninit<E>, offset: usize, len: usize) -> u128 {
   assert!(offset + len <= size_of::<E>() && len <= 16);
   // SAFETY: `offset + len` is at most the size of an `E`, and `len` at most 16, which is asserted
   // above. So `add(offset)` stays within `sample`, and the `len` bytes from there are valid for

@@ -1,0 +1,41 @@
+error[E0080]: evaluation panicked: the target needs a greater alignment than the bytes have
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `puns::checked::<u32, 2>::{constant#0}` failed here
+  |
+ ::: src/lib.rs
+  |
+  |     assert!(align_of::<D>() <= ALIGN, "the target needs a greater alignment than the bytes have");
+  |     --------------------------------------------------------------------------------------------- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  | /   const {
+  | |     let () = Plan::<[u8], D>::TRY_REF;
+  | |     assert!(ALIGN.is_power_of_two(), "the alignment of the bytes is a power of two");
+  | |     assert!(align_of::<D>() <= ALIGN, "the target needs a greater alignment than the bytes have");
+  | |   };
+  | |___^
+
+note: the above error was encountered while instantiating `fn puns::checked::<u32, 2>`
+ --> src/lib.rs
+  |
+  |   checked::<D, ALIGN>(bytes, false, &mut Dyn(work))
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0080]: evaluation panicked: the alignment of the bytes is a power of two
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `puns::checked::<u8, 3>::{constant#0}` failed here
+  |
+ ::: src/lib.rs
+  |
+  |     assert!(ALIGN.is_power_of_two(), "the alignment of the bytes is a power of two");
+  |     -------------------------------------------------------------------------------- in this macro invocation
+
+note: the above error was encountered while instantiating `fn puns::checked::<u8, 3>`
+ --> src/lib.rs
+  |
+  |   checked::<D, ALIGN>(bytes, false, &mut Dyn(work))
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

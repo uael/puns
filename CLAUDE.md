@@ -12,9 +12,9 @@ holds for the whole workspace. The `CLAUDE.md` of each crate holds what is speci
 - `xtask/`: dev automation: formatting, lints, build times, the chart of check times, and the links
   of `README.md` and of `docs/`.
 
-A scalar valid for reasons that are not in its bytes, such as a self-relative offset of `nearest`,
-is an [opaque scalar](puns/src/lib.rs) that its own crate declares and proves. So `nearest` depends
-on `puns`, not the reverse.
+A self-relative pointer, such as one of `nearest`, derives `Pun` with `#[pun(pointer(..))]` on a
+field of type `InPlace<T>`, an eager [aim](docs/aims.md) (`layout::Aim`) whose pointee `puns`
+checks. So `nearest` depends on `puns`, not the reverse.
 
 The design is in the rustdoc: the crate page (the README), the chapters of the reference
 (`puns::reference`), and the module docs of each part, private modules included (`cargo doc
@@ -67,17 +67,22 @@ has nothing cached. Split a job again rather than let it pass 45 seconds. In the
 four jobs of the sample of the model check that build `parts` or `miri_sample` took 34 to 64
 seconds, and more than 45 in 9 of their 12 runs.
 
-This is why `cargo test --all` is fourteen jobs there: the tests of `puns` in six, four without the
-`unstable` feature and two with it, and the sample of the model check in eight, four each way.
+This is why `cargo test --all` is twenty jobs there: the tests of `puns` in eight, five without the
+`unstable` feature and three with it (the cases of `compile-fail` in two halves each way), and the
+sample of the model check in twelve, six each way (the native samples of pairs and of parts are in
+two files each, `sample_by_size_*` and `parts_by_size_*`).
 
 Under Miri, a test that loops runs a fraction of its iterations (`cfg!(miri)`), since Miri is there
 for each unsafe path, not each value. A test file that is not for Miri starts with
-`#![cfg(not(miri))]` and says why. CI gives Miri the other ones by name, since Miri takes a second
-to start each test binary, even one that runs nothing. Balance the parts of a Miri run by the time
-that passes for each test binary in the log of the job, since the time that Miri reports for a test
-is not that one. The Miri jobs cache the standard library that Miri builds and the sources it builds
-it from, since Miri builds it again when the modification time of a source changes, which a fresh
-install of the toolchain does.
+`#![cfg(not(miri))]` and says why. One that Miri runs with tree borrows only, since it reads
+through a reference what stacked borrows gives no access to (the safe reads of pointees outside
+their values), is in `tree_borrows_only` of `.github/tests.sh`, and the Miri jobs of 32 bits and
+big-endian run it with tree borrows apart (`tests.sh tree`). CI gives Miri the other ones by name,
+since Miri takes a second to start each test binary, even one that runs nothing. Balance the parts
+of a Miri run by the time that passes for each test binary in the log of the job, since the time
+that Miri reports for a test is not that one. The Miri jobs cache the standard library that Miri
+builds and the sources it builds it from, since Miri builds it again when the modification time of
+a source changes, which a fresh install of the toolchain does.
 
 A target that is only built finds no undefined behavior, and a sentence of the design is not a
 check: `nearest` 0.7.1 was released with "memory is `u64` words, so 8-aligned", which no test ever

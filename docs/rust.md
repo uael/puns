@@ -25,7 +25,7 @@ Reference, and one only from 1.100, as marked.
 | A struct, a tuple and an array require their fields or elements to be valid, and padding may be uninitialized | R [`r-undefined.validity.struct`][validity struct], [`r-undefined.validity.undef`][validity undef] |
 | An enum requires a valid discriminant, and valid fields of the variant that it indicates | R [`r-undefined.validity.enum`][validity enum] |
 | A `repr(C)` struct has its fields in order, each at the next offset that its alignment allows | R [`r-layout.repr.c.struct`][c struct] |
-| A `repr(C)` union has every field at 0 | R [`r-layout.repr.c.union.size-align`][c union] |
+| A `repr(C)` union has every field at 0, and `packed(N)` lowers its alignment without moving a field | R [`r-layout.repr.c.union.size-align`][c union], [`r-layout.repr.alignment.packed-fields`][packed fields] |
 | An enum without fields of `repr(C)` has the size of a C enum of the target. One of a primitive representation has the size of that integer, and holds its discriminant there | R [`r-layout.repr.c.enum`][c enum], [`r-layout.repr.primitive.enum`][primitive enum], [`r-items.enum.discriminant.access-memory`][discriminant memory] |
 | An enum with fields of a primitive representation is a `repr(C)` union of `repr(C)` structs, one for each variant, each of which starts with the tag ([RFC 2195]) | R [`r-layout.repr.primitive.adt`][primitive adt] |
 | An enum with fields of `repr(C)`, alone or with a primitive representation, is a `repr(C)` struct of the tag and of a `repr(C)` union of `repr(C)` structs of the fields of each variant ([RFC 2195]) | R [`r-layout.repr.c.adt`][c adt], [`r-layout.repr.primitive-c`][primitive c] |
@@ -49,9 +49,11 @@ Which bytes a union may hold is not decided ([`r-undefined.validity.union`][vali
 
 Rust also documents that an "option-like" enum, as [`core` defines it][abi compatibility], is
 ABI-compatible with the type that it holds, when that type is one of those of the `Option` row of
-the table. `puns` does not use it, because it gives the size of the enum but not which bytes its
-other variant is. `Option<bool>` is one byte with `None` at 2 only because `rustc` does it today,
-and the documentation of `MaybeUninit` and `UnsafeCell` says that such layouts vary.
+the table. `puns` does not take a layout from it, because it gives the size of the enum but not
+which bytes its other variant is. `Option<bool>` is one byte with `None` at 2 only because `rustc`
+does it today, and the documentation of `MaybeUninit` and `UnsafeCell` says that such layouts vary.
+So `puns` assumes these layouts, and checks them when compiling ([The layout that `puns`
+assumes](#the-layout-that-puns-assumes)).
 
 ## What no documentation states
 
@@ -116,6 +118,15 @@ layout of another shape is refused. If `rustc` places the fields of an uninhabit
 those of the other variants, the build fails, because `puns` cannot observe where those fields are
 and does not guess.
 
+### The layout that `puns` assumes
+
+Without the `unstable` feature, `puns` assumes how `rustc` lays out most enums of the `Rust`
+representation, `Option` and `Result` included, from the layouts of the fields of their variants,
+which no documentation states ([What `puns` assumes][layouts#what-puns-assumes]). It relies on it
+only to count the layout that the experiments found as the same in every layout that Rust allows,
+and only after a check when compiling shows that `rustc` laid the enum out as assumed. A compiler
+that lays one out otherwise makes the build fail, so a wrong assumption is never unsound.
+
 ### The discriminant of an enum of the `Rust` representation
 
 `mem::Discriminant<E>` of an enum of the `Rust` representation holds the index of the variant, as
@@ -146,8 +157,6 @@ be. Code that relies on them runs only at compile time:
   representation that it read: it changes a byte past that tag in a sample, then reads the
   variant. A byte that is part of the tag gives another variant, which fails the check, or a tag
   of no variant, which fails the build.
-- An `Option` of an [opaque scalar] relies on the first to refuse a `None` with an uninitialized
-  byte.
 - The derive relies on the third for an unsized struct whose trailing slice has elements so large
   that 8 of them overflow an `isize`. It compares the layout of an unsized struct with the sizes
   that `rustc` gives for trailing slices of up to 8 elements.
@@ -187,6 +196,16 @@ At run time, `core` does not call it undefined behavior, but says to avoid it, a
 promises that the integer is the address. The integer is never made into a pointer again. A check
 of an address does not compile in a constant ([In a constant][functions#in-a-constant]). The tests
 run it under Miri with strict provenance ([Miri][testing#miri]).
+
+### The provenance of a reference to a value with an eager aim
+
+The safe method that reads the pointee of an eager [aim][aims] reads it through the reference to
+the value that holds the aim. The pointee may be outside that value. Under the tree borrows model
+of Miri, the reference has the provenance of the bytes of the pointee there, and under stacked
+borrows it does not, where code reads such a pointee with [`aim`] from a pointer to the bytes that
+hold both, or writes it with [`aim_mut`]. Rust has not decided its aliasing model. `puns` relies on
+tree borrows for these reads, and their tests run under Miri with tree borrows only
+([Miri][testing#miri]).
 
 ### How `rustc` places fields
 
@@ -234,6 +253,7 @@ future.
 [validity reference]: https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.reference-box
 [c struct]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.struct
 [c union]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.union.size-align
+[packed fields]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.alignment.packed-fields
 [c enum]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.enum
 [primitive enum]: https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.enum
 [discriminant memory]: https://doc.rust-lang.org/1.99.0/reference/items/enumerations.html#r-items.enum.discriminant.access-memory
@@ -265,7 +285,10 @@ future.
 
 [functions#in-a-constant]: functions.md#in-a-constant
 [limits#bounds-of-the-analysis]: limits.md#bounds-of-the-analysis
-[opaque scalar]: concepts.md#opaque-scalars
+[aims]: aims.md
+[layouts#what-puns-assumes]: layouts.md#what-puns-assumes
+[`aim`]: https://docs.rs/puns/0.2.4/puns/fn.aim.html
+[`aim_mut`]: https://docs.rs/puns/0.2.4/puns/fn.aim_mut.html
 [soundness#unions]: soundness.md#unions
 [testing#compile-fail-tests]: testing.md#compile-fail-tests
 [testing#miri]: testing.md#miri

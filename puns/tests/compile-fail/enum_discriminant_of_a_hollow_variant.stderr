@@ -1,10 +1,10 @@
 error[E0080]: evaluation panicked: the tag of a variant without a sample is not known: its discriminant must hold no macro and no attribute, or it must have none after a variant whose tag is known
-  --> tests/compile-fail/enum_discriminant_of_a_hollow_variant.rs:18:10
+  --> tests/compile-fail/enum_discriminant_of_a_hollow_variant.rs:21:10
    |
-18 | #[derive(puns::Pun, Clone, Copy)]
+21 | #[derive(puns::Pun, Clone, Copy)]
    |          ^^^^^^^^^ evaluation of `<E as _::__PunShapes>::TAGS` failed inside this call
    |
-note: inside `Variant::declared_tags::<E, __PunTag, 2>`
+note: inside `Variant::declared_tags::<E, _::__PunTag, 2>`
   --> $RUST/core/src/panic.rs
    |
    = note: the failure occurred here
@@ -19,9 +19,37 @@ note: inside `Variant::declared_tags::<E, __PunTag, 2>`
    | |_______- in this macro invocation
 
 note: erroneous constant encountered
-  --> tests/compile-fail/enum_discriminant_of_a_hollow_variant.rs:18:10
+  --> tests/compile-fail/enum_discriminant_of_a_hollow_variant.rs:21:10
    |
-18 | #[derive(puns::Pun, Clone, Copy)]
+21 | #[derive(puns::Pun, Clone, Copy)]
+   |          ^^^^^^^^^
+   |
+   = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0080]: evaluation panicked: the tag of a variant without a sample is not known: its discriminant must hold no macro and no attribute, or it must have none after a variant whose tag is known
+  --> tests/compile-fail/enum_discriminant_of_a_hollow_variant.rs:29:10
+   |
+29 | #[derive(puns::Pun, Clone, Copy)]
+   |          ^^^^^^^^^ evaluation of `<F as _::__PunShapes>::TAGS` failed inside this call
+   |
+note: inside `Variant::declared_tags::<F, _::__PunTag, 2>`
+  --> $RUST/core/src/panic.rs
+   |
+   = note: the failure occurred here
+   |
+  ::: src/layout.rs
+   |
+   | /       assert!(
+   | |         known || !exists[i],
+   | |         "the tag of a variant without a sample is not known: its discriminant must hold no macro \
+   | |          and no attribute, or it must have none after a variant whose tag is known"
+   | |       );
+   | |_______- in this macro invocation
+
+note: erroneous constant encountered
+  --> tests/compile-fail/enum_discriminant_of_a_hollow_variant.rs:29:10
+   |
+29 | #[derive(puns::Pun, Clone, Copy)]
    |          ^^^^^^^^^
    |
    = note: this note originates in the derive macro `puns::Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

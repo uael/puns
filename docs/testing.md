@@ -24,6 +24,12 @@ file that reaches no `unsafe` code that the other files do not reach does not ru
 the examples other than `ethernet`, and neither does the compile-fail test, since Miri cannot run
 the compiler. [Commands](#commands) gives the command of each run.
 
+The safe reads of the pointees of [aims], through a reference to a value that holds the aim, give
+access to bytes outside the value. Tree borrows allows this, and stacked borrows does not. So their
+tests, [`aim_reads.rs`][aim-reads], run with tree borrows only, as `.github/tests.sh` lists them:
+on x86-64, and apart on the 32-bit and big-endian targets. The other tests of aims read the same
+pointees from pointers, under both models.
+
 The model check runs under Miri too, with tree borrows on x86-64 only, on a selection of pairs
 that reaches each of its `unsafe` paths. [`miri_sample.rs`][sample] names the paths of `try_pun`
 and `try_pun_ref`, and `parts.rs`, `dst.rs`, `views.rs` and `shapes.rs` the others. There, it does
@@ -33,14 +39,22 @@ already run under Miri, and it calls `pun_mut` only to fill a buffer.
 ## The record of verdicts
 
 Without the `unstable` feature, `tests/seeds.rs` records in `tests/seeds.txt` the verdict of every
-function on every ordered pair of 33 types, whole and in part (by `&mut` and from the end), and
+function on every ordered pair of 35 types, whole and in part (by `&mut` and from the end), and
 which byte patterns each type accepts from bytes. The types include structs, tuples and enums of the
 `Rust` representation, a `repr(u8)` enum and a `repr(C)` union that hold them, structs with a rule,
-arrays, an [opaque scalar][opaque], `Option<bool>`, `Option<NonZero<u16>>` and
-`Result<NonZero<u8>, ()>`. A rule and an enum checked as a whole each have a type there. CI makes
-the record without `-Zrandomize-layout` and under three seeds of it, and each must equal the one in
-the repository. This checks, for these pairs, that no verdict depends on an [unspecified
-layout][layouts] without the feature.
+arrays, `Option<bool>`, `Option<NonZero<u16>>`, `Result<NonZero<u8>, ()>`, a struct with an eager
+pointer and one with eager regions, and structs of the `Rust` representation that hold these two.
+The layout of the enums of the `Rust` representation among them, `Option` and `Result` included, is
+one that `puns` [assumes][layouts#what-puns-assumes]. A rule and an enum checked as a whole each
+have a type there. CI makes the record without `-Zrandomize-layout` and under three seeds of it, and
+each must equal the one in the repository. This checks, for these pairs, that no verdict depends on
+an [unspecified layout][layouts] without the feature.
+
+The layout that `puns` assumes of an enum of the `Rust` representation is checked in every build
+that evaluates the layout of such an enum, the tests included. Without the feature,
+`tests/assumed.rs` reads `Option`, `Result` and derived enums of the `Rust` representation through
+it, and unit tests compare the values of niches with the ones that `rustc` gave in the
+measurements.
 
 With the feature, the tests that need it run too: enums of the `Rust` representation, `Option`
 and `Result`, and the tests of the layout that `rustc` chose. CI also builds the example
@@ -48,9 +62,9 @@ and `Result`, and the tests of the layout that `rustc` chose. CI also builds the
 
 ## Compile-fail tests
 
-180 programs in [`puns/tests/`][compile-fail] must fail to compile, each with its expected message:
-the 168 of `compile-fail` with and without the feature, the 4 of `compile-fail-kept` without it, and
-the 8 of `compile-fail-unstable` with it. 3 others must compile. `discover_reads_padding`,
+195 programs in [`puns/tests/`][compile-fail] must fail to compile, each with its expected message:
+the 178 of `compile-fail` with and without the feature, the 9 of `compile-fail-kept` without it, and
+the 8 of `compile-fail-unstable` with it. 4 others must compile. `discover_reads_padding`,
 `discover_invalid_tag` and `structure_too_large` check the three [errors of const
 evaluation][rust#errors-of-const-evaluation] that `puns` relies on.
 
@@ -81,18 +95,22 @@ cargo test -p puns-model                           # The sample of the model che
 cargo test --profile model -p puns-model --features full   # The full model check
 RUSTFLAGS="-Zrandomize-layout -Zlayout-seed=1" cargo +nightly-2026-11-17 test -p puns --features verdict --test seeds
 MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests
-MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests --target i686-unknown-linux-gnu
-MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --tests --target s390x-unknown-linux-gnu
+MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --lib $(MIRI=1 STACKED=1 sh .github/tests.sh default) --target i686-unknown-linux-gnu
+MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns --lib $(MIRI=1 STACKED=1 sh .github/tests.sh default) --target s390x-unknown-linux-gnu
+MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns $(sh .github/tests.sh tree) --target i686-unknown-linux-gnu
 MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-17 miri test -p puns-model
 ```
 
 [Miri]: https://github.com/rust-lang/miri
+[Miri]: https://github.com/rust-lang/miri
+[aim-reads]: https://github.com/uael/puns/blob/v0.2.4/puns/tests/aim_reads.rs
 [compile-fail]: https://github.com/uael/puns/tree/v0.2.4/puns/tests
 [model]: https://github.com/uael/puns/blob/v0.2.4/puns-model/src/lib.rs
 [sample]: https://github.com/uael/puns/blob/v0.2.4/puns-model/tests/miri_sample.rs
 
+[aims]: aims.md
 [layouts]: layouts.md
-[opaque]: concepts.md#opaque-scalars
+[layouts#what-puns-assumes]: layouts.md#what-puns-assumes
 [rust#errors-of-const-evaluation]: rust.md#errors-of-const-evaluation
 [rust#the-tag-of-an-enum-of-the-rust-representation]: rust.md#the-tag-of-an-enum-of-the-rust-representation
 [soundness]: soundness.md

@@ -38,8 +38,8 @@ macro writes may name another item, so a discriminant may have another value. A 
 [`Variant`] compares each tag with the first bytes of the sample of its variant, so such a
 discriminant, or reordered variants, fail the build.
 
-A variant without a sample holds an [opaque scalar] or a union none of whose fields has values. If
-a value of it may exist, its tag must be known from its declaration, as [Enums with fields][enums]
+A variant without a sample holds a union none of whose fields has values. If a value of it may
+exist, its tag must be known from its declaration, as [Enums with fields][enums]
 says, or the build fails (E0080) with "the tag of a variant without a sample is not known". Such a
 tag has the same value in both enums, because the items that the derive declares there all have
 names that start with `__Pun`, which it refuses in the input.
@@ -52,22 +52,35 @@ read. So reordered variants fail the build.
 
 ## The generated code
 
-The functions that the generated code calls to make a layout are associated functions of
-[`Layout`], [`Spec`], [`Rule`], [`Op`], [`Field`], [`Enum`], [`Variant`], [`Crc`], [`Checksum`],
-[`Varint`] and the identity of a type, and methods of the values that they return. A hidden constant
-of `Layout` fixes these types with `fn(T)` types that no path can replace, so a path that names a
-module or another type for one of them does not compile. The description of an enum of the `Rust`
-representation, whose type the generated code names, is what a function of `Layout` returns, and
-the samples of an enum (`layout::Samples`) are what functions of `Layout` take, so only the real
+The functions that the generated code calls to make a layout are associated functions of [`Layout`],
+[`Spec`], [`Rule`], [`Op`], [`Field`], [`Enum`], [`Variant`], [`Crc`], [`Checksum`], [`Varint`],
+[`Aim`], [`Start`], [`Extent`], [`Check`] and the identity of a type, and methods of the values that
+they return. Hidden constants of `Layout` fix these types with `fn(T)` types that no path can
+replace, so a path that names a module or another type for one of them does not compile. `Layout`
+itself is the type of `LAYOUT` in the implementation of [`Pun`]. The description of an enum of the
+`Rust` representation, whose type the generated code names, is what a function of `Layout` returns,
+and the samples of an enum (`layout::Samples`) are what functions of `Layout` take, so only the real
 types compile.
 
 Nothing else that the derive names through the path of `puns` makes a layout. A trait that it
 implements through the path is the trait of `puns`: otherwise the type does not implement that
 trait of `puns`, or the implementation of `Pun` does not compile. The lists of fields and of rules
-that it writes as types are checked against the layout. The functions of a view, the methods of
-the regions and the getters call functions named through the path, in code that holds no `unsafe`
-block. A path that names other functions there changes what they return, but whatever it is, it is
-a valid value of its type.
+that it writes as types are checked against the layout. The functions of a view, the methods that
+read the pointees of aims and the getters call functions named through the path, in code that
+holds no `unsafe` block. A path that names other functions there changes what they return, but
+whatever it is, it is a valid value of its type, and an `unsafe` function does not compile there.
+The read of an eager pointee is a safe function of `puns`, whose soundness rests on the `# Safety`
+of `Pun` alone, which the field of the aim meets. The constant `AIMS` holds values of a type named
+through the path, which [`aim`] and [`aim_mut`] take only if it is the [`AimOf`] of `puns`.
+
+The field of each eager aim has the type [`InPlace<T>`][`InPlace`], where `T` is its type in the
+layout, `<F as InPlaceOf>::Inner` for a field of type `F`. A trait is named by a path, which may
+name another trait than the one of `puns`, and a path may name a type `InPlace<T>` that safe code
+makes for some `T`. So the function that ties the fields to the type as compiled, below, gives a
+function of `Layout` a `&mut` to a pointer to the field, which compiles only if the field is the
+`InPlace<T>` of `puns` for that very `T`, since a `&mut` to a raw pointer admits no coercion. So a
+struct to which the derive gives an eager aim has no value that safe code makes, as the `# Safety`
+of `Pun` requires of a type with an eager aim.
 
 The trait that says where a field is, `Path`, is sealed, and where a list of fields says that a
 field is, counted in the parts of the layout that a check may read, is checked against the layout.
@@ -101,8 +114,8 @@ The derive names no other item of `::core` than these:
   of `puns` that it calls.
 - `PhantomData`, only as the field of the types that the derive declares as markers, whose bytes
   nothing reads.
-- `Result`, only in the signatures of safe functions, the methods of regions and the functions of
-  a view. A fake one changes only these signatures.
+- `Result`, only in the signatures of safe functions, the methods that read the pointees of aims
+  and the functions of a view. A fake one changes only these signatures.
 - `Sized`, only as a bound. An unsized type still fails to build where the generated code passes it
   to a function of `puns` that needs the real `Sized`.
 - `ptr::null()`, the probe of a sized type, which nothing reads, and `panic!`, written only next to
@@ -145,18 +158,26 @@ What such an attribute can still change without failing the build:
 [RFC 2195]: https://rust-lang.github.io/rfcs/2195-really-tagged-unions.html
 [enums]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
 [sample]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
+[`Aim`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Aim.html
+[`AimOf`]: https://docs.rs/puns/0.2.4/puns/struct.AimOf.html
+[`aim_mut`]: https://docs.rs/puns/0.2.4/puns/fn.aim_mut.html
+[`aim`]: https://docs.rs/puns/0.2.4/puns/fn.aim.html
+[`Check`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Check.html
 [`Checksum`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Checksum.html
 [`Crc`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Crc.html
 [`Enum`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Enum.html
+[`Extent`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Extent.html
 [`Field`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Field.html
+[`InPlace`]: https://docs.rs/puns/0.2.4/puns/struct.InPlace.html
 [`Layout`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Layout.html
 [`Op`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Op.html
+[`Pun`]: https://docs.rs/puns/0.2.4/puns/trait.Pun.html
 [`Rule`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Rule.html
 [`Spec`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Spec.html
+[`Start`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Start.html
 [`Varint`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Varint.html
 [`Variant`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Variant.html
 [independence]: layouts.md#layout-independence
-[opaque scalar]: concepts.md#opaque-scalars
 [rust#the-tag-of-an-enum-of-the-rust-representation]: rust.md#the-tag-of-an-enum-of-the-rust-representation
 [rust#the-variant-read-from-the-tag]: rust.md#the-variant-read-from-the-tag
 [same]: layouts.md#the-same-type

@@ -1,6 +1,8 @@
 // The chapter is docs/functions.md, read on GitHub as well. Rustdoc keeps the first
 // definition of a link, so these, before it, make its links to items and chapters intra-doc.
 //! [`as_bytes`]: as_bytes
+//! [`check_compact`]: check_compact
+//! [`check`]: check
 //! [`from_bytes_mut`]: from_bytes_mut
 //! [`from_bytes`]: from_bytes
 //! [`from_head_mut`]: from_head_mut
@@ -19,10 +21,10 @@
 //! [`try_pun_mut`]: try_pun_mut
 //! [`try_pun_ref`]: try_pun_ref
 //! [`try_pun`]: try_pun
+//! [aims]: super::aims
 //! [concepts#layouts-and-rules]: super::concepts#layouts-and-rules
 //! [concepts#proven-checked-and-refused]: super::concepts#proven-checked-and-refused
 //! [concepts#requirements]: super::concepts#requirements
-//! [concepts#opaque-scalars]: super::concepts#opaque-scalars
 //! [concepts#what-is-a-valid-value]: super::concepts#what-is-a-valid-value
 //! [concepts#why-the-pair-decides]: super::concepts#why-the-pair-decides
 //! [core::mem::transmute#transmutation-between-pointers-and-integers]: core::mem::transmute#transmutation-between-pointers-and-integers

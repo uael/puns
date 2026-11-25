@@ -1,5 +1,9 @@
 // The chapter is docs/limits.md, read on GitHub as well. Rustdoc keeps the first
 // definition of a link, so these, before it, make its links to items and chapters intra-doc.
+//! [`AIM_PARTS`]: AIM_PARTS
+//! [`check_compact`]: check_compact
+//! [`check`]: check
+//! [`Error::Limit`]: Error::Limit
 //! [`Error`]: Error
 //! [`from_bytes`]: from_bytes
 //! [`from_head`]: from_head
@@ -12,6 +16,8 @@
 //! [`pun_ref`]: pun_ref
 //! [`tail_mut`]: tail_mut
 //! [`tail`]: tail
+//! [`Worklist`]: Worklist
+//! [aims]: super::aims
 //! [concepts#why-the-pair-decides]: super::concepts#why-the-pair-decides
 //! [errors]: super::errors
 //! [errors#values-and-padding]: super::errors#values-and-padding
@@ -20,6 +26,7 @@
 //! [functions#writes-leave-a-valid-source]: super::functions#writes-leave-a-valid-source
 //! [kinds]: super::concepts#proven-checked-and-refused
 //! [layouts#the-same-type]: super::layouts#the-same-type
+//! [layouts#what-puns-assumes]: super::layouts#what-puns-assumes
 //! [layouts#what-a-check-may-read]: super::layouts#what-a-check-may-read
 //! [macro@Pun]: macro@Pun
 //! [macro@Pun#enums-with-fields]: macro@Pun#enums-with-fields

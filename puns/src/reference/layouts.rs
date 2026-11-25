@@ -6,12 +6,9 @@
 //! [`Scalar`]: Scalar
 //! [`Spec::maybe_uninit`]: layout::Spec::maybe_uninit
 //! [`transmute`]: core::mem::transmute
-//! [`validate_but_never`]: validate_but_never
+//! [`Spec::stored_as`]: layout::Spec::stored_as
 //! [errors#unspecified-layouts]: super::errors#unspecified-layouts
 //! [kinds]: super::concepts#proven-checked-and-refused
-//! [opaque-scalars]: trait@Scalar#opaque-scalars
-//! [opaque scalar]: super::concepts#opaque-scalars
-//! [part]: super::concepts#layouts-and-rules
 //! [rule]: super::concepts#layouts-and-rules
 //! [rust#how-rustc-places-fields]: super::rust#how-rustc-places-fields
 //! [rust#what-rust-documents]: super::rust#what-rust-documents

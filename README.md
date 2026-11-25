@@ -28,6 +28,7 @@ of bytes.
   - [Compile-time errors]
   - [Unspecified layouts and the `unstable` feature][unstable]
   - [The language of rules][rules]
+  - [Aims][aims]
   - [Limits, and what is not done yet][limits]
   - [Measured performance][performance]
   - [Soundness]
@@ -137,7 +138,9 @@ assert_eq!(buffer[1], 63);
 Rules can also compute other checksums, read variable-length integers and `walk` a chain of
 headers ([The language of rules][rules]), and the [derive's documentation][derive] lists the other
 attributes. A rule is checked when `puns` reads the bytes, and the fields stay writable afterwards:
-`puns` never relies on a rule for memory safety ([requirements]).
+`puns` never relies on a rule for memory safety ([requirements]). A struct can also point at
+another place of the bytes it was read from, as the self-relative pointers of `nearest` do, and
+`puns` checks the value there when it checks the struct ([Aims][aims]).
 
 ### Reading one of several types
 
@@ -238,10 +241,10 @@ or the back.
 | a typed value, checking          | [`try_pun`][try_pun], [`try_pun_ref`][try_pun_ref], [`try_pun_mut`][try_pun_mut] | | |
 | bytes, checking                  | [`from_bytes`][from_bytes], [`from_bytes_mut`][from_bytes_mut] | [`from_head`][from_head], [`from_head_mut`][from_head_mut] | [`from_tail`][from_tail], [`from_tail_mut`][from_tail_mut] |
 
-Two functions make no pun. [`zeroed`][zeroed] returns a value whose fields and elements are all zero
-bytes. [`validate_but_never`][validate_but_never] checks bytes for a type that holds [opaque
-scalars][opaque], but makes no reference: the crate that declares these scalars proves them itself,
-and then makes the reference.
+Three functions make no pun. [`zeroed`][zeroed] returns a value whose fields and elements are all
+zero bytes. [`check`][check] and [`check_compact`][check_compact] check bytes for a value whose
+pointers lead deeper than `from_bytes` follows, and make no reference: they keep the pointers still
+to follow in a list that you give.
 
 - [`Pun`][trait-pun] is the trait of the types that `puns` works with: numbers and other scalars,
   arrays, slices, `str`, tuples and other types of `core`, and the types that derive it. Its page
@@ -297,9 +300,10 @@ Rust's own Safe Transmute project compares the two types as well, inside the com
   and read or write its fields, private ones included: don't derive it on a type with a private
   invariant ([details][deriving]).
 - Without a `repr`, the compiler is free to change the layout of a type, and `puns` refuses
-  anything that depends on it unless you turn on the [`unstable` feature][unstable]. For data that
-  leaves the program, use the integers of [`puns::num`][num], like `u32be`, whose byte order is the
-  same on every target.
+  anything that depends on it unless you turn on the [`unstable` feature][unstable]. For most
+  enums, `Option` and `Result` included, `puns` assumes the layout that `rustc` gives them, and
+  fails to compile if `rustc` ever lays one out otherwise. For data that leaves the program, use
+  the integers of [`puns::num`][num], like `u32be`, whose byte order is the same on every target.
 
 [Limits, and what is not done yet][limits] lists the other limits, and [Compile-time
 errors] what to expect of the messages.
@@ -376,10 +380,10 @@ additional terms or conditions.
 [kinds]: docs/concepts.md#proven-checked-and-refused
 [pairs]: docs/concepts.md#why-the-pair-decides
 [requirements]: docs/concepts.md#requirements
-[opaque]: docs/concepts.md#opaque-scalars
 [layouts]: docs/concepts.md#layouts-and-rules
 [msrv]: docs/target.md#minimum-rust-version
 [rules]: docs/rules.md
+[aims]: docs/aims.md
 [performance]: docs/performance.md
 [comparison]: docs/performance.md#compared-with-zerocopy-and-bytemuck
 [rust]: docs/rust.md
@@ -399,6 +403,8 @@ additional terms or conditions.
 [unstable]: docs/layouts.md
 [num]: https://docs.rs/puns/0.2.4/puns/num/index.html
 [layout]: https://docs.rs/puns/0.2.4/puns/layout/index.html
+[check]: https://docs.rs/puns/0.2.4/puns/fn.check.html
+[check_compact]: https://docs.rs/puns/0.2.4/puns/fn.check_compact.html
 [derive]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
 [trait-pun]: https://docs.rs/puns/0.2.4/puns/trait.Pun.html
 [Scalar]: https://docs.rs/puns/0.2.4/puns/trait.Scalar.html
@@ -424,7 +430,6 @@ additional terms or conditions.
 [from_tail]: https://docs.rs/puns/0.2.4/puns/fn.from_tail.html
 [from_tail_mut]: https://docs.rs/puns/0.2.4/puns/fn.from_tail_mut.html
 [zeroed]: https://docs.rs/puns/0.2.4/puns/fn.zeroed.html
-[validate_but_never]: https://docs.rs/puns/0.2.4/puns/fn.validate_but_never.html
 [changelog]: https://github.com/uael/puns/blob/v0.2.4/CHANGELOG.md
 [examples]: https://github.com/uael/puns/tree/v0.2.4/puns/examples
 [media]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/media.rs

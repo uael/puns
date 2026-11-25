@@ -5,7 +5,7 @@
 //! types that are not enums.
 //!
 //! This file needs the `unstable` feature (`required-features` in `puns/Cargo.toml`). Without it,
-//! `puns` does not depend on the layout that `rustc` chose.
+//! `puns` uses the layout that `rustc` chose only where it assumes it (`tests/assumed.rs`).
 
 // Validation recurses over the variants of an enum: `Many` has 300.
 #![recursion_limit = "1024"]
@@ -699,46 +699,4 @@ fn wide_scalars_in_option() {
   // initialized, which is a valid `[u8; 33]`.
   let bytes: [u8; 33] = unsafe { core::mem::transmute(Some(Wide([7; 32]))) };
   assert_eq!(puns::try_pun::<[u8; 33], Option<Wide>>(bytes), Ok(Some(Wide([7; 32]))));
-}
-
-/// An offset that a pun never makes ([`Spec::never`](puns::layout::Spec::never)).
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[repr(transparent)]
-struct Off(NonZero<u32>);
-
-// SAFETY: `Off` is `repr(transparent)` over a `NonZero<u32>`, so `SPEC`, made for `Self`, has its
-// size, and every value is 4 initialized bytes, which is what `Spec::never` says is known of it. It
-// accepts no value, so no pun makes one. It holds no `UnsafeCell`.
-unsafe impl puns::Scalar for Off {
-  const SPEC: puns::layout::Spec = puns::layout::Spec::never::<Self>();
-}
-
-/// An enum of a specified representation, whose sample is `End`, which holds no `Off`.
-#[derive(Pun, Clone, Copy, Debug, PartialEq)]
-#[repr(u32)]
-enum Link {
-  End,
-  Next(Off),
-}
-
-/// The sample of each variant holds no `Off`, so `puns` finds the layout of the enum, and of an
-/// `Option` of it. A variant whose own field were an `Off` would have no sample.
-#[derive(Pun, Clone, Copy, Debug, PartialEq)]
-enum Linked {
-  Value(u32),
-  Link(Link),
-}
-
-#[test]
-fn never_scalars_in_variants() {
-  // A check never accepts the variant that holds an `Off`, in the enum or in an `Option` of it.
-  let next = Linked::Link(Link::Next(Off(NonZero::new(8).unwrap())));
-  assert_eq!(puns::try_pun_ref::<Linked, Linked>(&next), Err(Error::Validity));
-  assert_eq!(puns::try_pun_ref::<_, Option<Linked>>(&Some(next)), Err(Error::Validity));
-  let end = Linked::Link(Link::End);
-  assert_eq!(puns::try_pun_ref::<Linked, Linked>(&end), Ok(&end));
-  let value = Linked::Value(1);
-  assert_eq!(puns::try_pun_ref::<Linked, Linked>(&value), Ok(&value));
-  assert_eq!(puns::try_pun_ref::<_, Option<Linked>>(&Some(value)), Ok(&Some(value)));
-  assert_eq!(puns::try_pun_ref::<_, Option<Linked>>(&None::<Linked>), Ok(&None));
 }

@@ -15,6 +15,10 @@
 //! formatted as its value and has no order, and two of them are equal if their bytes are. So,
 //! unlike with `f64`, a NaN equals a NaN of the same bytes, and `-0.0` is not `0.0`.
 //!
+//! The rules of `#[derive(Pun)]` read a signed integer under a cast, `field as u128`,
+//! sign-extended, and do not read a floating-point number, whose bits are not its value as an
+//! integer ([Fields in a rule](crate::reference::rules#fields-in-a-rule)).
+//!
 //! Reading and comparing numbers of each byte order:
 //!
 //! ```
@@ -69,10 +73,15 @@
 //! assert!(puns::from_bytes::<Class>(&[0; 8]).is_err());
 //! ```
 //!
+//! # Integers that are not zero
+//!
+//! [`NonZero<T>`](NonZero) is an integer of 2, 4, 8 or 16 bytes of this module that is not zero,
+//! whose `Option` has its size.
+//!
 //! [guarantee]: crate::reference::concepts#what-is-a-valid-value
 //! [requirement]: crate::reference::concepts#requirements
 
-use core::fmt;
+use core::{fmt, marker::PhantomData};
 
 use crate::{
   Scalar,
@@ -510,6 +519,21 @@ ints! {
   u128be u128bec: u128[16] Big;
 }
 
+/// The method of the `Spec` of a number of `numbers!` that holds a `$raw`, by how the rules of
+/// `#[derive(Pun)]` read it: not at all for a floating-point number, whose bits are not its value,
+/// and under a cast for a signed integer.
+macro_rules! reading {
+  (f32) => {
+    Spec::not_a_number
+  };
+  (f64) => {
+    Spec::not_a_number
+  };
+  ($raw:ident) => {
+    Spec::signed
+  };
+}
+
 /// Defines, for each `$name: $raw[$size] $endian = $value`, a number `$name` of `$size` bytes of
 /// the byte order `$endian`, read as a `$raw`. Its examples use the value `$value`.
 macro_rules! numbers {
@@ -634,7 +658,7 @@ macro_rules! numbers {
     //     A struct, tuple, and array requires all fields/elements to be valid at their respective
     //     type.
     unsafe impl Scalar for $name {
-      const SPEC: Spec = Spec::any::<Self>().with_endian(Endian::$endian).not_a_number();
+      const SPEC: Spec = reading!($raw)(Spec::any::<Self>().with_endian(Endian::$endian));
       const ID: Id = Id::new(stringify!($name), &[]);
     }
 
@@ -704,6 +728,250 @@ macro_rules! ordered {
 }
 
 ordered!(i16le i16be i32le i32be i64le i64be i128le i128be);
+
+/// An integer of this module that has a form that is not zero, a [`NonZero`]: the signed and
+/// unsigned integers of 2, 4, 8 and 16 bytes, of either byte order. Sealed.
+///
+/// Each is a byte array of its size, valid for any initialized bytes, and its `Stored` is the
+/// `core::num::NonZero` of the same size, valid for any bytes that are not all zero: what
+/// [`NonZero::new`] and [`NonZero::get`] rely on, which only this module implements.
+///
+/// # Examples
+///
+/// ```
+/// use puns::num::{NonZero, NonZeroable, u32le};
+///
+/// /// The first value that is not zero.
+/// fn first<T: NonZeroable>(values: &[T]) -> Option<NonZero<T>> {
+///   values.iter().find_map(|value| NonZero::new(*value))
+/// }
+///
+/// let values = [u32le::new(0), u32le::new(5)];
+/// assert_eq!(first(&values).map(NonZero::get), Some(u32le::new(5)));
+/// ```
+pub trait NonZeroable: Copy + seal::NonZeroable {
+  /// The `core::num::NonZero` of the size of `Self` that holds the bytes of a `NonZero<Self>`,
+  /// whose niche is that of `Option<NonZero<Self>>`.
+  #[doc(hidden)]
+  type Stored: Copy;
+}
+
+mod seal {
+  /// The seal of [`NonZeroable`](super::NonZeroable).
+  pub trait NonZeroable {}
+}
+
+/// A `T` of this module that is not zero: an integer of a fixed byte order without the value 0,
+/// as [`core::num::NonZero`] is an integer of the byte order of the target without it.
+///
+/// Its bytes are those of the `T`, which are never all zero, and its alignment is 1, as the one of
+/// `T`. It holds a `core::num::NonZero` of its size, packed, whose niche `rustc` keeps: so
+/// `Option<NonZero<T>>` has the size of `T`, `None` being zeros. `core` does not document the niche
+/// of a packed struct, so `puns` assumes it where it lays out such an `Option`, and checks it when
+/// compiling ([`Spec::stored_as`]). It is compared and ordered as its value, and formatted as it.
+///
+/// # Examples
+///
+/// ```
+/// use puns::num::{NonZero, i32le};
+///
+/// let two = NonZero::new(i32le::new(-2)).unwrap();
+/// assert_eq!(two.get(), i32le::new(-2));
+/// assert_eq!(NonZero::new(i32le::new(0)), None);
+/// assert_eq!((align_of::<NonZero<i32le>>(), size_of::<Option<NonZero<i32le>>>()), (1, 4));
+/// // Zeros are `None`, and any other bytes are a value.
+/// let some = (-2i32).to_le_bytes();
+/// assert_eq!(puns::try_pun::<[u8; 4], Option<NonZero<i32le>>>([0; 4]), Ok(None));
+/// assert_eq!(puns::try_pun::<[u8; 4], Option<NonZero<i32le>>>(some), Ok(Some(two)));
+/// assert!(puns::from_bytes::<NonZero<i32le>>(&[0; 4]).is_err());
+/// ```
+#[repr(C, packed)]
+pub struct NonZero<T: NonZeroable>(T::Stored, PhantomData<T>);
+
+impl<T: NonZeroable> NonZero<T> {
+  /// Returns the `NonZero` of `value`, or `None` if it is zero.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::num::{NonZero, u16be};
+  ///
+  /// assert!(NonZero::new(u16be::new(1)).is_some());
+  /// assert_eq!(NonZero::new(u16be::new(0)), None);
+  /// ```
+  #[inline]
+  #[must_use]
+  pub const fn new(value: T) -> Option<Self> {
+    const { assert!(size_of::<T>() == size_of::<T::Stored>(), "a `NonZero` has the size of `T`") };
+    let bytes = (&raw const value).cast::<u8>();
+    let mut i = 0;
+    while i < size_of::<T>() {
+      // SAFETY: `T` is a byte array of its size (`NonZeroable`), whose bytes are initialized, so
+      // `bytes.add(i)` is within it, and is a `u8`, aligned at any address.
+      if unsafe { *bytes.add(i) } != 0 {
+        // SAFETY: The bytes of `value` are initialized, of the size of `T::Stored` (asserted
+        // above), the `core::num::NonZero` of that size (`NonZeroable`), and not all zero: a
+        // valid `T::Stored`, read without alignment.
+        return Some(Self(unsafe { bytes.cast::<T::Stored>().read_unaligned() }, PhantomData));
+      }
+      i += 1;
+    }
+    None
+  }
+
+  /// Returns the `T`, which is not zero.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::num::{NonZero, i64be};
+  ///
+  /// let one = i64be::new(1);
+  /// assert_eq!(NonZero::new(one).unwrap().get(), one);
+  /// ```
+  #[inline]
+  #[must_use]
+  pub const fn get(self) -> T {
+    const { assert!(size_of::<T>() == size_of::<T::Stored>(), "a `NonZero` has the size of `T`") };
+    // SAFETY: The bytes of `self.0`, a `T::Stored`, are initialized, of the size of `T`, and `T` is
+    // a byte array that any initialized bytes are (`NonZeroable`), read without alignment, since
+    // the field is packed.
+    unsafe { (&raw const self.0).cast::<T>().read_unaligned() }
+  }
+}
+
+impl<T: NonZeroable> Clone for NonZero<T> {
+  #[inline]
+  fn clone(&self) -> Self {
+    *self
+  }
+}
+
+impl<T: NonZeroable> Copy for NonZero<T> {}
+
+impl<T: NonZeroable + PartialEq> PartialEq for NonZero<T> {
+  #[inline]
+  fn eq(&self, other: &Self) -> bool {
+    self.get() == other.get()
+  }
+}
+
+impl<T: NonZeroable + Eq> Eq for NonZero<T> {}
+
+impl<T: NonZeroable + core::hash::Hash> core::hash::Hash for NonZero<T> {
+  #[inline]
+  fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+    self.get().hash(state);
+  }
+}
+
+impl<T: NonZeroable + PartialOrd> PartialOrd for NonZero<T> {
+  #[inline]
+  fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+    self.get().partial_cmp(&other.get())
+  }
+}
+
+impl<T: NonZeroable + Ord> Ord for NonZero<T> {
+  #[inline]
+  fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+    self.get().cmp(&other.get())
+  }
+}
+
+impl<T: NonZeroable + fmt::Debug> fmt::Debug for NonZero<T> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fmt::Debug::fmt(&self.get(), f)
+  }
+}
+
+impl<T: NonZeroable + fmt::Display> fmt::Display for NonZero<T> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fmt::Display::fmt(&self.get(), f)
+  }
+}
+
+/// Defines, for each `$name: $raw $bits $endian`, the [`NonZero`] of the integer `$name`, of the
+/// byte order `$endian`, read as a `$raw`, whose bit patterns are those of a `$bits`, signed with
+/// `signed`.
+macro_rules! non_zero {
+  ($($name:ident: $raw:ident $bits:ident $endian:ident $($signed:ident)?;)+) => {$(
+    impl seal::NonZeroable for $name {}
+
+    // `$name` is `repr(transparent)` over a byte array of the size of `$raw` (`ints!`,
+    // `numbers!`), and `core::num::NonZero<$raw>` is valid for any bytes of that size that are not
+    // all zero, as the documentation of `NonZeroable` states.
+    impl NonZeroable for $name {
+      type Stored = core::num::NonZero<$raw>;
+    }
+
+    impl From<NonZero<$name>> for $name {
+      #[inline]
+      fn from(value: NonZero<$name>) -> Self {
+        value.get()
+      }
+    }
+
+    // SAFETY: `NonZero<$name>` is `repr(C)`, so its first field, a `core::num::NonZero<$raw>`, is
+    // at offset 0 [1], and its other field, a `PhantomData`, has size 0. `SPEC` has the size of
+    // `NonZero<$name>` (`Spec::ranges::<Self>`), which `stored_as` asserts is the size of a
+    // `core::num::NonZero<$raw>`, so every byte of it is a byte of its first field: it has no
+    // padding. The items of the `# Safety` of `Scalar` hold:
+    // - The bytes of every value are a valid `core::num::NonZero<$raw>`: initialized, and not all
+    //   zero [2]. Read as a `$bits` in any byte order, they are a value from 1 to `$bits::MAX`,
+    //   which `SPEC` accepts.
+    // - Every value that `SPEC` accepts is bytes that are not all zero, so a valid
+    //   `core::num::NonZero<$raw>`, so a valid `NonZero<$name>` [3], whose code relies on nothing
+    //   else: `get` reads any such bytes.
+    // - It holds no `UnsafeCell`.
+    // `signed` changes no value: rules read the bits under a cast, as for `$name`. `stored_as`
+    // declares the type that the bytes are, which is not part of that contract.
+    //
+    // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.c.struct.size-field-offset:
+    //
+    //     Start with a current offset of 0 bytes.
+    //
+    //     For each field in declaration order in the struct, first determine the size and
+    //     alignment of the field. If the current offset is not a multiple of the field's
+    //     alignment, then add padding bytes to the current offset until it is a multiple of the
+    //     field's alignment. The offset for the field is what the current offset is now. [...]
+    //
+    // [2] Per https://doc.rust-lang.org/1.99.0/core/num/struct.NonZero.html:
+    //
+    //     `NonZero<T>` is guaranteed to have the same layout and bit validity as `T` with the
+    //     exception that the all-zero bit pattern is invalid.
+    //
+    // [3] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.struct:
+    //
+    //     A struct, tuple, and array requires all fields/elements to be valid at their respective
+    //     type.
+    unsafe impl Scalar for NonZero<$name> {
+      const SPEC: Spec = Spec::ranges::<Self>(Endian::$endian, &[(1, $bits::MAX as u128)])
+        $(.$signed())?
+        .stored_as::<core::num::NonZero<$raw>>();
+      const ID: Id = Id::new(concat!("num::NonZero<", stringify!($name), ">"), &[]);
+    }
+  )+};
+}
+
+non_zero! {
+  u16le: u16 u16 Little;
+  u16be: u16 u16 Big;
+  u32le: u32 u32 Little;
+  u32be: u32 u32 Big;
+  u64le: u64 u64 Little;
+  u64be: u64 u64 Big;
+  u128le: u128 u128 Little;
+  u128be: u128 u128 Big;
+  i16le: i16 u16 Little signed;
+  i16be: i16 u16 Big signed;
+  i32le: i32 u32 Little signed;
+  i32be: i32 u32 Big signed;
+  i64le: i64 u64 Little signed;
+  i64be: i64 u64 Big signed;
+  i128le: i128 u128 Little signed;
+  i128be: i128 u128 Big signed;
+}
 
 /// A `u8` whose only valid value is `V`.
 ///

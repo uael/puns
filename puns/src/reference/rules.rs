@@ -5,9 +5,9 @@
 //! [`layout::Dfa`]: layout::Dfa
 //! [`layout::Op`]: layout::Op
 //! [`try_pun`]: try_pun
+//! [aims]: super::aims
 //! [concepts#layouts-and-rules]: super::concepts#layouts-and-rules
 //! [concepts#requirements]: super::concepts#requirements
-//! [concepts#opaque-scalars]: super::concepts#opaque-scalars
 //! [concepts#why-the-pair-decides]: super::concepts#why-the-pair-decides
 //! [fn@crc32]: fn@crc32
 //! [fn@sum16]: fn@sum16
@@ -17,6 +17,7 @@
 //! [limits#limits-of-rust]: super::limits#limits-of-rust
 //! [macro@Pun#assert]: macro@Pun#assert
 //! [macro@Pun#len]: macro@Pun#len
+//! [macro@Pun#pointer]: macro@Pun#pointer
 //! [macro@Pun#regions]: macro@Pun#regions
 //! [macro@Pun#size]: macro@Pun#size
 #![doc = include_str!("../../docs/rules.md")]

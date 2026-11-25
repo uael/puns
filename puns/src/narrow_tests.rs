@@ -195,6 +195,11 @@ impl Scope {
   }
 }
 
+/// The steps of a walk under Miri, where a step of a walk that runs to the limit of the library
+/// (`walk_limit`, 640 steps for 64 bytes) takes milliseconds, and the evaluations that are compared
+/// take the same steps: a walk that does not end within them fails in both.
+const MIRI_WALK_STEPS: usize = 16;
+
 /// Returns a constant at the bounds of the widths, or a small one.
 fn constant(random: &mut Random) -> u128 {
   const BOUNDS: [u128; 20] = [
@@ -239,7 +244,12 @@ fn expression(random: &mut Random, scope: Scope, ops: &mut Vec<Op>) {
       3 => {
         let size = [1u8, 2, 4, 8, 16][random.below(5) as usize];
         let offset = random.below((HEAD - usize::from(size) + 1) as u64) as usize;
-        ops.push(Op::Load { offset, size, big: random.below(2) == 0 });
+        ops.push(Op::Load {
+          offset,
+          size,
+          big: random.below(2) == 0,
+          signed: random.below(4) == 0,
+        });
       }
       _ => ops.push(Op::Size),
     }
@@ -354,7 +364,11 @@ fn walk(random: &mut Random, scope: Scope, ops: &mut Vec<Op>) {
     }
     // The walk of IPv6: the kind in the high half, the offset in the low one.
     1 => {
-      ops.extend([Op::Load { offset: 6, size: 1, big: false }, Op::Lit(64), Op::Shl]);
+      ops.extend([
+        Op::Load { offset: 6, size: 1, big: false, signed: false },
+        Op::Lit(64),
+        Op::Shl,
+      ]);
       ops.extend([Op::Lit(u128::from(random.below(HEAD as u64))), Op::Add]);
       let kind = u128::from(random.below(256));
       cond.extend([Op::Get(var), Op::Lit(64), Op::Shr, Op::Lit(kind), Op::Lt]);
@@ -413,7 +427,7 @@ fn run(ops: &[Op], entry: &Entry, narrowed: bool, machine: &mut Machine, bytes: 
       }
       let inner = entries[at].unwrap_or(*entry);
       let mut state = fit(machine.top(), how.result);
-      let (mut steps, limit) = (0, walk_limit(size));
+      let (mut steps, limit) = (0, if cfg!(miri) { MIRI_WALK_STEPS } else { walk_limit(size) });
       let result = loop {
         let (mut c, mut n) = (machine.enter(var, state), machine.enter(var, state));
         if !run(cond, &inner, narrowed, &mut c, bytes) {
@@ -523,7 +537,7 @@ fn the_walk_of_ipv6_is_two_halves() {
   let next = keep(next);
   let cond = keep(vec![Op::Get(0), Op::Lit(64), Op::Shr, Op::Lit(60), Op::Lt]);
   let ops = [
-    Op::Load { offset: 6, size: 1, big: false },
+    Op::Load { offset: 6, size: 1, big: false, signed: false },
     Op::Lit(64),
     Op::Shl,
     Op::Lit(40),
@@ -552,7 +566,7 @@ fn the_walk_of_ipv6_is_two_halves() {
 fn parts_tell_what_they_compute() {
   let at = Op::At { size: 1, big: true };
   // `v` is the 16 bytes at 8: mostly more than any offset.
-  let v = [Op::Load { offset: 8, size: 16, big: false }, Op::Set(0)];
+  let v = [Op::Load { offset: 8, size: 16, big: false, signed: false }, Op::Set(0)];
   let programs: [&[Op]; 3] = [
     // `{ let v = ..; (v < 10 && be(v, 1) == 0) as u128 + v }`
     &[

@@ -395,6 +395,50 @@ mod walks {
   }
 }
 
+/// A tuple of 12 elements, the most that `Pun` is implemented for.
+type Twelve<T> = (T, T, T, T, T, T, T, T, T, T, T, T);
+
+/// A tuple of 12 elements of two types of 1 byte, which Rust may put in any order.
+type Mixed = (bool, u8, bool, u8, bool, u8, bool, u8, bool, u8, bool, u8);
+
+/// Checks that a tuple of 12 elements is proven and checked as a smaller one is. Rust leaves the
+/// order of its elements to the compiler, so each pun but the last is the same in every order.
+/// The cases `tuple_of_twelve` and `tuple_of_twelve_unspecified` of the compile-fail tests are
+/// refused, and `tuple_of_thirteen` is not a `Pun` type.
+#[test]
+fn a_tuple_of_twelve() {
+  let bytes: [u8; 12] = core::array::from_fn(|i| u8::try_from(i).unwrap());
+  // Proven: every byte is a `u8`, and every `bool` a `u8`, wherever it is.
+  assert_eq!(pun::<Twelve<u8>, [u8; 12]>(pun::<[u8; 12], Twelve<u8>>(bytes)), bytes);
+  let mixed: Mixed = pun([true; 12]);
+  assert_eq!(pun::<Mixed, [u8; 12]>(mixed), [1; 12]);
+  // The same type proves itself, whichever element each byte is.
+  assert_eq!(pun::<Mixed, Mixed>(mixed), mixed);
+  // Every two bytes at an even offset are a `u16`.
+  let words: Twelve<u16> = pun([0xab_u8; 24]);
+  assert_eq!(pun::<Twelve<u16>, [u16; 12]>(words), [0xabab; 12]);
+
+  // Checked: each byte is 0 or 1.
+  let bools = try_pun::<[u8; 12], Twelve<bool>>([1; 12]).map(pun::<Twelve<bool>, [bool; 12]>);
+  assert_eq!(bools, Ok([true; 12]));
+  let mut two = [1; 12];
+  two[11] = 2;
+  assert_eq!(try_pun::<[u8; 12], Twelve<bool>>(two), Err(Error::Validity));
+  assert!(puns::from_bytes::<Twelve<NonZero<u8>>>(&[1; 12]).is_ok());
+  assert_eq!(puns::from_bytes::<Twelve<NonZero<u8>>>(&two.map(|b| b - 1)), Err(Error::Validity));
+  // The layout that `rustc` chose tells which byte is the first `bool`.
+  #[cfg(feature = "unstable")]
+  {
+    type First = (bool, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8);
+    let first = core::mem::offset_of!(First, 0);
+    let mut flags = [2; 12];
+    flags[first] = 1;
+    assert_eq!(try_pun::<[u8; 12], First>(flags).map(|t| (t.0, t.1)), Ok((true, 2)));
+    flags[first] = 2;
+    assert_eq!(try_pun::<[u8; 12], First>(flags), Err(Error::Validity));
+  }
+}
+
 /// Checks that a signed `NonZero` accepts every bit pattern of its integer but 0, negative ones
 /// included, and that an `Option` of it has the same values as the integer.
 #[test]
@@ -410,6 +454,57 @@ fn signed_non_zero() {
   assert_eq!(pun::<Option<NonZero<i64>>, i64>(None), 0);
   // Every `NonZero<i32>` is a `NonZero<u32>`, and back: the same bit patterns.
   assert_eq!(pun::<NonZero<i32>, NonZero<u32>>(minus).get(), u32::MAX);
+}
+
+/// Checks, for each integer of a fixed byte order of `puns::num` that has a `NonZero`, that its
+/// `NonZero` has its bytes and accepts every bit pattern but zeros, that an `Option` of it has its
+/// size, `None` being zeros, without the `unstable` feature, and that the integer proves it only
+/// where it is not zero.
+#[test]
+fn non_zero_of_a_fixed_byte_order() {
+  macro_rules! each {
+    ($($name:ident: $raw:ident;)+) => {$({
+      use puns::num::{NonZero, $name};
+      const N: usize = size_of::<$raw>();
+      let value = $name::new($raw::MAX);
+      let non_zero = NonZero::new(value).unwrap();
+      assert_eq!((size_of::<NonZero<$name>>(), align_of::<NonZero<$name>>()), (N, 1));
+      assert_eq!(size_of::<Option<NonZero<$name>>>(), N);
+      assert_eq!((non_zero.get(), $name::from(non_zero)), (value, value));
+      assert_eq!(NonZero::new($name::new(0)), None);
+      // Its bytes are those of the integer, in its byte order.
+      assert_eq!(pun::<NonZero<$name>, [u8; N]>(non_zero), value.to_bytes());
+      assert_eq!(pun::<Option<NonZero<$name>>, [u8; N]>(None), [0; N]);
+      assert_eq!(try_pun::<[u8; N], Option<NonZero<$name>>>([0; N]), Ok(None));
+      let one = $name::new(1);
+      assert_eq!(try_pun::<[u8; N], NonZero<$name>>(one.to_bytes()).map(NonZero::get), Ok(one));
+      assert_eq!(try_pun::<[u8; N], Option<NonZero<$name>>>(one.to_bytes()), Ok(NonZero::new(one)));
+      assert_eq!(try_pun::<[u8; N], NonZero<$name>>([0; N]), Err(Error::Validity));
+      assert_eq!(try_pun::<$name, NonZero<$name>>($name::new(0)), Err(Error::Validity));
+      // Every `NonZero` of it is the integer: proven.
+      assert_eq!(pun::<NonZero<$name>, $name>(non_zero), value);
+      assert_eq!(pun::<Option<NonZero<$name>>, $name>(Some(non_zero)), value);
+      assert!(NonZero::new($name::new(1)).unwrap() < non_zero);
+    })+};
+  }
+  each! {
+    u16le: u16;
+    u16be: u16;
+    u32le: u32;
+    u32be: u32;
+    u64le: u64;
+    u64be: u64;
+    u128le: u128;
+    u128be: u128;
+    i16le: i16;
+    i16be: i16;
+    i32le: i32;
+    i32be: i32;
+    i64le: i64;
+    i64be: i64;
+    i128le: i128;
+    i128be: i128;
+  }
 }
 
 /// Checks that `ManuallyDrop` of an unsized type is reinterpreted as that type: the layout of

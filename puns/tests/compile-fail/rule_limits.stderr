@@ -10,7 +10,7 @@ error: too many variables: an expression has at most 8 at once (its `let`s, and 
 13 |   let b = 1; let c = 2; let d = 3; let e = 4; let f = 5; let g = 6; let h = 7; let i = 8; let j = 9;
    |                                                                                               ^
 
-error[E0080]: evaluation panicked: a rule reads the unsigned integer fields of its struct, and this field is not one (a signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes with `le(offset, size)` or `be(offset, size)`
+error[E0080]: evaluation panicked: a rule reads the unsigned integer fields of its struct, and this field is not one: read a signed integer under a cast (`field as u128`), which sign-extends it, and the bytes of a floating-point number, a `bool`, a `char` or an enum with `le(offset, size)` or `be(offset, size)`
   --> tests/compile-fail/rule_limits.rs:22:14
    |
 20 | #[derive(puns::Pun)]
@@ -27,9 +27,10 @@ note: inside `Op::load::<[u8; 2]>`
   ::: src/layout.rs
    |
    | /       panic!(
-   | |         "a rule reads the unsigned integer fields of its struct, and this field is not one (a \
-   | |          signed or floating-point number, a `bool`, a `char` or an enum is not): read its bytes \
-   | |          with `le(offset, size)` or `be(offset, size)`"
+   | |         "a rule reads the unsigned integer fields of its struct, and this field is not one: read a \
+   | |          signed integer under a cast (`field as u128`), which sign-extends it, and the bytes of a \
+   | |          floating-point number, a `bool`, a `char` or an enum with `le(offset, size)` or \
+   | |          `be(offset, size)`"
    | |       )
    | |_______- in this macro invocation
 

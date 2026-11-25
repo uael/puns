@@ -117,6 +117,128 @@ fn unions() {
   let _: Word = puns::pun(word);
 }
 
+/// Checks `packed` and `packed(N)` unions, whose fields may be at addresses that are not aligned
+/// for their types. `packed` lowers the alignment of a union, and may lower its size, but its
+/// fields stay at offset 0. The checks read bytes at any address, and a field is read by copy.
+#[test]
+fn packed_unions() {
+  use core::num::NonZero;
+
+  use puns::{
+    Pun,
+    num::{u8c, u16lec},
+  };
+
+  /// Size 4, alignment 1. Valid if `nz` is not 0, or if each byte is 1.
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C, packed)]
+  union Packed {
+    nz: NonZero<u32>,
+    ones: [u8c<1>; 4],
+  }
+  /// Proven by its field `flags` from four `bool`s, at any address.
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C, packed)]
+  union Flags {
+    nz: NonZero<u32>,
+    flags: [bool; 4],
+  }
+  /// `packed(2)` with a field more aligned than the packing: size 8, alignment 2.
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C, packed(2))]
+  union Wide {
+    wide: NonZero<u64>,
+    sevens: [u16lec<7>; 4],
+  }
+  /// `Wide` at offset 2, so at an address that is not aligned for a `u64`.
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  struct Framed {
+    tag: u16,
+    wide: Wide,
+  }
+  /// A packed union in a packed struct, at offset 1.
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C, packed)]
+  struct Record {
+    tag: u8,
+    packed: Packed,
+  }
+  /// `packed(2)`: size 6 and alignment 2, where they would be 8 and 4. Its last byte is padding.
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C, packed(2))]
+  union Odd {
+    bytes: [u8; 5],
+    word: u32,
+  }
+  /// Bytes at an address that is a multiple of 8.
+  #[repr(C, align(8))]
+  struct Aligned([u8; 24]);
+
+  assert_eq!((size_of::<Packed>(), align_of::<Packed>()), (Packed::LAYOUT.size(), 1));
+  assert_eq!((size_of::<Wide>(), align_of::<Wide>()), (Wide::LAYOUT.size(), 2));
+  assert_eq!((size_of::<Odd>(), align_of::<Odd>()), (6, Odd::LAYOUT.align()));
+  // Proven: from four `bool`s, by reference at any address; from three `u16`s, the first five
+  // bytes of which are `bytes`.
+  let flags = [true, false, true, false, true];
+  let flags: &Flags = puns::pun_ref::<[bool; 4], Flags>(flags[1..].first_chunk().unwrap());
+  // SAFETY: `flags` holds four `bool`s.
+  assert_eq!(unsafe { flags.flags }, [false, true, false, true]);
+  let odd: Odd = puns::pun([0x0101_u16; 3]);
+  // SAFETY: `odd` holds six bytes, which are a `[u8; 5]` at offset 0.
+  assert_eq!(unsafe { odd.bytes }, [1; 5]);
+
+  let mut buffer = Aligned([0; 24]);
+  let bytes = &mut buffer.0;
+  // Checked, at every address modulo 8: the `u32` and the `u64` of the fields are read where they
+  // are not aligned.
+  for at in 0..8 {
+    bytes.fill(0);
+    bytes[at + 3] = 9;
+    let packed = puns::from_bytes::<Packed>(&bytes[at..at + 4]).unwrap();
+    // SAFETY: the check found `nz` valid. Copying a field reads it at any address.
+    assert_eq!(unsafe { packed.nz }.get().to_ne_bytes(), [0, 0, 0, 9]);
+    bytes[at + 3] = 0;
+    assert_eq!(puns::from_bytes::<Packed>(&bytes[at..at + 4]).err(), Some(Error::Validity));
+    bytes[at..at + 4].fill(1);
+    assert!(puns::from_bytes::<Packed>(&bytes[at..at + 4]).is_ok());
+
+    // `[0x07, 0x00]` four times: both fields are valid, and the `u64` is read at `at + 2`.
+    bytes.fill(0);
+    for i in 0..4 {
+      bytes[at + 2 + 2 * i] = 7;
+    }
+    let framed = puns::from_bytes::<Framed>(&bytes[at..at + 10]);
+    assert_eq!(framed.is_ok(), at % 2 == 0, "{at}");
+    if let Ok(framed) = framed {
+      let wide = framed.wide;
+      // SAFETY: the check found `wide` valid, as `sevens` is, since 7 is not 0.
+      assert_eq!(unsafe { wide.wide }.get().to_ne_bytes(), [7, 0, 7, 0, 7, 0, 7, 0]);
+    }
+    // Neither field: not a `u64` other than 0, nor a 7.
+    bytes[at + 2..at + 10].fill(0);
+    let wrong = if at % 2 == 0 { Error::Validity } else { Error::Alignment };
+    assert_eq!(puns::from_bytes::<Framed>(&bytes[at..at + 10]).err(), Some(wrong));
+    bytes[at + 9] = 0x80;
+    assert_eq!(puns::from_bytes::<Framed>(&bytes[at..at + 10]).is_ok(), at % 2 == 0);
+
+    // In a packed struct, at offset 1, and in a slice, at offsets 1 and 6.
+    bytes.fill(0);
+    bytes[at + 1..at + 5].fill(1);
+    bytes[at + 6..at + 10].fill(1);
+    let records = puns::from_bytes::<[Record]>(&bytes[at..at + 10]).unwrap();
+    let packed = records[1].packed;
+    // SAFETY: the check found `ones` valid. It is read by copy.
+    assert_eq!(unsafe { packed.ones }.map(u8c::get), [1; 4]);
+    // Neither field of the second.
+    bytes[at + 6..at + 10].fill(0);
+    assert_eq!(puns::from_bytes::<[Record]>(&bytes[at..at + 10]).err(), Some(Error::Validity));
+    // `nz` is valid, though `ones` is not.
+    bytes[at + 9] = 2;
+    assert!(puns::from_bytes::<[Record]>(&bytes[at..at + 10]).is_ok());
+  }
+}
+
 /// Checks that nothing is read of a variant of an enum, or of a field of a union, that has no
 /// value.
 ///
@@ -212,4 +334,66 @@ fn a_union_of_a_source_may_hold_a_value() {
   // A variant whose field truly has no value: no value is it, and the pun is proven.
   assert_eq!(puns::pun::<Plain5, Target5>(Plain5::B(7)), Target5::B(7));
   assert_eq!(puns::pun::<Plain5, Target5>(Plain5::C), Target5::C);
+}
+
+/// Checks that a variant that holds a union none of whose fields has values, which has no sample
+/// from which the derive would read its tag, has a tag from its declaration: a discriminant without
+/// a macro, or the tag of the variant before it plus one. One that is not known does not compile
+/// (`enum_discriminant_of_a_hollow_variant` in `compile-fail/`).
+#[test]
+fn a_hollow_variant_has_a_tag_from_its_declaration() {
+  use core::convert::Infallible;
+
+  use puns::Pun;
+
+  /// A union none of whose fields has values.
+  #[derive(Pun, Clone, Copy)]
+  #[repr(C)]
+  union Hollow {
+    a: Infallible,
+  }
+
+  const TWELVE: u8 = 12;
+
+  #[derive(Pun, Clone, Copy)]
+  #[repr(u8)]
+  enum Declared {
+    Literal(Hollow) = 2,
+    Next(u8),
+    After(Hollow),
+    Expression(u8) = 4 + 5,
+    Constant(Hollow) = TWELVE,
+  }
+
+  // The tag of a value, as the enum holds it.
+  fn tag(value: &Declared) -> u8 {
+    // SAFETY: `Declared` is `repr(u8)`, so each value starts with its tag, a `u8`, which is
+    // initialized. The pointer is that of a reference, so it is aligned and valid for reads.
+    unsafe { *core::ptr::from_ref(value).cast::<u8>() }
+  }
+
+  // 3 and 9 are the variants that a pun makes. No bytes are a `Hollow` of a target, so 2, 4 and 12
+  // are refused, as tags of no variant are.
+  let pun = |tag| puns::try_pun::<[u8; 2], Declared>([tag, 0]);
+  assert!(matches!(pun(3), Ok(Declared::Next(0))));
+  assert!(matches!(pun(9), Ok(Declared::Expression(0))));
+  for tag in [0, 2, 4, 10, 12] {
+    assert_eq!(pun(tag).err(), Some(Error::Validity));
+  }
+  // SAFETY: The language has not settled the validity of unions. The compiler and Miri accept any
+  // bytes as a union today, and a `Hollow` has none, so this value is accepted, as in
+  // `a_union_of_a_source_may_hold_a_value`. It is only read for the tag of the enum that holds it.
+  let hollow: Hollow = unsafe { MaybeUninit::<Hollow>::uninit().assume_init() };
+  // The tags of the layout are those of the enum.
+  let values = [
+    Declared::Literal(hollow),
+    Declared::Next(0),
+    Declared::After(hollow),
+    Declared::Expression(0),
+    Declared::Constant(hollow),
+  ];
+  for (i, value) in values.iter().enumerate() {
+    assert_eq!(<Declared as Pun>::LAYOUT.variant_tag(i), u128::from(tag(value)));
+  }
+  assert_eq!(tag(&values[4]), 12);
 }

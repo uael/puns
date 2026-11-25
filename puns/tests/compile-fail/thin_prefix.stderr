@@ -1,0 +1,27 @@
+error[E0080]: evaluation panicked: the `M` of a `Thin<T, M>` is an integer, or a sized struct that ends with one, with no padding after it: the length of the `T` that follows
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `<puns::Thin<str, Flagged> as puns::Pointee>::LENGTH` failed here
+  |
+ ::: src/thin.rs
+  |
+  |       None => panic!(
+  |  _____________-
+  | |       "the `M` of a `Thin<T, M>` is an integer, or a sized struct that ends with one, with no \
+  | |        padding after it: the length of the `T` that follows"
+  | |     ),
+  | |_____- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/layout.rs
+  |
+  |       T::LENGTH.is_none() || matches!(extent, Extent::Pointee),
+  |       ^^^^^^^^^
+
+note: erroneous constant encountered
+  --> tests/compile-fail/thin_prefix.rs:12:10
+   |
+12 | #[derive(Pun)]
+   |          ^^^
+   |
+   = note: this note originates in the derive macro `Pun` (in Nightly builds, run with -Z macro-backtrace for more info)

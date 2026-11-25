@@ -3,7 +3,10 @@
 //! [derive#enums-with-fields]: macro@Pun#enums-with-fields
 //! [functions#in-a-constant]: super::functions#in-a-constant
 //! [limits#bounds-of-the-analysis]: super::limits#bounds-of-the-analysis
-//! [opaque scalar]: super::concepts#opaque-scalars
+//! [aims]: super::aims
+//! [layouts#what-puns-assumes]: super::layouts#what-puns-assumes
+//! [`aim`]: aim
+//! [`aim_mut`]: aim_mut
 //! [soundness#unions]: super::soundness#unions
 //! [testing#compile-fail-tests]: super::testing#compile-fail-tests
 //! [testing#miri]: super::testing#miri

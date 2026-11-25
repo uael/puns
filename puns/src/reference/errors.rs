@@ -1,5 +1,7 @@
 // The chapter is docs/errors.md, read on GitHub as well. Rustdoc keeps the first
 // definition of a link, so these, before it, make its links to items and chapters intra-doc.
+//! [`aim_mut`]: aim_mut
+//! [`from_bytes`]: from_bytes
 //! [`from_head`]: from_head
 //! [`from_tail`]: from_tail
 //! [`head_mut`]: head_mut
@@ -9,14 +11,15 @@
 //! [`tail_mut`]: tail_mut
 //! [`tail_ref`]: tail_ref
 //! [`try_pun_ref`]: try_pun_ref
-//! [`validate_but_never`]: validate_but_never
 //! [`zeroed`]: zeroed
+//! [aims]: super::aims
 //! [concepts#proven-checked-and-refused]: super::concepts#proven-checked-and-refused
 //! [concepts#requirements]: super::concepts#requirements
 //! [functions#writes-leave-a-valid-source]: super::functions#writes-leave-a-valid-source
 //! [functions#writing-through-mut]: super::functions#writing-through-mut
+//! [layouts#the-same-type]: super::layouts#the-same-type
+//! [layouts#what-puns-assumes]: super::layouts#what-puns-assumes
 //! [macro@Pun#compile-time-errors]: macro@Pun#compile-time-errors
-//! [opaque scalar]: super::concepts#opaque-scalars
 //! [macro@Pun#crate]: macro@Pun#crate
 //! [macro@Pun#enums-with-fields]: macro@Pun#enums-with-fields
 //! [rules]: super::rules

@@ -8,7 +8,7 @@ error[E0080]: evaluation panicked:
      |   const BY_VALUE: () = Self::require(Self::check(Need::VALUE));
      |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `puns::Plan::<[u8; 4], std::option::Option<[std::num::NonZero<u8>; 4]>>::BY_VALUE` failed inside this call
      |
-note: inside `puns::Plan::<[u8; 4], Option<[NonZero<u8>; 4]>>::require`
+note: inside `puns::Plan::<[u8; 4], Option<[std::num::NonZero<u8>; 4]>>::require`
  --> src/lib.rs
   |
   |       message.panic();
@@ -35,7 +35,7 @@ note: erroneous constant encountered
   |   const { Plan::<S, D>::BY_VALUE };
   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-note: the above error was encountered while instantiating `fn pun::<[u8; 4], Option<[NonZero<u8>; 4]>>`
+note: the above error was encountered while instantiating `fn pun::<[u8; 4], Option<[std::num::NonZero<u8>; 4]>>`
  --> tests/compile-fail-unstable/niche_in_array.rs:7:37
   |
 7 |   let _: Option<[NonZero<u8>; 4]> = puns::pun([1u8, 0, 0, 0]);

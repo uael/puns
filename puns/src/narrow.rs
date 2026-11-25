@@ -15,8 +15,9 @@
 //! A value is known as two intervals, one for each half of a `u128` ([`Range`]). For example,
 //! `(kind << 64) + start` is a kind of `0..=255` in the high half and an offset in the low half. A
 //! field, a read of `n` bytes, a CRC-32, an Adler-32, a Fletcher-16 and `sum16` may be any value of
-//! their width. A [`Crc`](layout::Crc) of any width is taken to be any value of 64 bits, and a sum
-//! of bytes is at most 255 times `isize::MAX`. A literal is itself, and a comparison is `0..=1`.
+//! their width, and a signed field, sign-extended, any value of 128 bits. A [`Crc`](layout::Crc) of
+//! any width is taken to be any value of 64 bits, and a sum of bytes is at most 255 times
+//! `isize::MAX`. A literal is itself, and a comparison is `0..=1`.
 //! `size_of_val(self)` is at most `isize::MAX` ([`SIZE_MAX`]). A QUIC integer is 62 bits, and the
 //! other integers of variable length may be anything. Each operation makes the range of its result
 //! from those of its operands, and tells whether it may fail. A sum whose bounds do not overflow
@@ -619,7 +620,8 @@ const fn analyze(ops: &[Op], vars: Vars, stop: usize, walks: usize) -> Plan {
     }
     let (pops, value) = match op {
       Op::Lit(value) => (0, Range::exact(value)),
-      Op::Load { size, .. } => (0, Range::bytes(size)),
+      // A signed integer is sign-extended: its high bits are all ones where it is negative.
+      Op::Load { size, signed, .. } => (0, if signed { Range::ANY } else { Range::bytes(size) }),
       Op::Size => (0, Range::new(0, SIZE_MAX)),
       Op::Get(index) => {
         stack[depth] = vars[index as usize];

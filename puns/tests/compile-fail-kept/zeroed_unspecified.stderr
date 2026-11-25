@@ -1,17 +1,17 @@
-error[E0080]: evaluation panicked: zero is a value of this type only by the tags that `rustc` chose for an enum of the `Rust` representation, `Option` or `Result` in it: another compiler, or `-Zrandomize-layout`, could choose others.
+error[E0080]: evaluation panicked: zero is a value of this type only by the tags that `rustc` chose for an enum of the `Rust` representation, `Option` or `Result` in it, whose layout `puns` does not assume: another compiler, or `-Zrandomize-layout`, could choose others.
               Add `#[repr(u8)]` to the enum, or enable the `unstable` feature of `puns`.
     --> $RUST/core/src/panic.rs
      |
-     = note: evaluation of `puns::zeroed::<Light>::{constant#0}` failed here
+     = note: evaluation of `puns::zeroed::<Pair>::{constant#0}` failed here
      |
     ::: src/lib.rs
      |
      | /     assert!(
      | |       layout::UNSTABLE || T::LAYOUT.zeroable(true),
      | |       "zero is a value of this type only by the tags that `rustc` chose for an enum of the `Rust` \
-     | |        representation, `Option` or `Result` in it: another compiler, or `-Zrandomize-layout`, \
-     | |        could choose others.\nAdd `#[repr(u8)]` to the enum, or enable the `unstable` feature of \
-     | |        `puns`."
+     | |        representation, `Option` or `Result` in it, whose layout `puns` does not assume: another \
+     | |        compiler, or `-Zrandomize-layout`, could choose others.\nAdd `#[repr(u8)]` to the enum, or \
+     | |        enable the `unstable` feature of `puns`."
      | |     );
      | |_____- in this macro invocation
 
@@ -27,8 +27,8 @@ note: erroneous constant encountered
   | |   };
   | |___^
 
-note: the above error was encountered while instantiating `fn puns::zeroed::<Light>`
-  --> tests/compile-fail-kept/zeroed_unspecified.rs:10:11
+note: the above error was encountered while instantiating `fn puns::zeroed::<Pair>`
+  --> tests/compile-fail-kept/zeroed_unspecified.rs:11:11
    |
-10 |   let _ = puns::zeroed::<Light>();
-   |           ^^^^^^^^^^^^^^^^^^^^^^^
+11 |   let _ = puns::zeroed::<Pair>();
+   |           ^^^^^^^^^^^^^^^^^^^^^^

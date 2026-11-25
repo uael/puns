@@ -3,6 +3,7 @@
 //!
 //! [contents]: crate
 
+pub mod aims;
 pub mod concepts;
 pub mod errors;
 pub mod formats;

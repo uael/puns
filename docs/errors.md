@@ -65,8 +65,9 @@ assert_eq!(bytes[..4], [1, 0, 0, 0]);
 
 The message of a refused pun starts with `cannot pun:` and says why. When the cause is at one byte,
 the message names that byte of the target. A message names only the first cause that `puns` finds,
-in this order: the sizes, an unspecified layout, padding, no value of the source valid for the
-target, a check that the function cannot make, then the alignment. For a `&mut`, what a write leaves
+in this order: an [eager aim](#eager-aims) that the function cannot keep, the sizes, an
+unspecified layout, padding, no value of the source valid for the target, a check that the
+function cannot make, then the alignment. For a `&mut`, what a write leaves
 comes last. Fixing one cause may therefore reveal the next.
 
 ### Sizes
@@ -163,7 +164,7 @@ let flagged: &Flagged = puns::from_bytes(&[1u8, 1]).unwrap();
 ```
 
 ```text
-cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation, `Option` or `Result` of most types): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
+cannot pun: the pun depends on a part of the source or of the target with an unspecified layout (a struct or a tuple of the `Rust` representation, or an enum of it, `Option` and `Result` included, whose layout `puns` does not assume): another compiler, or `-Zrandomize-layout`, could arrange it otherwise. Only the same type at the same place proves it.
 Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
 This is at byte 0 of the target.
 ```
@@ -181,27 +182,6 @@ struct Flagged {
 
 let flagged: &Flagged = puns::from_bytes(&[7u8, 1]).unwrap();
 assert!(flagged.flag);
-```
-
-[`validate_but_never`] checks every part of its target, and gives its own message for the same
-struct:
-
-```rust,compile_fail,E0080
-// This example is about the default build, without the `unstable` feature.
-const _: () = assert!(!puns::layout::UNSTABLE);
-
-#[derive(puns::Pun)]
-struct Flagged {
-  value: u8,
-  flag: bool,
-}
-
-let _ = puns::validate_but_never::<Flagged>(&[1, 1]);
-```
-
-```text
-cannot pun: the type has a part with an unspecified layout (a struct, a tuple or an enum of the `Rust` representation), and something to check in it, which would be at another place with another compiler.
-Add `#[repr(C)]` (or `#[repr(u8)]` to an enum), or enable the `unstable` feature of `puns`.
 ```
 
 A `&mut` gives another message:
@@ -310,10 +290,7 @@ cannot pun: no value of the source is valid for the target.
 This is at byte 0 of the target.
 ```
 
-A target that is [uninhabited] gives this message too, and so does a target that holds an [opaque
-scalar] where a pun would make it, since `puns` makes no value of one. The bytes may still be a
-valid value of such a target: [`validate_but_never`] checks the rest of it, and the crate that
-declares the scalar makes the value.
+A target that is [uninhabited] gives this message too.
 
 A function that checks nothing refuses a pun that needs a check:
 
@@ -601,6 +578,48 @@ let _: &mut [[u8; 2]] = puns::head_mut(text);
 cannot pun: an enum of the source is only partly covered by the `&mut`: what its tag says of the bytes on one side depends on the other.
 ```
 
+### Eager aims
+
+A value that holds an eager [aim][aims] was checked with its pointee, which code then reads
+without a check. So the functions that would make such a value, or give a `&mut` through which a
+write could move it away from its pointee, refuse it. The functions of a value require `Copy`,
+which a struct with an eager aim is not, so the compiler refuses them first (E0277). A `&mut`
+gives this message:
+
+```rust,compile_fail,E0080
+use puns::{InPlace, Pun};
+
+/// A pointer to a `u32`, stored as the distance from its own address, in an `i32`.
+#[derive(Pun)]
+#[repr(transparent)]
+struct Ptr {
+  #[pun(pointer(pointee: u32))]
+  off: InPlace<i32>,
+}
+
+let _ = puns::from_bytes_mut::<Ptr>(&mut [0; 4]);
+```
+
+```text
+cannot pun: the source or the target holds an eager aim, whose pointee is checked with it and read without a check: a write through a `&mut` could move it away from that pointee.
+```
+
+Read the value with [`from_bytes`] or [`from_head`] instead, and write the pointee with
+[`aim_mut`], from a pointer to the bytes that hold both.
+
+The check of an eager aim reads its pointee in the bytes of the source, so a `try_` function
+refuses a source that may have padding:
+
+```text
+cannot pun: the target holds an eager aim, whose check reads its pointee in the bytes of the source, and some of them may be padding.
+Check the bytes of the source instead, with `from_bytes` or `from_head`.
+```
+
+An eager aim is proven only by the same aim at a pointee of the same
+[identity][layouts#the-same-type]. Where the pointee has none, the message of a check that the
+function cannot make goes on with "The source or the target has an eager aim at a pointee whose type
+has no identity, so that not even the same aim proves it", and says which types have none.
+
 ### Zeros
 
 [`zeroed`] makes no pun, and its messages do not start with `cannot pun:`. Zero bytes must be a
@@ -615,27 +634,38 @@ error[E0080]: evaluation panicked: zero is not a valid value of this type, or do
 ```
 
 Without the `unstable` feature, zero bytes must not be a value only by the tags that `rustc` chose
-for an enum of the `Rust` representation, `Option` or `Result`:
+for an enum of the `Rust` representation, `Option` or `Result` whose layout `puns` does not
+[assume][layouts#what-puns-assumes]. `puns` does not assume the layout of an enum whose variant
+holds fields of different alignments:
 
 ```rust,compile_fail,E0080
 // This example is about the default build, without the `unstable` feature.
 const _: () = assert!(!puns::layout::UNSTABLE);
 
 #[derive(puns::Pun, Clone, Copy)]
+enum Pair {
+  Both(u8, u16),
+  Neither,
+}
+
+let _ = puns::zeroed::<Pair>();
+```
+
+```text
+error[E0080]: evaluation panicked: zero is a value of this type only by the tags that `rustc` chose for an enum of the `Rust` representation, `Option` or `Result` in it, whose layout `puns` does not assume: another compiler, or `-Zrandomize-layout`, could choose others.
+Add `#[repr(u8)]` to the enum, or enable the `unstable` feature of `puns`.
+```
+
+Where `puns` assumes the layout, or `core` documents it, zero bytes are a value:
+
+```rust
+#[derive(puns::Pun, Clone, Copy, Debug, PartialEq)]
 enum Light {
   Off,
   On,
 }
 
-let _ = puns::zeroed::<Light>();
-```
-
-```text
-error[E0080]: evaluation panicked: zero is a value of this type only by the tags that `rustc` chose for an enum of the `Rust` representation, `Option` or `Result` in it: another compiler, or `-Zrandomize-layout`, could choose others.
-Add `#[repr(u8)]` to the enum, or enable the `unstable` feature of `puns`.
-```
-
-```rust
+assert_eq!(puns::zeroed::<Light>(), Light::Off);
 assert_eq!(puns::zeroed::<Option<core::num::NonZero<u8>>>(), None);
 ```
 
@@ -666,8 +696,8 @@ expression that is not a rule is refused at the part that is not one, with what 
   expression": the path of [`#[pun(crate = ..)]`][macro@Pun#crate] names items other than those of
   `puns` ([The generated code][trust#the-generated-code]).
 
-A rule that reads a field that is not an unsigned integer is refused, and [Fields in a
-rule][rules#fields-in-a-rule] shows its message and its fix. A getter of `#[pun(get(..))]` that
+A rule that reads a field that is not an integer, or a signed one without a cast, is refused, and
+[Fields in a rule][rules#fields-in-a-rule] shows its message and its fixes. A getter of `#[pun(get(..))]` that
 reads such a field is refused where it is called, which `cargo check` does not report:
 
 ```rust,compile_fail,E0080
@@ -705,6 +735,8 @@ let level: &Level = puns::from_bytes(&[0xff]).unwrap();
 assert!(level.negative());
 ```
 
+[`aim_mut`]: https://docs.rs/puns/0.2.4/puns/fn.aim_mut.html
+[`from_bytes`]: https://docs.rs/puns/0.2.4/puns/fn.from_bytes.html
 [`from_head`]: https://docs.rs/puns/0.2.4/puns/fn.from_head.html
 [`from_tail`]: https://docs.rs/puns/0.2.4/puns/fn.from_tail.html
 [`head_mut`]: https://docs.rs/puns/0.2.4/puns/fn.head_mut.html
@@ -714,14 +746,15 @@ assert!(level.negative());
 [`tail_mut`]: https://docs.rs/puns/0.2.4/puns/fn.tail_mut.html
 [`tail_ref`]: https://docs.rs/puns/0.2.4/puns/fn.tail_ref.html
 [`try_pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_ref.html
-[`validate_but_never`]: https://docs.rs/puns/0.2.4/puns/fn.validate_but_never.html
 [`zeroed`]: https://docs.rs/puns/0.2.4/puns/fn.zeroed.html
+[aims]: aims.md
 [concepts#proven-checked-and-refused]: concepts.md#proven-checked-and-refused
 [concepts#requirements]: concepts.md#requirements
 [functions#writes-leave-a-valid-source]: functions.md#writes-leave-a-valid-source
 [functions#writing-through-mut]: functions.md#writing-through-mut
+[layouts#the-same-type]: layouts.md#the-same-type
+[layouts#what-puns-assumes]: layouts.md#what-puns-assumes
 [macro@Pun#compile-time-errors]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#compile-time-errors
-[opaque scalar]: concepts.md#opaque-scalars
 [macro@Pun#crate]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#crate
 [macro@Pun#enums-with-fields]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
 [rules]: rules.md

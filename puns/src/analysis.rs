@@ -198,14 +198,17 @@
 //! # Rules
 //!
 //! Rules are checked when a value is made from something else, and tell `from_head` how long a
-//! value is. A rule is proven only by the same rules, at the same place of the source, in a struct
-//! of the same extent ([`proves_rules`]), as [Why the pair
-//! decides](crate::reference::concepts#why-the-pair-decides) states. [`Layout::same_rules`]
-//! says why such a struct computes the same rules over the same bytes, whatever its fields, which
-//! are related to the target as any others. This is how `Frame<Ipv4<Udp>>` proves the rules of
-//! `Frame<Ipv4>`, since the payload of `Ipv4` is a typed region of its bytes, not a field of
-//! another type. A part of a struct of a dynamic size has another size, so it does not prove the
-//! rules of a struct of its own size.
+//! value is. Each rule of a struct is a leaf of its own, proven or checked on its own. A rule is
+//! proven only by the same rule, at the same place of the source, in a struct of the same extent
+//! ([`proves_rule`]), as [Why the pair decides](crate::reference::concepts#why-the-pair-decides)
+//! states. [`Layout::same_extent`] and [`Layout::has_rule`] say why such a struct computes the same
+//! rule over the same bytes, whatever its fields, which are related to the target as any others,
+//! and whatever its other rules, but for an aim at the cursor, which the aims at the cursor before
+//! it place: the source must have the same ones first. A rule that is proven is not checked, though
+//! the step of a proven aim at the cursor is still taken where a checked one follows it. This is
+//! how `Frame<Ipv4<Udp>>` proves the rules of `Frame<Ipv4>`, since the payload of `Ipv4` is a typed
+//! region of its bytes, not a field of another type. A part of a struct of a dynamic size has
+//! another size, so it does not prove the rules of a struct of its own size.
 //!
 //! The elements of an array or a slice share their leaves, so their rules are proven together.
 //! Where the source has elements of the same size at the same place, each element is to the source
@@ -237,22 +240,18 @@
 //!   the multiples of the greatest common divisor of the sizes, of which every sum of sizes is one.
 //!   A few of these offsets are in no order, such as the second byte of a `(bool, [u8; 3])`, so
 //!   more is then required, never less. A struct that has a rule, which names fields, proves only
-//!   itself, as an enum does. As a target, a part that holds a scalar that a pun never makes is
-//!   proven by nothing, not even by itself ([`Layout::holds_never`]), and is refused in every
-//!   layout.
+//!   itself, as an enum does.
 //! - **A check does not replace a proof in an opaque node,** since a check would read where the
 //!   compiler may not have put the field. What is not proven does not compile
 //!   ([`Relation::unspecified`]), and whatever reads a relation reads this, including what a
 //!   variant of a view takes from another (`base` in `view.rs`), and an enum or a union that would
 //!   be checked as a whole, fields included, which the relations of its variants report. So the
 //!   marks of the analysis, which tell validation what to check, are at places that every layout
-//!   shares. Such a node is still read by a check in two cases, whose answer is the same in every
+//!   shares. Such a node is still read by a check in one case, whose answer is the same in every
 //!   layout. A union that a later field proves is not refused for an earlier field that is not
 //!   proven, and where its leaf is marked for another reason, its check tries that field first,
-//!   where `rustc` put its fields: the later field accepts whatever that field does not. And a
-//!   part that holds a scalar that a pun never makes is never valid, so the enum of a variant that
-//!   holds it is checked as a whole, and the check reads the fields of the part. Since a field may
-//!   be anywhere in the node, such a node is refused there if any byte under it may be
+//!   where `rustc` put its fields: the later field accepts whatever that field does not. Since a
+//!   field may be anywhere in the node, such a node is refused there if any byte under it may be
 //!   uninitialized in the source ([`Relation::unreadable`]).
 //!
 //! A check must not read a byte of the source that, in another layout that Rust allows, holds
@@ -268,15 +267,15 @@
 //! only if what Rust does not specify of them is of the same type ([`equal`]). A `&mut` to a part
 //! covers such a node whole, by the same type, or not at all ([`cut`]). A pun of a type whose size
 //! Rust does not specify compiles only if both sides are the same type ([`sizes_kept`]).
-//! [`validate_but_never`](crate::validate_but_never) compiles only if nothing that Rust does not
-//! specify has something to check ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does not
-//! accept zeros that make a part whose representation Rust does not specify, other than a struct or
-//! a tuple (`Stable::specified`).
+//! The check of the pointee of an eager aim compiles only if nothing that Rust does not specify in
+//! the pointee has something to check ([`Layout::checks_kept`]), and [`zeroed`](crate::zeroed) does
+//! not accept zeros that make a part whose representation Rust does not specify and `puns` does not
+//! assume, other than a struct or a tuple (`Stable::specified`).
 //!
 //! [valid]: crate::reference::concepts#what-is-a-valid-value
 
 use crate::layout::{
-  Dfa, Endian, Kind, Layout, Op, Spec, Tags, UNSTABLE, Uniform, Valid, max_value,
+  Dfa, Endian, Kind, Layout, Op, Rule, Spec, Tags, UNSTABLE, Uniform, Valid, max_value,
 };
 
 /// Whether a part of a layout that Rust leaves to the compiler is opaque to the analysis.
@@ -542,10 +541,13 @@ impl Cursor {
         // source has the same elements, what holds for one element holds for the one at the top.)
         marked = true;
       }
-      if frame.layout.rules_read_bytes()
-        && (marked || !proves_rules(source, frame.base, frame.layout))
-      {
-        return true;
+      let rules = frame.layout.rules();
+      let mut r = 0;
+      while r < rules.len() {
+        if rules[r].reads_bytes() && (marked || !proves_rule(source, frame.base, frame.layout, r)) {
+          return true;
+        }
+        r += 1;
       }
       i += 1;
     }
@@ -1025,8 +1027,8 @@ const fn reads_moved(
   }
   match target.kind {
     Kind::Struct(fields, rules) => {
-      // Its rules, the last of its leaves, read any of its bytes.
-      let rules_read = !rules.is_empty() && marks.any(leaf + target.leaves - 1, 1);
+      // Its rules, its last leaves, read any of its bytes.
+      let rules_read = marks.any(leaf + target.rule_leaf(0), rules.len());
       if rules_read && moves(source, base_a, lo, hi, tag) {
         return Some(lo);
       }
@@ -1272,10 +1274,6 @@ const fn relate_range(
         if out.partial.is_none() {
           out.partial = Some(pos);
         }
-        // No check accepts a scalar that a pun never makes.
-        if b.stack[0].layout.holds_never() && out.disjoint.is_none() {
-          out.disjoint = Some(pos);
-        }
         // A part whose layout Rust leaves to the compiler is recorded too, since a check would read
         // it where `rustc` put it.
         if !b.stack[0].layout.checks_kept() {
@@ -1301,12 +1299,9 @@ const fn relate_range(
     if let RunKind::Opaque(target) = run_b.kind {
       let stop = min(run_b.end, end);
       let whole = run_b.start == pos && run_b.end <= end;
-      // Not a part that holds a scalar that a pun never makes, which nothing proves, not even the
-      // same type.
       let same = matches!(run_a.kind, RunKind::Opaque(source) if same_type(source, target))
         && run_a.start == pos
-        && whole
-        && !target.holds_never();
+        && whole;
       let fields = if same || !whole { (false, None) } else { relate_fields(a, b, target, pos) };
       let proven = same || fields.0;
       // Proven, but what a check of it would read may be uninitialized in the source.
@@ -1318,17 +1313,11 @@ const fn relate_range(
         && target.leaves > 0
         && let Some(at) = uninit_from(a, pos, stop, &b.known)
       {
-        // Not proven, yet checked where a union that a later field proves tries it, or where the
-        // enum of a variant that holds it is checked as a whole. The check reads its fields where
-        // `rustc` put them, so any byte under it counts.
+        // Not proven, yet checked where a union that a later field proves tries it. The check reads
+        // its fields where `rustc` put them, so any byte under it counts.
         out.unreadable(run_b.leaf, target.leaves, at);
       }
-      if !proven && target.holds_never() {
-        // Refused in every layout, so not for the layout.
-        if out.disjoint.is_none() {
-          out.disjoint = Some(pos);
-        }
-      } else if !proven {
+      if !proven {
         out.unspecified(pos);
       }
       pos = stop;
@@ -1506,8 +1495,7 @@ const fn relate_fields(
 /// Each variant of `a` is related with the variants of `b` that its tags are tags of, knowing
 /// that the tag is one of both. A variant of `a` is proven if all its tags are of one variant of
 /// `b`, which it proves. If a variant of `a` is not proven, the enum is marked, and checked as a
-/// whole at run time. Returns `true` at once if `a` and `b` are the same layout ([`equal`]) that
-/// holds no scalar that a pun never makes, which nothing proves, not even the same layout.
+/// whole at run time. Returns `true` at once if `a` and `b` are the same layout ([`equal`]).
 ///
 /// Returns `false`, having done nothing, if either is a union, if `a` is smaller than `b`, or if
 /// their tags differ in place, size or byte order.
@@ -1518,7 +1506,7 @@ const fn relate_enums(
   leaf: usize,
   out: &mut Relation,
 ) -> bool {
-  if equal(a, b) && !b.holds_never() {
+  if equal(a, b) {
     // Proven without reading anything. A check of it would read what the same type does not
     // promise to be initialized, such as the bytes of a union.
     if !checkable(b) {
@@ -1985,13 +1973,10 @@ const fn gather(a: &mut Cursor, start: usize, end: usize) -> ([Piece; 16], usize
 ///
 /// # Errors
 ///
-/// Returns `None` if one of the pieces may be uninitialized, unless `spec` is a scalar that a pun
-/// never makes, which no source is, whatever its pieces hold.
+/// Returns `None` if one of the pieces may be uninitialized.
 const fn atom_relation(pieces: &[Piece; 16], len: usize, spec: &Spec) -> Option<Rel> {
   let ranges = match spec.valid {
     Valid::In(ranges) => ranges,
-    // No value of the source is one, whatever it holds.
-    Valid::Never => return Some(Rel::Disjoint),
     Valid::Any | Valid::Uninit => panic!("not an atom"),
   };
   // What is known of the pieces: a restriction that the type system does not enforce only
@@ -2480,9 +2465,10 @@ const fn pattern_product(a: &Dfa, from_a: u64, b: &Dfa, from_b: u64) -> bool {
 ///
 /// `target` is at `base` from the start of `source`, and its first leaf is `leaf`. A rule is not
 /// a property of bytes. It is proven only by the same rule, at the same place of the source, in
-/// a struct of the same extent ([`proves_rules`]). The elements of an array share their leaves,
-/// so their rules are proven all at once or not at all. They are proven where the source has as
-/// many elements of the same size at the same place ([`same_elements`]).
+/// a struct of the same extent ([`proves_rule`]), and each rule of a struct is proven or marked on
+/// its own, at its leaf. The elements of an array share their leaves, so their rules are proven
+/// all at once or not at all. They are proven where the source has as many elements of the same
+/// size at the same place ([`same_elements`]).
 const fn mark_rules(
   source: &'static Layout,
   target: &'static Layout,
@@ -2495,8 +2481,12 @@ const fn mark_rules(
   }
   match target.kind {
     Kind::Struct(fields, rules) => {
-      if !rules.is_empty() && !proves_rules(source, base, target) {
-        out.mark(leaf + target.leaves - 1, base);
+      let mut r = 0;
+      while r < rules.len() {
+        if !proves_rule(source, base, target, r) {
+          out.mark(leaf + target.rule_leaf(r), base);
+        }
+        r += 1;
       }
       let mut i = 0;
       while i < fields.len() {
@@ -2526,8 +2516,10 @@ const fn mark_all_rules(target: &'static Layout, base: usize, leaf: usize, out: 
   }
   match target.kind {
     Kind::Struct(fields, rules) => {
-      if !rules.is_empty() {
-        out.mark(leaf + target.leaves - 1, base);
+      let mut r = 0;
+      while r < rules.len() {
+        out.mark(leaf + target.rule_leaf(r), base);
+        r += 1;
       }
       let mut i = 0;
       while i < fields.len() {
@@ -2540,19 +2532,25 @@ const fn mark_all_rules(target: &'static Layout, base: usize, leaf: usize, out: 
   }
 }
 
-/// Returns whether `source` has, at `offset`, a struct whose rules are those of the struct
+/// Returns whether `source` has, at `offset`, a struct that has the rule `r` of the struct
 /// `target`.
 ///
-/// The rules must be the same function of the same bytes ([`Layout::same_rules`]). They then
-/// hold of the target if they hold of the source. The fields are not compared, since those of the
-/// target are related to the source as any other. Without the `unstable` feature, both structs
-/// must have a layout that Rust specifies, or be the same type. Nothing is looked for inside a
-/// part of the source whose layout Rust leaves to the compiler.
-const fn proves_rules(source: &'static Layout, offset: usize, target: &'static Layout) -> bool {
-  // The same rules of the same bytes: of the same fields at the same offsets, which Rust specifies
+/// The rule must be the same function of the same bytes: a struct of the same extent with the same
+/// rule, after the same aims at the cursor if it is one ([`Layout::same_extent`],
+/// [`Layout::has_rule`]). It then holds of the target if it holds of the source. The fields are not
+/// compared, since those of the target are related to the source as any other. Without the
+/// `unstable` feature, both structs must have a layout that Rust specifies, or be the same type.
+/// Nothing is looked for inside a part of the source whose layout Rust leaves to the compiler.
+const fn proves_rule(
+  source: &'static Layout,
+  offset: usize,
+  target: &'static Layout,
+  r: usize,
+) -> bool {
+  // The same rule of the same bytes: of the same fields at the same offsets, which Rust specifies
   // for both, or which are those of the same type.
   let kept = !STRICT || (source.stable.fixed && target.stable.fixed) || same_type(source, target);
-  if offset == 0 && kept && source.same_rules(target) {
+  if offset == 0 && kept && source.same_extent(target) && source.has_rule(target, r) {
     return true;
   }
   // Rust leaves to the compiler where the fields of the source are, so nothing is looked for in it.
@@ -2568,7 +2566,7 @@ const fn proves_rules(source: &'static Layout, offset: usize, target: &'static L
         let inside = field.layout.is_dynamic() || offset < field.offset + field.layout.size;
         if offset >= field.offset
           && inside
-          && proves_rules(field.layout, offset - field.offset, target)
+          && proves_rule(field.layout, offset - field.offset, target, r)
         {
           return true;
         }
@@ -2577,11 +2575,23 @@ const fn proves_rules(source: &'static Layout, offset: usize, target: &'static L
       false
     }
     Kind::Array(elem, len) => {
-      elem.size > 0 && offset / elem.size < len && proves_rules(elem, offset % elem.size, target)
+      elem.size > 0 && offset / elem.size < len && proves_rule(elem, offset % elem.size, target, r)
     }
-    Kind::Slice(elem) => elem.size > 0 && proves_rules(elem, offset % elem.size, target),
+    Kind::Slice(elem) => elem.size > 0 && proves_rule(elem, offset % elem.size, target, r),
     Kind::Scalar(_) | Kind::Pattern(_) | Kind::Enum(_) => false,
   }
+}
+
+/// Returns whether `source` has, at `offset`, every rule of the struct `target` ([`proves_rule`]).
+const fn proves_rules(source: &'static Layout, offset: usize, target: &'static Layout) -> bool {
+  let mut r = 0;
+  while r < target.rules().len() {
+    if !proves_rule(source, offset, target, r) {
+      return false;
+    }
+    r += 1;
+  }
+  true
 }
 
 /// Returns whether `source` has, at `offset`, at least as many elements as the array or slice
@@ -2792,7 +2802,7 @@ const fn uninit_from(a: &mut Cursor, mut pos: usize, end: usize, known: &Known) 
 /// A rule that reads the bytes of its struct by offset reads all of them: its padding, and what
 /// the source has under a part that is proven without being read, such as an enum. So every byte
 /// of the struct must then be initialized in the source for the rule to be checked. Any other rule
-/// reads the fields that it loads ([`rules_uninit`]), which may be bytes of any value that the
+/// reads the fields that it loads ([`rule_uninit`]), which may be bytes of any value that the
 /// source leaves uninitialized, such as a byte of a union. The elements of an array share their
 /// leaves. Where the source has elements of the same size at the same place ([`same_elements`]),
 /// the first element tells of each. Otherwise each element is looked at, up to [`CUT_ELEMENTS`] of
@@ -2813,9 +2823,15 @@ const fn unreadable_rules(
   }
   let stop = min(extent_end(target, base), end);
   match target.kind {
-    Kind::Struct(fields, _) => {
-      if let Some(pos) = rules_uninit(source, base_a, target, base, stop, known) {
-        out.unreadable(leaf + target.leaves - 1, 1, pos);
+    Kind::Struct(fields, rules) => {
+      // Most sources have no such byte under the struct, which one search tells.
+      let any = !rules.is_empty() && uninit_in(source, base_a, base, stop, known).is_some();
+      let mut r = 0;
+      while any && r < rules.len() {
+        if let Some(pos) = rule_uninit(source, base_a, &rules[r], base, stop, known) {
+          out.unreadable(leaf + target.rule_leaf(r), 1, pos);
+        }
+        r += 1;
       }
       let mut i = 0;
       while i < fields.len() {
@@ -2852,7 +2868,7 @@ const fn unreadable_rules(
 }
 
 /// Records, as rules that must not be checked for the byte at `pos`, the rules of every struct of
-/// `target` that read bytes of their struct ([`rules_read`]). The first leaf of `target` is `leaf`.
+/// `target` that read bytes of their struct ([`rule_reads`]). The first leaf of `target` is `leaf`.
 const fn unreadable_all_rules(
   target: &'static Layout,
   leaf: usize,
@@ -2863,9 +2879,13 @@ const fn unreadable_all_rules(
     return;
   }
   match target.kind {
-    Kind::Struct(fields, _) => {
-      if rules_read(target) {
-        out.unreadable(leaf + target.leaves - 1, 1, pos);
+    Kind::Struct(fields, rules) => {
+      let mut r = 0;
+      while r < rules.len() {
+        if rule_reads(&rules[r]) {
+          out.unreadable(leaf + target.rule_leaf(r), 1, pos);
+        }
+        r += 1;
       }
       let mut i = 0;
       while i < fields.len() {
@@ -2878,29 +2898,27 @@ const fn unreadable_all_rules(
   }
 }
 
-/// Returns the offset of the first byte of the struct `target`, at `base`, that its rules read and
+/// Returns the offset of the first byte of the struct at `base` that its rule `rule` reads and
 /// that may be uninitialized in `source`, which is at `base_a`. Only the bytes before `stop` count.
 /// The bytes that `known` covers are initialized.
 ///
-/// A rule that reads bytes by offset ([`Layout::rules_read_bytes`]) reads every byte of the struct.
-/// Any other rule reads the fields that it loads ([`Op::Load`]), in a walk too, and in a branch
-/// that may not be computed.
-const fn rules_uninit(
+/// A rule that reads bytes by offset ([`Rule::reads_bytes`]) reads every byte of the struct. Any
+/// other rule reads the fields that it loads ([`Op::Load`]), in a walk too, and in a branch that
+/// may not be computed.
+const fn rule_uninit(
   source: &'static Layout,
   base_a: usize,
-  target: &'static Layout,
+  rule: &Rule,
   base: usize,
   stop: usize,
   known: &Known,
 ) -> Option<usize> {
-  // Most sources have no such byte under the struct, which one search tells.
-  let Some(first) = uninit_in(source, base_a, base, stop, known) else { return None };
-  if target.rules_read_bytes() {
-    return Some(first);
+  if rule.reads_bytes() {
+    return uninit_in(source, base_a, base, stop, known);
   }
-  let (rules, mut i) = (target.rules(), 0);
-  while i < rules.len() {
-    if let Some(ops) = rules[i].ops()
+  let mut i = 0;
+  while i < 2 {
+    if let Some(ops) = rule.expression(i)
       && let Some(pos) = loads_uninit(ops, source, base_a, base, stop, known)
     {
       return Some(pos);
@@ -2911,7 +2929,7 @@ const fn rules_uninit(
 }
 
 /// Returns the offset of the first byte that the expression `ops` loads, of a struct at `base`,
-/// and that may be uninitialized in `source`, as [`rules_uninit`] does.
+/// and that may be uninitialized in `source`, as [`rule_uninit`] does.
 const fn loads_uninit(
   ops: &[Op],
   source: &'static Layout,
@@ -2941,15 +2959,15 @@ const fn loads_uninit(
   None
 }
 
-/// Returns whether a check of the rules of the struct `layout` reads any of its bytes: by offset
-/// ([`Layout::rules_read_bytes`]), or the fields that it loads ([`Op::Load`]).
-const fn rules_read(layout: &Layout) -> bool {
-  if layout.rules_read_bytes() {
+/// Returns whether a check of the rule `rule` reads any byte of its struct: by offset
+/// ([`Rule::reads_bytes`]), or the fields that it loads ([`Op::Load`]).
+const fn rule_reads(rule: &Rule) -> bool {
+  if rule.reads_bytes() {
     return true;
   }
-  let (rules, mut i) = (layout.rules(), 0);
-  while i < rules.len() {
-    if let Some(ops) = rules[i].ops()
+  let mut i = 0;
+  while i < 2 {
+    if let Some(ops) = rule.expression(i)
       && ops_load(ops)
     {
       return true;

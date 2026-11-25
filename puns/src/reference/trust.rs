@@ -2,18 +2,26 @@
 // definition of a link, so these, before it, make its links to items and chapters intra-doc.
 //! [enums]: macro@Pun#enums-with-fields
 //! [sample]: macro@Pun#enums-with-fields
+//! [`Aim`]: layout::Aim
+//! [`AimOf`]: AimOf
+//! [`aim_mut`]: aim_mut
+//! [`aim`]: aim
+//! [`Check`]: layout::Check
 //! [`Checksum`]: layout::Checksum
 //! [`Crc`]: layout::Crc
 //! [`Enum`]: layout::Enum
+//! [`Extent`]: layout::Extent
 //! [`Field`]: layout::Field
+//! [`InPlace`]: InPlace
 //! [`Layout`]: layout::Layout
 //! [`Op`]: layout::Op
+//! [`Pun`]: trait@Pun
 //! [`Rule`]: layout::Rule
 //! [`Spec`]: layout::Spec
+//! [`Start`]: layout::Start
 //! [`Varint`]: layout::Varint
 //! [`Variant`]: layout::Variant
 //! [independence]: super::layouts#layout-independence
-//! [opaque scalar]: super::concepts#opaque-scalars
 //! [rust#the-tag-of-an-enum-of-the-rust-representation]: super::rust#the-tag-of-an-enum-of-the-rust-representation
 //! [rust#the-variant-read-from-the-tag]: super::rust#the-variant-read-from-the-tag
 //! [same]: super::layouts#the-same-type
