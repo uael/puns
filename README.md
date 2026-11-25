@@ -31,7 +31,7 @@ assert_eq!(bools, &[true, false, true]);
 
 // A byte is only a `Switch` if it's 0 or 1, so `from_bytes` checks each one.
 assert_eq!(puns::from_bytes::<[Switch; 2]>(&[1, 0]), Ok(&[Switch::On, Switch::Off]));
-assert_eq!(puns::from_bytes::<[Switch; 2]>(&[1, 2]), Err(puns::Error::Validity));
+assert_eq!(puns::from_bytes::<[Switch; 2]>(&[1, 2]), Err(puns::Error::Validity { at: 1 }));
 ```
 
 The first conversion costs nothing at run time. Every `Switch` is already a valid `bool`, so
@@ -101,7 +101,7 @@ assert_eq!(rest, [0xff]);
 
 // The same packet with a wrong CRC.
 let wrong = [1, 64, 0, 3, 0, 0, 0, 0, b'a', b'b', b'c'];
-assert_eq!(puns::from_head::<Packet>(&wrong).err(), Some(puns::Error::Validity));
+assert_eq!(puns::from_head::<Packet>(&wrong).err(), Some(puns::Error::Validity { at: 0 }));
 
 // A router lowers the TTL in place. The CRC only covers the payload, so it stays valid.
 let mut buffer = [1, 64, 0, 3, 0x35, 0x24, 0x41, 0xc2, b'a', b'b', b'c'];
@@ -205,7 +205,7 @@ only on nightly.
 - A checksum inside a `walk` multiplies the cost of a check by the size of the data, and each
   extra level of nesting multiplies it again. Limit the size of untrusted input for such types
   ([details][costs]).
-- An [`Error`][error-type] doesn't tell you which field or rule failed.
+- An [`Error`][error-type] tells you where the bytes fail, as an offset, but not which rule failed.
 - `from_bytes` and the other functions that follow the pointers of a struct check what they point
   at to any depth, with a stack that the types bound, not the data. They return `Error::Validity`
   for a pointee that two pointers share, that overlaps a value, or that a cycle reaches, unless
