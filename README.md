@@ -285,7 +285,7 @@ compares the two types of each conversion. Read on 2026-11-23, with `zerocopy` 0
 
 | | `puns` | `zerocopy` and `bytemuck` |
 |---|---|---|
-| `&[Switch]` as `&[bool]` | free ([code and machine code][comparison]) | checks every byte, and returns a `Result` |
+| `&[Switch]` as `&[bool]` | proven, with no check at run time ([code and machine code][comparison]) | checks every byte, and returns a `Result` |
 | A checksum | declared on the type, and checked by `from_bytes` | computed and compared by your code |
 | The rules of one type prove those of another | [yes][pairs] | no |
 | Errors | refusals, which your editor doesn't report | mostly trait bounds, which your editor reports right away |
@@ -313,8 +313,8 @@ errors] what to expect of the messages.
 ### Performance
 
 For packets, checked puns take from 0.55 to 1.13 times as long as the same checks written by hand.
-Over all 33 cases, CRCs included, they take from 0.038 to 1.52 times as long. What you pay for is
-mostly build time. The chart shows the time of each check relative to the same check written by
+Over all 33 cases, CRCs included, they take from 0.038 to 1.52 times as long. The main cost is the
+time to build. The chart shows the time of each check relative to the same check written by
 hand, measured on 2026-11-21 at commit `4176671`. [Performance][performance] has the method, the
 machine code and the build times.
 
