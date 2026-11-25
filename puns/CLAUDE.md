@@ -149,31 +149,30 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   as an `M` that ends with the length, at which the pointer points, and nothing for a sized `T`
   (`Metadata::Stored`). `Pun::Metadata` is a sealed `Metadata`, `()` exactly when the layout is
   sized (`Layout::measured` asserts it of every struct).
-- The functions that check in place (`from_head` and the others) check a pointee within the check
-  of the struct whose aim leads to it, a recursion that the parts of the layouts of the pointees
-  bound (`AIM_PARTS`, `Layout::parts`). Past them, `validate::validate_root` checks again from the
-  root with loops (`validate::Loops`): a pointee that holds an eager aim waits for the loop of its
-  type (`validate::run`), the first in a register, the others in 64 entries in the frame of the
-  first loop, one above another, and one whose type has a loop lower on the path is put on top of
-  the entries of that loop (`Loops::wait_below`). Two types are one where a proof of an aim takes
-  them for one: identity, size and alignment (`validate::PointeeType`). What a loop does not take
-  (its values, the pointees without an eager aim or an identity, those past the entries) is checked
-  in place, from `AIM_PARTS` again, and `Error::Limit` is where that nests too deep. The check in
-  place runs first and alone for data within `AIM_PARTS`, and the check with loops has instances
-  of its own (`validate::InLoops`, `validate::Looped`), since loops keep in memory what the
-  recursion keeps in registers: `benches/checks.rs` times both, with wide and deep data. So their
-  stack does not depend on the bytes, and stays within what an embedded target has: `AIM_PARTS`
-  holds the one statement of the measured figures and how they were measured. Each part nests a
-  few calls of the validation, and `tests/aims.rs` runs data of each shape past `AIM_PARTS` on a
-  thread of 64 KiB. A change of the validation that makes its frames larger is measured again.
-  The functions on that path hold no copy of a layout, a field or a rule, and what reads one, or
-  computes before the recursion, is a function of its own in a build without optimizations
-  (`cfg_attr(not(debug_assertions), inline(always))`: "The stack of a check in place" in the
-  documentation of `validate`), so that the frames that wait hold little. Optimized, all of it is
-  inlined, as `examples/codegen.rs` checks, but `validate::start`, whose entries would otherwise
-  take stack in every caller. An assertion of a type that a check makes in `const` is an
-  associated constant of its own (`validate::AimOf`, `FieldAt`, `RulesOf`), so that a refusal is
-  reported once, whatever instances check it.
+- The functions that check in place (`from_head` and the others) check, in one pass, a pointee
+  whose type holds an eager aim and has an identity in a loop of its type (`validate::run`), not
+  within the check of the struct whose aim leads to it: the first in a register, the others in 64
+  entries in the frame of the first loop, one above another, and one whose type has a loop lower
+  on the path is put on top of the entries of that loop (`Loops::wait_below`). So the frames are
+  one for each type on the path, in `const` too, whatever the data. What a loop does not take (its
+  values, the pointees without an eager aim or an identity, those past the entries) is checked in
+  place, a recursion that the parts of the layouts bound (`AIM_PARTS`, `Layout::parts`), and
+  `Error::Limit` is where that nests too deep. Leaves are checked with `All` whatever the loop
+  (`validate::check_whole`), so that they have one instance. Optimized, the first loop is inlined
+  into the function that holds the `Input` (`validate::start`), whose fields then stay in
+  registers across the calls of the check: `benches/checks.rs` times it, with wide and deep data.
+  So the stack does not depend on the bytes, and stays within what an embedded target has:
+  `AIM_PARTS` holds the one statement of the measured figures and how they were measured. Each
+  part nests a few calls of the validation, and `tests/aims.rs` runs data of each shape past
+  `AIM_PARTS` on a thread of 64 KiB, and a list of 1,000 in a `const`. A change of the validation
+  that makes its frames larger is measured again. The functions on that path hold no copy of a
+  layout, a field or a rule, and what reads one, or computes before the recursion, is a function
+  of its own in a build without optimizations (`cfg_attr(not(debug_assertions),
+  inline(always))`: "The stack of a check" in the documentation of `validate`), so that the frames
+  that wait hold little. Optimized, all of it is inlined, as `examples/codegen.rs` checks. An
+  assertion of a type that a check makes in `const` is an associated constant of its own
+  (`validate::AimOf`, `FieldAt`, `RulesOf`), so that a refusal is reported once, whatever
+  instances check it.
 - `check` and `check_compact` check with `validate::Work`: every pointee of an eager aim waits in
   the worklist (`Pending`, a stage and where it applies), and `validate::drive`, one function for
   every type (its steps are function pointers, the worklist a trait object), runs them depth

@@ -634,12 +634,12 @@
 //!   pointee must be within them, aligned for its type, of a size that its type has, and every part
 //!   of it is checked, what it stores before its value first, its own eager aims included, one
 //!   level deeper. A pointee may be before the struct, and may be shared by several aims. These
-//!   functions check the pointees in place, one within another, up to [`AIM_PARTS`] parts of their
-//!   layouts, a few levels of a type that points at itself, and deeper data again with a loop for
-//!   each type of pointee, so that their stack does not grow with the data, and is small enough
-//!   for an embedded target ([`AIM_PARTS`] says how much). They stop with [`Error::Limit`] past
-//!   pointees of twice as many bytes as they read, so that a check of a cycle ends, and where the
-//!   loops cannot take the pointees that wait ([`AIM_PARTS`] says when). They allocate nothing.
+//!   functions check the pointees of a type that points at itself, in one pass, with a loop for
+//!   each type of pointee, so that their stack does not grow with the data, in a `const` too, and
+//!   is small enough for an embedded target ([`AIM_PARTS`] says how much). They stop with
+//!   [`Error::Limit`] past pointees of twice as many bytes as they read, so that a check of a cycle
+//!   ends, and where the loops cannot take the pointees that wait ([`AIM_PARTS`] says when). They
+//!   allocate nothing.
 //! - [`check`] and [`check_compact`] check bytes for a value at any depth, with a stack that does
 //!   not grow with the data: the pointees wait in a [`Worklist`] that the caller gives, each value
 //!   before its pointees, depth first. They make no reference, so the bytes may be at any address,
@@ -1109,10 +1109,6 @@
 //!   take the pointees that wait: a chain of a type without an identity, a chain each of whose
 //!   values has several pointees of its type, or a path through many types ([`AIM_PARTS`]).
 //!   [`check`] has no such bound.
-//! - A check evaluated when compiling, in a `const`, of pointees that nest past [`AIM_PARTS`]
-//!   parts, nests more frames of the evaluation than the 128 that Rust allows by default before it
-//!   starts again with loops: 141 to 144 for a list of an enum of two variants. The attribute
-//!   `#![recursion_limit = "160"]` of the crate raises it.
 //! - A union does not hold an eager aim.
 //! - The build time of a view enum whose variants overlap grows with the square of the number of
 //!   variants, or faster.
@@ -1982,7 +1978,7 @@ pub use layout::{crc32, sum16};
 pub use puns_derive::Pun;
 pub use thin::{Metadata, Pointee, Thin};
 pub use validate::{AIM_PARTS, Pending};
-use validate::{All, Checks, Input, validate, validate_root};
+use validate::{All, Checks, Input, validate};
 
 // -------------------------------------------------------------------------------------------------
 // Traits
@@ -3655,15 +3651,14 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
       }
     }
     let target = ptr::from_raw_parts::<D>(addr, len);
-    // SAFETY: This satisfies the safety contract of `validate_root`, that of `validate`, which does
-    // not require `target` to be aligned. `target` is at the address of `source`, and its extent is
-    // the extent of `source`, which is checked above. Its size is at most the size of `source`.
-    // This is checked above if `D` is unsized and more aligned than `S`. Otherwise `D` is sized,
-    // and its size is its extent, or it is unsized and its extent is rounded up to an alignment
-    // that divides that of `S`. So `target` is valid for reads of a `D`, by contract on the caller.
-    // Every byte that a marked check reads is initialized, by contract on the caller, and the bytes
-    // of `input` hold it.
-    if !unsafe { validate_root::<C, D>(target, input) } {
+    // SAFETY: This satisfies the safety contract of `validate`, which does not require `target` to
+    // be aligned. `target` is at the address of `source`, and its extent is the extent of `source`,
+    // which is checked above. Its size is at most the size of `source`. This is checked above if
+    // `D` is unsized and more aligned than `S`. Otherwise `D` is sized, and its size is its extent,
+    // or it is unsized and its extent is rounded up to an alignment that divides that of `S`. So
+    // `target` is valid for reads of a `D`, by contract on the caller. Every byte that a marked
+    // check reads is initialized, by contract on the caller, and the bytes of `input` hold it.
+    if !unsafe { validate::<C, Root, D>(target, input) } {
       return Err(if input.limit { Error::Limit } else { Error::Validity });
     }
     Ok(target)
@@ -4853,11 +4848,11 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     let target = ptr::from_raw_parts::<D>(addr, len);
     // The pointees of eager aims are looked for in the `n` bytes.
     let mut input = Input::new(addr, n);
-    // SAFETY: This satisfies the safety contract of `validate_root`, that of `validate`. `target`
-    // is at `addr`, and its size, `size`, is at most `n`, which is checked above. So it is valid
-    // for reads of a `D`, by contract on the caller. Every one of the `n` bytes is initialized, by
-    // contract on the caller, so every byte that a check reads is.
-    if !unsafe { validate_root::<C, D>(target, &mut input) } {
+    // SAFETY: This satisfies the safety contract of `validate`. `target` is at `addr`, and its
+    // size, `size`, is at most `n`, which is checked above. So it is valid for reads of a `D`, by
+    // contract on the caller. Every one of the `n` bytes is initialized, by contract on the
+    // caller, so every byte that a check reads is.
+    if !unsafe { validate::<C, Root, D>(target, &mut input) } {
       return Err(if input.limit { Error::Limit } else { Error::Validity });
     }
     Ok((target, size))
@@ -4885,11 +4880,10 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
       return Err(Error::Alignment);
     }
     let target = ptr::from_raw_parts::<D>(addr, 0);
-    // SAFETY: This satisfies the safety contract of `validate_root`, that of `validate`. `D` is
-    // `Sized`, by contract on the caller, and `target` is the `size_of::<D>()` bytes from `start`,
-    // which end at `n`. So it is valid for reads of a `D`, and its bytes are initialized, by
-    // contract on the caller.
-    if !unsafe { validate_root::<Self, D>(target, &mut input) } {
+    // SAFETY: This satisfies the safety contract of `validate`. `D` is `Sized`, by contract on the
+    // caller, and `target` is the `size_of::<D>()` bytes from `start`, which end at `n`. So it is
+    // valid for reads of a `D`, and its bytes are initialized, by contract on the caller.
+    if !unsafe { validate::<Self, Root, D>(target, &mut input) } {
       return Err(if input.limit { Error::Limit } else { Error::Validity });
     }
     Ok((start, target))

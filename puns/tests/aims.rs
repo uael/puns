@@ -4,11 +4,6 @@
 //! The pointees are read with the provenance of the bytes that hold them (`Near::get`,
 //! `puns::aim`), as the stacked borrows model of Miri requires; `aim_reads.rs` reads them through
 //! the safe methods, from a reference, as tree borrows allows.
-//!
-//! The limit of recursion is raised for the list that a constant checks (`LIST`): evaluated when
-//! compiling, the check in place of that list nests more than 140 frames of the evaluation before
-//! it starts again with loops, past the 128 that Rust allows by default.
-#![recursion_limit = "160"]
 
 use core::marker::PhantomData;
 
@@ -111,7 +106,7 @@ fn chain(n: usize) -> Image {
   image
 }
 
-/// The stack of the thread of a check: the 30 KiB at most that a check takes (`AIM_PARTS`), and
+/// The stack of the thread of a check: the 23 KiB at most that a check takes (`AIM_PARTS`), and
 /// room for the test.
 const SMALL_STACK: usize = 64 << 10;
 
@@ -121,13 +116,14 @@ fn on_a_small_stack<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -
 }
 
 /// How deep the chains of the tests of depth are: far past `AIM_PARTS` natively, and past it under
-/// Miri, which runs each unsafe path, not each value.
+/// Miri, which runs each unsafe path, not each value, so that a check in place of a type without an
+/// identity stops at the limit.
 const LONG: usize = if cfg!(miri) { 40 } else { 100_000 };
 
 #[test]
 fn a_chain_is_followed_at_any_depth_on_a_small_stack() {
-  // The check of `from_head` checks four pairs in place, one within another, then starts again,
-  // and its loop of pairs takes the next pair of each, so its stack does not grow with the chain.
+  // The loop of pairs of `from_head` takes the next pair of each, so its stack does not grow with
+  // the chain.
   let results = on_a_small_stack(|| {
     let read = |n: usize| {
       let image = chain(n).aligned();
@@ -187,8 +183,8 @@ struct Wide {
 
 #[test]
 fn the_stack_of_a_check_is_bounded_whatever_the_types() {
-  // A chain of each, as deep as the check in place follows it (a `Deep` has 14 parts, and a `Wide`
-  // 28), then deeper, which the check with loops follows, on a small stack.
+  // A chain of each, as deep as a check in place would follow it (a `Deep` has 14 parts, and a
+  // `Wide` 28), then deeper, which the loop of each follows, on a small stack.
   let results = on_a_small_stack(|| {
     let deep = |n: usize| {
       let mut image = Image::new();
@@ -392,9 +388,8 @@ fn head<T: Pun>(image: &Image) -> Result<(), Error> {
 
 #[test]
 fn deep_data_is_checked_on_a_small_stack() {
-  // Past the depth that the check in place reaches, the check starts again with a loop for each
-  // type on the path: deep on either side, balanced, of types that point at each other, its stack
-  // does not grow with the data.
+  // A loop for each type on the path: deep on either side, balanced, of types that point at each
+  // other, the stack of the check does not grow with the data.
   let (levels, json_levels) = if cfg!(miri) { (6, 20) } else { (20, 10_000) };
   let results = on_a_small_stack(move || {
     let mut image = Image::new();
@@ -490,8 +485,8 @@ const fn chain_rest(bytes: &[u8]) -> Result<usize, Error> {
   }
 }
 
-/// The check of the list when compiling: `from_head` is a `const fn`, and so is its check with
-/// loops.
+/// The check of the list when compiling: `from_head` is a `const fn`, and its loop of links nests no
+/// frame for each link, so the evaluation stays within the frames that Rust allows by default.
 const LIST: Result<usize, Error> = chain_rest(&LINKS);
 
 /// The same list, whose last link points back at the first: a cycle.
@@ -1292,8 +1287,8 @@ fn image_of(bytes: &[u8], compact: bool) -> Result<(), Failure> {
 
 #[test]
 fn a_worklist_goes_as_deep_as_the_loops() {
-  // A chain of pairs deeper than the check in place goes, each with a name and values, which
-  // `from_head` follows with loops, and `check` with a worklist.
+  // A chain of pairs past `AIM_PARTS`, each with a name and values, which `from_head` follows with
+  // a loop, and `check` with a worklist.
   let n = if cfg!(miri) { 20 } else { 2_000 };
   let names = (0..n).map(|i| format!("{i}")).collect::<Vec<_>>();
   let rows = names.iter().map(|name| (name.as_str(), &[1, 2][..])).collect::<Vec<_>>();

@@ -39,7 +39,7 @@
 //! | `&[u8] -> Option<&Ipv6>` (a walk, two checksums)      | 207 instructions, no call                     |
 //! | `head_ref::<Ipv6, [u8; 40]>`                          | `mov rax, rdi; ret`                           |
 //! | `tail_ref::<[u32; 4], u32>`                           | `lea rax, [rdi + 12]; ret`                    |
-//! | `from_head::<Position>(&[u8])`                        | the size, one `cmp` for the `bool`, 6 instructions |
+//! | `from_head::<Position>(&[u8])`                        | the size, one `cmp` for the `bool`, 7 instructions |
 //! | `from_head::<Udp>(&[u8])` (a size in the value)       | 15 instructions                               |
 //! | `from_tail::<Trailer>(&[u8])` (an enum, a magic)      | the size, `bt`, one `cmp`, 18 instructions, no loop |
 //!
