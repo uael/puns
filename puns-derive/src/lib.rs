@@ -593,14 +593,17 @@ impl Parse for TagOption {
   }
 }
 
-/// The aim of `#[pun(pointer(..))]`: `name: Type = EXPR` or `Type = EXPR`, the name of the methods
-/// that read the pointee, if any, its type and where it is, then
+/// The aim of `#[pun(pointer(..))]`: `name: Type = EXPR` or `Type = EXPR`, after `shared` for a
+/// pointee that other aims may reach, the name of the methods that read the pointee, if any, its
+/// type and where it is, then
 /// `, len = EXPR` for an unsized pointee of a given length, `, size = EXPR` for a pointee of a
 /// given size in bytes, or `, size = ..` for one that takes the rest of the tail of the struct.
 /// Without `= EXPR`, the pointee is as far from the start of the struct as the integer of the field
 /// says, as its layout says (`start`). A pointer is always eager, since a pointee at a stored place
 /// is checked with the struct (`layout::Start::Stored`), so `eager` and `lazy` are refused.
 struct AimOption {
+  /// `shared`: the pointee may be shared, and is not written ([`Aim::shared`] of `puns`).
+  shared: bool,
   name: Option<Ident>,
   pointee: Type,
   start: Option<Expr>,
@@ -658,6 +661,10 @@ impl Parse for AimOption {
          says either",
       ));
     }
+    let shared = keyword(input, "shared");
+    if shared {
+      input.parse::<Ident>()?;
+    }
     // A name is an identifier then one colon, where a type may start with an identifier then two.
     let name = if input.peek(Ident) && input.peek2(Token![:]) && !input.peek2(Token![::]) {
       let name = input.parse()?;
@@ -694,7 +701,7 @@ impl Parse for AimOption {
     } else {
       AimSize::Pointee
     };
-    Ok(Self { name, pointee, start, size })
+    Ok(Self { shared, name, pointee, start, size })
   }
 }
 
@@ -2132,8 +2139,8 @@ fn in_place_field(options: &Options) -> bool {
 /// checked with the struct, or at the cursor, checked with the struct if `eager`.
 #[derive(Clone, Copy)]
 enum AimStart<'a> {
-  /// `#[pun(pointer(..))]`.
-  Stored(&'a Expr),
+  /// `#[pun(pointer(..))]`, and whether it says `shared`.
+  Stored(&'a Expr, bool),
   /// `#[pun(regions(..))]`.
   Next { eager: bool },
 }
@@ -2162,8 +2169,9 @@ fn aim_rule(
     let Expression { ops, steps } = expression(expr, Ty::Int, false, fields, root)?;
     Ok((quote!(const { #ops }), steps))
   };
+  let shared = matches!(start, AimStart::Stored(_, true));
   let (start, start_steps) = match start {
-    AimStart::Stored(start) => {
+    AimStart::Stored(start, _) => {
       let (ops, steps) = expression(start)?;
       (quote!(Stored(#ops)), steps)
     }
@@ -2182,10 +2190,12 @@ fn aim_rule(
       (quote!(Bytes(#ops)), steps)
     }
   };
-  let rule = quote!(#layout::Rule::Aim(#layout::Aim::new::<#pointee>(
-    #layout::Start::#start,
-    #layout::Extent::#extent,
-  )));
+  let aim = quote!(#layout::Aim::new::<#pointee>(#layout::Start::#start, #layout::Extent::#extent));
+  let rule = if shared {
+    quote!(#layout::Rule::Aim(#aim.shared()))
+  } else {
+    quote!(#layout::Rule::Aim(#aim))
+  };
   Ok((rule, start_steps, extent_steps))
 }
 
@@ -2559,8 +2569,12 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
     if let Some(pointer) = &field.options.pointer {
       let pointee = pointer.pointee.to_token_stream();
       let start = pointer.start(&field.member);
-      let (aim, start, extent) =
-        aim_rule(&pointee, (AimStart::Stored(&start), &pointer.size), &fields, &root)?;
+      let (aim, start, extent) = aim_rule(
+        &pointee,
+        (AimStart::Stored(&start, pointer.shared), &pointer.size),
+        &fields,
+        &root,
+      )?;
       let index = rules.len();
       let read_item = item(listed.len());
       listed.push((index, start, Some(pointee.clone()), extent));

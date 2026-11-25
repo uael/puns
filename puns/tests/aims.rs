@@ -65,23 +65,150 @@ fn each_corruption_is_refused() {
 }
 
 #[test]
-fn a_cycle_stops_at_the_limit() {
-  let (mut image, at) = two();
-  // The second pair points back at the first.
-  image.aim(at[1] + 8, at[0]);
-  assert_eq!(check(&image), Err(Error::Limit));
+fn the_pointees_form_a_tree_in_the_order_of_a_copy() {
+  let (image, at) = two();
+  let name = |pair: usize| pair + usize::try_from(image.get_i32(pair)).unwrap();
+  let aim = |field: usize, to: usize| {
+    let mut image = two().0;
+    image.aim(field, to);
+    check(&image)
+  };
+  // The second pair has the name of the first: one pointee, two aims.
+  assert_eq!(aim(at[1], name(at[0])), Err(Error::Validity));
+  // Its name is the first pair, or within the root: a pointee overlaps a value.
+  assert_eq!(aim(at[0] + 8, 0), Err(Error::Validity));
+  assert_eq!(aim(at[0], 4), Err(Error::Validity));
+  // The next pair is the first one: a cycle of one.
+  assert_eq!(aim(at[1] + 8, at[1]), Err(Error::Validity));
+  // Bytes that no aim reaches, before each pointee: allowed.
+  let mut gaps = Image::new();
+  let root = gaps.reserve(size_of::<Pair>(), 4);
+  gaps.reserve(8, 4);
+  let text = gaps.text("a");
+  gaps.aim(root, text);
+  gaps.reserve(12, 4);
+  let words = gaps.words(&[1]);
+  gaps.aim(root + 4, words);
+  assert_eq!(check(&gaps), Ok(()));
+  // The values before the name, out of the order of the fields.
+  let mut swapped = Image::new();
+  let root = swapped.reserve(size_of::<Pair>(), 4);
+  let words = swapped.words(&[1]);
+  let text = swapped.text("a");
+  swapped.aim(root, text);
+  swapped.aim(root + 4, words);
+  assert_eq!(check(&swapped), Err(Error::Validity));
 }
 
-/// A chain of `n` pairs, each pointing at the next, which share one name and one empty list.
+/// Where each node of a balanced expression of `levels` levels is, as `balanced` writes it: the
+/// root at 0.
+fn nodes_of(levels: usize) -> (Image, Vec<usize>) {
+  let mut image = Image::new();
+  balanced(&mut image, levels);
+  let size = image.bytes.len();
+  let nodes = (0..size).step_by(size_of::<Expr>()).collect();
+  (image, nodes)
+}
+
+/// Whether the expression at 0 of `image` reaches each node once at most, from a walk with a set of
+/// the places visited: whether it is a tree.
+fn walks_a_tree(image: &Image) -> bool {
+  let mut seen = std::collections::HashSet::new();
+  let mut todo = vec![0];
+  while let Some(at) = todo.pop() {
+    if !seen.insert(at) {
+      return false;
+    }
+    if image.bytes[at] == 1 {
+      for field in [at + 4, at + 8] {
+        todo
+          .push(field.checked_add_signed(isize::try_from(image.get_i32(field)).unwrap()).unwrap());
+      }
+    }
+  }
+  true
+}
+
+#[test]
+fn the_windows_accept_exactly_the_trees() {
+  // Each pointer of a balanced expression aimed at each other node: past the levels that the check
+  // takes in place, the operands wait for the loop of `Expr`, and are checked in their windows.
+  // A redirection is a tree where the node it leaves had the new pointee below it.
+  let levels = if cfg!(miri) { 5 } else { 6 };
+  let (image, nodes) = nodes_of(levels);
+  let (mut trees, mut refused) = (0, 0);
+  for &from in nodes.iter().filter(|&&at| image.bytes[at] == 1) {
+    for field in [from + 4, from + 8] {
+      for &to in nodes.iter().step_by(if cfg!(miri) { 7 } else { 1 }) {
+        let mut redirected = Image { bytes: image.bytes.clone() };
+        redirected.aim(field, to);
+        let tree = walks_a_tree(&redirected);
+        assert_eq!(head::<Expr>(&redirected).is_ok(), tree, "{field} to {to}");
+        if tree { trees += 1 } else { refused += 1 }
+      }
+    }
+  }
+  assert!(trees > nodes.len() && refused > trees, "{trees} trees, {refused} refused");
+}
+
+#[test]
+fn a_cycle_is_refused() {
+  let (mut image, at) = two();
+  // The second pair points back at the first, which is before the cursor.
+  image.aim(at[1] + 8, at[0]);
+  assert_eq!(check(&image), Err(Error::Validity));
+}
+
+/// A pair of pointers to texts that other pointers may share, and a pointer to the next pair,
+/// which is not shared.
+#[derive(Pun)]
+#[repr(C)]
+struct Shared {
+  #[pun(pointer(shared first: Thin<str, i32> = first as u128))]
+  first: InPlace<i32>,
+  #[pun(pointer(shared second: Thin<str, i32> = second as u128 + 4))]
+  second: InPlace<i32>,
+  next: Option<Near<Shared>>,
+}
+
+#[test]
+fn a_shared_pointee_is_anywhere() {
+  // The root, its next, and a text after them, which the four shared pointers share.
+  let mut image = Image::new();
+  let root = image.reserve(size_of::<Shared>(), 4);
+  let next = image.reserve(size_of::<Shared>(), 4);
+  image.aim(root + 8, next);
+  let text = image.text("ab");
+  for field in [root, root + 4, next, next + 4] {
+    image.aim(field, text);
+  }
+  let read = |image: &Image| puns::from_head::<Shared>(image.aligned().bytes()).map(|_| ());
+  assert_eq!(read(&image), Ok(()));
+  // A shared pointer may lead into a value that is claimed: the text of the root is the bytes of
+  // the next pair from its second pointer, whose value is the length.
+  let mut within = Image { bytes: image.bytes.clone() };
+  within.aim(root, next + 4);
+  assert_eq!(read(&within), Ok(()));
+  // The next pair is not shared: it may not be the root.
+  let mut cycle = Image { bytes: image.bytes.clone() };
+  cycle.aim(next + 8, root);
+  assert_eq!(read(&cycle), Err(Error::Validity));
+}
+
+/// A chain of `n` pairs, each pointing at the next, with an empty name and an empty list, in the
+/// order of a copy.
 fn chain(n: usize) -> Image {
   let mut image = Image::new();
-  let at = (0..n).map(|_| image.reserve(size_of::<Pair>(), 4)).collect::<Vec<_>>();
-  let (text, words) = (image.text(""), image.words(&[]));
+  let mut at = image.reserve(size_of::<Pair>(), 4);
   for i in 0..n {
-    image.aim(at[i], text);
-    image.aim(at[i] + 4, words);
+    let text = image.text("");
+    image.aim(at, text);
+    let words = image.words(&[]);
+    image.aim(at + 4, words);
     if i + 1 < n {
-      image.aim(at[i] + 8, at[i + 1]);
+      let next = image.reserve(size_of::<Pair>(), 4);
+      image.aim(at + 8, next);
+      at = next;
     }
   }
   image
@@ -229,16 +356,22 @@ fn balanced(image: &mut Image, levels: usize) -> usize {
 }
 
 /// An expression of `n` `Add`s, each of the next and a `Lit`, deep on the left or on the right,
-/// the first at 0.
+/// the first at 0, in the order of a copy: on the left, the `Add`s, then the `Lit`s from the
+/// deepest.
 fn sided(n: usize, left: bool) -> Image {
   let mut image = Image::new();
-  let at = (0..=n).map(|_| expr(&mut image)).collect::<Vec<_>>();
-  for i in 0..n {
-    let one = expr(&mut image);
-    if left {
+  if left {
+    let at = (0..=n).map(|_| expr(&mut image)).collect::<Vec<_>>();
+    for i in (0..n).rev() {
+      let one = expr(&mut image);
       add(&mut image, at[i], at[i + 1], one);
-    } else {
-      add(&mut image, at[i], one, at[i + 1]);
+    }
+  } else {
+    let mut at = expr(&mut image);
+    for _ in 0..n {
+      let (one, next) = (expr(&mut image), expr(&mut image));
+      add(&mut image, at, one, next);
+      at = next;
     }
   }
   image
@@ -250,7 +383,7 @@ fn sided(n: usize, left: bool) -> Image {
 fn comb(n: usize, levels: usize) -> Image {
   let mut image = Image::new();
   let at = (0..=n).map(|_| expr(&mut image)).collect::<Vec<_>>();
-  for i in 0..n {
+  for i in (0..n).rev() {
     let term = balanced(&mut image, levels);
     add(&mut image, at[i], at[i + 1], term);
   }
@@ -291,7 +424,6 @@ fn json_list(image: &mut Image, at: usize, kind: u8, n: usize) -> usize {
 fn json(n: usize) -> Image {
   let mut image = Image::new();
   let mut at = image.reserve(size_of::<Json>(), 4);
-  let key = image.text("k");
   for level in 0..n {
     if level % 2 == 0 {
       at = json_list(&mut image, at, 1, 1);
@@ -300,9 +432,11 @@ fn json(n: usize) -> Image {
     let fields = json_list(&mut image, at, 2, 3);
     for i in 0..3 {
       let field = fields + i * size_of::<Field>();
+      let key = image.text("k");
       image.aim(field, key);
       if i < 2 {
         let inner = json_list(&mut image, field + 4, 2, 1);
+        let key = image.text("k");
         image.aim(inner, key);
       }
     }
@@ -610,7 +744,7 @@ const CYCLE: Result<usize, Error> = {
 #[test]
 fn a_deep_list_is_checked_when_compiling() {
   assert_eq!(LIST, Ok(6_006 - size_of::<Chain>()));
-  assert_eq!(CYCLE, Err(Error::Limit));
+  assert_eq!(CYCLE, Err(Error::Validity));
   // The same check when running, which hands a link of the chain over to its loop from the check
   // in place of a link. Under Miri, which is there for that path, 40 links reach it: the 41st is the
   // end.
@@ -702,11 +836,12 @@ struct To<P: ?Sized> {
   _p: PhantomData<P>,
 }
 
-/// A pointer to a `u16` before it or after it, stored as the distance from its own address.
+/// A pointer to a `u16` before it or after it, stored as the distance from its own address, which
+/// other pointers may share.
 #[derive(Pun)]
 #[repr(transparent)]
 struct Back {
-  #[pun(pointer(back: u16 = off as u128))]
+  #[pun(pointer(shared back: u16 = off as u128))]
   off: InPlace<i16>,
 }
 
@@ -719,12 +854,12 @@ struct Second {
   off: InPlace<i32be>,
 }
 
-/// A message that points at a word before or after it, and whose tail is regions: a header, then a
-/// body of pointers, each to a word of the body.
+/// A message that points at a word before or after it, within it too, and whose tail is regions: a
+/// header, then a body of pointers, each to a word of the body.
 #[derive(Pun)]
 #[repr(C)]
 struct Message {
-  #[pun(pointer(word: u16 = off as u128))]
+  #[pun(pointer(shared word: u16 = off as u128))]
   off: InPlace<i16>,
   body_len: u16,
   #[pun(regions(header = 2, body: [Back] = body_len))]
@@ -814,13 +949,14 @@ impl Image {
   /// Writes a chain of pairs, the first at 0, and returns where each is.
   fn pairs(rows: &[(&str, &[u32])]) -> (Self, Vec<usize>) {
     let mut image = Self::new();
-    let at = (0..rows.len()).map(|_| image.reserve(size_of::<Pair>(), 4)).collect::<Vec<_>>();
+    let mut at = vec![image.reserve(size_of::<Pair>(), 4)];
     for (i, (name, values)) in rows.iter().enumerate() {
       let text = image.text(name);
       image.aim(at[i], text);
       let words = image.words(values);
       image.aim(at[i] + 4, words);
       if i + 1 < rows.len() {
+        at.push(image.reserve(size_of::<Pair>(), 4));
         image.aim(at[i] + 8, at[i + 1]);
       }
     }
@@ -1125,10 +1261,9 @@ mod reads {
     // The first word is an offset of 7, to an address that is not aligned for a `u32`.
     let words = [7u32, 0];
     assert_eq!(puns::try_pun_ref::<_, [Near<u32>; 2]>(&words).err(), Some(Error::Validity));
-    // Each word points at the other.
+    // Each word points at the other, within the value that holds it.
     let words = [4u32, (-4i32).cast_unsigned()];
-    let near = puns::try_pun_ref::<_, [Near<u32>; 2]>(&words).unwrap();
-    assert_eq!((*near[0].pointee(), *near[1].pointee()), ((-4i32).cast_unsigned(), 4));
+    assert_eq!(puns::try_pun_ref::<_, [Near<u32>; 2]>(&words).err(), Some(Error::Validity));
     // Past the bytes of the source, though within the array that holds it.
     let words = [4u32, 9];
     let first = puns::head_ref::<[u32; 2], [u32; 1]>(&words);
@@ -1264,9 +1399,11 @@ mod reads {
     // A tree: 1 with the children 2 and 3, and 3 with the child 4.
     let mut image = Image::new();
     let root = image.reserve(8, 4);
-    let (kids, grandkids, empty) = (image.list(2), image.list(1), image.list(0));
+    let kids = image.list(2);
+    let (two, grandkids) = (image.list(0), image.list(1));
+    let four = image.list(0);
     for (at, id, list) in
-      [(root, 1, kids), (kids + 4, 2, empty), (kids + 12, 3, grandkids), (grandkids + 4, 4, empty)]
+      [(root, 1, kids), (kids + 4, 2, two), (kids + 12, 3, grandkids), (grandkids + 4, 4, four)]
     {
       image.put(at, &u32::to_ne_bytes(id));
       image.aim(at + 4, list);
@@ -1304,8 +1441,9 @@ mod reads {
     let second = puns::from_head::<Second>(bytes).unwrap().0;
     assert_eq!(second.off.get().get(), 8);
     assert_eq!(second.pair(), &[1, 2]);
-    // At 4: the pair at 0, which holds the pointer, as a pointee may.
-    assert!(puns::from_head::<Second>(puns::as_bytes(&at(4))).is_ok());
+    // At 4: the pair at 0, which holds the pointer, which the pointee of an aim that is not shared
+    // may not overlap.
+    assert_eq!(puns::from_head::<Second>(puns::as_bytes(&at(4))).err(), Some(Error::Validity));
     // At 12: the pair at 8 ends past the bytes.
     assert_eq!(puns::from_head::<Second>(puns::as_bytes(&at(12))).err(), Some(Error::Validity));
     // At 0: the pair would start 4 bytes before the pointer, and `0 - 4` fails.
@@ -1331,11 +1469,12 @@ mod reads {
     assert_eq!(*same.back(), 7);
   }
 
-  /// Two pairs, in words: the first at 0, its name at 12, "ab" behind its length, its values at 20,
-  /// one word, and the next pair at 28, whose name and values are those of the first.
-  fn pairs() -> [u32; 10] {
-    let back = |off: i32| off.cast_unsigned();
-    [12, 16, 20, 2, u32::from_ne_bytes(*b"ab\0\0"), 1, 9, back(-16), back(-12), 0]
+  /// Two pairs, in words, in the order of a copy: the first at 0, its name at 12, "ab" behind its
+  /// length, its values at 20, one word, and the next pair at 28, with the same name and values
+  /// after it.
+  const fn pairs() -> [u32; 14] {
+    let ab = u32::from_ne_bytes(*b"ab\0\0");
+    [12, 16, 20, 2, ab, 1, 9, 12, 16, 0, 2, ab, 1, 9]
   }
 
   #[test]
@@ -1352,10 +1491,9 @@ mod reads {
 
   #[test]
   fn a_tree_is_read_through_references() {
-    // A root of id 1 at 0, whose two children follow their length at 8: ids 2 and 3, each with the
-    // empty list at 28 as its children.
-    let empty = |at: i32| (28 - at).cast_unsigned();
-    let words = [1, 4, 2, 2, empty(16), 3, empty(24), 0];
+    // A root of id 1 at 0, whose two children follow their length at 8: ids 2 and 3, with the
+    // empty lists at 28 and 32 as their children.
+    let words = [1, 4, 2, 2, 12, 3, 8, 0, 0];
     let tree = puns::from_head::<Tree>(puns::as_bytes(&words)).unwrap().0;
     let ids = tree.kids.pointee().iter().map(|kid| (kid.id, kid.kids.pointee().len()));
     assert_eq!(ids.collect::<Vec<_>>(), [(2, 0), (3, 0)]);

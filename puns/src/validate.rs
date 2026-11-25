@@ -39,6 +39,17 @@
 //! call of the same instance, and stops at [`AIM_PARTS`]. A pointee that holds no eager aim, or an
 //! empty slice, takes no parts, since it nests no other pointee.
 //!
+//! The pointee of an aim at a stored place is claimed where it is found ([`Input::claim`]): it
+//! starts at or after the end of the claims before it, the cursor, which never goes back, so the
+//! pointees form a tree in the order of a copy. A pointee that waits for a loop is claimed where
+//! it is found, and its own pointees later, after the claims of what follows it: they must lie in
+//! its window, from the end of its claim to the start of the next claim, which that claim writes
+//! into its entry, or to the end of the window that it was found in if the loop takes it first
+//! ([`run`]). Only the last pointee that waited since a claim has no end yet ([`OPEN`]). A pointee
+//! at the cursor, or one that ends with the tail of its struct, is within the struct and claims
+//! nothing, so it never waits, which would give it a window without a claim. Within the pointee of
+//! a shared aim nothing is claimed ([`SHARED`]), and nothing waits.
+//!
 //! # The stack of a check
 //!
 //! A check nests the frames of the validation of each pointee that it checks in place in those of
@@ -919,9 +930,38 @@ const unsafe fn check_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
   else {
     return false;
   };
+  let (shared, within) = const {
+    match T::LAYOUT.rule(L::RULE) {
+      Some(Rule::Aim(aim)) => (aim.shared, matches!(aim.extent, Extent::Rest)),
+      _ => (false, false),
+    }
+  };
+  if shared {
+    // The pointee of a shared aim, and what it reaches, claim nothing.
+    let hi = input.hi;
+    input.hi = SHARED;
+    // SAFETY: As below.
+    let valid = unsafe { check_value::<C, L::Pointee, true>(addr, len, input) };
+    input.hi = hi;
+    return valid;
+  }
+  // The value exists in the bytes: its size does not overflow.
+  let Some(size) = const { <<L::Pointee as Pointee>::Value as Pun>::LAYOUT }.size_of_val(len)
+  else {
+    return false;
+  };
+  // A pointee that ends where the tail of the struct ends is within the struct, claimed with it,
+  // as a pointee at the cursor is, and is checked in place: no pointee waits without a claim.
+  if within {
+    // SAFETY: As below.
+    return unsafe { check_value::<C, L::Pointee, false>(addr, len, input) };
+  }
+  if !input.claim(to - before, to.saturating_add(size)) {
+    return false;
+  }
   // SAFETY: The value is at `addr` with the length `len`, within the bytes of `input`, which are
   // valid for reads and initialized, as `check_value` requires.
-  unsafe { check_value::<C, L::Pointee>(addr, len, input) }
+  unsafe { check_value::<C, L::Pointee, true>(addr, len, input) }
 }
 
 /// Returns where the value of the pointee of the eager aim at a stored place `L` of the struct `T`
@@ -984,7 +1024,7 @@ const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
     return false;
   }
   // SAFETY: The requirements of `check_value` are those of this call.
-  unsafe { check_value::<C, P>(addr, len, input) }
+  unsafe { check_value::<C, P, false>(addr, len, input) }
 }
 
 /// Returns whether the value of the pointee `P` at `addr`, the length of whose tail is `len`, is
@@ -1012,7 +1052,7 @@ const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
 ///
 /// The caller must ensure that the value of `P` at `addr` with that length is within the bytes of
 /// `input` or of a value within them, which are in one allocation, valid for reads and initialized.
-const unsafe fn check_value<C: Checks, P: ?Sized + Pointee>(
+const unsafe fn check_value<C: Checks, P: ?Sized + Pointee, const WAITS: bool>(
   addr: *const u8,
   len: usize,
   input: &mut Input,
@@ -1029,14 +1069,15 @@ const unsafe fn check_value<C: Checks, P: ?Sized + Pointee>(
   // pointee waits for a loop in a value of a loop, or, in place, if it is nested in a value of its
   // type past `IN_PLACE` parts, or where its parts are not left.
   let is_empty = const { matches!(<P::Value as Pun>::LAYOUT.kind, Kind::Slice(_)) } && len == 0;
-  if const { loops::<P>() }
+  if const { WAITS && loops::<P>() }
     && !is_empty
+    && input.hi != SHARED
     && (const { C::LOOP.some() }
       || input.parts < if const { chained::<C, P>() } { nested } else { parts })
   {
     // SAFETY: The requirements of `waits` are those of this call.
     return unsafe {
-      waits::<C, P>(Waiting { value: addr, len }, size.saturating_add(before), input)
+      waits::<C, P>(Waiting { value: addr, len, hi: OPEN }, size.saturating_add(before), input)
     };
   }
   // A pointee that holds no eager aim, or an empty slice, nests the check of no other pointee: its
@@ -1157,7 +1198,13 @@ const unsafe fn waits<C: Checks, P: ?Sized + Pointee>(
   // whose entries are those of the first loop (`start`).
   unsafe {
     match wait {
-      Wait::Waits => true,
+      Wait::Waits(window) => {
+        // It waits since its claim, the last one, so the next claim ends its window.
+        if pointee.hi == OPEN {
+          input.open = window;
+        }
+        true
+      }
       Wait::NoLoop => {
         // The loop of a type takes its parts from a budget of its own, as the first loop does: the
         // loops that run at once are of different types, one frame each.
@@ -1186,8 +1233,8 @@ const unsafe fn waits<C: Checks, P: ?Sized + Pointee>(
 /// Whether a pointee waits for a loop ([`Loops::wait`], [`Loops::wait_below`]).
 #[derive(Clone, Copy)]
 enum Wait {
-  /// It waits, and the loop checks it.
-  Waits,
+  /// It waits, and the loop checks it: the end of its window in its entry.
+  Waits(*mut usize),
   /// A loop of its type runs, but no entry is left.
   Full,
   /// No loop of its type runs.
@@ -1201,11 +1248,15 @@ struct Waiting {
   value: *const u8,
   /// The length of the tail of its value.
   len: usize,
+  /// Where the claims of its pointees must end, in bytes from the start of the check: the start of
+  /// what follows them in the order of a copy, [`OPEN`] until a claim says where that is, or
+  /// [`SHARED`] where nothing is claimed ([`Input::claim`]).
+  hi: usize,
 }
 
 impl Waiting {
   /// No pointee.
-  const NONE: Self = Self { value: core::ptr::null(), len: 0 };
+  const NONE: Self = Self { value: core::ptr::null(), len: 0, hi: 0 };
 }
 
 /// How many pointees may wait for the loops of their types at once: 1 KiB on a target of 64 bits,
@@ -1238,16 +1289,19 @@ impl Loops {
   const fn wait(&mut self, pointee: Waiting) -> Wait {
     if self.next.value.is_null() {
       self.next = pointee;
-      return Wait::Waits;
+      return Wait::Waits(&raw mut self.next.hi);
     }
     if self.top == WAITING {
       return Wait::Full;
     }
     // SAFETY: `top < WAITING`, an entry that no loop uses, in `entries`, which a loop that runs
     // holds (`start`).
-    unsafe { self.entries.add(self.top).write(pointee) };
+    let entry = unsafe { self.entries.add(self.top) };
+    // SAFETY: As above.
+    unsafe { entry.write(pointee) };
     self.top += 1;
-    Wait::Waits
+    // SAFETY: As above.
+    Wait::Waits(unsafe { &raw mut (*entry).hi })
   }
 
   /// Puts `pointee`, of the type `P`, below the entries of the innermost loop of its type, if one
@@ -1278,11 +1332,13 @@ impl Loops {
     }
     // SAFETY: `first <= top < WAITING`: the entries from `first` to `top` are in use, and move up
     // by one, within `entries`, which a loop that runs holds (`start`).
-    unsafe {
+    let entry = unsafe {
       let first = (*at).first;
       core::ptr::copy(self.entries.add(first), self.entries.add(first + 1), self.top - first);
-      self.entries.add(first).write(pointee);
-    }
+      self.entries.add(first)
+    };
+    // SAFETY: As above.
+    unsafe { entry.write(pointee) };
     self.top += 1;
     let mut moved = self.running;
     while above > 0 {
@@ -1292,7 +1348,8 @@ impl Loops {
       moved = running.outer;
       above -= 1;
     }
-    Wait::Waits
+    // SAFETY: As above.
+    Wait::Waits(unsafe { &raw mut (*entry).hi })
   }
 }
 
@@ -1432,10 +1489,36 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
   let valid = nested
     && loop {
       let value = ptr::from_raw_parts::<P::Value>(pointee.value, pointee.len);
+      // A pointee whose window ends is checked in it, after the claims of what follows it: from
+      // the end of its own claim, with no pointee waiting since a claim of its own, and the one
+      // that waits at its end ends where its window does. The first pointee, and one that waits
+      // since the last claim, which ends its window now, are checked where the cursor is.
+      let window = pointee.hi != OPEN;
+      let around = (input.cursor, input.hi, input.open);
+      if window {
+        // SAFETY: The value of `pointee` is within the bytes of `input`, in one allocation, at or
+        // after their start, as `offset_from_unsigned` requires.
+        let from = unsafe { pointee.value.offset_from_unsigned(input.start) };
+        let Some(size) = const { <P::Value as Pun>::LAYOUT }.size_of_val(pointee.len) else {
+          break false;
+        };
+        (input.cursor, input.hi, input.open) = (from + size, pointee.hi, core::ptr::null_mut());
+      } else if !input.open.is_null() {
+        // SAFETY: As in `Input::claim`.
+        unsafe { *input.open = input.hi };
+        input.open = core::ptr::null_mut();
+      }
       // SAFETY: The value of `pointee` is a `P` within the bytes of `input`, by contract on the
       // caller for the first, and as `waits` put the others, and this loop is the innermost one, as
       // `Looped<P>` requires of the pointees that wait for it.
       let valid = unsafe { validate::<Looped<P>, Root, P::Value>(value, input) };
+      if window {
+        if !input.open.is_null() {
+          // SAFETY: As in `Input::claim`.
+          unsafe { *input.open = input.hi };
+        }
+        (input.cursor, input.hi, input.open) = around;
+      }
       if !valid {
         break false;
       }
@@ -1951,12 +2034,31 @@ pub struct Input {
   /// The loops of the check, in which the pointees that hold eager aims wait ([`waits`]), in the
   /// frame of the first loop ([`start`]), or null while no loop runs.
   loops: *mut Loops,
+  /// The end of the last claim, in bytes from `start`: where the next pointee may start
+  /// ([`Input::claim`]).
+  cursor: usize,
+  /// Where the claims of the pointees checked now must end, in bytes from `start`: the end of the
+  /// bytes, or of the window of the pointee that waited whose pointees these are, or [`SHARED`]
+  /// within the pointee of a shared aim, where nothing is claimed.
+  hi: usize,
+  /// The end of the window of the pointee that waits since the last claim ([`OPEN`]), which the
+  /// next claim sets to where it starts, or null.
+  open: *mut usize,
 }
 
+/// The `hi` of [`Input`] within the pointee of a shared aim, and of a pointee that waits there:
+/// nothing is claimed.
+const SHARED: usize = usize::MAX;
+
+/// The end of the window of a pointee that waits, until the next claim says where it is: the start
+/// of what follows the pointees of the pointee in the order of a copy ([`Input::claim`]).
+const OPEN: usize = usize::MAX - 1;
+
 impl Input {
-  /// The `len` bytes at `start`.
+  /// The `len` bytes at `start`, the pointees of whose value are claimed from `cursor` to `hi`
+  /// ([`Input::claim`]): after the value, or before it if it ends the bytes.
   #[inline(always)]
-  pub const fn new(start: *const u8, len: usize) -> Self {
+  pub const fn new(start: *const u8, len: usize, (cursor, hi): (usize, usize)) -> Self {
     Self {
       start,
       budget: len.saturating_mul(2),
@@ -1964,7 +2066,37 @@ impl Input {
       parts: AIM_PARTS,
       limit: false,
       loops: core::ptr::null_mut(),
+      cursor,
+      hi,
+      open: core::ptr::null_mut(),
     }
+  }
+
+  /// Claims the bytes of a pointee, from `from` to `to` in bytes from `start`, with what it stores
+  /// before its value, in the order of a copy, if they start at or after the end of every claim
+  /// before them, the value that holds the first included, and end within the window
+  /// ([`Input::hi`]). The pointee that waits since the last claim ([`Input::open`]) has its
+  /// window end where this one starts. Within the pointee of a shared aim, nothing is claimed.
+  ///
+  /// So each claim starts at or after the cursor, which never goes back: two claims share no byte,
+  /// a pointee reached through two aims, or that overlaps a value claimed before it, starts before
+  /// the cursor, and so does one that a cycle reaches again. A pointee of zero bytes holds no byte
+  /// that a write could change, and may be reached twice.
+  const fn claim(&mut self, from: usize, to: usize) -> bool {
+    if self.hi == SHARED {
+      return true;
+    }
+    if from < self.cursor || to > self.hi {
+      return false;
+    }
+    if !self.open.is_null() {
+      // SAFETY: `open` is the window of an entry of the loops, which nothing else uses while this
+      // runs, and which no entry moved into since it was set: a pointee waits after its claim.
+      unsafe { *self.open = from };
+      self.open = core::ptr::null_mut();
+    }
+    self.cursor = to;
+    true
   }
 
   /// Takes a pointee of `size` bytes and of `parts` parts, if there are enough left.

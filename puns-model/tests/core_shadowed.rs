@@ -70,11 +70,12 @@ struct Strict {
   value: u8,
 }
 
-/// A `Lax` at the offset that the first byte holds, in the struct.
+/// A `Lax` at the offset that the first byte holds, in the struct, which only a shared pointee may
+/// be.
 #[derive(Pun)]
 #[repr(C)]
 struct HoldsLax {
-  #[pun(pointer(Lax = off as u128))]
+  #[pun(pointer(shared Lax = off as u128))]
   off: InPlace<u8>,
   value: u8,
 }
@@ -83,7 +84,7 @@ struct HoldsLax {
 #[derive(Pun)]
 #[repr(C)]
 struct HoldsStrict {
-  #[pun(pointer(Strict = off as u128))]
+  #[pun(pointer(shared Strict = off as u128))]
   off: InPlace<u8>,
   value: u8,
 }

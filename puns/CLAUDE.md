@@ -159,6 +159,19 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   as an `M` that ends with the length, at which the pointer points, and nothing for a sized `T`
   (`Metadata::Stored`). `Pun::Metadata` is a sealed `Metadata`, `()` exactly when the layout is
   sized (`Layout::measured` asserts it of every struct).
+- The pointees of the aims at a stored place are claimed in the order of a copy (`Input::claim`,
+  in `validate::check_stored`): each starts at or after the cursor, the end of the claims before
+  it and of the value that the reader reads (`Input::new` takes where its pointees may be), and
+  ends within the window of the claims (`Input::hi`). So the pointees form a tree, which
+  `aim_mut` relies on, and a cycle is `Validity`. The check of the loops is not in that order: a
+  pointee that waits is claimed where it is found, and its pointees later, in a window from the
+  end of its claim to the start of the next claim, which the next claim writes into its entry
+  (`Input::open`, `Waiting::hi`), or to the end of the window that it was found in, if it runs
+  first (`validate::run`). A pointee at the cursor, or one that ends with the tail of its struct
+  (`Extent::Rest`), is within the struct and claims nothing, and its pointee is never handed to a
+  loop, so that no pointee waits without a claim. A shared aim (`Aim::shared`) claims nothing for
+  its pointee nor for what it reaches (`SHARED`), which is checked in place, and `aim_mut` refuses
+  it at compile time.
 - The functions that check in place (`from_head` and the others) check a pointee in place, nested
   in the check of the struct whose aim leads to it, as a check without loops does, and in one pass
   hand a pointee whose type holds an eager aim and has an identity over to a loop of its type

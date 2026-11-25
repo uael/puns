@@ -6290,6 +6290,9 @@ pub struct Aim {
   pub(crate) align: usize,
   /// The identity of the type of the pointee.
   pub(crate) id: Id,
+  /// Whether the pointee may be shared ([`Aim::shared`]): reached by other aims, and written by
+  /// none.
+  pub(crate) shared: bool,
 }
 
 /// Where the pointee of an [`Aim`] is.
@@ -6431,7 +6434,39 @@ impl Aim {
       T::LENGTH.is_none() || matches!(extent, Extent::Pointee),
       "a `Thin` stores the length of its value, which no expression gives"
     );
-    Self { start, extent, size: T::POINTEE_SIZE, align: T::POINTEE_ALIGN, id: T::POINTEE_ID }
+    Self {
+      start,
+      extent,
+      size: T::POINTEE_SIZE,
+      align: T::POINTEE_ALIGN,
+      id: T::POINTEE_ID,
+      shared: false,
+    }
+  }
+
+  /// Returns the aim, whose pointee may be shared: other aims may reach it, or bytes within it,
+  /// and the check claims nothing for it, nor for what it reaches. [`aim_mut`](crate::aim_mut)
+  /// does not write it, and a read of it is the read of any pointee. The pointee of an aim that is
+  /// not shared is claimed in the order of a copy, so that no other aim that is not shared
+  /// reaches it.
+  ///
+  /// # Panics
+  ///
+  /// Panics if the aim is not at a stored place: the pointee of an aim at the cursor is within the
+  /// struct that holds it, and claims nothing. A call in a constant does not compile then.
+  ///
+  /// # Examples
+  ///
+  /// ```
+  /// use puns::layout::{Aim, Extent, Op, Start};
+  ///
+  /// const AT: [Op; 1] = [Op::load::<u32>(0)];
+  /// const SHARED: Aim = Aim::new::<u64>(Start::Stored(&AT), Extent::Pointee).shared();
+  /// ```
+  #[must_use]
+  pub const fn shared(self) -> Self {
+    assert!(matches!(self.start, Start::Stored(_)), "only a pointer may be shared");
+    Self { shared: true, ..self }
   }
 
   /// Returns when the pointee is checked: with the struct at a stored place, as its start says at
@@ -6476,7 +6511,7 @@ impl Aim {
     let typed = matches!(self.check(), Check::Eager) || matches!(self.extent, Extent::Pointee);
     let same_pointee =
       self.align == other.align && (!typed || self.size == other.size && self.id.equals(&other.id));
-    same_start && same_extent && same_pointee
+    same_start && same_extent && same_pointee && self.shared == other.shared
   }
 }
 

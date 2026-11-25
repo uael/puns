@@ -421,6 +421,24 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
+  |     match T::LAYOUT.rule(L::RULE) {
+  |           ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let (shared, within) = const {
+  |  __________________________^
+  | |     match T::LAYOUT.rule(L::RULE) {
+  | |       Some(Rule::Aim(aim)) => (aim.shared, matches!(aim.extent, Extent::Rest)),
+  | |       _ => (false, false),
+  | |     }
+  | |   };
+  | |___^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
   |     let align = match T::LAYOUT.rule(L::RULE) {
   |                       ^^^^^^^^^
 
