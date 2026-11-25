@@ -788,6 +788,9 @@ one_in_each!();
 /// of the other, and they prove nothing of each other.
 #[test]
 fn two_types_at_one_place_are_two() {
+  // The derive names the crate that `rustc` compiles: these tests run under Cargo, Miri and on
+  // every target of CI, where the arguments of `rustc` name it.
+  assert!(first().id.known() && second().id.known());
   assert!(!first().id.equals(&second().id));
   if !crate::layout::UNSTABLE {
     assert!(!analyze(first(), second()).relation.infallible());

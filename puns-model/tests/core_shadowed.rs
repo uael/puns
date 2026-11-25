@@ -1,12 +1,13 @@
 //! Tests that the code that `#[derive(Pun)]` generates does not depend on what `::core` names.
 //!
 //! In this crate, `::core` is the crate `fakecore`, through `extern crate fakecore as core;`, which
-//! is safe code. Its `offset_of!` swaps the fields named `a` and `b`, and its `PhantomData` is
-//! aligned to 16 bytes.
+//! is safe code. Its `offset_of!` swaps the fields named `a` and `b`, its `PhantomData` is aligned
+//! to 16 bytes, and its `concat!`, `stringify!`, `module_path!`, `file!`, `line!` and `column!` give
+//! one value wherever they are.
 
 extern crate fakecore as core;
 
-use puns::{Error, Pun};
+use puns::{Error, InPlace, Pun, hook};
 
 /// A struct with the default representation, whose fields `a` and `b` the fake `offset_of!` swaps.
 ///
@@ -52,4 +53,50 @@ fn variants_are_not_measured_with_core() {
   bytes[4] = 7;
   bytes[8] = 1;
   assert_eq!(puns::try_pun::<[u8; 16], Aligned>(bytes), Err(Error::Validity));
+}
+
+/// A byte that may be anything.
+#[derive(Pun)]
+#[repr(C)]
+struct Lax {
+  value: u8,
+}
+
+/// A byte that is 0 or 1, of the size and the alignment of `Lax`.
+#[derive(Pun)]
+#[repr(C)]
+struct Strict {
+  #[pun(valid(0..=1))]
+  value: u8,
+}
+
+/// A `Lax` at the offset that the first byte holds, in the struct.
+#[derive(Pun)]
+#[repr(C)]
+struct HoldsLax {
+  #[pun(pointer(Lax = off as u128))]
+  off: InPlace<u8>,
+  value: u8,
+}
+
+/// The same aim, at a `Strict`.
+#[derive(Pun)]
+#[repr(C)]
+struct HoldsStrict {
+  #[pun(pointer(Strict = off as u128))]
+  off: InPlace<u8>,
+  value: u8,
+}
+
+/// Checks that the identity of a type is not made of what `::core` names: were it made of the
+/// macros of `fakecore`, `Lax` and `Strict` would have one, the eager aim of `HoldsLax` would prove
+/// the one of `HoldsStrict`, and a `HoldsStrict` would point at a `Strict` that holds 2.
+#[test]
+fn identities_are_not_made_with_core() {
+  assert!(!hook::verdict::<HoldsLax, HoldsStrict>().pun_ref);
+  assert!(hook::verdict::<HoldsLax, HoldsLax>().pun_ref);
+  let bytes = [1, 2];
+  let lax = puns::from_bytes::<HoldsLax>(&bytes).unwrap();
+  assert!(hook::pun_ref::<HoldsLax, HoldsStrict>(lax).is_none());
+  assert_eq!(puns::from_bytes::<HoldsStrict>(&bytes).err(), Some(Error::Validity));
 }

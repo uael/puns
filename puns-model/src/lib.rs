@@ -164,6 +164,9 @@
 //!
 //! [valid]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html#r-undefined.validity
 
+// First, so that the derives of `identity` take the numbers that they take in the test
+// `puns_model`, which includes it.
+pub mod identity;
 pub mod types;
 pub mod views;
 
@@ -173,6 +176,9 @@ use puns::{
   Pun,
   hook::{self, Parts, Verdict},
 };
+
+/// The most that the `Bounded` of the library allows ([`identity`]): every byte.
+pub const BOUNDED_MAX: u8 = u8::MAX;
 
 /// The bytes of a value, with `None` for each uninitialized byte.
 pub type Bytes = [Option<u8>];

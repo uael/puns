@@ -1,8 +1,9 @@
 #!/bin/sh
 # The test files of `puns-model` that the jobs of `model.yml` run, for `$1`:
 # - `groups`: the names of the groups, as a JSON array, for the matrix of the workflow.
-# - a group: its files, one `--test NAME` a line. The last group, `rest`, takes `--lib` and every
-#   file of `tests/` that no other group names, so that a new file runs.
+# - a group: its files, one `--test NAME` a line. The last group, `rest`, takes `--lib`,
+#   `puns_model` (a test whose file is in `src/`, see `Cargo.toml`) and every file of `tests/` that
+#   no other group names, so that a new file runs.
 # A group is the files that one job builds. One `rustc` builds each file, and up to four run at
 # once on a runner (4 CPUs, 16 GB). The largest files (`size2_*`, `size1_*`) each need up to about
 # 3.5 GiB, so a group has at most three of the largest, and the groups are chosen by the time that
@@ -28,6 +29,7 @@ case "$1" in
     ;;
   rest)
     echo "--lib"
+    echo "--test puns_model"
     for file in tests/*.rs; do
       name=$(basename "$file" .rs)
       case " $(echo $named) " in

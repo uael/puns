@@ -113,7 +113,7 @@ jobs:
             id: model-rules
             tests: >-
               --lib --test core_shadowed --test regressions --test rules --test dst --test views
-              --test aims
+              --test aims --test puns_model
           - name: shapes
             id: model-shapes
             tests: --test shapes
@@ -133,7 +133,7 @@ jobs:
             id: model-unstable-rules
             tests: >-
               --features unstable --lib --test core_shadowed --test regressions --test rules
-              --test dst --test views --test aims
+              --test dst --test views --test aims --test puns_model
           - name: unstable, shapes
             id: model-unstable-shapes
             tests: --features unstable --test shapes
@@ -423,7 +423,9 @@ jobs:
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
           - name: model, library, regressions, views
             id: model
-            args: -p puns-model --lib --test core_shadowed --test regressions --test views
+            args: >-
+              -p puns-model --lib --test core_shadowed --test regressions --test views
+              --test puns_model
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
           - name: model, layouts
             id: model
