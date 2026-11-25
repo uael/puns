@@ -1407,7 +1407,8 @@ pub use layout::{crc32, sum16};
 ///   typed region to be `Pun`, and a struct that is neither `repr(C)` nor `repr(transparent)` to
 ///   be `Sized`. Generic types that hold each other behind pointers need this, since the bounds
 ///   found for each would form a cycle, and so does an aim whose pointee needs a bound of its own.
-///   Write `#[pun(bound())]` when the bounds of the type are enough.
+///   Write `#[pun(bound())]` when the bounds of the type are enough. A `T: Pun` of `bound(..)` for
+///   a `T` that the type already bounds by `Pun` is not written again.
 ///
 /// On any type:
 ///
