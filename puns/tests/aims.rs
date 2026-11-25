@@ -438,6 +438,80 @@ fn a_pointee_without_pointees_takes_no_parts() {
   assert_eq!(results, vec![Ok(()); 19]);
 }
 
+/// A struct of many parts, its aims first, then 24 bytes.
+macro_rules! many_parts {
+  ($name:ident { $($aim:ident: $pointee:ty),* }) => {
+    #[derive(Pun)]
+    #[repr(C)]
+    struct $name {
+      $($aim: Option<Near<$pointee>>,)*
+      bytes: Bytes24,
+    }
+  };
+}
+
+/// 24 bytes, each a part.
+#[derive(Pun)]
+#[repr(C)]
+struct Bytes24 {
+  b0: u8,
+  b1: u8,
+  b2: u8,
+  b3: u8,
+  b4: u8,
+  b5: u8,
+  b6: u8,
+  b7: u8,
+  b8: u8,
+  b9: u8,
+  b10: u8,
+  b11: u8,
+  b12: u8,
+  b13: u8,
+  b14: u8,
+  b15: u8,
+  b16: u8,
+  b17: u8,
+  b18: u8,
+  b19: u8,
+  b20: u8,
+  b21: u8,
+  b22: u8,
+  b23: u8,
+}
+
+many_parts!(Outer { middle: Middle, next: Outer });
+many_parts!(Middle { inner: Inner });
+many_parts!(Inner { next: Inner });
+
+/// A chain of `n` values of `Outer`, each with a `Middle` that has an `Inner`, in the order of a
+/// copy.
+fn outers(n: usize) -> Image {
+  let mut image = Image::new();
+  let mut at = image.reserve(size_of::<Outer>(), 4);
+  for i in 0..n {
+    let middle = image.reserve(size_of::<Middle>(), 4);
+    image.aim(at, middle);
+    let inner = image.reserve(size_of::<Inner>(), 4);
+    image.aim(middle, inner);
+    if i + 1 < n {
+      let next = image.reserve(size_of::<Outer>(), 4);
+      image.aim(at + 4, next);
+      at = next;
+    }
+  }
+  image
+}
+
+#[test]
+fn the_loop_of_each_type_takes_parts_of_its_own() {
+  // Past the parts of the check in place, the outer values wait for a loop, and the middle and
+  // inner ones start a loop each, within it: three types whose parts add up to more than
+  // `AIM_PARTS`.
+  let results: Vec<_> = on_a_small_stack(|| (1..8).map(|n| head::<Outer>(&outers(n))).collect());
+  assert_eq!(results, vec![Ok(()); 7]);
+}
+
 #[test]
 fn more_deep_values_than_the_loops_hold_at_once_stop_at_the_limit() {
   // The terms of a sum built to the left wait while the check goes down the left, 64 at most. Past

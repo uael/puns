@@ -172,7 +172,7 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   entries of that loop (`Loops::wait_below`). So the frames are one for each type on the path,
   whatever the data. What a loop does not take (its values, the pointees without an eager aim or
   an identity, those past the entries) is checked in place, a recursion that the parts of the
-  layouts bound (`AIM_PARTS` again in the loops, `Layout::parts`), and `Error::Limit` is where that
+  layouts bound (`AIM_PARTS` again in each loop, `Layout::parts`), and `Error::Limit` is where that
   nests too deep. A pointee without an eager aim, or an empty slice, nests no pointee, so it takes
   no parts. Leaves are checked with `All` (`validate::check_whole`), so that they have one
   instance. Whether a loop runs is a constant of the checks (`Checks::LOOP`), so that a check in

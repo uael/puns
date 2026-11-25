@@ -44,7 +44,7 @@
 //! A check nests the frames of the validation of each pointee that it checks in place in those of
 //! the value that points at it, and the frames of each loop in those of the value whose pointee
 //! started it, so its stack grows with the parts of the layouts that it nests, which
-//! [`AIM_PARTS`] bounds in place, and again in the loops, and with the size of those frames. In a build without optimizations, a
+//! [`AIM_PARTS`] bounds in place, and again in each loop, and with the size of those frames. In a build without optimizations, a
 //! frame holds every local of its function, and of each function inlined into it, while the
 //! functions that it calls run. So the functions on that path ([`validate`], [`validate_fields`],
 //! [`validate_variants`], [`check_listed`] and the check of an aim) hold no copy of a layout, a
@@ -1158,7 +1158,15 @@ const unsafe fn waits<C: Checks, P: ?Sized + Pointee>(
   unsafe {
     match wait {
       Wait::Waits => true,
-      Wait::NoLoop => run::<P>(pointee, input),
+      Wait::NoLoop => {
+        // The loop of a type takes its parts from a budget of its own, as the first loop does: the
+        // loops that run at once are of different types, one frame each.
+        let parts = input.parts;
+        input.parts = AIM_PARTS;
+        let valid = run::<P>(pointee, input);
+        input.parts = parts;
+        valid
+      }
       Wait::Full => {
         let parts = const {
           <P::Value as Pun>::LAYOUT.parts().saturating_add(<P::Prefix as Pun>::LAYOUT.parts())
@@ -1339,9 +1347,9 @@ struct Running {
 ///
 /// It is never inlined, and cold, so that the 1 KiB of entries is on the stack only while loops
 /// run, and that a check in place, which may start a loop, is laid out as one that may not: its
-/// frame is set up only where it nests a pointee, and it reads only the budget that it uses. The
-/// loops take parts from a budget of [`AIM_PARTS`] of their own, since they start where the check
-/// in place took its parts.
+/// frame is set up only where it nests a pointee, and it reads only the budget that it uses. Each
+/// loop takes parts from a budget of [`AIM_PARTS`] of its own, since it starts where the check in
+/// place, or the loop of another type, took its parts.
 ///
 /// # Safety
 ///
@@ -1365,8 +1373,8 @@ const unsafe fn start<P: ?Sized + Pointee>(
     top: 0,
   };
   input.loops = &raw mut loops;
-  // The loops take parts of a budget of their own, since they start where the check in place has
-  // taken its parts.
+  // The loop takes parts of a budget of its own, since it starts where the check in place has taken
+  // its parts.
   let parts = input.parts;
   input.parts = AIM_PARTS;
   // SAFETY: `entries` holds `WAITING` entries, of which none is in use, since no loop ran before
@@ -1386,8 +1394,8 @@ const unsafe fn start<P: ?Sized + Pointee>(
 /// pointee of another type that holds an eager aim waits for the innermost loop of its type, if one
 /// runs, or starts a loop of its own: the loops that run at once are of different types, so their
 /// frames do not grow with the data. The values of the loop are checked one after another, so they
-/// take their parts from the budget of [`AIM_PARTS`] once, for as long as the loop runs, and the
-/// size of each was taken where it was found.
+/// take their parts from the budget of [`AIM_PARTS`] of the loop once, for as long as the loop
+/// runs, and the size of each was taken where it was found.
 ///
 /// The loop is in the list of the loops that run (`Loops::running`) while it runs. Where the check
 /// fails, the entries of the loop are dropped with it.
@@ -1873,7 +1881,7 @@ pub const unsafe fn value_of<T: ?Sized + Pun, L: Rules>(
 }
 
 /// How many parts of the layouts of pointees the check of eager aims nests, one within another,
-/// at most: in place, and again in its loops.
+/// at most: in place, and again in each of its loops.
 ///
 /// It is the bound of the stack of [`from_head`](crate::from_head) and the other functions that
 /// check bytes in place.
@@ -1886,16 +1894,17 @@ pub const unsafe fn value_of<T: ?Sized + Pun, L: Rules>(
 /// as deep as its own parts, a constant of its type, as the check of a value at the top of the
 /// bytes is. Where a pointee of a type that holds an eager aim and has an identity would nest past
 /// this many, it waits for a loop of its type instead, which nests a frame for each type on the
-/// path, not for each value, and the loops count their parts again from this many. What nests in
-/// the loops is the value that each loop checks, the pointees of a type without an identity, and
-/// those for which none of the 64 entries of the loops is left. The check returns
-/// [`Error::Limit`](crate::Error::Limit) where these nest past this many parts, whatever the bytes:
-/// a chain of a type without an identity, a chain each of whose values has several deep pointees
-/// of its type, or a path through many types.
+/// path, not for each value, and each loop counts its parts again from this many: the loops that
+/// run at once are of different types, so the types bound them. What nests in a loop is the value
+/// that it checks, the pointees of a type without an identity, and those for which none of the 64
+/// entries of the loops is left. The check returns [`Error::Limit`](crate::Error::Limit) where these
+/// nest past this many parts, whatever the bytes: a chain of a type without an identity, or a chain
+/// each of whose values has several deep pointees of its type.
 ///
 /// A check takes at most 37 KiB of stack in a build without optimizations, and at most 2.5 KiB
-/// with them, whatever the depth of the data, and the check of one pointee without eager aims on
-/// top, as deep as its type (Rust 1.100 on aarch64: the stack of a thread filled
+/// with them, whatever the depth of the data, and, for each loop of another type that runs within a
+/// loop and for one pointee without eager aims, what its parts nest (Rust 1.100 on aarch64: the
+/// stack of a thread filled
 /// with a pattern, then the deepest byte that a check changed, on data of the shapes of
 /// `tests/aims.rs`, a list, a pair, trees, an object of a JSON document, a cycle of three types,
 /// expressions and combs, 10 to 100,000 deep). A check that takes no loop takes what a check
