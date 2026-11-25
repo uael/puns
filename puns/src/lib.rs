@@ -1786,7 +1786,7 @@ pub use layout::{crc32, sum16};
 ///   executable (`--test`, or `bin` among the types of `--crate-type`), the values of
 ///   `-C metadata`, and `RUSTC_FORCE_RUSTC_VERSION`. `rustc` refuses two crates of one
 ///   `StableCrateId` in a program (E0519 for the crate it compiles and a dependency, "colliding
-///   StableCrateId values" for two dependencies), and two identities are compared only in a crate
+///   `StableCrateId` values" for two dependencies), and two identities are compared only in a crate
 ///   that names both types, of one program. So the library and the executables of a package, and
 ///   two packages of one name and one version from two sources, are other crates.
 /// - The name of the type, and the number of its derive in that compilation.

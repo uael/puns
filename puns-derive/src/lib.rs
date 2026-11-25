@@ -249,7 +249,7 @@ const LONG_WITH_VALUE: &[&str] = &[
 /// executable, the values of `-C metadata`, and `forced`, the value of
 /// `RUSTC_FORCE_RUSTC_VERSION`, which replaces the version of `rustc` there. `rustc` refuses two
 /// crates of one `StableCrateId` in a program (E0519 for the crate it compiles and a dependency,
-/// "colliding StableCrateId values" for two dependencies), so two crates of a program that give one
+/// "colliding `StableCrateId` values" for two dependencies), so two crates of a program that give one
 /// string differ in none of these, and are one crate. Each part is behind its length, so that two
 /// lists of parts give two strings.
 ///
