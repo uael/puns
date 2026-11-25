@@ -206,6 +206,9 @@ impl Aimed {
   }
 }
 
+/// The largest copy that `the_check_accepts_exactly_the_order_of_a_copy` takes, in bytes.
+const LARGEST: usize = 500;
+
 /// Numbers that look random, the same on every run.
 struct Numbers(u64);
 
@@ -219,7 +222,8 @@ impl Numbers {
 }
 
 /// Writes the pointees of the value of `kind` at `at`, each after the end of `image`, in the order
-/// of a copy, `depth` levels deep at most, and adds where each of its pointers is to `pointers`.
+/// of a copy, `depth` levels deep at most, and adds where each of its pointers is to `pointers`. It
+/// writes no more pointees once the image is larger than `LARGEST`.
 fn copy_of(
   image: &mut Image,
   at: usize,
@@ -234,7 +238,7 @@ fn copy_of(
       Aimed::Word => numbers.next().is_multiple_of(2),
       _ => depth > 0 && numbers.next() % 3 < 2,
     };
-    if some {
+    if some && image.bytes.len() <= LARGEST {
       let to = image.reserve(pointee.size(), 4);
       image.aim(at + 4 * i, to);
       copy_of(image, to, pointee, depth.saturating_sub(1), numbers, pointers);
@@ -272,9 +276,11 @@ fn the_check_accepts_exactly_the_order_of_a_copy() {
   // type found in a loop of the other waits for the loop below, which checks it after the claims
   // that follow, so its window must end at the first of them, though that claim is made after the
   // loop above returns. The check agrees with a walk that claims each pointee where it finds it.
-  // Under Miri, which is there for the unsafe paths, one copy, and a pointer in 7 at a place in 9.
-  let (copies, pointer_step, place_step) = if cfg!(miri) { (1, 7, 36) } else { (10, 1, 4) };
-  let (mut seed, mut done, mut in_order, mut refused) = (0x9e37_79b9_7f4a_7c15_u64, 0, 0, 0);
+  // Under Miri, which is there for the unsafe paths, one copy, and a pointer in 37 at a place in
+  // 37: the copy takes the loops of both types.
+  let (copies, pointer_step, place_step) = if cfg!(miri) { (1, 37, 148) } else { (10, 1, 4) };
+  // The first seed gives a copy of a size that the test takes, so that Miri generates no other.
+  let (mut seed, mut done, mut in_order, mut refused) = (0xe599_11a9_cf44_7029_u64, 0, 0, 0);
   while done < copies {
     seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
     let mut numbers = Numbers(seed | 1);
@@ -282,7 +288,7 @@ fn the_check_accepts_exactly_the_order_of_a_copy() {
     let mut image = Image::new();
     let (root, mut pointers) = (image.reserve(size_of::<Odd>(), 4), vec![]);
     copy_of(&mut image, root, Aimed::Odd, depth, &mut numbers, &mut pointers);
-    if !(200..=500).contains(&image.bytes.len()) {
+    if !(200..=LARGEST).contains(&image.bytes.len()) {
       continue;
     }
     done += 1;
