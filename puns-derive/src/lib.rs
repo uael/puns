@@ -2267,11 +2267,10 @@ fn read_aim(
         "Returns the pointee of the aim `{name}`, where the value points, which `puns` checked \
          with the value, or which unsafe code that made the value put there: no safe code makes \
          a value with an eager aim.\n\nThe pointee is read through the reference to the value, \
-         which has the provenance of its bytes under the tree borrows model of Miri, but not \
-         under stacked borrows, where `puns::aim` reads it from a pointer to the bytes that hold \
-         both, with `Self::AIMS.{name}`.\n\n# Compile-time errors\n\nA call compiles only if \
-         the pointee is sized, a `Thin`, or stores the length of its tail in its sized fields, \
-         where its extent is what it stores."
+         which has the provenance of its bytes under the tree borrows model of Miri, the model \
+         that `puns` follows for the reads of pointees.\n\n# Compile-time errors\n\nA call \
+         compiles only if the pointee is sized, a `Thin`, or stores the length of its tail in its \
+         sized fields, where its extent is what it stores."
       );
       // No `unsafe` block: the function that the path names is called as safe code, whatever it
       // is ("What the derive trusts" in the documentation of the derive).
@@ -2288,8 +2287,8 @@ fn read_aim(
 
 /// Returns the constant `AIMS` of a struct whose eager aims `aims` have a name, with the item of
 /// each in the list of the rules of the struct, and the visibility of its field: a value whose
-/// fields, named as the aims, are their `puns::AimOf`, for `puns::aim` and `puns::aim_mut`. Nothing
-/// without such an aim.
+/// fields, named as the aims, are their `puns::AimOf`, for `puns::aim_mut`. Nothing without such an
+/// aim.
 ///
 /// The constant is as visible as the struct, whatever the visibilities of its fields, and hidden
 /// from the documentation, since its type has no name there: the documentation of the derive
@@ -2311,8 +2310,8 @@ fn aims_constant(
   });
   let names = aims.iter().map(|(name, ..)| name);
   let doc = format!(
-    "The eager aims of `{ident}` that have a name, for `puns::aim` and `puns::aim_mut`: the field \
-     `name` is the aim `name`."
+    "The eager aims of `{ident}` that have a name, for `puns::aim_mut`: the field `name` is the aim \
+     `name`."
   );
   Some(quote! {
     #[doc = #doc]

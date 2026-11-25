@@ -514,11 +514,11 @@ jobs:
       # first four parts are named, at most twenty seconds of Miri each on x86-64 with tree borrows,
       # as the times of the test binaries in the logs of the jobs say (`aims` alone, which follows
       # deep data with loops); the fifth is every other file that Miri runs without the feature, so
-      # that a new file runs. A named file that is not there fails the job: `aim_reads`, which
-      # stacked borrows does not run, is in the fifth, and the fifth of a target with stacked
-      # borrows runs it with tree borrows, in the step after. The files about the feature run with
-      # it, every other one each. Under Miri, the unit tests run without the feature only: with it,
-      # fourteen seconds more.
+      # that a new file runs. A named file that is not there fails the job. Stacked borrows skips
+      # the module `reads` of `aims`, the reads of pointees through references, which follow tree
+      # borrows, and the fourth part of a target with stacked borrows runs it with tree borrows, in
+      # the step after. The files about the feature run with it, every other one each. Under Miri,
+      # the unit tests run without the feature only: with it, fourteen seconds more.
       - name: Select the tests that Miri runs
         if: matrix.part
         env:
@@ -536,7 +536,7 @@ jobs:
             4) tests=$four ;;
             5)
               tests=""
-              files=$(MIRI=1 STACKED=$STACKED sh .github/tests.sh default | sed 's/^--test //')
+              files=$(MIRI=1 sh .github/tests.sh default | sed 's/^--test //')
               for test in $files; do
                 case " $one $two $three $four " in
                   *" --test $test "*) ;;
@@ -545,22 +545,25 @@ jobs:
               done
               ;;
             unstable-*)
-              tests=$(MIRI=1 STACKED=$STACKED sh .github/tests.sh unstable)
+              tests=$(MIRI=1 sh .github/tests.sh unstable)
               half="${{ matrix.part }}"
               tests=$(echo "$tests" | awk -v half="${half#unstable-}" 'NR % 2 == half % 2')
               tests="--features unstable $tests"
               ;;
           esac
+          if [ "$STACKED" = 1 ]; then
+            tests="$tests -- --skip reads::"
+          fi
           echo "TESTS=$(echo $tests)" >> "$GITHUB_ENV"
       - run: >-
           cargo miri test ${{ matrix.args }}
           ${{ matrix.target && format('--target {0}', matrix.target) }} $TESTS ${{ matrix.filter }}
         env:
           MIRIFLAGS: ${{ matrix.flags }}
-      # The reads of pointees through references, which only tree borrows allows (`tree` in
-      # `.github/tests.sh`), on 32 bits and on a big-endian target too: a few seconds.
-      - if: matrix.target && matrix.part == 5
-        run: cargo miri test -p puns --target ${{ matrix.target }} $(sh .github/tests.sh tree)
+      # The reads of pointees through references, which only tree borrows allows (the module
+      # `reads` of `aims`), on 32 bits and on a big-endian target too: a few seconds.
+      - if: matrix.target && matrix.part == 4
+        run: cargo miri test -p puns --target ${{ matrix.target }} --test aims reads::
         env:
           MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-strict-provenance
 

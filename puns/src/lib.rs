@@ -677,11 +677,12 @@
 //! The pointee is read by the methods that the derive writes for an aim with a name, which find it
 //! as the check does. An eager one is safe and checks nothing: the value exists only with a valid
 //! pointee. It reads the pointee through the reference to the value, which has the provenance of
-//! the bytes of the pointee under the tree borrows model of Miri, which `puns` relies on there. A
-//! pointee outside the value is outside what a reference to the value gives access to under stacked
-//! borrows, where code reads it with [`aim`] from a pointer to the bytes that hold both, or writes
-//! it with [`aim_mut`]. These name the aim by its name, a field of the constant `AIMS` that the
-//! derive writes ([`AimOf`]). A lazy one checks the pointee when it reads it.
+//! the bytes of the pointee under the tree borrows model of Miri, the model that `puns` follows for
+//! the reads of pointees. Under stacked borrows, a reference gives access to the bytes of its
+//! referent only, so such a read of a pointee outside the value is not allowed there. Unsafe code
+//! that owns the bytes writes a pointee with [`aim_mut`], from a pointer to the bytes that hold
+//! both, which names the aim by its name, a field of the constant `AIMS` that the derive writes
+//! ([`AimOf`]). A lazy one checks the pointee when it reads it.
 //!
 //! ```
 //! use puns::{InPlace, Pun};
@@ -1450,8 +1451,7 @@ pub use layout::{crc32, sum16};
 ///   has the provenance of the bytes of the pointee under the tree borrows model of Miri. The
 ///   struct also has a constant `AIMS`, as visible as the struct and hidden from its
 ///   documentation, whose field `name`, as visible as the field of the aim, names the aim for
-///   [`aim`] and [`aim_mut`], which read the pointee from a pointer, to read or to write
-///   ([`AimOf`]).
+///   [`aim_mut`], which writes the pointee from a pointer ([`AimOf`]).
 /// - lazy, at a pointer: `fn name(&self, bytes: &[u8]) -> Result<&Type, Error>`, which finds the
 ///   value in the `bytes` that hold it, and checks the pointee there as [`from_bytes`] checks
 ///   bytes.
@@ -1825,8 +1825,8 @@ pub use layout::{crc32, sum16};
 /// return, but whatever it is, it is a valid value of its type, and an `unsafe` function does not
 /// compile there. The read of an eager pointee is a safe function of `puns`, whose soundness rests
 /// on the `# Safety` of `Pun` alone, which the field of the aim meets. The constant `AIMS` holds
-/// values of a type named through the path, which [`aim`] and [`aim_mut`] take only if it is the
-/// [`AimOf`] of `puns`.
+/// values of a type named through the path, which [`aim_mut`] takes only if it is the [`AimOf`] of
+/// `puns`.
 ///
 /// The rest of `::core` that the derive names (`Option`, `PhantomData`, `usize`, and so on) is
 /// checked by the types of the traits it implements. `::core::ptr::null()` is the probe of a sized
@@ -2135,9 +2135,9 @@ pub unsafe trait Scalar {
 /// [`UnsafeCell`](core::cell::UnsafeCell).
 ///
 /// If the layout has an eager [aim](crate#aims), a reference to a value of `Self` that safe code
-/// can reach meets the requirements of [`aim`] for each eager aim, the reference itself being the
-/// holder: where the aim says, there is a valid pointee, which the reference has the provenance
-/// of, and which is not written while it lives. The derive meets this with the [`InPlace`] of the
+/// can reach meets the first three requirements of [`aim_mut`] for each eager aim, the reference
+/// itself being the holder: where the aim says, there is a valid pointee, which the reference has
+/// the provenance of. The pointee is not written while the reference lives. The derive meets this with the [`InPlace`] of the
 /// aim, which no safe code makes ("Values made by unsafe code" in its documentation).
 ///
 /// If `T: Pun`, unsafe code may assume that the layout of `T` is exact in this sense, and that `T`
@@ -2479,7 +2479,7 @@ impl<const R: usize, E: Steps, N: Rules, P: ?Sized + Pointee, X: Steps> Rules
 
 /// An item of the list of rules `L`, by where it is in the list ([`First`], [`After`]).
 ///
-/// The reads of a pointee ([`aim`], [`aim_mut`], and those of regions) name the item of its aim by
+/// The reads of a pointee and [`aim_mut`] name the item of its aim by
 /// where it is in the list of the rules of its struct, never by the item itself, so that the
 /// pointee that they read is the one of that struct, which its check found, and not a type that
 /// the caller names. The derive counts the rules for each aim ([`AimOf`]). Sealed.
@@ -2508,7 +2508,7 @@ impl<L: Rules, K: Item<L::Next>> Item<L> for After<K> {
   type Of = K::Of;
 }
 
-/// An eager [aim](crate#aims) of the struct `S`, by its name, for [`aim`] and [`aim_mut`].
+/// An eager [aim](crate#aims) of the struct `S`, by its name, for [`aim_mut`].
 ///
 /// A struct that derives [`Pun`](macro@Pun) with an eager aim that has a name has a constant
 /// `AIMS`, as visible as the struct and hidden from its documentation, which holds one `AimOf` for
@@ -2531,15 +2531,15 @@ impl<L: Rules, K: Item<L::Next>> Item<L> for After<K> {
 ///   second: InPlace<u8>,
 /// }
 ///
-/// let bytes = [0, 1, 7, 9];
+/// let mut bytes = [0, 1, 7, 9];
+/// assert!(puns::from_head::<Two>(&bytes).is_ok());
+/// let holder = bytes.as_mut_ptr().cast::<Two>();
+/// // SAFETY: `puns` checked the `Two` at the start of `bytes` with its pointees. The pointer has
+/// // the provenance of the bytes, the pointee is accessed only through the result while it is
+/// // used, and a `u8` stays one.
+/// unsafe { *puns::aim_mut(holder, Two::AIMS.right) += 1 };
 /// let two = puns::from_head::<Two>(&bytes).unwrap().0;
-/// let holder = bytes.as_ptr().with_addr(core::ptr::from_ref(two).addr()).cast();
-/// // SAFETY: `puns` checked `two` with its pointees, and the pointer has the provenance of the
-/// // bytes that hold them, which are not written while it is used.
-/// let left = unsafe { puns::aim(holder, Two::AIMS.left) };
-/// // SAFETY: As above.
-/// let right = unsafe { puns::aim(holder, Two::AIMS.right) };
-/// assert_eq!((*left, *right), (7, 9));
+/// assert_eq!((*two.left(), *two.right()), (7, 10));
 /// ```
 pub struct AimOf<S: ?Sized, K>(PhantomData<fn() -> (*const S, K)>);
 
@@ -5400,16 +5400,16 @@ const unsafe fn lazy<P: ?Sized + Pointee>(
 
 /// Returns a pointer to the value of the pointee of the eager aim `L`, an item of the list of the
 /// rules of `S`, for the value of `S` at `holder`, with the length of its tail if it is unsized
-/// ([`aim`]).
+/// ([`aim_mut`]).
 ///
 /// # Safety
 ///
-/// The caller must ensure the requirements of [`aim`] but the ones on `'a`, with `L` the item that
-/// `K` names there, and that `L` is an item of the list of the rules of `S` (`S::Rules`).
+/// The caller must ensure the first three requirements of [`aim_mut`], with `L` the item that `K`
+/// names there, and that `L` is an item of the list of the rules of `S` (`S::Rules`).
 ///
 /// # Compile-time errors
 ///
-/// As for [`aim`].
+/// As for [`aim_mut`].
 #[inline(always)]
 const unsafe fn pointee<S: ?Sized + Pun, L: Rules>(
   holder: *const S,
@@ -5492,40 +5492,38 @@ const unsafe fn pointee<S: ?Sized + Pun, L: Rules>(
 /// with a name ([`macro@Pun`]).
 ///
 /// It is safe because `S` is a [`Pun`](trait@Pun) type, whose `# Safety` requires every value of
-/// `S` that safe code reaches to hold the pointee of each of its eager aims, as [`aim`] requires
-/// of its holder, with a reference to the value for its provenance: the tree borrows model of Miri
-/// gives a reference the provenance of the bytes of the pointee, and `puns` relies on it here
-/// ([Aims](crate#aims)). The derive meets that `# Safety` with the [`InPlace`] of the aim, which
-/// no safe code makes, and which no path that `#[pun(crate = ..)]` names replaces ("What the
+/// `S` that safe code reaches to hold the pointee of each of its eager aims, as [`aim_mut`]
+/// requires of its holder, with a reference to the value for its provenance: the tree borrows
+/// model of Miri gives a reference the provenance of the bytes of the pointee, and `puns` relies on
+/// it here ([Aims](crate#aims)). The derive meets that `# Safety` with the [`InPlace`] of the aim,
+/// which no safe code makes, and which no path that `#[pun(crate = ..)]` names replaces ("What the
 /// derive trusts" in [`macro@Pun`]). The method calls this function with no `unsafe` block, so a
 /// path that names another function there calls safe code.
 ///
 /// # Compile-time errors
 ///
-/// As for [`aim`].
+/// As for [`aim_mut`].
 #[doc(hidden)]
 #[inline(always)]
 #[must_use]
 pub const fn aim_of<S: ?Sized + Pun, K: Item<S::Rules>>(value: &S) -> &ValueOf<S, K> {
   // SAFETY: `value` is a reference to a value of `S`, a `Pun` type, so by the `# Safety` of `Pun`,
-  // it meets the requirements of `aim` for the eager aims of `S`, one of which `K` names, which
-  // `pointee` asserts. The pointee is not written while `value` lives, which the result borrows.
-  unsafe { aim(value, AimOf::<S, K>::NEW) }
+  // it meets the first three requirements of `aim_mut` for the eager aims of `S`, as `pointee`
+  // requires, with `K::Of` an item of the list of `S` (`Item`), whose rule `pointee` asserts is an
+  // eager aim. The pointee at the address that it returns, with its length, is valid and aligned,
+  // and is not written while `value` lives, which the result borrows.
+  unsafe { &*pointee::<S, K::Of>(value) }
 }
 
 /// Returns the value of the pointee of the eager aim of `S` that the second argument names, for
-/// the value of `S` at `holder`, as a reference.
+/// the value of `S` at `holder`, as a mutable reference, to write it.
 ///
 /// The pointee is where the check of the struct found it: at the address of `holder`, plus the
 /// value of the expression of the aim, an `i128` in two's complement, or at the cursor of the tail
 /// of the struct, with the length that it stores, that the aim gives, or of the size that the aim
 /// gives, or of what remains of the tail of the struct. The aim is named by a field of the
-/// constant `AIMS` that the derive writes ([`AimOf`]).
-///
-/// The method `name(&self)` that the derive writes for the aim reads the same pointee through the
-/// reference to the value, which has the provenance of the bytes of the pointee under the tree
-/// borrows model of Miri, but not under stacked borrows ("Aims" in the crate documentation). This
-/// function takes a pointer, so that a caller can give it that provenance under either model.
+/// constant `AIMS` that the derive writes ([`AimOf`]). The method `name(&self)` that the derive
+/// writes for the aim reads the same pointee.
 ///
 /// # Safety
 ///
@@ -5538,72 +5536,24 @@ pub const fn aim_of<S: ?Sized + Pun, K: Item<S::Rules>>(value: &S) -> &ValueOf<S
 ///   what it stores and it is unsized, the length before it (a `Thin`), or that its `size` or `len`
 ///   rule gives from its sized fields, is the length of its tail.
 /// - `holder` has the provenance of the bytes of that pointee.
-/// - The bytes of the value and of the pointee are not written for `'a`, except inside an
-///   `UnsafeCell`.
+/// - For `'a`, the bytes of the pointee are accessed only through the result, and the bytes of the
+///   value are not written.
 ///
 /// A value that a function of `puns` checked with its eager aims meets the first two, such as one
 /// that a reference that `puns` returned points to, or a value within one. Unsafe code that writes
 /// a value with an eager aim, as `nearest` writes its regions, keeps them for each value that it
 /// writes, since safe code reads its pointees. Rules of the pointee that do not give its length,
-/// such as an `assert`, are not needed: the read relies on none.
+/// such as an `assert`, are not needed: the read relies on none. The bytes of a value that `puns`
+/// checked may hold pointees that several aims share, since a check allows it, and a reference that
+/// `puns` returned is shared, so these bytes are not for this function: it is for the bytes that
+/// unsafe code owns, as `nearest` owns a region, whose pointees it does not share. What is written
+/// through the result is what later reads of the pointee rely on, safe ones included.
 ///
 /// # Compile-time errors
 ///
 /// A call compiles only if the aim is eager, and a pointee whose extent is what it stores is sized,
 /// a `Thin`, or stores the length of its tail in its sized fields, as the check of the aim
 /// requires.
-///
-/// # Examples
-///
-/// ```
-/// use puns::{InPlace, Pun};
-///
-/// #[derive(Pun)]
-/// #[repr(transparent)]
-/// struct Next {
-///   #[pun(pointer(next: u8 = off as u128))]
-///   off: InPlace<u8>,
-/// }
-///
-/// let bytes = [1, 9];
-/// let next = puns::from_head::<Next>(&bytes).unwrap().0;
-/// assert_eq!(*next.next(), 9);
-/// // The same, with the provenance of the bytes that hold both, as stacked borrows requires.
-/// let holder = bytes.as_ptr().with_addr(core::ptr::from_ref(next).addr()).cast();
-/// // SAFETY: `puns` checked `next` with its pointee, and the pointer has the provenance of the
-/// // bytes that hold both, which are not written while it is used.
-/// let pointee = unsafe { puns::aim(holder, Next::AIMS.next) };
-/// assert_eq!(*pointee, 9);
-/// ```
-#[inline(always)]
-#[must_use]
-pub const unsafe fn aim<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
-  holder: *const S,
-  _: AimOf<S, K>,
-) -> &'a ValueOf<S, K> {
-  // SAFETY: The requirements of `pointee` are those of this call, and `K::Of` is an item of the
-  // list of `S` (`Item`). The pointee at the address that it returns, with its length, is valid
-  // and aligned, and is not written for `'a`, by contract on the caller, so it can be borrowed for
-  // `'a`.
-  unsafe { &*pointee::<S, K::Of>(holder) }
-}
-
-/// Returns the value of the pointee of the eager aim of `S` that the second argument names, for
-/// the value of `S` at `holder`, as a mutable reference: what [`aim`] returns, to write.
-///
-/// # Safety
-///
-/// The caller must ensure the requirements of [`aim`] but the last, and that for `'a`, the bytes of
-/// the pointee are accessed only through the result, and the bytes of the value are not written.
-/// The bytes of a value that `puns` checked may hold pointees that several aims share, since a
-/// check allows it, and a reference that `puns` returned is shared, so these bytes are not for this
-/// function: it is for the bytes that unsafe code owns, as `nearest` owns a region, whose pointees
-/// it does not share. What is written through the result is what later
-/// reads of the pointee rely on, safe ones included.
-///
-/// # Compile-time errors
-///
-/// As for [`aim`].
 ///
 /// # Examples
 ///
@@ -5632,11 +5582,11 @@ pub const unsafe fn aim_mut<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
   holder: *mut S,
   _: AimOf<S, K>,
 ) -> &'a mut ValueOf<S, K> {
-  // SAFETY: The requirements of `pointee` are those of this call, and `K::Of` is an item of the
-  // list of `S` (`Item`). The pointee at the address that it returns, with its length, is valid
-  // and aligned, and accessed only through the result for `'a`, by contract on the caller, so it
-  // can be borrowed mutably for `'a`. The pointer is made from `holder`, a `*mut S`, so it may
-  // write.
+  // SAFETY: The first three requirements of this call are those of `pointee`, and `K::Of` is an
+  // item of the list of `S` (`Item`). The pointee at the address that it returns, with its length,
+  // is valid and aligned, and accessed only through the result for `'a`, by contract on the
+  // caller, so it can be borrowed mutably for `'a`. The pointer is made from `holder`, a `*mut S`,
+  // so it may write.
   unsafe { &mut *pointee::<S, K::Of>(holder.cast_const()).cast_mut() }
 }
 

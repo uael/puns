@@ -133,12 +133,13 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   of `aim_of`, a safe function of `puns`, with no `unsafe` block, so a crate path that names
   another function there calls safe code. `aim_of` relies on the `# Safety` of `Pun`, which the
   `InPlace` of the aim meets, and on the reference having the provenance of the bytes of the
-  pointee, which tree borrows gives and stacked borrows does not. `aim` and `aim_mut` take a
-  pointer, so that a caller under stacked borrows gives the provenance of the checked bytes, as the
-  tests that Miri runs with stacked borrows do (`tests/aims.rs`); the tests of the reads of
-  pointees outside the value through a reference (`tests/aim_reads.rs`) run under tree borrows
-  only. They name an aim by its name, a field of the constant `AIMS` that the derive writes
-  (`AimOf`). The derive writes no method that writes a pointee: such a method would be `unsafe`,
+  pointee, which tree borrows gives and stacked borrows does not. Tree borrows is the model of
+  `puns` for the reads of pointees: there is one read for each pointee, `name(&self)` over
+  `aim_of`, and none from a pointer for stacked borrows. The tests that read pointees through a
+  reference are the module `reads` of `tests/aims.rs`, which Miri runs under tree borrows only;
+  stacked borrows runs every other test. `aim_mut` writes a pointee from a pointer to the bytes
+  that unsafe code owns, and names an aim by its name, a field of the constant `AIMS` that the
+  derive writes (`AimOf`). The derive writes no method that writes a pointee: such a method would be `unsafe`,
   and would call a function that the crate path names. The length of a pointee that stores it is
   read from its sized fields or before its value only, by the check and by the read
   (`Layout::stores_length`, `validate::own_length`), so the read never meets a length that the

@@ -1,9 +1,8 @@
 //! Eager aims: a self-relative pointer declared through the public API (`support/aims.rs`), whose
 //! pointees `puns` checks with the value, and `Thin`.
 //!
-//! The pointees are read with the provenance of the bytes that hold them (`Near::get`,
-//! `puns::aim`), as the stacked borrows model of Miri requires; `aim_reads.rs` reads them through
-//! the safe methods, from a reference, as tree borrows allows.
+//! The tests that read pointees through a reference to the value are in `reads`, which Miri runs
+//! with tree borrows only.
 
 use core::marker::PhantomData;
 
@@ -16,26 +15,8 @@ use puns::{
   num::{i32be, i32le, u8c},
 };
 
-/// The pointee of `near`, in `image`, the bytes in which `puns` checked it.
-fn to<'a, T: ?Sized + Pun>(near: &'a Near<T>, image: &'a [u8]) -> &'a T {
-  // SAFETY: Every caller passes the bytes that `puns` checked and that hold `near`.
-  unsafe { near.get(image) }
-}
-
 fn row(name: &str, values: &[u32]) -> (String, Vec<u32>) {
   (name.to_string(), values.to_vec())
-}
-
-#[test]
-fn a_chain_of_pairs() {
-  let (image, _) = Image::pairs(&[("a", &[1, 2, 3]), ("bcd", &[4]), ("", &[])]);
-  let image = image.aligned();
-  let (root, rest) = puns::from_head::<Pair>(image.bytes()).unwrap();
-  assert_eq!(rows(root, image.bytes()), [row("a", &[1, 2, 3]), row("bcd", &[4]), row("", &[])]);
-  // The pointees are after the root, in what `from_head` returns as the rest.
-  assert_eq!(rest.len(), image.1 - size_of::<Pair>());
-  // The same through `from_bytes` fails on the size: the image is larger than a `Pair`.
-  assert_eq!(puns::from_bytes::<Pair>(image.bytes()).err(), Some(Error::Size));
 }
 
 /// An image of `a, [1, 2, 3] -> bc, [4]`, and where each pair is.
@@ -119,20 +100,6 @@ fn on_a_small_stack<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -
 /// Miri, which runs each unsafe path, not each value, so that a check in place of a type without an
 /// identity stops at the limit.
 const LONG: usize = if cfg!(miri) { 40 } else { 100_000 };
-
-#[test]
-fn a_chain_is_followed_at_any_depth_on_a_small_stack() {
-  // Past the pairs that `from_head` checks in place, its loop of pairs takes the next pair of
-  // each, so its stack does not grow with the chain.
-  let results = on_a_small_stack(|| {
-    let read = |n: usize| {
-      let image = chain(n).aligned();
-      puns::from_head::<Pair>(image.bytes()).map(|(root, _)| rows(root, image.bytes()).len())
-    };
-    (read(4), read(5), read(LONG))
-  });
-  assert_eq!(results, (Ok(4), Ok(5), Ok(LONG)));
-}
 
 /// A deep struct: each field is a struct of the next, down to a pointer, so that the check of one
 /// level of the chain nests a call for each.
@@ -514,77 +481,12 @@ fn a_deep_list_is_checked_when_compiling() {
   assert_eq!(chain_rest(core::hint::black_box(&links)), LIST);
 }
 
-/// The value of an expression, in `image`.
-fn sum(e: &Expr, image: &[u8]) -> i64 {
+/// The value of an expression.
+fn sum(e: &Expr) -> i64 {
   match e {
     Expr::Lit(v) => *v,
-    Expr::Add(a, b) => sum(to(a, image), image) + sum(to(b, image), image),
+    Expr::Add(a, b) => sum(a.pointee()) + sum(b.pointee()),
   }
-}
-
-#[test]
-fn trees_and_enums() {
-  // A tree: 1 with the children 2 and 3, and 3 with the child 4.
-  let mut image = Image::new();
-  let root = image.reserve(8, 4);
-  let (kids, grandkids, empty) = (image.list(2), image.list(1), image.list(0));
-  for (at, id, list) in
-    [(root, 1, kids), (kids + 4, 2, empty), (kids + 12, 3, grandkids), (grandkids + 4, 4, empty)]
-  {
-    image.put(at, &u32::to_ne_bytes(id));
-    image.aim(at + 4, list);
-  }
-  let image = image.aligned();
-  let bytes = image.bytes();
-  let tree = puns::from_head::<Tree>(bytes).unwrap().0;
-  let ids = |tree: &Tree| to(&tree.kids, bytes).iter().map(|kid| kid.id).collect::<Vec<_>>();
-  assert_eq!((tree.id, ids(tree), ids(&to(&tree.kids, bytes)[1])), (1, vec![2, 3], vec![4]));
-  // An expression: `1 + 2`. `repr(u8)` lays each variant out as a `repr(C)` struct of the tag and
-  // the fields: the `i64` of `Lit` after the tag, at its alignment, and the pointers of `Add` at 4
-  // and 8.
-  let mut image = Image::new();
-  let (size, align) = (size_of::<Expr>(), align_of::<Expr>());
-  let at = (0..3).map(|_| image.reserve(size, align)).collect::<Vec<_>>();
-  image.bytes[at[0]] = 1;
-  image.aim(at[0] + 4, at[1]);
-  image.aim(at[0] + 8, at[2]);
-  for (i, value) in [(1, 1i64), (2, 2)] {
-    image.put(at[i] + align_of::<i64>(), &value.to_ne_bytes());
-  }
-  let good = image.aligned();
-  assert_eq!(puns::from_head::<Expr>(good.bytes()).map(|(e, _)| sum(e, good.bytes())), Ok(3));
-  // A wrong tag deep in the tree.
-  image.bytes[at[2]] = 7;
-  assert_eq!(puns::from_head::<Expr>(image.aligned().bytes()).err(), Some(Error::Validity));
-}
-
-#[test]
-fn a_typed_source_is_checked_within_its_bytes() {
-  // The first word is an offset of 7, to an address that is not aligned for a `u32`.
-  let words = [7u32, 0];
-  assert_eq!(puns::try_pun_ref::<_, [Near<u32>; 2]>(&words).err(), Some(Error::Validity));
-  // Each word points at the other.
-  let words = [4u32, (-4i32).cast_unsigned()];
-  let near = puns::try_pun_ref::<_, [Near<u32>; 2]>(&words).unwrap();
-  let bytes = puns::as_bytes(&words);
-  assert_eq!((*to(&near[0], bytes), *to(&near[1], bytes)), ((-4i32).cast_unsigned(), 4));
-  // Past the bytes of the source, though within the array that holds it.
-  let words = [4u32, 9];
-  let first = puns::head_ref::<[u32; 2], [u32; 1]>(&words);
-  assert_eq!(puns::try_pun_ref::<[u32; 1], Near<u32>>(first).err(), Some(Error::Validity));
-}
-
-#[test]
-fn the_same_aim_at_the_same_place_proves_it() {
-  let (image, _) = two();
-  let image = image.aligned();
-  let root = puns::from_head::<Pair>(image.bytes()).unwrap().0;
-  // The same type, and a part: proven, nothing is checked.
-  let same: &Pair = puns::pun_ref(root);
-  let name: &Near<str> = puns::head_ref(root);
-  assert_eq!((to(&same.name, image.bytes()), to(name, image.bytes())), ("a", "a"));
-  // Plain bytes of a `Pair`, which a shared reference may read.
-  assert_eq!(puns::as_bytes(root).len(), size_of::<Pair>());
 }
 
 /// A pointer to a `u32`, then a number.
@@ -633,60 +535,12 @@ struct SizedOne {
   tail: [u8],
 }
 
-#[test]
-fn each_rule_is_proven_or_checked_on_its_own() {
-  // A `Counted` at 0, whose pointee, 7, is at 8, outside its 8 bytes.
-  let words = [8u32, 1, 7];
-  let bytes = puns::as_bytes(&words);
-  let counted = puns::from_head::<Counted>(bytes).unwrap().0;
-  // The aim of the target is the same aim at the same place of the source: proven, and not looked
-  // for again within the bytes of the source, which do not hold its pointee. Only the assertion
-  // is checked.
-  let below = puns::try_pun_ref::<Counted, CountedBelow>(counted).unwrap();
-  // SAFETY: `puns` checked the value in `bytes`, which hold its pointee and are not written, and
-  // the pointer has their provenance.
-  let pointee = unsafe { puns::aim(within(below, bytes), CountedBelow::AIMS.pointee) };
-  assert_eq!((below.count, *pointee), (1, 7));
-  let words = [8u32, 5, 7];
-  let counted = puns::from_head::<Counted>(puns::as_bytes(&words)).unwrap().0;
-  assert_eq!(puns::try_pun_ref::<Counted, CountedBelow>(counted).err(), Some(Error::Validity));
-  // A field that is checked next to a proven aim.
-  let words = [8u32, 0, 7];
-  let counted = puns::from_head::<Counted>(puns::as_bytes(&words)).unwrap().0;
-  assert_eq!(puns::try_pun_ref::<Counted, CountedAbove>(counted).err(), Some(Error::Validity));
-  // A region at the cursor, proven, and the assertion after it, checked.
-  let bytes = [1, 9, 3];
-  let regions = puns::from_bytes::<Sized2>(&bytes).unwrap();
-  let one = puns::try_pun_ref::<Sized2, SizedOne>(regions).unwrap();
-  assert_eq!((one.first(), one.rest()), (Ok(&9), &[3][..]));
-  let regions = puns::from_bytes::<Sized2>(&[2, 9, 3]).unwrap();
-  assert_eq!(puns::try_pun_ref::<Sized2, SizedOne>(regions).err(), Some(Error::Validity));
-}
-
 /// A list of values of a generic type, whose parameter is bounded by `Pun`.
 #[derive(Pun)]
 #[repr(C)]
 struct List<T: Pun> {
   value: T,
   next: Option<Near<List<T>>>,
-}
-
-#[test]
-fn a_generic_type_bounded_by_pun_proves_itself() {
-  // Two `List<u32>`: 1, then 2.
-  let mut image = Image::new();
-  let at = (0..2).map(|_| image.reserve(size_of::<List<u32>>(), 4)).collect::<Vec<_>>();
-  for (i, value) in [(0, 1u32), (1, 2)] {
-    image.put(at[i], &value.to_ne_bytes());
-  }
-  image.aim(at[0] + 4, at[1]);
-  let image = image.aligned();
-  let list = puns::from_head::<List<u32>>(image.bytes()).unwrap().0;
-  // `List<u32>` has an identity, made of that of `u32`, and so has the pointee of its aim: the same
-  // aim at the same place proves it, and nothing is checked.
-  let same: &List<u32> = puns::pun_ref(list);
-  let next = same.next.as_ref().map(|next| to(next, image.bytes()).value);
-  assert_eq!((same.value, next), (1, Some(2)));
 }
 
 /// A struct that ends with a slice, behind its stored length.
@@ -768,37 +622,6 @@ struct Back {
   off: InPlace<i16>,
 }
 
-/// `value`, which `puns` checked in `bytes`, at its address in them with their provenance: what the
-/// read of a pointee needs under the stacked borrows model of Miri.
-fn within<T>(value: &T, bytes: &[u8]) -> *const T {
-  bytes.as_ptr().with_addr(core::ptr::from_ref(value).addr()).cast()
-}
-
-/// The pointee of the eager aim `aim` of `value`, which `puns` checked in `bytes`, read with their
-/// provenance.
-macro_rules! pointee {
-  ($aim:expr, $value:expr, $bytes:expr) => {
-    // SAFETY: `puns` checked the value in `$bytes`, which hold its pointee and are not written,
-    // and the pointer has their provenance.
-    unsafe { puns::aim(within($value, $bytes), $aim) }
-  };
-}
-
-#[test]
-fn a_pointee_before_the_pointer() {
-  // The pointee, 7, then a pointer 2 bytes after it, which points back at it.
-  let words = [7, (-2i16).cast_unsigned(), 0];
-  let bytes = puns::as_bytes(&words);
-  let (_, back) = puns::from_tail::<Back>(&bytes[..4]).unwrap();
-  assert_eq!(back.off.get(), -2);
-  assert_eq!(pointee!(Back::AIMS.back, back, bytes), &7);
-  // The pointee is not in the bytes that are checked.
-  assert_eq!(puns::from_bytes::<Back>(&bytes[2..4]).err(), Some(Error::Validity));
-  // One byte before the pointee is not aligned for a `u16`.
-  let words = [7, (-3i16).cast_unsigned(), 0];
-  assert_eq!(puns::from_tail::<Back>(&puns::as_bytes(&words)[..4]).err(), Some(Error::Validity));
-}
-
 /// A pointer whose distance is big-endian on every target, to a pair of words that starts 4
 /// bytes before the place where it aims, its second word.
 #[derive(Pun)]
@@ -806,23 +629,6 @@ fn a_pointee_before_the_pointer() {
 struct Second {
   #[pun(pointer(pair: [u32; 2] = off as u128 - 4))]
   off: InPlace<i32be>,
-}
-
-#[test]
-fn where_a_pointee_starts_is_a_rule() {
-  let at = |off: i32| [u32::from_ne_bytes(off.to_be_bytes()), 1, 2];
-  // At 8, the second word of the pair at 4.
-  let words = at(8);
-  let bytes = puns::as_bytes(&words);
-  let second = puns::from_head::<Second>(bytes).unwrap().0;
-  assert_eq!(second.off.get().get(), 8);
-  assert_eq!(pointee!(Second::AIMS.pair, second, bytes), &[1, 2]);
-  // At 4: the pair at 0, which holds the pointer, as a pointee may.
-  assert!(puns::from_head::<Second>(puns::as_bytes(&at(4))).is_ok());
-  // At 12: the pair at 8 ends past the bytes.
-  assert_eq!(puns::from_head::<Second>(puns::as_bytes(&at(12))).err(), Some(Error::Validity));
-  // At 0: the pair would start 4 bytes before the pointer, and `0 - 4` fails.
-  assert_eq!(puns::from_head::<Second>(puns::as_bytes(&at(0))).err(), Some(Error::Validity));
 }
 
 /// A message that points at a word before or after it, and whose tail is regions: a header, then a
@@ -835,42 +641,6 @@ struct Message {
   body_len: u16,
   #[pun(regions(header = 2, body: [Back] = body_len))]
   rest: [u8],
-}
-
-#[test]
-fn regions_and_eager_aims_compose() {
-  // The message at 0, its offset to the header at 4, the header, and a body of two pointers that
-  // point at each other.
-  let message = |back: i16| [4, 4, 0x1234, 2, back.cast_unsigned()];
-  let words = message(-2);
-  let message_at =
-    |words: &[u16; 5]| puns::from_bytes::<Message>(puns::as_bytes(words)).map(|_| ());
-  let bytes = puns::as_bytes(&words);
-  let read = puns::from_bytes::<Message>(bytes).unwrap();
-  assert_eq!(read.header(), &0x1234u16.to_ne_bytes()[..]);
-  let body = read.body().unwrap();
-  assert_eq!((body.len(), body[0].off.get(), body[1].off.get()), (2, 2, -2));
-  // The two doors read through one place: the word that the message points at is the header,
-  // within the message, which a reference to it covers, and the pointees of the pointers of the
-  // body are their words, read with the provenance of the bytes, which hold them all.
-  let (first, second) =
-    (pointee!(Back::AIMS.back, &body[0], bytes), pointee!(Back::AIMS.back, &body[1], bytes));
-  assert_eq!((*read.word(), *first, *second), (0x1234, (-2i16).cast_unsigned(), 2));
-  // The eager aim is checked with the message, and the pointers of the body when it is read,
-  // within the bytes of the message: one may point at the header, another region of the message,
-  // but not before the message.
-  let words = message(-4);
-  assert_eq!(message_at(&words), Ok(()));
-  let bytes = puns::as_bytes(&words);
-  let read = puns::from_bytes::<Message>(bytes).unwrap();
-  let body = read.body().unwrap();
-  assert_eq!(*pointee!(Back::AIMS.back, &body[1], bytes), 0x1234);
-  let words = message(-10);
-  let read = puns::from_bytes::<Message>(puns::as_bytes(&words)).unwrap();
-  assert_eq!(read.body().err(), Some(Error::Validity));
-  let mut words = message(-2);
-  words[0] = 100;
-  assert_eq!(message_at(&words), Err(Error::Validity));
 }
 
 /// A text that stores its length before its bytes, as a block of `nearest` does.
@@ -888,23 +658,6 @@ struct Text {
 struct ToText {
   #[pun(pointer(text: Text = off as u128))]
   off: InPlace<i16>,
-}
-
-#[test]
-fn an_unsized_pointee_is_read_with_its_length() {
-  // A pointer at 0 to the text at 2, of 3 bytes.
-  let mut words = [2, 3, u16::from_ne_bytes(*b"ab"), u16::from_ne_bytes([b'c', 0])];
-  let bytes = puns::as_bytes(&words);
-  let to = puns::from_head::<ToText>(bytes).unwrap().0;
-  let text = pointee!(ToText::AIMS.text, to, bytes);
-  assert_eq!((text.len, &text.data), (3, "abc"));
-  // To write, through a pointer to the bytes that `puns` checked, with their provenance.
-  let to = words.as_mut_ptr().cast::<ToText>();
-  // SAFETY: `puns` checked the `ToText` at `to` with its pointee, and neither changed. The bytes
-  // are accessed only through `text` while it lives, and an uppercase ASCII text is still one.
-  let text = unsafe { puns::aim_mut(to, ToText::AIMS.text) };
-  text.data.make_ascii_uppercase();
-  assert_eq!(&puns::as_bytes(&words)[4..7], b"ABC");
 }
 
 /// An image under construction: values written at positions aligned for them, as a writer of
@@ -1011,12 +764,12 @@ impl Aligned {
 }
 
 /// The rows of a chain of pairs.
-fn rows(root: &Pair, image: &[u8]) -> Vec<(String, Vec<u32>)> {
+fn rows(root: &Pair) -> Vec<(String, Vec<u32>)> {
   let mut out = vec![];
   let mut at = Some(root);
   while let Some(pair) = at {
-    out.push((to(&pair.name, image).to_string(), to(&pair.values, image).to_vec()));
-    at = pair.next.as_ref().map(|next| to(next, image));
+    out.push((pair.name.pointee().to_string(), pair.values.pointee().to_vec()));
+    at = pair.next.as_ref().map(|next| next.pointee());
   }
   out
 }
@@ -1077,37 +830,6 @@ struct Spans {
   count: u8,
   #[pun(len = count)]
   tail: [u8],
-}
-
-#[test]
-fn eager_pointers_of_a_given_size_and_of_the_rest() {
-  // The words after the struct, and the rest from its offset 5, in its tail of 3 bytes.
-  let mut words = [0u16; 5];
-  let bytes =
-    puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u16; 5], [u8; 10]>(&mut words)).unwrap();
-  bytes[..7].copy_from_slice(&[8, 2, 5, 3, 1, 2, 3]);
-  bytes[8..].copy_from_slice(puns::as_bytes(&[5u16]));
-  let bytes: &[u8] = bytes;
-  let spans = puns::from_head::<Spans>(bytes).unwrap().0;
-  assert_eq!(spans.tail, [1, 2, 3]);
-  // The rest is in the struct, which a reference to it covers.
-  assert_eq!(spans.rest(), &[2, 3][..]);
-  // The struct is at the start of the bytes, and unsized: a pointer to its tail, cast to a pointer
-  // to it, has the same metadata, and the provenance of the bytes.
-  let holder = core::ptr::slice_from_raw_parts(bytes.as_ptr(), spans.tail.len()) as *const Spans;
-  // SAFETY: `puns` checked `spans` with its pointees, in `bytes`, which are not written.
-  let all = unsafe { puns::aim(holder, Spans::AIMS.words) };
-  assert_eq!(all, &[5][..]);
-  // A size of 3 bytes is no size of a `[u16]`, and an eager pointee is checked with the struct.
-  let mut odd = words;
-  puns::pun_mut::<[u16; 5], [u8; 10]>(&mut odd)[1] = 3;
-  assert_eq!(puns::from_head::<Spans>(puns::as_bytes(&odd)).err(), Some(Error::Validity));
-  // The rest of the tail starts in it, or at its end: past it, the struct is not valid.
-  let mut past = words;
-  puns::pun_mut::<[u16; 5], [u8; 10]>(&mut past)[2] = 7;
-  assert_eq!(puns::from_head::<Spans>(puns::as_bytes(&past)).map(|(s, _)| s.rest().len()), Ok(0));
-  puns::pun_mut::<[u16; 5], [u8; 10]>(&mut past)[2] = 8;
-  assert_eq!(puns::from_head::<Spans>(puns::as_bytes(&past)).err(), Some(Error::Validity));
 }
 
 /// A header, then regions: a text of its own size, checked when read, then a version and words
@@ -1218,21 +940,6 @@ struct ToList {
 }
 
 #[test]
-fn a_thin_ends_its_prefix_with_the_length() {
-  // The pointer at 0, to the length at 8, after the capacity at 4: the words at 12.
-  let image = |cap: i32, len: i32| [4 + 4, cap.cast_unsigned(), len.cast_unsigned(), 7, 9];
-  let check = |words: &[u32; 5]| puns::from_head::<ToList>(puns::as_bytes(words)).err();
-  assert_eq!(check(&image(2, 2)), None);
-  // A capacity that is not the length, a negative length, and one past the end.
-  assert_eq!(check(&image(3, 2)), Some(Error::Validity));
-  assert_eq!(check(&image(-1, -1)), Some(Error::Validity));
-  assert_eq!(check(&image(3, 3)), Some(Error::Validity));
-  let words = image(2, 2);
-  let list = puns::from_head::<ToList>(puns::as_bytes(&words)).unwrap().0;
-  assert_eq!(pointee!(ToList::AIMS.list, list, puns::as_bytes(&words)), &[7, 9][..]);
-}
-
-#[test]
 fn an_offset_near_the_end_of_an_i128_is_refused() {
   // A pointer to a text whose offset is the largest `i128`: the place of the value after the
   // length overflows, and the check refuses it, in every profile.
@@ -1273,14 +980,6 @@ struct Aliased {
   off: Offset,
 }
 
-#[test]
-fn the_field_of_an_eager_aim_is_an_in_place_of_any_spelling() {
-  let bytes = [1, 7];
-  let aliased = puns::from_head::<Aliased>(&bytes).unwrap().0;
-  assert_eq!(format!("{aliased:?}"), "Aliased { off: InPlace(1) }");
-  assert_eq!(pointee!(Aliased::AIMS.next, aliased, &bytes), &7);
-}
-
 /// A pointer to a `Thin` of a type parameter, without `#[pun(bound(..))]`: the derive bounds the
 /// pointee by `Pointee`, which a `Thin<T, u8>` is when `T` is `Pun`.
 #[derive(Pun)]
@@ -1298,4 +997,407 @@ fn a_generic_pointee_is_bounded_by_pointee() {
   assert_eq!(generic.value(&bytes), Ok("hi"));
   let generic = puns::from_head::<Generic<u8>>(&bytes).unwrap().0;
   assert_eq!(generic.value(&bytes), Ok(&2));
+}
+
+/// The tests that read the pointees of eager aims through a reference to the value: `name(&self)`,
+/// which the derive writes, and is safe, and `puns::aim_mut` from a pointer made from a `&mut`.
+///
+/// A reference to a value gives the provenance of the bytes of a pointee outside it under tree
+/// borrows, the model that `puns` follows for the reads of pointees, but not under stacked borrows.
+/// So Miri runs this module with tree borrows only: the jobs with stacked borrows skip it
+/// (`--skip reads::`), and run it with tree borrows apart (`.github/workflows/ci.yml`).
+mod reads {
+  use core::num::NonZero;
+
+  use super::*;
+
+  #[test]
+  fn a_chain_is_followed_at_any_depth_on_a_small_stack() {
+    // Past the pairs that `from_head` checks in place, its loop of pairs takes the next pair of
+    // each, so its stack does not grow with the chain.
+    let results = on_a_small_stack(|| {
+      let read = |n: usize| {
+        let image = chain(n).aligned();
+        puns::from_head::<Pair>(image.bytes()).map(|(root, _)| rows(root).len())
+      };
+      (read(4), read(5), read(LONG))
+    });
+    assert_eq!(results, (Ok(4), Ok(5), Ok(LONG)));
+  }
+
+  #[test]
+  fn a_chain_of_pairs() {
+    let (image, _) = Image::pairs(&[("a", &[1, 2, 3]), ("bcd", &[4]), ("", &[])]);
+    let image = image.aligned();
+    let (root, rest) = puns::from_head::<Pair>(image.bytes()).unwrap();
+    assert_eq!(rows(root), [row("a", &[1, 2, 3]), row("bcd", &[4]), row("", &[])]);
+    // The pointees are after the root, in what `from_head` returns as the rest.
+    assert_eq!(rest.len(), image.1 - size_of::<Pair>());
+    // The same through `from_bytes` fails on the size: the image is larger than a `Pair`.
+    assert_eq!(puns::from_bytes::<Pair>(image.bytes()).err(), Some(Error::Size));
+  }
+
+  #[test]
+  fn a_generic_type_bounded_by_pun_proves_itself() {
+    // Two `List<u32>`: 1, then 2.
+    let mut image = Image::new();
+    let at = (0..2).map(|_| image.reserve(size_of::<List<u32>>(), 4)).collect::<Vec<_>>();
+    for (i, value) in [(0, 1u32), (1, 2)] {
+      image.put(at[i], &value.to_ne_bytes());
+    }
+    image.aim(at[0] + 4, at[1]);
+    let image = image.aligned();
+    let list = puns::from_head::<List<u32>>(image.bytes()).unwrap().0;
+    // `List<u32>` has an identity, made of that of `u32`, and so has the pointee of its aim: the same
+    // aim at the same place proves it, and nothing is checked.
+    let same: &List<u32> = puns::pun_ref(list);
+    let next = same.next.as_ref().map(|next| next.pointee().value);
+    assert_eq!((same.value, next), (1, Some(2)));
+  }
+
+  #[test]
+  fn a_pointee_before_the_pointer() {
+    // The pointee, 7, then a pointer 2 bytes after it, which points back at it.
+    let words = [7, (-2i16).cast_unsigned(), 0];
+    let bytes = puns::as_bytes(&words);
+    let (_, back) = puns::from_tail::<Back>(&bytes[..4]).unwrap();
+    assert_eq!(back.off.get(), -2);
+    assert_eq!(back.back(), &7);
+    // The pointee is not in the bytes that are checked.
+    assert_eq!(puns::from_bytes::<Back>(&bytes[2..4]).err(), Some(Error::Validity));
+    // One byte before the pointee is not aligned for a `u16`.
+    let words = [7, (-3i16).cast_unsigned(), 0];
+    assert_eq!(puns::from_tail::<Back>(&puns::as_bytes(&words)[..4]).err(), Some(Error::Validity));
+  }
+
+  #[test]
+  fn a_thin_ends_its_prefix_with_the_length() {
+    // The pointer at 0, to the length at 8, after the capacity at 4: the words at 12.
+    let image = |cap: i32, len: i32| [4 + 4, cap.cast_unsigned(), len.cast_unsigned(), 7, 9];
+    let check = |words: &[u32; 5]| puns::from_head::<ToList>(puns::as_bytes(words)).err();
+    assert_eq!(check(&image(2, 2)), None);
+    // A capacity that is not the length, a negative length, and one past the end.
+    assert_eq!(check(&image(3, 2)), Some(Error::Validity));
+    assert_eq!(check(&image(-1, -1)), Some(Error::Validity));
+    assert_eq!(check(&image(3, 3)), Some(Error::Validity));
+    let words = image(2, 2);
+    let list = puns::from_head::<ToList>(puns::as_bytes(&words)).unwrap().0;
+    assert_eq!(list.list(), &[7, 9][..]);
+  }
+
+  #[test]
+  fn a_typed_source_is_checked_within_its_bytes() {
+    // The first word is an offset of 7, to an address that is not aligned for a `u32`.
+    let words = [7u32, 0];
+    assert_eq!(puns::try_pun_ref::<_, [Near<u32>; 2]>(&words).err(), Some(Error::Validity));
+    // Each word points at the other.
+    let words = [4u32, (-4i32).cast_unsigned()];
+    let near = puns::try_pun_ref::<_, [Near<u32>; 2]>(&words).unwrap();
+    assert_eq!((*near[0].pointee(), *near[1].pointee()), ((-4i32).cast_unsigned(), 4));
+    // Past the bytes of the source, though within the array that holds it.
+    let words = [4u32, 9];
+    let first = puns::head_ref::<[u32; 2], [u32; 1]>(&words);
+    assert_eq!(puns::try_pun_ref::<[u32; 1], Near<u32>>(first).err(), Some(Error::Validity));
+  }
+
+  #[test]
+  fn an_unsized_pointee_is_read_with_its_length() {
+    // A pointer at 0 to the text at 2, of 3 bytes.
+    let mut words = [2, 3, u16::from_ne_bytes(*b"ab"), u16::from_ne_bytes([b'c', 0])];
+    let bytes = puns::as_bytes(&words);
+    let to = puns::from_head::<ToText>(bytes).unwrap().0;
+    let text = to.text();
+    assert_eq!((text.len, &text.data), (3, "abc"));
+    // To write, through a pointer to the bytes that `puns` checked, with their provenance.
+    let to = words.as_mut_ptr().cast::<ToText>();
+    // SAFETY: `puns` checked the `ToText` at `to` with its pointee, and neither changed. The bytes
+    // are accessed only through `text` while it lives, and an uppercase ASCII text is still one.
+    let text = unsafe { puns::aim_mut(to, ToText::AIMS.text) };
+    text.data.make_ascii_uppercase();
+    assert_eq!(&puns::as_bytes(&words)[4..7], b"ABC");
+  }
+
+  #[test]
+  fn each_rule_is_proven_or_checked_on_its_own() {
+    // A `Counted` at 0, whose pointee, 7, is at 8, outside its 8 bytes.
+    let words = [8u32, 1, 7];
+    let bytes = puns::as_bytes(&words);
+    let counted = puns::from_head::<Counted>(bytes).unwrap().0;
+    // The aim of the target is the same aim at the same place of the source: proven, and not looked
+    // for again within the bytes of the source, which do not hold its pointee. Only the assertion
+    // is checked.
+    let below = puns::try_pun_ref::<Counted, CountedBelow>(counted).unwrap();
+    assert_eq!((below.count, *below.pointee()), (1, 7));
+    let words = [8u32, 5, 7];
+    let counted = puns::from_head::<Counted>(puns::as_bytes(&words)).unwrap().0;
+    assert_eq!(puns::try_pun_ref::<Counted, CountedBelow>(counted).err(), Some(Error::Validity));
+    // A field that is checked next to a proven aim.
+    let words = [8u32, 0, 7];
+    let counted = puns::from_head::<Counted>(puns::as_bytes(&words)).unwrap().0;
+    assert_eq!(puns::try_pun_ref::<Counted, CountedAbove>(counted).err(), Some(Error::Validity));
+    // A region at the cursor, proven, and the assertion after it, checked.
+    let bytes = [1, 9, 3];
+    let regions = puns::from_bytes::<Sized2>(&bytes).unwrap();
+    let one = puns::try_pun_ref::<Sized2, SizedOne>(regions).unwrap();
+    assert_eq!((one.first(), one.rest()), (Ok(&9), &[3][..]));
+    let regions = puns::from_bytes::<Sized2>(&[2, 9, 3]).unwrap();
+    assert_eq!(puns::try_pun_ref::<Sized2, SizedOne>(regions).err(), Some(Error::Validity));
+  }
+
+  #[test]
+  fn eager_pointers_of_a_given_size_and_of_the_rest() {
+    // The words after the struct, and the rest from its offset 5, in its tail of 3 bytes.
+    let mut words = [0u16; 5];
+    let bytes =
+      puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u16; 5], [u8; 10]>(&mut words)).unwrap();
+    bytes[..7].copy_from_slice(&[8, 2, 5, 3, 1, 2, 3]);
+    bytes[8..].copy_from_slice(puns::as_bytes(&[5u16]));
+    let bytes: &[u8] = bytes;
+    let spans = puns::from_head::<Spans>(bytes).unwrap().0;
+    assert_eq!(spans.tail, [1, 2, 3]);
+    // The rest is in the struct, which a reference to it covers.
+    assert_eq!(spans.rest(), &[2, 3][..]);
+    assert_eq!(spans.words(), &[5][..]);
+    // A size of 3 bytes is no size of a `[u16]`, and an eager pointee is checked with the struct.
+    let mut odd = words;
+    puns::pun_mut::<[u16; 5], [u8; 10]>(&mut odd)[1] = 3;
+    assert_eq!(puns::from_head::<Spans>(puns::as_bytes(&odd)).err(), Some(Error::Validity));
+    // The rest of the tail starts in it, or at its end: past it, the struct is not valid.
+    let mut past = words;
+    puns::pun_mut::<[u16; 5], [u8; 10]>(&mut past)[2] = 7;
+    assert_eq!(puns::from_head::<Spans>(puns::as_bytes(&past)).map(|(s, _)| s.rest().len()), Ok(0));
+    puns::pun_mut::<[u16; 5], [u8; 10]>(&mut past)[2] = 8;
+    assert_eq!(puns::from_head::<Spans>(puns::as_bytes(&past)).err(), Some(Error::Validity));
+  }
+
+  #[test]
+  fn regions_and_eager_aims_compose() {
+    // The message at 0, its offset to the header at 4, the header, and a body of two pointers that
+    // point at each other.
+    let message = |back: i16| [4, 4, 0x1234, 2, back.cast_unsigned()];
+    let words = message(-2);
+    let message_at =
+      |words: &[u16; 5]| puns::from_bytes::<Message>(puns::as_bytes(words)).map(|_| ());
+    let bytes = puns::as_bytes(&words);
+    let read = puns::from_bytes::<Message>(bytes).unwrap();
+    assert_eq!(read.header(), &0x1234u16.to_ne_bytes()[..]);
+    let body = read.body().unwrap();
+    assert_eq!((body.len(), body[0].off.get(), body[1].off.get()), (2, 2, -2));
+    // The two doors read through one place: the word that the message points at is the header,
+    // within the message, and the pointees of the pointers of the body are their words.
+    let (first, second) = (body[0].back(), body[1].back());
+    assert_eq!((*read.word(), *first, *second), (0x1234, (-2i16).cast_unsigned(), 2));
+    // The eager aim is checked with the message, and the pointers of the body when it is read,
+    // within the bytes of the message: one may point at the header, another region of the message,
+    // but not before the message.
+    let words = message(-4);
+    assert_eq!(message_at(&words), Ok(()));
+    let read = puns::from_bytes::<Message>(puns::as_bytes(&words)).unwrap();
+    let body = read.body().unwrap();
+    assert_eq!(*body[1].back(), 0x1234);
+    let words = message(-10);
+    let read = puns::from_bytes::<Message>(puns::as_bytes(&words)).unwrap();
+    assert_eq!(read.body().err(), Some(Error::Validity));
+    let mut words = message(-2);
+    words[0] = 100;
+    assert_eq!(message_at(&words), Err(Error::Validity));
+  }
+
+  #[test]
+  fn the_field_of_an_eager_aim_is_an_in_place_of_any_spelling() {
+    let bytes = [1, 7];
+    let aliased = puns::from_head::<Aliased>(&bytes).unwrap().0;
+    assert_eq!(format!("{aliased:?}"), "Aliased { off: InPlace(1) }");
+    assert_eq!(aliased.next(), &7);
+  }
+
+  #[test]
+  fn the_same_aim_at_the_same_place_proves_it() {
+    let (image, _) = two();
+    let image = image.aligned();
+    let root = puns::from_head::<Pair>(image.bytes()).unwrap().0;
+    // The same type, and a part: proven, nothing is checked.
+    let same: &Pair = puns::pun_ref(root);
+    let name: &Near<str> = puns::head_ref(root);
+    assert_eq!((same.name.pointee(), name.pointee()), ("a", "a"));
+    // Plain bytes of a `Pair`, which a shared reference may read.
+    assert_eq!(puns::as_bytes(root).len(), size_of::<Pair>());
+  }
+
+  #[test]
+  fn trees_and_enums() {
+    // A tree: 1 with the children 2 and 3, and 3 with the child 4.
+    let mut image = Image::new();
+    let root = image.reserve(8, 4);
+    let (kids, grandkids, empty) = (image.list(2), image.list(1), image.list(0));
+    for (at, id, list) in
+      [(root, 1, kids), (kids + 4, 2, empty), (kids + 12, 3, grandkids), (grandkids + 4, 4, empty)]
+    {
+      image.put(at, &u32::to_ne_bytes(id));
+      image.aim(at + 4, list);
+    }
+    let image = image.aligned();
+    let bytes = image.bytes();
+    let tree = puns::from_head::<Tree>(bytes).unwrap().0;
+    let ids = |tree: &Tree| tree.kids.pointee().iter().map(|kid| kid.id).collect::<Vec<_>>();
+    assert_eq!((tree.id, ids(tree), ids(&tree.kids.pointee()[1])), (1, vec![2, 3], vec![4]));
+    // An expression: `1 + 2`. `repr(u8)` lays each variant out as a `repr(C)` struct of the tag and
+    // the fields: the `i64` of `Lit` after the tag, at its alignment, and the pointers of `Add` at 4
+    // and 8.
+    let mut image = Image::new();
+    let (size, align) = (size_of::<Expr>(), align_of::<Expr>());
+    let at = (0..3).map(|_| image.reserve(size, align)).collect::<Vec<_>>();
+    image.bytes[at[0]] = 1;
+    image.aim(at[0] + 4, at[1]);
+    image.aim(at[0] + 8, at[2]);
+    for (i, value) in [(1, 1i64), (2, 2)] {
+      image.put(at[i] + align_of::<i64>(), &value.to_ne_bytes());
+    }
+    let good = image.aligned();
+    assert_eq!(puns::from_head::<Expr>(good.bytes()).map(|(e, _)| sum(e)), Ok(3));
+    // A wrong tag deep in the tree.
+    image.bytes[at[2]] = 7;
+    assert_eq!(puns::from_head::<Expr>(image.aligned().bytes()).err(), Some(Error::Validity));
+  }
+
+  #[test]
+  fn where_a_pointee_starts_is_a_rule() {
+    let at = |off: i32| [u32::from_ne_bytes(off.to_be_bytes()), 1, 2];
+    // At 8, the second word of the pair at 4.
+    let words = at(8);
+    let bytes = puns::as_bytes(&words);
+    let second = puns::from_head::<Second>(bytes).unwrap().0;
+    assert_eq!(second.off.get().get(), 8);
+    assert_eq!(second.pair(), &[1, 2]);
+    // At 4: the pair at 0, which holds the pointer, as a pointee may.
+    assert!(puns::from_head::<Second>(puns::as_bytes(&at(4))).is_ok());
+    // At 12: the pair at 8 ends past the bytes.
+    assert_eq!(puns::from_head::<Second>(puns::as_bytes(&at(12))).err(), Some(Error::Validity));
+    // At 0: the pair would start 4 bytes before the pointer, and `0 - 4` fails.
+    assert_eq!(puns::from_head::<Second>(puns::as_bytes(&at(0))).err(), Some(Error::Validity));
+  }
+
+  /// A pointer to a `u16` before it or after it, stored as the distance from its own address.
+  #[derive(Pun)]
+  #[repr(transparent)]
+  struct Back {
+    #[pun(pointer(back: u16 = off as u128))]
+    off: InPlace<i16>,
+  }
+
+  #[test]
+  fn a_pointee_is_read_through_a_reference_to_its_value() {
+    // The pointee, 7, then a pointer 2 bytes after it, which points back at it.
+    let words = [7, (-2i16).cast_unsigned()];
+    let (_, back) = puns::from_tail::<Back>(puns::as_bytes(&words)).unwrap();
+    assert_eq!(*back.back(), 7);
+    // Through a proof: the same aim at the same place.
+    let same: &Back = puns::pun_ref(back);
+    assert_eq!(*same.back(), 7);
+  }
+
+  /// Two pairs, in words: the first at 0, its name at 12, "ab" behind its length, its values at 20,
+  /// one word, and the next pair at 28, whose name and values are those of the first.
+  fn pairs() -> [u32; 10] {
+    let back = |off: i32| off.cast_unsigned();
+    [12, 16, 20, 2, u32::from_ne_bytes(*b"ab\0\0"), 1, 9, back(-16), back(-12), 0]
+  }
+
+  #[test]
+  fn a_chain_is_read_through_references() {
+    let words = pairs();
+    let pair = puns::from_head::<Pair>(puns::as_bytes(&words)).unwrap().0;
+    let next = pair.next.as_ref().unwrap().pointee();
+    assert_eq!(
+      (pair.name.pointee(), pair.values.pointee(), next.name.pointee()),
+      ("ab", &[9][..], "ab")
+    );
+    assert!(next.next.is_none());
+  }
+
+  #[test]
+  fn a_tree_is_read_through_references() {
+    // A root of id 1 at 0, whose two children follow their length at 8: ids 2 and 3, each with the
+    // empty list at 28 as its children.
+    let empty = |at: i32| (28 - at).cast_unsigned();
+    let words = [1, 4, 2, 2, empty(16), 3, empty(24), 0];
+    let tree = puns::from_head::<Tree>(puns::as_bytes(&words)).unwrap().0;
+    let ids = tree.kids.pointee().iter().map(|kid| (kid.id, kid.kids.pointee().len()));
+    assert_eq!(ids.collect::<Vec<_>>(), [(2, 0), (3, 0)]);
+  }
+
+  #[test]
+  fn an_expression_is_read_through_references() {
+    fn sum(e: &Expr) -> i64 {
+      match e {
+        Expr::Lit(value) => *value,
+        Expr::Add(a, b) => sum(a.pointee()) + sum(b.pointee()),
+      }
+    }
+    // `1 + 2`: the tag of `Add` and its pointers at 4 and 8, then two `Lit`s. An `Expr` is 12 bytes
+    // where an `i64` is aligned to 4, as on 32-bit x86.
+    let (size, align) = (size_of::<Expr>(), align_of::<Expr>());
+    let mut words = vec![0u64; (3 * size).div_ceil(8)];
+    let bytes = puns::from_bytes_mut::<[u8]>(puns::pun_mut::<[u64], [u8]>(&mut words[..])).unwrap();
+    bytes[0] = 1;
+    for (at, to) in [(4, size), (8, 2 * size)] {
+      let off = i32::try_from(to - at).unwrap();
+      bytes[at..at + 4].copy_from_slice(&off.to_ne_bytes());
+    }
+    for (i, value) in [(1, 1i64), (2, 2)] {
+      bytes[i * size + align..i * size + align + 8].copy_from_slice(&value.to_ne_bytes());
+    }
+    let bytes: &[u8] = bytes;
+    assert_eq!(puns::from_head::<Expr>(bytes).map(|(e, _)| sum(e)), Ok(3));
+  }
+
+  /// A pointer to a text, whose pointee is read to write too.
+  #[derive(Pun)]
+  #[repr(transparent)]
+  struct Text {
+    #[pun(pointer(text: Thin<str, i16> = off as u128))]
+    off: InPlace<NonZero<i16>>,
+  }
+
+  #[test]
+  fn a_pointee_is_written_through_a_mutable_reference_to_its_value() {
+    // The pointer at 0, the length at 2, then the text.
+    let mut words = [2i16, 2, i16::from_ne_bytes(*b"hi")];
+    let at = words.as_mut_ptr().cast::<Text>();
+    // SAFETY: `puns` checks the `Text` at the start of `words`, with its pointee, below. The bytes
+    // of the pointee are accessed only through `text` while it lives, and an uppercase ASCII text is
+    // still one.
+    let text = unsafe {
+      assert!(puns::from_head::<Text>(puns::as_bytes(&*at.cast::<[i16; 3]>())).is_ok());
+      puns::aim_mut(core::ptr::from_mut(&mut *at), Text::AIMS.text)
+    };
+    text.make_ascii_uppercase();
+    assert_eq!(&puns::as_bytes(&words)[4..], b"HI");
+    assert_eq!(
+      puns::from_head::<Text>(puns::as_bytes(&[2i16, -1, 0])).err(),
+      Some(Error::Validity)
+    );
+  }
+
+  /// The path of `puns`, renamed: what the derive names through `#[pun(crate = ..)]`.
+  mod renamed {
+    pub use puns::*;
+  }
+
+  /// A pointer to the byte after it, derived through another path of `puns`.
+  #[derive(Pun)]
+  #[pun(crate = renamed)]
+  #[repr(transparent)]
+  struct Renamed {
+    #[pun(pointer(next: u8 = off as u128))]
+    off: renamed::InPlace<u8>,
+  }
+
+  #[test]
+  fn a_crate_path_that_names_puns_reads_the_same_pointee() {
+    let bytes = [1, 9];
+    let renamed = puns::from_head::<Renamed>(&bytes).unwrap().0;
+    assert_eq!(*renamed.next(), 9);
+    assert_eq!(puns::from_head::<Renamed>(&[2, 9]).err(), Some(Error::Validity));
+  }
 }
