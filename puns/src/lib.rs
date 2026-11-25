@@ -821,19 +821,21 @@
 //! `const`, since `TypeId` cannot be compared there and `type_name` is not a `const fn`.
 //!
 //! So `puns` identifies a type by a name, together with the identities of the types it is made of.
-//! An identity has two uses, and no other. It tells whether two parts whose layout Rust leaves to
+//! An identity has three uses, and no other. It tells whether two parts whose layout Rust leaves to
 //! the compiler, and that are proven neither field by field nor by the layout that `puns` assumes,
-//! are of the same type. And it names a type without its layout, so that the identity of a generic
-//! type is made of the identities of its parameters, and a type that holds itself through a generic
-//! type has one. A layout that Rust specifies, or that `puns` assumes, is compared by its parts,
-//! never by an identity.
+//! are of the same type. It tells whether the pointees of two eager aims are of the same type, so
+//! that the same aim proves itself ([Aims](#aims)). And it names a type without its layout, so that
+//! the identity of a generic type is made of the identities of its parameters, and a type that
+//! holds itself through a generic type has one. A layout that Rust specifies, or that `puns`
+//! assumes, is compared by its parts, never by an identity.
 //! The primitive types, the types of [`num`], arrays, slices, tuples, `Option`, `Result`,
 //! `MaybeUninit` and `ManuallyDrop` have identities. A part that is a `ManuallyDrop<T>` is of the
 //! same type as a part that is a `T`, since `core` gives them one layout. A type made of a
 //! `ManuallyDrop<T>` is not made of a `T`, though: `-Zrandomize-layout` arranges
 //! `Wrapper<ManuallyDrop<u8>, u16, u32>` and `Wrapper<u8, u16, u32>` differently. A type that
-//! derives `Pun` is named by where it is declared (the module, file, line and column), by its name,
-//! and by the number of its derive in its crate. An instance of a generic type that derives `Pun`
+//! derives `Pun` is named by its crate, as `rustc` tells the crates of a program apart, by its
+//! name, and by the number of its derive in that crate, which no path changes ([What the derive
+//! trusts](macro@Pun#what-the-derive-trusts)). An instance of a generic type that derives `Pun`
 //! is named, in addition, by the identity of each of its type parameters and the value of each of
 //! its const parameters, in order, so a `Pair<i32>` proves a `Pair<i32>`, and not a `Pair<u32>`.
 //! Its lifetimes do not count. The derive can name the identity of a type parameter only if the
@@ -844,9 +846,10 @@
 //! parameter that has none. A part whose layout Rust leaves to the compiler and that holds one of
 //! them therefore proves itself only with the feature, unless it is proven field by field, and the
 //! refusal says so. A type whose every part has the same layout in every build, such as a generic
-//! `repr(C)` struct of a `u8` and a `PhantomData<T>`, needs no identity. An identity can only
-//! refuse a pun, because the layouts are compared as well, so two types that happened to share a
-//! name would still be told apart by their layouts.
+//! `repr(C)` struct of a `u8` and a `PhantomData<T>`, needs no identity. Two parts whose layouts
+//! Rust leaves to the compiler are of one type only if their layouts are the same as well. Two
+//! pointees of eager aims are of one type if their identities are: the analysis reads no layout of
+//! a pointee there, so two types must never have one identity.
 //!
 //! ### What this relies on
 //!
@@ -1774,13 +1777,52 @@ pub use layout::{crc32, sum16};
 ///   that start with `__Pun` name other items, gives the field one type, or does not compile.
 ///   These names are reserved.
 ///
-/// The one exception is the identity of a type, which says whether two layouts are of the same
-/// type. It is where the type is declared, written by a macro that the derive names through the
-/// path of `puns`, and the identities of its parameters, so a crate that redirects that path can
-/// give a type the identity of another. Two layouts count as the same type only if they are also
-/// equal, so this cannot make a wrong layout. It can make a verdict depend on how `rustc` arranged
-/// the two types in this compilation, which without the `unstable` feature no verdict otherwise
-/// does.
+/// The identity of a type, which says whether two parts or two pointees of eager aims are of the
+/// same type ([The same type](crate#the-same-type)), is a literal that the derive writes, passed to
+/// an associated function of the type of identities, which `Layout::PIN` fixes. No path chooses it,
+/// neither the path of `puns` nor `::core`. The identities of the parameters of a generic type are
+/// `<T as Pun>::ID`, of the `Pun` that the type implements. The literal names:
+///
+/// - The crate being compiled, by the inputs of its `StableCrateId`, which the derive reads from the
+///   arguments of the `rustc` process that runs it: the name of the crate, whether it is an
+///   executable, the values of `-C metadata`, and `RUSTC_FORCE_RUSTC_VERSION`. A crate is an
+///   executable with `--test`, or with `bin` among the types of `--crate-type`. Without either, as
+///   Cargo compiles a test or a bench without a harness, its types are those of the
+///   `#![crate_type]` attributes of its root file, which the derive reads as `rustc` does, and it
+///   is an executable without them. `rustc` refuses two crates of one `StableCrateId` in a program
+///   (E0519 for the crate it compiles and a dependency, "colliding `StableCrateId` values" for two
+///   dependencies), and two identities are compared only in a crate that names both types, of one
+///   program. So the library and the executables of a package, and two packages of one name and
+///   one version from two sources, are other crates.
+/// - The name of the type, and the number of its derive in that compilation.
+/// - The copy of the derive, as a hash of a `TypeId` of it. A compilation may load two copies,
+///   such as a `puns-derive` of the registry and one of a git repository, which each number their
+///   derives.
+///
+/// The derive is a library in `rustc`, with its own `std`, which has the arguments of the process
+/// on Windows, on Apple systems and on Linux with glibc. Elsewhere the derive reads them where the
+/// system keeps them: `/proc/self/cmdline` on Linux with another C library (musl), on Android and
+/// on another system with a `/proc` of that format, and `sysctl` on FreeBSD, DragonFly, NetBSD and
+/// OpenBSD. CI runs it on Linux with glibc and with musl, and under Miri; the other systems are not
+/// tested.
+///
+/// So two types that derive `Pun` have two identities, unless two copies of the derive in one
+/// compilation have hashes of 64 bits that collide. A type that derives `Pun` has no identity,
+/// which only refuses, where the derive cannot read the arguments as `rustc` does:
+///
+/// - It cannot read them: where rust-analyzer expands the derive, on a system other than those
+///   above (illumos and Solaris without such a `/proc`, Haiku, AIX), or where `/proc/self/cmdline`
+///   may be cut (a length that is a multiple of 4096 bytes, as before Linux 4.2).
+/// - They are not what `rustc` reads: not exactly one `--crate-name`, an argument that is not
+///   UTF-8, an `@file` that cannot be read, an `@shell:` file after `-Z shell-argfiles`, or an
+///   option that `rustc` 1.100 does not have, such as one of a later version.
+/// - The crate has neither `--crate-type` nor `--test`, and the derive cannot read the types of its
+///   root file: it is standard input, it cannot be read or parsed, a `crate_type` is not a string
+///   of a known type, a comment follows a first `#!`, `-Z crate-attr` adds attributes, or the
+///   arguments have another file, such as the path of `rustc` that `clippy-driver` is given.
+///
+/// `Pun` is not implemented by hand, and an implementation of `Scalar` by hand leaves its identity
+/// at none.
 ///
 /// Nothing else that the derive names through the path of `puns` makes a layout. A trait that it
 /// implements through the path is the trait of `puns`: otherwise the type does not implement that
@@ -1797,7 +1839,9 @@ pub use layout::{crc32, sum16};
 /// The rest of `::core` that the derive names (`Option`, `PhantomData`, `usize`, and so on) is
 /// checked by the types of the traits it implements. `::core::ptr::null()` is the probe of a sized
 /// type, which nothing reads, and `::core::panic!` is written only next to a compile error of the
-/// derive. The derive trusts the compiler for what it parses, such as `repr`.
+/// derive. The derive trusts the compiler for what it parses, such as `repr`, and trusts that the
+/// arguments of the process that runs it, if they name a crate, are those of the `rustc` that
+/// compiles that crate.
 ///
 /// An attribute macro written below `#[derive(Pun)]` is expanded after the derive has read the
 /// item, and can change the item that `rustc` compiles. The derive does not compile if such an
@@ -1975,33 +2019,6 @@ pub use puns_derive::Pun;
 pub use thin::{Metadata, Pointee, Thin};
 pub use validate::{AIM_PARTS, Pending};
 use validate::{All, Checks, Input, validate};
-
-/// Where the type `$name` is declared, its name, and `$n`, the number of the derive in its crate,
-/// as its identity (`layout::Id`), for `#[derive(Pun)]`, which names `core` through this crate (a
-/// crate may have another `core`). The place is the outermost macro call that declares the type,
-/// which may declare two (one in each of two functions), and the number tells them apart.
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __site {
-  ($name:ident, $n:literal) => {
-    $crate::__core::concat!(
-      $crate::__core::module_path!(),
-      "::",
-      $crate::__core::stringify!($name),
-      "@",
-      $crate::__core::file!(),
-      ":",
-      $crate::__core::line!(),
-      ":",
-      $crate::__core::column!(),
-      "#",
-      $n
-    )
-  };
-}
-
-#[doc(hidden)]
-pub use core as __core;
 
 // -------------------------------------------------------------------------------------------------
 // Traits

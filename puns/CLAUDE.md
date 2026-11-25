@@ -66,8 +66,20 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   own (`Layout::rule_leaf`), proven by the same rule of a struct of the same extent at the same
   place, after the same aims at the cursor if it is one, and checked on its own otherwise.
 - An identity (`layout::Id`, `Pun::ID`) names a type by its declaration and by every parameter but
-  its lifetimes, so two types with one identity are one type. It has two uses only: proving a part
-  that is not `fixed` by the same type at the same place, and naming a type without its layout.
+  its lifetimes, so two types with one identity are one type. The derive writes it as a literal
+  passed to the pinned `Id::new`, never through a path: the crate by the inputs of its
+  `StableCrateId`, read from the arguments of `rustc` (`crate_of` in `puns-derive`, which `rustc`
+  keeps unique in a program; `args.rs` reads them where the `std` of the derive does not have
+  them), the name, the number of the derive, and the copy of the derive (`this_derive`). Where
+  the derive cannot read the arguments as `rustc` does, the type has none: "What the derive
+  trusts" lists the cases. Its option tables are those of the pinned `rustc`
+  (`the_options_are_those_of_rustc`), so a new toolchain may need them updated. It is pinned by
+  `compile-fail/aim_identity_of_another.rs` (crate path), `core_shadowed` and `puns_model`
+  (`src/identity_test.rs`) in `puns-model` (`::core`, and a library and an executable that
+  include one file); the CI job "Linux with musl" runs `puns_model` where `std` does not have the
+  arguments. It has three uses only: proving a part that
+  is not `fixed` by the same type at the same place, proving an eager aim by the same aim
+  (`Aim::equals`, which reads no layout of the pointee), and naming a type without its layout.
   `ManuallyDrop<T>` is `T` only as the whole of a part (`Id::equals`). An identity is made of the
   identities of the parameters, never of their layouts, so that a type that holds itself through a
   generic type has a layout. The derive gives a generic type one only where each type parameter is

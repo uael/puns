@@ -21,6 +21,13 @@ unstable = ["puns/unstable"]
 # `cargo test --profile model -p puns-model --features full`.
 full = []
 
+# A type of the library and a type of an executable of this package, from one file
+# (`src/identity.rs`): the executable has the name of the library, as Cargo names the executable of
+# a package, and is in `src/` to include the file at the same path.
+[[test]]
+name = "puns_model"
+path = "src/identity_test.rs"
+
 [[test]]
 name = "size1_1"
 required-features = ["full"]
