@@ -9,8 +9,8 @@
 //! [concepts#layouts-and-rules]: super::concepts#layouts-and-rules
 //! [concepts#requirements]: super::concepts#requirements
 //! [concepts#why-the-pair-decides]: super::concepts#why-the-pair-decides
-//! [fn@crc32]: fn@crc32
-//! [fn@sum16]: fn@sum16
+//! [fn@crc32]: fn@layout::crc32
+//! [fn@sum16]: fn@layout::sum16
 //! [soundness#what-deriving-pun-means]: super::soundness#what-deriving-pun-means
 //! [formats]: super::formats
 //! [limits#not-yet]: super::limits#not-yet

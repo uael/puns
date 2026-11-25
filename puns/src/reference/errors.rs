@@ -8,8 +8,6 @@
 //! [`head_ref`]: head_ref
 //! [`num::u32le`]: num::u32le
 //! [`pun`]: pun
-//! [`tail_mut`]: tail_mut
-//! [`tail_ref`]: tail_ref
 //! [`try_pun_ref`]: try_pun_ref
 //! [`zeroed`]: zeroed
 //! [aims]: super::aims

@@ -376,31 +376,31 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 `puns` by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
 additional terms or conditions.
 
-[valid]: docs/concepts.md#what-is-a-valid-value
-[kinds]: docs/concepts.md#proven-checked-and-refused
-[pairs]: docs/concepts.md#why-the-pair-decides
-[requirements]: docs/concepts.md#requirements
-[layouts]: docs/concepts.md#layouts-and-rules
-[msrv]: docs/target.md#minimum-rust-version
-[rules]: docs/rules.md
-[aims]: docs/aims.md
-[performance]: docs/performance.md
-[comparison]: docs/performance.md#compared-with-zerocopy-and-bytemuck
-[rust]: docs/rust.md
-[reference]: docs
-[concepts]: docs/concepts.md
-[functions]: docs/functions.md
-[formats]: docs/formats.md
-[limits]: docs/limits.md
-[trust]: docs/trust.md
-[target]: docs/target.md
-[not-yet]: docs/limits.md#not-yet
-[Compile-time errors]: docs/errors.md
-[Soundness]: docs/soundness.md
-[testing]: docs/testing.md
-[deriving]: docs/soundness.md#what-deriving-pun-means
+[valid]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#what-is-a-valid-value
+[kinds]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#proven-checked-and-refused
+[pairs]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#why-the-pair-decides
+[requirements]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#requirements
+[layouts]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#layouts-and-rules
+[msrv]: https://github.com/uael/puns/blob/v0.2.4/docs/target.md#minimum-rust-version
+[rules]: https://github.com/uael/puns/blob/v0.2.4/docs/rules.md
+[aims]: https://github.com/uael/puns/blob/v0.2.4/docs/aims.md
+[performance]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md
+[comparison]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md#compared-with-zerocopy-and-bytemuck
+[rust]: https://github.com/uael/puns/blob/v0.2.4/docs/rust.md
+[reference]: https://github.com/uael/puns/tree/v0.2.4/docs
+[concepts]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md
+[functions]: https://github.com/uael/puns/blob/v0.2.4/docs/functions.md
+[formats]: https://github.com/uael/puns/blob/v0.2.4/docs/formats.md
+[limits]: https://github.com/uael/puns/blob/v0.2.4/docs/limits.md
+[trust]: https://github.com/uael/puns/blob/v0.2.4/docs/trust.md
+[target]: https://github.com/uael/puns/blob/v0.2.4/docs/target.md
+[not-yet]: https://github.com/uael/puns/blob/v0.2.4/docs/limits.md#not-yet
+[Compile-time errors]: https://github.com/uael/puns/blob/v0.2.4/docs/errors.md
+[Soundness]: https://github.com/uael/puns/blob/v0.2.4/docs/soundness.md
+[testing]: https://github.com/uael/puns/blob/v0.2.4/docs/testing.md
+[deriving]: https://github.com/uael/puns/blob/v0.2.4/docs/soundness.md#what-deriving-pun-means
 [view]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#views
-[unstable]: docs/layouts.md
+[unstable]: https://github.com/uael/puns/blob/v0.2.4/docs/layouts.md
 [num]: https://docs.rs/puns/0.2.4/puns/num/index.html
 [layout]: https://docs.rs/puns/0.2.4/puns/layout/index.html
 [check]: https://docs.rs/puns/0.2.4/puns/fn.check.html

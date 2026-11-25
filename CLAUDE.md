@@ -96,17 +96,20 @@ The chapters of the reference are the files `docs/<chapter>.md`, which
 [`xtask/src/links.rs`](xtask/src/links.rs) states how their links and those of the README are
 written. In CI, `cargo xtask links --check` checks that each of these links names the version where
 it must, and that its target exists if it is a file or a heading of the repository, or a page or a
-section of the documentation of `puns`. It checks no link to another site, and no link of a
-`CLAUDE.md` file or of a comment. `cargo doc` with `-D warnings` checks the intra-doc links. The
-links are written so:
+section of the documentation of `puns`. It also checks that no label has two definitions, case
+aside, and that the `.rs` file and the Markdown file give a label the same item. It checks no link
+to another site, and no link of a `CLAUDE.md` file or of a comment. `cargo doc` with `-D warnings`
+checks the intra-doc links. The links are written so:
 
 - Every link to `puns` on docs.rs or crates.io, or to a file of the repository, names the version of
   `puns` or its tag, so that it leads to the same version on GitHub, crates.io and docs.rs. A link
   to the `wip` branch, which keeps the prototypes for history, is the one exception. The release
   workflow pins the links on the branch of each release PR.
-- A link to a chapter of the reference is relative, so that GitHub stays in the revision being read,
-  and the `.rs` file that includes the page defines its label as an intra-doc link
-  (`puns/src/lib.rs` for the README). No check covers where these links lead on crates.io.
+- A link of a chapter to another chapter is relative, so that GitHub stays in the revision being
+  read, and the `.rs` file that includes the chapter defines its label as an intra-doc link. The
+  README links to a chapter by its URL at the tag, since crates.io resolves a relative link in
+  `puns/`, where `docs` is a symbolic link that GitHub does not follow. `puns/src/lib.rs` defines
+  the label of each such link as an intra-doc link.
 - Each block of code names its language, and has no hidden lines (`# `), since GitHub shows them.
 
 The times published in `docs/performance.md`, the chapter "Measured performance", name the machine,

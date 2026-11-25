@@ -1,5 +1,6 @@
-// The README is the crate page. Its links to the reference are relative, for GitHub, and rustdoc
-// keeps the first definition of a link, so these, before it, make them intra-doc.
+// The README is the crate page. Its links to the chapters of the reference name their files on
+// GitHub, and rustdoc keeps the first definition of a link, so these, before it, make them
+// intra-doc.
 //! [valid]: reference::concepts#what-is-a-valid-value
 //! [kinds]: reference::concepts#proven-checked-and-refused
 //! [pairs]: reference::concepts#why-the-pair-decides

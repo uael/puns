@@ -2,7 +2,6 @@
 // definition of a link, so these, before it, make its links to items and chapters intra-doc.
 //! [enums]: macro@Pun#enums-with-fields
 //! [sample]: macro@Pun#enums-with-fields
-//! [`Aim`]: layout::Aim
 //! [`AimOf`]: AimOf
 //! [`aim_mut`]: aim_mut
 //! [`aim`]: aim
@@ -21,6 +20,7 @@
 //! [`Start`]: layout::Start
 //! [`Varint`]: layout::Varint
 //! [`Variant`]: layout::Variant
+//! [struct-aim]: layout::Aim
 //! [independence]: super::layouts#layout-independence
 //! [rust#the-tag-of-an-enum-of-the-rust-representation]: super::rust#the-tag-of-an-enum-of-the-rust-representation
 //! [rust#the-variant-read-from-the-tag]: super::rust#the-variant-read-from-the-tag

@@ -102,7 +102,6 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-
 ```
 
 [Miri]: https://github.com/rust-lang/miri
-[Miri]: https://github.com/rust-lang/miri
 [aim-reads]: https://github.com/uael/puns/blob/v0.2.4/puns/tests/aim_reads.rs
 [compile-fail]: https://github.com/uael/puns/tree/v0.2.4/puns/tests
 [model]: https://github.com/uael/puns/blob/v0.2.4/puns-model/src/lib.rs

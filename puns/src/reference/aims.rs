@@ -19,9 +19,9 @@
 //! [`layout::Start`]: layout::Start
 //! [`Pointee`]: Pointee
 //! [`pun_mut`]: pun_mut
-//! [`Pun`]: trait@Pun
 //! [`pun`]: pun
 //! [`Thin`]: Thin
+//! [trait-pun]: trait@Pun
 //! [`try_pun_mut`]: try_pun_mut
 //! [`try_pun_ref`]: try_pun_ref
 //! [`try_pun`]: try_pun

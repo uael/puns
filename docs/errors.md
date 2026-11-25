@@ -743,8 +743,6 @@ assert!(level.negative());
 [`head_ref`]: https://docs.rs/puns/0.2.4/puns/fn.head_ref.html
 [`num::u32le`]: https://docs.rs/puns/0.2.4/puns/num/struct.u32le.html
 [`pun`]: https://docs.rs/puns/0.2.4/puns/fn.pun.html
-[`tail_mut`]: https://docs.rs/puns/0.2.4/puns/fn.tail_mut.html
-[`tail_ref`]: https://docs.rs/puns/0.2.4/puns/fn.tail_ref.html
 [`try_pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_ref.html
 [`zeroed`]: https://docs.rs/puns/0.2.4/puns/fn.zeroed.html
 [aims]: aims.md
