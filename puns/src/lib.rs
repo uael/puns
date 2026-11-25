@@ -1783,28 +1783,41 @@ pub use layout::{crc32, sum16};
 ///
 /// - The crate being compiled, by the inputs of its `StableCrateId`, which the derive reads from the
 ///   arguments of the `rustc` process that runs it: the name of the crate, whether it is an
-///   executable (`--test`, or `bin` among the types of `--crate-type`), the values of
-///   `-C metadata`, and `RUSTC_FORCE_RUSTC_VERSION`. `rustc` refuses two crates of one
-///   `StableCrateId` in a program (E0519 for the crate it compiles and a dependency, "colliding
-///   `StableCrateId` values" for two dependencies), and two identities are compared only in a crate
-///   that names both types, of one program. So the library and the executables of a package, and
-///   two packages of one name and one version from two sources, are other crates.
+///   executable, the values of `-C metadata`, and `RUSTC_FORCE_RUSTC_VERSION`. A crate is an
+///   executable with `--test`, or with `bin` among the types of `--crate-type`. Without either, as
+///   Cargo compiles a test or a bench without a harness, its types are those of the
+///   `#![crate_type]` attributes of its root file, which the derive reads as `rustc` does, and it
+///   is an executable without them. `rustc` refuses two crates of one `StableCrateId` in a program
+///   (E0519 for the crate it compiles and a dependency, "colliding `StableCrateId` values" for two
+///   dependencies), and two identities are compared only in a crate that names both types, of one
+///   program. So the library and the executables of a package, and two packages of one name and
+///   one version from two sources, are other crates.
 /// - The name of the type, and the number of its derive in that compilation.
 /// - The copy of the derive, as a hash of a `TypeId` of it. A compilation may load two copies,
 ///   such as a `puns-derive` of the registry and one of a git repository, which each number their
 ///   derives.
 ///
-/// So two types that derive `Pun` have two identities, except where:
+/// The derive is a library in `rustc`, with its own `std`, which has the arguments of the process
+/// on Windows, on Apple systems and on Linux with glibc. Elsewhere the derive reads them where the
+/// system keeps them: `/proc/self/cmdline` on Linux with another C library (musl), on Android and
+/// on another system with a `/proc` of that format, and `sysctl` on FreeBSD, DragonFly, NetBSD and
+/// OpenBSD. CI runs it on Linux with glibc and with musl, and under Miri; the other systems are not
+/// tested.
 ///
-/// - The arguments of the process do not name the crate (no `--crate-name`), as where
-///   rust-analyzer expands the derive. A type that derives `Pun` then has no identity, which only
-///   refuses.
-/// - A crate is compiled without `--crate-type` and without `--test`, as Cargo compiles a test or a
-///   bench without a harness. `rustc` then gives it the type of its `#![crate_type]`, which the
-///   derive does not see, or makes an executable, so the derive names it apart from the crates of
-///   either type. Two such crates of one name and one `-C metadata` in a program, one of them a
-///   library by its attribute, would give two types one identity. Cargo compiles no library so.
-/// - Two copies of the derive in one compilation have hashes of 64 bits that collide.
+/// So two types that derive `Pun` have two identities, unless two copies of the derive in one
+/// compilation have hashes of 64 bits that collide. A type that derives `Pun` has no identity,
+/// which only refuses, where the derive cannot read the arguments as `rustc` does:
+///
+/// - It cannot read them: where rust-analyzer expands the derive, on a system other than those
+///   above (illumos and Solaris without such a `/proc`, Haiku, AIX), or where `/proc/self/cmdline`
+///   may be cut (a length that is a multiple of 4096 bytes, as before Linux 4.2).
+/// - They are not what `rustc` reads: not exactly one `--crate-name`, an argument that is not
+///   UTF-8, an `@file` that cannot be read, an `@shell:` file after `-Z shell-argfiles`, or an
+///   option that `rustc` 1.100 does not have, such as one of a later version.
+/// - The crate has neither `--crate-type` nor `--test`, and the derive cannot read the types of its
+///   root file: it is standard input, it cannot be read or parsed, a `crate_type` is not a string
+///   of a known type, a comment follows a first `#!`, `-Z crate-attr` adds attributes, or the
+///   arguments have another file, such as the path of `rustc` that `clippy-driver` is given.
 ///
 /// `Pun` is not implemented by hand, and an implementation of `Scalar` by hand leaves its identity
 /// at none.

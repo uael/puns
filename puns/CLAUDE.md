@@ -69,11 +69,15 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   its lifetimes, so two types with one identity are one type. The derive writes it as a literal
   passed to the pinned `Id::new`, never through a path: the crate by the inputs of its
   `StableCrateId`, read from the arguments of `rustc` (`crate_of` in `puns-derive`, which `rustc`
-  keeps unique in a program), the name, the number of the derive, and the copy of the derive
-  (`this_derive`). Where the arguments do not name the crate, the type has none. Its gaps are listed
-  in "What the derive trusts". It is pinned by `compile-fail/aim_identity_of_another.rs` (crate
-  path), `core_shadowed` and `puns_model` (`src/identity_test.rs`) in `puns-model` (`::core`, and
-  a library and an executable that include one file). It has three uses only: proving a part that
+  keeps unique in a program; `args.rs` reads them where the `std` of the derive does not have
+  them), the name, the number of the derive, and the copy of the derive (`this_derive`). Where
+  the derive cannot read the arguments as `rustc` does, the type has none: "What the derive
+  trusts" lists the cases. Its option tables are those of the pinned `rustc`
+  (`the_options_are_those_of_rustc`), so a new toolchain may need them updated. It is pinned by
+  `compile-fail/aim_identity_of_another.rs` (crate path), `core_shadowed` and `puns_model`
+  (`src/identity_test.rs`) in `puns-model` (`::core`, and a library and an executable that
+  include one file); the CI job "Linux with musl" runs `puns_model` where `std` does not have the
+  arguments. It has three uses only: proving a part that
   is not `fixed` by the same type at the same place, proving an eager aim by the same aim
   (`Aim::equals`, which reads no layout of the pointee), and naming a type without its layout.
   `ManuallyDrop<T>` is `T` only as the whole of a part (`Id::equals`). An identity is made of the

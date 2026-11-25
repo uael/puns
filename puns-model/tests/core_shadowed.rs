@@ -91,6 +91,9 @@ struct HoldsStrict {
 /// Checks that the identity of a type is not made of what `::core` names: were it made of the
 /// macros of `fakecore`, `Lax` and `Strict` would have one, the eager aim of `HoldsLax` would prove
 /// the one of `HoldsStrict`, and a `HoldsStrict` would point at a `Strict` that holds 2.
+///
+/// It guards against a change of the derive. It passes on the derive that named a type through
+/// `__site!` too, whose macros were those of the real `core`, through `puns`.
 #[test]
 fn identities_are_not_made_with_core() {
   assert!(!hook::verdict::<HoldsLax, HoldsStrict>().pun_ref);
