@@ -25,11 +25,11 @@
 //! [`try_pun`]: try_pun
 //! [`Worklist`]: Worklist
 //! [`zeroed`]: zeroed
-//! [concepts#aims]: super::concepts#aims
+//! [how_puns_decides#aims]: super::how_puns_decides#aims
 //! [layouts#the-same-type]: super::layouts#the-same-type
 //! [limits#bounds-of-the-checks]: super::limits#bounds-of-the-checks
 //! [macro@Pun#aims]: macro@Pun#aims
-//! [rust#the-provenance-of-a-reference-to-a-value-with-an-eager-aim]: super::rust#the-provenance-of-a-reference-to-a-value-with-an-eager-aim
+//! [what_puns_relies_on#the-provenance-of-a-reference-to-a-value-with-an-eager-aim]: super::what_puns_relies_on#the-provenance-of-a-reference-to-a-value-with-an-eager-aim
 #![doc = include_str!("../../docs/aims.md")]
 
 // The items of the crate, which the links of this chapter name. Only rustdoc reads them.

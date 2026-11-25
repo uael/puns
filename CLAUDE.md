@@ -25,10 +25,11 @@ before changing the library. Keep them, the reference and the README consistent 
 ## Toolchain
 
 The crates build on **stable** Rust 1.100.0, pinned in `rust-toolchain`. Their `rust-version` is
-1.99, for the reason that [Minimum Rust version](docs/target.md#minimum-rust-version) gives, and the
-CI job "Minimum Rust version" builds on it. A change that needs a newer feature raises
-`rust-version`, and gives the reason in that section. A pinned nightly (`nightly-2026-11-17`) is
-used by `cargo xtask fmt` (`rustfmt.toml` uses unstable options) and by Miri.
+1.99, for the reason that [Minimum Rust
+version](docs/rust_version_and_targets.md#minimum-rust-version) gives, and the CI job "Minimum Rust
+version" builds on it. A change that needs a newer feature raises `rust-version`, and gives the
+reason in that section. A pinned nightly (`nightly-2026-11-17`) is used by `cargo xtask fmt`
+(`rustfmt.toml` uses unstable options) and by Miri.
 
 ## Commands
 

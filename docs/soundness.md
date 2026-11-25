@@ -6,10 +6,11 @@ initialized in the source: those that the analysis leaves to it, and the proven 
 check with them ([Reading the bytes of the value][bytes]). `puns` never relies on a [rule] for
 memory safety: a rule that no longer holds gives wrong values or a panic, never undefined behavior.
 
-The analysis compares the layouts that the implementations of [`Pun`] give: those of `puns` for
-the types of `core` that it supports, and those of the derive for other types ([What the derive
-trusts][trust]). [What `puns` relies on][rust] lists what Rust documents of these layouts, and what
-no documentation states, each fact with what checks it. [Testing][testing] describes the tests.
+The analysis compares the layouts that the implementations of [`Pun`] give: those of `puns` for the
+types of `core` that it supports, and those of the derive for other types ([What the derive
+trusts][trust]). [What `puns` relies on][what_puns_relies_on] lists what Rust documents of these
+layouts, and what no documentation states, each fact with what checks it. [Testing][testing]
+describes the tests.
 
 ## Guarantees and requirements
 
@@ -38,9 +39,9 @@ a source that accepts any bytes there, uninitialized ones included.
 The tag of an enum is never padding. The tag of an enum of a primitive representation is that
 integer, which holds its discriminant. Of the tag of a `repr(C)` enum, Rust gives only the size and
 the alignment, and `puns` relies on `rustc` storing it as an integer ([The tag of a `repr(C)`
-enum][rust#the-tag-of-a-reprc-enum]). The experiments that find the tag of an enum of the `Rust`
-representation fail the build on a byte of padding ([The padding of a new
-value][rust#the-padding-of-a-new-value]).
+enum][what_puns_relies_on#the-tag-of-a-reprc-enum]). The experiments that find the tag of an enum of
+the `Rust` representation fail the build on a byte of padding ([The padding of a new
+value][what_puns_relies_on#the-padding-of-a-new-value]).
 
 ## Unions
 
@@ -177,15 +178,15 @@ assert_eq!(odd.get(), 3);
 [`Pun`]: https://docs.rs/puns/0.2.4/puns/trait.Pun.html
 [`zeroed`]: https://docs.rs/puns/0.2.4/puns/fn.zeroed.html
 [bytes]: rules.md#reading-the-bytes-of-the-value
-[padding]: concepts.md#layouts-and-rules
+[padding]: how_puns_decides.md#layouts-and-rules
 [limits#not-yet]: limits.md#not-yet
-[pair]: concepts.md#why-the-pair-decides
-[requirements]: concepts.md#requirements
+[pair]: how_puns_decides.md#why-the-pair-decides
+[requirements]: how_puns_decides.md#requirements
 [rule]: rules.md
-[rust]: rust.md
-[rust#the-padding-of-a-new-value]: rust.md#the-padding-of-a-new-value
-[rust#the-tag-of-a-reprc-enum]: rust.md#the-tag-of-a-reprc-enum
+[what_puns_relies_on]: what_puns_relies_on.md
+[what_puns_relies_on#the-padding-of-a-new-value]: what_puns_relies_on.md#the-padding-of-a-new-value
+[what_puns_relies_on#the-tag-of-a-reprc-enum]: what_puns_relies_on.md#the-tag-of-a-reprc-enum
 [testing]: testing.md
 [trust]: trust.md
-[uninhabited]: concepts.md#uninhabited-types
-[valid]: concepts.md#what-is-a-valid-value
+[uninhabited]: how_puns_decides.md#uninhabited-types
+[valid]: how_puns_decides.md#what-is-a-valid-value

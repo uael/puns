@@ -5,7 +5,7 @@ front or the back ([the table of functions][crate#going-further]). The choice al
 a check at run time is possible. [`pun`], [`pun_ref`], [`pun_mut`], [`as_bytes`], [`head`],
 [`tail`] and their `_ref` and `_mut` forms check nothing, and refuse a pair that needs a check. The
 `try_` and `from_` functions check at run time what the analysis leaves to them ([Proven, checked
-and refused][concepts#proven-checked-and-refused]).
+and refused][how_puns_decides#proven-checked-and-refused]).
 
 ## Reinterpreting a value
 
@@ -111,10 +111,10 @@ The analysis compares what may be written with the source scalar by scalar. A `#
 range is part of the layout of its scalar, so it is compared like any value, and a write must stay
 in it. A rule is an expression on the whole struct, which this comparison does not read. So
 [`pun_mut`] and [`try_pun_mut`] let a write break a rule of the source, as a write to a field may,
-since a rule is a [requirement][concepts#requirements]. To check the value again, pass its bytes,
-from [`as_bytes`], to [`from_bytes`]. [`head_mut`] and [`tail_mut`] are stricter about rules
-([Writes leave a valid source](#writes-leave-a-valid-source)). A more precise analysis is [not
-done yet][limits#not-yet].
+since a rule is a [requirement][how_puns_decides#requirements]. To check the value again, pass its
+bytes, from [`as_bytes`], to [`from_bytes`]. [`head_mut`] and [`tail_mut`] are stricter about rules
+([Writes leave a valid source](#writes-leave-a-valid-source)). A more precise analysis is [not done
+yet][limits#not-yet].
 
 Where [`pun_mut`] is refused because a `D` written through it could leave an invalid source, take
 a `&mut` to only the bytes that you write, with [`head_mut`] or [`tail_mut`]. A `&mut [u8; 4]` to
@@ -243,7 +243,7 @@ last bytes for [`head`], [`tail`] and their `_ref` and `_mut` forms, as each pag
 ### Sizes
 
 - *Same extent*: whatever the length of its slice, every value of `S` has an
-  [extent][concepts#layouts-and-rules] that a `D` can have. For sized types,
+  [extent][how_puns_decides#layouts-and-rules] that a `D` can have. For sized types,
   `size_of::<S>() == size_of::<D>()`.
 - *An extent in common*: some length of the slice of `S` gives it an extent that a `D` can have.
   The check at run time tells whether the value has such an extent, and whether the `D` of that
@@ -268,13 +268,13 @@ of `S`.
 
 ### Proven target
 
-In every value of `S`, the covered bytes are a [valid][concepts#what-is-a-valid-value] `D`, and
-`S` proves the [requirements][concepts#requirements] of `D` ([Why the pair
-decides][concepts#why-the-pair-decides]).
+In every value of `S`, the covered bytes are a [valid][how_puns_decides#what-is-a-valid-value] `D`,
+and `S` proves the [requirements][how_puns_decides#requirements] of `D` ([Why the pair
+decides][how_puns_decides#why-the-pair-decides]).
 
 ### Accepted by a check
 
-Each [part][concepts#layouts-and-rules] of `D` accepts what some value of `S` holds at its
+Each [part][how_puns_decides#layouts-and-rules] of `D` accepts what some value of `S` holds at its
 place: each scalar outside an enum or a union, some variant of each enum, and some field of each
 union. The check at run time then tests that the bytes are a valid `D` and meet the requirements
 of `D`. A pair where no value of `S` is a valid `D` is refused rather than checked, so `D` is
@@ -336,11 +336,11 @@ check looks for its pointee in the bytes of the source.
 [`try_pun`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
 [`Worklist`]: https://docs.rs/puns/0.2.4/puns/trait.Worklist.html
 [aims]: aims.md
-[concepts#layouts-and-rules]: concepts.md#layouts-and-rules
-[concepts#proven-checked-and-refused]: concepts.md#proven-checked-and-refused
-[concepts#requirements]: concepts.md#requirements
-[concepts#what-is-a-valid-value]: concepts.md#what-is-a-valid-value
-[concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
+[how_puns_decides#layouts-and-rules]: how_puns_decides.md#layouts-and-rules
+[how_puns_decides#proven-checked-and-refused]: how_puns_decides.md#proven-checked-and-refused
+[how_puns_decides#requirements]: how_puns_decides.md#requirements
+[how_puns_decides#what-is-a-valid-value]: how_puns_decides.md#what-is-a-valid-value
+[how_puns_decides#why-the-pair-decides]: how_puns_decides.md#why-the-pair-decides
 [core::mem::transmute#transmutation-between-pointers-and-integers]: https://doc.rust-lang.org/1.99.0/core/mem/fn.transmute.html#transmutation-between-pointers-and-integers
 [crate#going-further]: ../README.md#going-further
 [crate#reading-one-of-several-types]: ../README.md#reading-one-of-several-types

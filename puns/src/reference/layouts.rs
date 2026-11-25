@@ -8,12 +8,12 @@
 //! [`transmute`]: core::mem::transmute
 //! [`Spec::stored_as`]: layout::Spec::stored_as
 //! [errors#unspecified-layouts]: super::errors#unspecified-layouts
-//! [kinds]: super::concepts#proven-checked-and-refused
-//! [rule]: super::concepts#layouts-and-rules
-//! [rust#how-rustc-places-fields]: super::rust#how-rustc-places-fields
-//! [rust#what-rust-documents]: super::rust#what-rust-documents
+//! [kinds]: super::how_puns_decides#proven-checked-and-refused
+//! [rule]: super::how_puns_decides#layouts-and-rules
+//! [what_puns_relies_on#how-rustc-places-fields]: super::what_puns_relies_on#how-rustc-places-fields
+//! [what_puns_relies_on#what-rust-documents]: super::what_puns_relies_on#what-rust-documents
 //! [trust-identity]: super::trust#the-identity-of-a-type-and-the-compiler
-//! [unspecified layout]: super::concepts#unspecified-layouts
+//! [unspecified layout]: super::how_puns_decides#unspecified-layouts
 #![doc = include_str!("../../docs/layouts.md")]
 
 // The items of the crate, which the links of this chapter name. Only rustdoc reads them.

@@ -96,19 +96,19 @@ What is planned, each with what it would allow.
 - **Precise `head_mut` and `tail_mut`.** [`head_mut`] and [`tail_mut`] refuse a struct that has a
   rule even if the rule reads other fields, and an enum that they cover only partly even if all
   its variants accept what is written ([Writes leave a valid
-  source][functions#writes-leave-a-valid-source]). Planned: reading which fields and bytes a rule
+  source][api#writes-leave-a-valid-source]). Planned: reading which fields and bytes a rule
   reads, from its operations, to allow both. [`pun_mut`] lets a write break a rule ([Writing
-  through `&mut`][functions#writing-through-mut]). Whether to make the two agree, by allowing more
+  through `&mut`][api#writing-through-mut]). Whether to make the two agree, by allowing more
   to `head_mut` and `tail_mut` or by requiring more of `pun_mut`, is not decided.
 - **Ranges from conditions.** A comparison that held does not narrow the range of a value
   ([Walks][rules#walks]). So a counter that only a comparison bounds, such as `i` in the walk
   condition `|i| i < count`, is computed on 128 bits, unless the expression also reads the value
   at that offset (`be(i, 1)`), and so is the state of a walk inside two other walks. The check is
   then longer. Planned: ranges from the conditions.
-- **Rules implied by other rules.** A rule of the target is proven only by the same rule
-  ([Why the pair decides][concepts#why-the-pair-decides]), and is otherwise checked: `v % 6 == 0`
-  does not prove `v % 3 == 0`, and `a != b` in a struct of 2 bytes does not prove it in a struct
-  of 3, though it does not read the [extent][concepts#layouts-and-rules]. Nor does the analysis
+- **Rules implied by other rules.** A rule of the target is proven only by the same rule ([Why the
+  pair decides][how_puns_decides#why-the-pair-decides]), and is otherwise checked: `v % 6 == 0` does
+  not prove `v % 3 == 0`, and `a != b` in a struct of 2 bytes does not prove it in a struct of 3,
+  though it does not read the [extent][how_puns_decides#layouts-and-rules]. Nor does the analysis
   reason about the data that describes a walk, a variable-length integer, a CRC or a sum, since a
   checksum only makes a check stricter. Planned: proving a rule from rules that imply it.
 - **A checked pun from an enum to a type that is not an enum.** `puns` knows an enum as a source
@@ -168,7 +168,7 @@ What could be done, where whether to do it is not decided.
   their forms prove or are refused. For bytes, [`from_head`] and [`from_tail`] check.
 - **A byte order that a value gives.** A type has a byte order of its own, so no type reads its
   fields in the byte order that a value gives. A view chooses between a type of each byte order
-  instead ([A byte order that the value gives][formats#a-byte-order-that-the-value-gives]).
+  instead ([A byte order that the value gives][in_practice#a-byte-order-that-the-value-gives]).
 - **A value from what its type fixes.** No function builds a value of a struct whose fields of a
   constant type of [`num`], such as `u8c<7>`, hold their value, and whose fields that a `size` or
   `len` rule reads hold the length of the value. Each field is written by hand, as
@@ -214,13 +214,13 @@ What could be done, where whether to do it is not decided.
 [`tail_mut`]: https://docs.rs/puns/0.2.4/puns/fn.tail_mut.html
 [`tail`]: https://docs.rs/puns/0.2.4/puns/fn.tail.html
 [aims]: aims.md
-[concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
+[how_puns_decides#why-the-pair-decides]: how_puns_decides.md#why-the-pair-decides
 [errors]: errors.md
 [errors#values-and-padding]: errors.md#values-and-padding
-[formats#a-byte-order-that-the-value-gives]: formats.md#a-byte-order-that-the-value-gives
-[functions#writing-through-mut]: functions.md#writing-through-mut
-[functions#writes-leave-a-valid-source]: functions.md#writes-leave-a-valid-source
-[kinds]: concepts.md#proven-checked-and-refused
+[in_practice#a-byte-order-that-the-value-gives]: in_practice.md#a-byte-order-that-the-value-gives
+[api#writing-through-mut]: api.md#writing-through-mut
+[api#writes-leave-a-valid-source]: api.md#writes-leave-a-valid-source
+[kinds]: how_puns_decides.md#proven-checked-and-refused
 [layouts#the-same-type]: layouts.md#the-same-type
 [layouts#what-puns-assumes]: layouts.md#what-puns-assumes
 [layouts#what-a-check-may-read]: layouts.md#what-a-check-may-read
@@ -230,7 +230,7 @@ What could be done, where whether to do it is not decided.
 [macro@Pun#what-the-view-functions-check]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#what-the-view-functions-check
 [macro@Pun#views]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#views
 [rules]: rules.md
-[concepts#layouts-and-rules]: concepts.md#layouts-and-rules
+[how_puns_decides#layouts-and-rules]: how_puns_decides.md#layouts-and-rules
 [rules#fields-in-a-rule]: rules.md#fields-in-a-rule
 [rules#functions]: rules.md#functions
 [rules#limits-of-the-evaluator]: rules.md#limits-of-the-evaluator

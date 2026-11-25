@@ -700,9 +700,10 @@ mod tests {
       assert!(found.len() == 1 && found[0].contains("different items"), "{label}: {found:?}");
     }
     // The README names the chapters by their URL on GitHub, and the `.rs` file by their module.
-    let readme = "[c]: https://github.com/uael/puns/blob/v1.0.0/docs/concepts.md#requirements\n\
+    let readme = "[c]: https://github.com/uael/puns/blob/v1.0.0/docs/\
+                  how_puns_decides.md#requirements\n\
                   [r]: https://github.com/uael/puns/tree/v1.0.0/docs\n";
-    let rs = [("c", "reference::concepts#requirements"), ("r", "mod@reference")];
+    let rs = [("c", "reference::how_puns_decides#requirements"), ("r", "mod@reference")];
     assert_eq!(faults("README.md", readme, &rs), Vec::<String>::new());
     let found = faults("README.md", readme, &[("c", "reference::rules#requirements")]);
     assert_eq!(found.len(), 1, "{found:?}");

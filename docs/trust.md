@@ -45,10 +45,10 @@ tag has the same value in both enums, because the items that the derive declares
 names that start with `__Pun`, which it refuses in the input.
 
 With the `Rust` representation, the derive finds the layout that `rustc` chose by
-[experiments][rust#the-tag-of-an-enum-of-the-rust-representation] on the samples. Each sample is
-written as a constructor expression, `Enum::Variant { field: .. }`, with the names that the derive
-read, and the derive asserts that its discriminant is the index of its variant in the item that it
-read. So reordered variants fail the build.
+[experiments][what_puns_relies_on#the-tag-of-an-enum-of-the-rust-representation] on the samples.
+Each sample is written as a constructor expression, `Enum::Variant { field: .. }`, with the names
+that the derive read, and the derive asserts that its discriminant is the index of its variant in
+the item that it read. So reordered variants fail the build.
 
 ## The generated code
 
@@ -140,10 +140,10 @@ union, and guarantees nothing of a source union.
 
 Where such an attribute changes the order of the fields or the `repr`, the layout is that of the
 type as compiled, or the build fails, since the derive measures the offsets and checks the tags and
-the variants on the samples, as above. It also checks the width of the tag of an enum of a
-primitive or `C` representation. In a copy of each sample, the byte after the tag that the derive
-read is set to 0, then to 255, and the variant of the copy, which const evaluation reads from the
-tag alone ([The variant read from the tag][rust#the-variant-read-from-the-tag]), must stay the
+the variants on the samples, as above. It also checks the width of the tag of an enum of a primitive
+or `C` representation. In a copy of each sample, the byte after the tag that the derive read is set
+to 0, then to 255, and the variant of the copy, which const evaluation reads from the tag alone
+([The variant read from the tag][what_puns_relies_on#the-variant-read-from-the-tag]), must stay the
 same. So a wider tag fails the build. A narrower one leaves a byte of padding or of a field where
 the derive reads its tag, so the comparison with the samples or the size of the enum fails the
 build.
@@ -178,7 +178,7 @@ What such an attribute can still change without failing the build:
 [`Varint`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Varint.html
 [`Variant`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Variant.html
 [independence]: layouts.md#layout-independence
-[rust#the-tag-of-an-enum-of-the-rust-representation]: rust.md#the-tag-of-an-enum-of-the-rust-representation
-[rust#the-variant-read-from-the-tag]: rust.md#the-variant-read-from-the-tag
+[what_puns_relies_on#the-tag-of-an-enum-of-the-rust-representation]: what_puns_relies_on.md#the-tag-of-an-enum-of-the-rust-representation
+[what_puns_relies_on#the-variant-read-from-the-tag]: what_puns_relies_on.md#the-variant-read-from-the-tag
 [same]: layouts.md#the-same-type
 [testing#the-derive-against-other-paths-and-rewritten-items]: testing.md#the-derive-against-other-paths-and-rewritten-items

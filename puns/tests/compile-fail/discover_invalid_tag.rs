@@ -1,6 +1,6 @@
-// What the layout of an enum of the `Rust` representation rests on (`docs/rust.md`, "Errors of
-// const evaluation"): const evaluation refuses to read the variant of a value whose tag is not
-// one, here a `bool` of 2 where `rustc` put the niche of `None`. If this ever compiles, an
+// What the layout of an enum of the `Rust` representation rests on (`docs/what_puns_relies_on.md`,
+// "Errors of const evaluation"): const evaluation refuses to read the variant of a value whose tag
+// is not one, here a `bool` of 2 where `rustc` put the niche of `None`. If this ever compiles, an
 // experiment that goes wrong could give an answer instead of failing.
 use core::mem::{self, MaybeUninit};
 

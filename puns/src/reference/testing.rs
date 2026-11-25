@@ -3,8 +3,8 @@
 //! [aims]: super::aims
 //! [layouts]: super::layouts
 //! [layouts#what-puns-assumes]: super::layouts#what-puns-assumes
-//! [rust#errors-of-const-evaluation]: super::rust#errors-of-const-evaluation
-//! [rust#the-tag-of-an-enum-of-the-rust-representation]: super::rust#the-tag-of-an-enum-of-the-rust-representation
+//! [what_puns_relies_on#errors-of-const-evaluation]: super::what_puns_relies_on#errors-of-const-evaluation
+//! [what_puns_relies_on#the-tag-of-an-enum-of-the-rust-representation]: super::what_puns_relies_on#the-tag-of-an-enum-of-the-rust-representation
 //! [soundness]: super::soundness
 //! [trust]: super::trust
 #![doc = include_str!("../../docs/testing.md")]

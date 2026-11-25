@@ -1959,7 +1959,7 @@ fn read_aim(
         "Returns the bytes of the `{name}` region of the tail, truncated if the fields that size \
          the regions give more bytes than the tail holds. The region takes the rest of the tail \
          if its expression fails.{check}\n\n# Examples\n\nSee [Bit fields and \
-         regions]({DOCS}reference/formats/index.html#bit-fields-and-regions)."
+         regions]({DOCS}reference/in_practice/index.html#bit-fields-and-regions)."
       );
       quote! {
         #[doc = #doc]
@@ -1978,7 +1978,7 @@ fn read_aim(
          Returns the error of `puns::from_bytes` if the bytes of the region are not a value of \
          that type.{check} It also compiles only under the compile-time conditions of \
          `puns::from_bytes` for the type of the region.\n\n# Examples\n\nSee [A region with a \
-         type]({DOCS}reference/formats/index.html#a-region-with-a-type)."
+         type]({DOCS}reference/in_practice/index.html#a-region-with-a-type)."
       );
       quote! {
         #[doc = #doc]
@@ -2260,10 +2260,10 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       }
 
       // SAFETY: `OFFSETS` projects a pointer to a `Self` onto each field that `Fields` lists, in
-      // that order, so it holds the offset of each of these fields in the struct as compiled. It
-      // is measured in const evaluation and used at run time, which relies on the layout being the
-      // same in both, which no documentation states (`docs/rust.md`, "The layout in const
-      // evaluation").
+      // that order, so it holds the offset of each of these fields in the struct as compiled. It is
+      // measured in const evaluation and used at run time, which relies on the layout being the
+      // same in both, which no documentation states (`docs/what_puns_relies_on.md`, "The layout in
+      // const evaluation").
       #[allow(non_upper_case_globals)]
       unsafe impl #memory_generics #root::layout::Offsets<__PunMemory, #count> for #this
         #where_clause
@@ -2401,7 +2401,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
        # Compile-time errors\n\nA call compiles only if each field that the expression names is \
        an unsigned integer, or a sized struct whose only field with a size is one and is as large \
        as the struct.\n\n# Examples\n\nSee [Bit fields and \
-       regions]({DOCS}reference/formats/index.html#bit-fields-and-regions).",
+       regions]({DOCS}reference/in_practice/index.html#bit-fields-and-regions).",
       getter.expr.to_token_stream(),
       ty.to_token_stream()
     );
@@ -2555,25 +2555,24 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
       // - `Layout::structure` takes the size and the alignment from the compiler. It asserts that
       //   the fields do not overlap and are within the size, and that the trailing padding of an
       //   unsized struct is the one it computes.
-      // - The offset of each field is that of the compiler, measured on the struct as compiled:
-      //   the offset of a place projected from a pointer to the struct, in the memory of
-      //   `Layout::offsets` for `repr(C)` and `repr(transparent)`, which holds the struct
-      //   whatever its size, and to an uninitialized value otherwise. The offsets are measured in
-      //   const evaluation and used at run time, as by the loads of rules. For the `Rust`
-      //   representation, that the layout is the same in both is not established: `puns` relies
-      //   on `rustc` computing both with the same code (`docs/rust.md`, "The layout in const
+      // - The offset of each field is that of the compiler, measured on the struct as compiled: the
+      //   offset of a place projected from a pointer to the struct, in the memory of
+      //   `Layout::offsets` for `repr(C)` and `repr(transparent)`, which holds the struct whatever
+      //   its size, and to an uninitialized value otherwise. The offsets are measured in const
+      //   evaluation and used at run time, as by the loads of rules. For the `Rust` representation,
+      //   that the layout is the same in both is not established: `puns` relies on `rustc`
+      //   computing both with the same code (`docs/what_puns_relies_on.md`, "The layout in const
       //   evaluation").
       // - The type of each field is its home in `__PunTypes`, which `item` requires to be the type
       //   of the field of that name in the struct as compiled, and the struct to have no other
-      //   field. Each field has the layout of its type (`Pun`, section Safety), or a restriction
-      //   of it (`Layout::restricted`), which guarantees the same values and accepts fewer. A
-      //   struct is valid if, and only if, each of its fields is valid, and a byte that no field
-      //   covers is padding. The Rust Reference states the "only if" [1]. The derive relies on the
-      //   "if", which no documentation states (`docs/rust.md`, "A value whose fields are valid").
-      //   The field of an eager aim is an `InPlace<T>`, which `item` requires too, and which is
-      //   `repr(transparent)` over its `T` and has no other invariant, so its layout is that of
-      //   `T`.
-      //   Rules are requirements of `puns`, never of the language.
+      //   field. Each field has the layout of its type (`Pun`, section Safety), or a restriction of
+      //   it (`Layout::restricted`), which guarantees the same values and accepts fewer. A struct
+      //   is valid if, and only if, each of its fields is valid, and a byte that no field covers is
+      //   padding. The Rust Reference states the "only if" [1]. The derive relies on the "if",
+      //   which no documentation states (`docs/what_puns_relies_on.md`, "A value whose fields are
+      //   valid"). The field of an eager aim is an `InPlace<T>`, which `item` requires too, and
+      //   which is `repr(transparent)` over its `T` and has no other invariant, so its layout is
+      //   that of `T`. Rules are requirements of `puns`, never of the language.
       // - An eager aim says that every value holds a valid pointee where its expression says. No
       //   code makes an `InPlace`, so no safe code makes a value of the struct, which exists only
       //   where `puns` checked its pointee, or where unsafe code put it.
@@ -2606,7 +2605,7 @@ fn derive_struct(input: &DeriveInput, data: &DataStruct) -> Result<TokenStream> 
         // `as` casts, cast again to `*const Self`. The size of the struct with 8 elements in its
         // tail must fit in an `isize`, which is not established. The derive relies on `rustc` to
         // report an error in const evaluation where it does not fit. No documentation promises this
-        // behavior, which `docs/rust.md` discloses ("Errors of const evaluation").
+        // behavior, which `docs/what_puns_relies_on.md` discloses ("Errors of const evaluation").
         const LAYOUT: #root::layout::Layout = unsafe {
           #root::layout::Layout::structure::<Self>(
             Self::PROBE,
@@ -2835,7 +2834,7 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
     // with the `Rust` representation, Rust does not say how the discriminant is stored. The call
     // is evaluated in the constants `SPEC` and `SPECIFIED`, where `rustc` reports an error instead
     // of reading an uninitialized byte. No documentation promises this behavior, which
-    // `docs/rust.md` discloses ("Errors of const evaluation").
+    // `docs/what_puns_relies_on.md` discloses ("Errors of const evaluation").
     variants.push(quote!(unsafe { #root::layout::Spec::bits_of(Self::#variant) }));
     discriminants.push(quote!(Self::#variant as ::core::primitive::i128));
   }
@@ -2860,18 +2859,18 @@ fn derive_enum(input: &DeriveInput, data: &DataEnum) -> Result<TokenStream> {
 
     // SAFETY: `SPEC` has the size of `Self`, and the items of the `# Safety` of `Scalar` hold:
     // - A valid value of an enum without fields is one of its variants [1]. `SPEC` accepts the
-    //   bytes of each variant, read from a value of it, as an unsigned integer in the byte order
-    //   of the target. `item` requires the enum as compiled to have no other variant. An enum of
-    //   size 0 has one variant, and no byte. That a value made at run time holds the same bytes as
-    //   the value read in const evaluation is not established: for the `Rust` representation,
-    //   `puns` takes the layout in const evaluation to be the one at run time (`docs/rust.md`,
-    //   "The layout in const evaluation"), and with `repr(C)` alone, that every byte of the value
-    //   is initialized relies on `rustc` storing it as an integer (`docs/rust.md`, "The tag of a
-    //   `repr(C)` enum").
+    //   bytes of each variant, read from a value of it, as an unsigned integer in the byte order of
+    //   the target. `item` requires the enum as compiled to have no other variant. An enum of size
+    //   0 has one variant, and no byte. That a value made at run time holds the same bytes as the
+    //   value read in const evaluation is not established: for the `Rust` representation, `puns`
+    //   takes the layout in const evaluation to be the one at run time
+    //   (`docs/what_puns_relies_on.md`, "The layout in const evaluation"), and with `repr(C)`
+    //   alone, that every byte of the value is initialized relies on `rustc` storing it as an
+    //   integer (`docs/what_puns_relies_on.md`, "The tag of a `repr(C)` enum").
     // - Each value that `SPEC` accepts is the bytes of a variant, so a valid `Self`: the derive
     //   relies on a valid discriminant being all that such an enum requires, which no documentation
-    //   states (`docs/rust.md`, "A value whose fields are valid"). The derive is told of no other
-    //   invariant.
+    //   states (`docs/what_puns_relies_on.md`, "A value whose fields are valid"). The derive is
+    //   told of no other invariant.
     // - An enum without fields holds no `UnsafeCell`.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.enum:
@@ -3288,22 +3287,22 @@ fn derive_tagged(
           let tags =
           // SAFETY (of the generated code): `#tag` is an enum without fields, `repr(C)` or of a
           // primitive representation, without `align`. With a primitive representation, such an
-          // enum is that integer, which holds its discriminant (`docs/rust.md`, "What Rust
-          // documents"), so every byte of it is initialized. With `repr(C)` alone, Rust gives only
-          // its size and alignment, those of a C enum of the target, so that every byte of it is
-          // initialized is not established. Each sample is a value of a variant of the enum, which
-          // starts with its tag, the enum with all fields removed [1] [2]. With an integer, the tag
-          // is that integer, as `#tag` is. With `repr(C)` alone, the discriminants are implicit [3]
-          // [4], so the tag and `#tag` are the same enum without fields. Either way, the first
-          // `size_of::<#tag>()` bytes of a sample are its tag, an integer, so initialized, if the
-          // enum as compiled has the representation that the derive read. This is not established:
-          // an attribute macro below the derive can change it (`docs/trust.md`, "Attribute macros
-          // below the derive"), and with a narrower tag, a byte of padding of the sample may be
-          // among these bytes. Of the two requirements of `declared_tags`, the second is not
-          // established in any case, and with `repr(C)` alone neither is. The constant is evaluated
-          // at compile time, where `rustc` reports an error instead of reading an uninitialized
-          // byte. No documentation promises this behavior, which `docs/rust.md` discloses ("Errors
-          // of const evaluation").
+          // enum is that integer, which holds its discriminant (`docs/what_puns_relies_on.md`,
+          // "What Rust documents"), so every byte of it is initialized. With `repr(C)` alone, Rust
+          // gives only its size and alignment, those of a C enum of the target, so that every byte
+          // of it is initialized is not established. Each sample is a value of a variant of the
+          // enum, which starts with its tag, the enum with all fields removed [1] [2]. With an
+          // integer, the tag is that integer, as `#tag` is. With `repr(C)` alone, the discriminants
+          // are implicit [3] [4], so the tag and `#tag` are the same enum without fields. Either
+          // way, the first `size_of::<#tag>()` bytes of a sample are its tag, an integer, so
+          // initialized, if the enum as compiled has the representation that the derive read. This
+          // is not established: an attribute macro below the derive can change it (`docs/trust.md`,
+          // "Attribute macros below the derive"), and with a narrower tag, a byte of padding of the
+          // sample may be among these bytes. Of the two requirements of `declared_tags`, the second
+          // is not established in any case, and with `repr(C)` alone neither is. The constant is
+          // evaluated at compile time, where `rustc` reports an error instead of reading an
+          // uninitialized byte. No documentation promises this behavior, which
+          // `docs/what_puns_relies_on.md` discloses ("Errors of const evaluation").
           //
           // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.primitive.adt:
           //
@@ -3357,7 +3356,7 @@ fn derive_tagged(
                 // sample whose byte `after` may have been changed, so it may be no `Self`. This
                 // constant is evaluated at compile time, where the `match`, which reads the
                 // variant, relies on the behaviors of `rustc` that `discover` relies on, and that
-                // `docs/rust.md` discloses ("Errors of const evaluation" and "The
+                // `docs/what_puns_relies_on.md` discloses ("Errors of const evaluation" and "The
                 // variant read from the tag"): `rustc` reports an error if the tag is not the tag
                 // of a variant, and otherwise reads the variant from the tag alone, without
                 // reading the fields.
@@ -3379,23 +3378,23 @@ fn derive_tagged(
       // - The enum is `repr(C)` or of a primitive representation, whose layout Rust specifies [1]
       //   [2], except, with `repr(C)` alone, that every byte of the tag of a value made at run time
       //   is initialized: this is not established, and relies on `rustc` storing the tag as an
-      //   integer (`docs/rust.md`, "The tag of a `repr(C)` enum"). Its tag is `#tag`, an enum
-      //   without fields of the same representation and discriminants, whose values `TAGS` compares
-      //   with those of the enum, and fails the build if they differ, and whose width `TAGS` checks
-      //   on copies of the samples whose byte after the tag is changed. Each variant is a `repr(C)`
-      //   struct, after the tag or in a union next to it. The offsets of its fields are measured on
-      //   its sample, or, for a variant without one, computed by `Layout::repr_c` as `repr(C)`
-      //   specifies, from the representation that the derive read, which it trusts to be that of
-      //   the enum as compiled there ("What the derive trusts"). `Layout::enumeration` asserts the
-      //   result against the size and the alignment of the enum, and asserts that the tag and the
-      //   fields are within it and do not overlap.
+      //   integer (`docs/what_puns_relies_on.md`, "The tag of a `repr(C)` enum"). Its tag is
+      //   `#tag`, an enum without fields of the same representation and discriminants, whose values
+      //   `TAGS` compares with those of the enum, and fails the build if they differ, and whose
+      //   width `TAGS` checks on copies of the samples whose byte after the tag is changed. Each
+      //   variant is a `repr(C)` struct, after the tag or in a union next to it. The offsets of its
+      //   fields are measured on its sample, or, for a variant without one, computed by
+      //   `Layout::repr_c` as `repr(C)` specifies, from the representation that the derive read,
+      //   which it trusts to be that of the enum as compiled there ("What the derive trusts").
+      //   `Layout::enumeration` asserts the result against the size and the alignment of the enum,
+      //   and asserts that the tag and the fields are within it and do not overlap.
       // - The type of each field is its home in `__PunTypes`, which `item` requires to be the type
       //   of that field of that variant in the enum as compiled, and the enum to have no other
       //   variant and no other field. Each field has the layout of its type, or a restriction of
       //   it. An enum is valid if, and only if, its tag is that of a variant and the fields of
       //   that variant are valid, which is what the layout accepts. The Rust Reference states the
       //   "only if" [3]. The derive relies on the "if", which no documentation states
-      //   (`docs/rust.md`, "A value whose fields are valid").
+      //   (`docs/what_puns_relies_on.md`, "A value whose fields are valid").
       // - `Variants` lists the variants in order, each with its fields (see the markers above).
       //   The other lists are `()`.
       // - Each field is `Pun`, and the tag is an integer, so no byte is in an `UnsafeCell`.
@@ -3684,7 +3683,7 @@ fn derive_discovered(
       // as compiled, and the enum to have no other variant and no other field. The layout
       // accepts a value whose tag is that of a variant whose fields are valid. The derive relies
       // on such a value being valid, which no documentation states
-      // (`docs/rust.md`, "A value whose fields are valid").
+      // (`docs/what_puns_relies_on.md`, "A value whose fields are valid").
       // `Variants` lists the variants in order, each with its fields. The other lists are `()`.
       // Each field is `Pun`, so no byte is in an `UnsafeCell`.
       unsafe impl #impl_generics #root::Pun for #this #where_clause {

@@ -13,12 +13,13 @@ The library: `#![no_std]`, no dependency but the derive.
 - `Scalar`, in [`src/lib.rs`](src/lib.rs), states the contract of a scalar declared by hand, and
   [Aims](../docs/aims.md) what `puns` guarantees a type that holds an eager aim, such as a
   self-relative pointer, which derives `Pun` with `#[pun(pointer(..))]`.
-- [Unspecified layouts](../docs/layouts.md) states the design of the `unstable` feature and what
-  `puns` assumes, and [What Rust documents](../docs/rust.md#what-rust-documents) lists what Rust
-  documents and where.
+- [Unspecified layouts and the `unstable` feature](../docs/layouts.md) states the design of the
+  `unstable` feature and what `puns` assumes, and [What Rust
+  documents](../docs/what_puns_relies_on.md#what-rust-documents) lists what Rust documents and
+  where.
 - The invariants that cross modules are in [Soundness](../docs/soundness.md),
   [Layout independence](../docs/layouts.md#layout-independence),
-  [Requirements](../docs/concepts.md#requirements), `Scalar`, the "Safety" of `Pun`, and
+  [Requirements](../docs/how_puns_decides.md#requirements), `Scalar`, the "Safety" of `Pun`, and
   [What the derive trusts](../docs/trust.md).
 - What is not done yet is in [Not yet](../docs/limits.md#not-yet).
 
@@ -152,7 +153,7 @@ cargo test --test api TESTNAME       # Run a single test
 cargo test --test compile_fail       # Compile-fail tests (trybuild); TRYBUILD=overwrite to regenerate .stderr
 cargo run --example ethernet         # The Ethernet example; it asserts its results and prints `ok`
 PUNS_BLESS=1 cargo test -p puns --features verdict --test seeds  # Write the record of verdicts again (`puns/tests/seeds.txt`)
-cargo build -p puns --target thumbv7em-none-eabihf  # A target without std (CI also builds msp430-none-elf, see docs/target.md)
+cargo build -p puns --target thumbv7em-none-eabihf  # A target without std (CI also builds msp430-none-elf, see docs/rust_version_and_targets.md)
 cargo rustc --release --features unstable --example codegen -- --emit asm -C llvm-args=-x86-asm-syntax=intel  # Machine code, see examples/codegen.rs
 cargo bench -p puns --features unstable --bench checks   # Time of the run-time checks, next to the same checks by hand (not in CI)
 cargo bench -p puns --features unstable --bench checks -- ipv6  # Only the cases whose name has `ipv6`

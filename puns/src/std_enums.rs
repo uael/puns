@@ -222,8 +222,8 @@ impl<T: Pun, E: Pun> Found for Result<T, E> {
 // offset observed on a sample, and the lists of variants and fields are those of this layout (see
 // `OptionNone`, `OptionSome` and `OptionSomeField`). The layout accepts a value whose tag is that
 // of a variant whose fields are valid. `puns` relies on such a value being valid, which no
-// documentation states (`docs/rust.md`, "A value whose fields are valid"). `Option<T>` holds a `T`
-// or nothing, and a tag, so no `UnsafeCell`, since `T: Pun`.
+// documentation states (`docs/what_puns_relies_on.md`, "A value whose fields are valid").
+// `Option<T>` holds a `T` or nothing, and a tag, so no `UnsafeCell`, since `T: Pun`.
 unsafe impl<T: Pun> Pun for Option<T> {
   type Elem = ();
   type Fields = ();

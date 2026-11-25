@@ -1,24 +1,24 @@
 // The README is the crate page. Its links to the chapters of the reference name their files on
 // GitHub, and rustdoc keeps the first definition of a link, so these, before it, make them
 // intra-doc.
-//! [valid]: reference::concepts#what-is-a-valid-value
-//! [kinds]: reference::concepts#proven-checked-and-refused
-//! [pairs]: reference::concepts#why-the-pair-decides
-//! [requirements]: reference::concepts#requirements
-//! [layouts]: reference::concepts#layouts-and-rules
-//! [msrv]: reference::target#minimum-rust-version
+//! [valid]: reference::how_puns_decides#what-is-a-valid-value
+//! [kinds]: reference::how_puns_decides#proven-checked-and-refused
+//! [pairs]: reference::how_puns_decides#why-the-pair-decides
+//! [requirements]: reference::how_puns_decides#requirements
+//! [layouts]: reference::how_puns_decides#layouts-and-rules
+//! [msrv]: reference::rust_version_and_targets#minimum-rust-version
 //! [rules]: reference::rules
 //! [aims]: reference::aims
 //! [performance]: reference::performance
 //! [comparison]: reference::performance#compared-with-zerocopy-and-bytemuck
-//! [rust]: reference::rust
+//! [rust]: reference::what_puns_relies_on
 //! [reference]: mod@reference
-//! [concepts]: reference::concepts
-//! [functions]: reference::functions
-//! [formats]: reference::formats
+//! [concepts]: reference::how_puns_decides
+//! [functions]: reference::api
+//! [formats]: reference::in_practice
 //! [limits]: reference::limits
 //! [trust]: reference::trust
-//! [target]: reference::target
+//! [target]: reference::rust_version_and_targets
 //! [not-yet]: reference::limits#not-yet
 //! [Compile-time errors]: reference::errors
 //! [Soundness]: reference::soundness
@@ -66,8 +66,8 @@ pub use layout::{crc32, sum16};
 /// The derive reads the layout of the type from the compiler: its size, its alignment, the offset
 /// of each field, and the discriminants of an enum. It takes the [valid] values of the type from
 /// the `Pun` implementations of its fields and from its attributes. [In
-/// practice](crate::reference::formats) teaches the attributes from examples, and [The language of
-/// rules](crate::reference::rules) specifies the expressions that they take. [What the derive
+/// practice](crate::reference::in_practice) teaches the attributes from examples, and [The language
+/// of rules](crate::reference::rules) specifies the expressions that they take. [What the derive
 /// trusts](crate::reference::trust) says how the derive finds the layout of a type, so that it
 /// depends on no path that the deriving crate can redefine, and [How a part with an unspecified
 /// layout is proven](crate::reference::layouts#how-a-part-with-an-unspecified-layout-is-proven)
@@ -77,14 +77,14 @@ pub use layout::{crc32, sum16};
 /// conditions of its section below, of its attributes, and of [Compile-time
 /// errors](#compile-time-errors), which apply to every type and say where each error is reported.
 ///
-/// [valid]: crate::reference::concepts#what-is-a-valid-value
+/// [valid]: crate::reference::how_puns_decides#what-is-a-valid-value
 ///
 /// # Structs
 ///
 /// A struct may have any representation, and may have [rules](crate::reference::rules), which its
 /// attributes state. A struct of the `Rust` representation has an [unspecified
-/// layout](crate::reference::concepts#unspecified-layouts): the compiler chooses the order of its
-/// fields.
+/// layout](crate::reference::how_puns_decides#unspecified-layouts): the compiler chooses the order
+/// of its fields.
 ///
 /// The derive compiles a struct only if it meets these conditions:
 ///
@@ -101,9 +101,9 @@ pub use layout::{crc32, sum16};
 /// An enum without fields is a [`Scalar`], whose valid values are its discriminants as the compiler
 /// stores them, whatever its representation. With the `Rust` representation, the compiler chooses
 /// how they are stored, so the enum has an [unspecified
-/// layout](crate::reference::concepts#unspecified-layouts). Without the `unstable` feature, `puns`
-/// assumes that it is the discriminant, in the least integer that holds them all, and checks it
-/// when compiling ([What `puns` assumes](crate::reference::layouts#what-puns-assumes)).
+/// layout](crate::reference::how_puns_decides#unspecified-layouts). Without the `unstable` feature,
+/// `puns` assumes that it is the discriminant, in the least integer that holds them all, and checks
+/// it when compiling ([What `puns` assumes](crate::reference::layouts#what-puns-assumes)).
 ///
 /// The derive compiles an enum without fields only if it meets these conditions:
 ///
@@ -115,7 +115,7 @@ pub use layout::{crc32, sum16};
 ///
 /// An enum without variants is [uninhabited], so no pun makes one.
 ///
-/// [uninhabited]: crate::reference::concepts#uninhabited-types
+/// [uninhabited]: crate::reference::how_puns_decides#uninhabited-types
 ///
 /// # Enums with fields
 ///
@@ -124,9 +124,9 @@ pub use layout::{crc32, sum16};
 /// With the `Rust` representation, it is the one that `rustc` chose. A value of such an enum is
 /// known by its [tag](layout::Enum), so making one from another type checks the tag, then what the
 /// fields of its variant require. With the `Rust` representation, the compiler chooses the tag, so
-/// the enum has an [unspecified layout](crate::reference::concepts#unspecified-layouts). Without
-/// the `unstable` feature, its layout is the one that `puns` assumes, where the assumption applies,
-/// and the experiments below check it ([What `puns`
+/// the enum has an [unspecified layout](crate::reference::how_puns_decides#unspecified-layouts).
+/// Without the `unstable` feature, its layout is the one that `puns` assumes, where the assumption
+/// applies, and the experiments below check it ([What `puns`
 /// assumes](crate::reference::layouts#what-puns-assumes)). Otherwise the enum proves only the same
 /// type, and only the same type proves it.
 ///
@@ -140,8 +140,8 @@ pub use layout::{crc32, sum16};
 ///
 /// - With the `Rust` representation, `rustc` must give the variant of a value by a tag of 1, 2, 4,
 ///   8 or 16 bytes before the fields of every variant, or by a
-///   [niche](crate::reference::rust#the-tag-of-an-enum-of-the-rust-representation) in a scalar
-///   among the fields of one variant. Any other layout is refused as unsupported.
+///   [niche](crate::reference::what_puns_relies_on#the-tag-of-an-enum-of-the-rust-representation)
+///   in a scalar among the fields of one variant. Any other layout is refused as unsupported.
 /// - With a primitive or `C` representation, the derive cannot make the least value of a variant
 ///   that holds a union none of whose fields has values, and reads its tag from its discriminant
 ///   alone. If a value of such a variant may exist, its discriminant must be
@@ -224,9 +224,10 @@ pub use layout::{crc32, sum16};
 ///
 /// ## `size`
 ///
-/// `#[pun(size = EXPR)]`, on a struct: the [extent](crate::reference::concepts#layouts-and-rules)
-/// of a value is `EXPR` bytes, which [`from_head`] reads to take the value from the front of bytes
-/// ([a header with options](crate::reference::formats#a-header-with-options)).
+/// `#[pun(size = EXPR)]`, on a struct: the
+/// [extent](crate::reference::how_puns_decides#layouts-and-rules) of a value is `EXPR` bytes, which
+/// [`from_head`] reads to take the value from the front of bytes ([a header with
+/// options](crate::reference::in_practice#a-header-with-options)).
 ///
 /// ## `assert`
 ///
@@ -270,7 +271,7 @@ pub use layout::{crc32, sum16};
 /// - lazy, at a region: `fn name(&self) -> Result<&Type, Error>`, the region as a `&Type` if its
 ///   bytes are one, which it checks as [`from_bytes`] checks bytes, with the pointees of its own
 ///   aims within the bytes of the struct; and, for a region without a type, `fn name(&self) ->
-///   &[u8]`, its bytes ([a typed region](crate::reference::formats#a-region-with-a-type)).
+///   &[u8]`, its bytes ([a typed region](crate::reference::in_practice#a-region-with-a-type)).
 ///
 /// The derive bounds the type of a pointee by [`Pointee`] where it depends on a type parameter,
 /// so that a `Pair<T>` may point at a `Thin<T, u32>`, which is a `Pointee` exactly when `T` is
@@ -311,12 +312,12 @@ pub use layout::{crc32, sum16};
 /// ### `regions`
 ///
 /// `#[pun(regions(first: Type = EXPR, second: Type, last))]`, on the last field of a struct: the
-/// bytes of the field are consecutive [regions](crate::reference::concepts#layouts-and-rules),
-/// from the cursor, the value of each aligned for its type by its offset in the struct, after what
-/// it stores before it. A region with `= EXPR` is that many bytes, one without is as large as what
-/// its type stores, and the last one without takes whatever remains. A region without a type is
-/// bytes, `[u8]`. The field of eager regions is written `InPlace<[u8]>` (or an `InPlace` of an
-/// array of bytes).
+/// bytes of the field are consecutive
+/// [regions](crate::reference::how_puns_decides#layouts-and-rules), from the cursor, the value of
+/// each aligned for its type by its offset in the struct, after what it stores before it. A region
+/// with `= EXPR` is that many bytes, one without is as large as what its type stores, and the last
+/// one without takes whatever remains. A region without a type is bytes, `[u8]`. The field of eager
+/// regions is written `InPlace<[u8]>` (or an `InPlace` of an array of bytes).
 ///
 /// Since safe code may change the fields of a value after it is checked, a lazy region that does
 /// not fit in the field is truncated, and a region whose expression fails takes the rest of the
@@ -330,8 +331,8 @@ pub use layout::{crc32, sum16};
 /// its byte order, so `0xff` is `-1i8`. Each item is a value or a range of unsigned integer
 /// literals, or of constants of an unsigned integer type. A range may omit either bound: the start
 /// is then 0, and the end the greatest unsigned integer of the size of the field. Like a rule,
-/// `valid` is a [requirement](crate::reference::concepts#requirements): safe code can write any
-/// value to the field.
+/// `valid` is a [requirement](crate::reference::how_puns_decides#requirements): safe code can write
+/// any value to the field.
 ///
 /// The derive compiles `valid` only if it meets these conditions:
 ///
@@ -361,7 +362,7 @@ pub use layout::{crc32, sum16};
 /// or a closure declares that name. The field is read by reference, or copied in a packed struct.
 /// The method panics where its code panics, such as on a division by zero, even on a value that met
 /// the rules of the struct when it was checked, since a rule is a
-/// [requirement](crate::reference::concepts#requirements) that a write may break.
+/// [requirement](crate::reference::how_puns_decides#requirements) that a write may break.
 ///
 /// Where the method is used, it compiles only if the fields that `EXPR` names are unsigned
 /// integers. Unlike a [rule](crate::reference::rules#fields-in-a-rule), a getter does not read a
@@ -1418,10 +1419,10 @@ unsafe impl<T: Scalar> Pun for T {
 // SAFETY: `Layout::array(&T::LAYOUT, N)` is `N` elements of the layout of `T`, the size of `T`
 // apart, with the alignment of `T`: the layout of `[T; N]` [1]. An array is valid if, and only if,
 // each of its elements is a valid `T`. The Rust Reference states the "only if" [2]. `puns` relies
-// on the "if", which no documentation states (`docs/rust.md`, "A value whose fields are valid"). A
-// valid `T` is what `T::LAYOUT` describes, by the `# Safety` of `Pun` for `T`. `Elem` is `T`, and
-// the other lists are `()`. Its bytes are those of its elements, none of which is inside an
-// `UnsafeCell`, since `T: Pun`.
+// on the "if", which no documentation states (`docs/what_puns_relies_on.md`, "A value whose fields
+// are valid"). A valid `T` is what `T::LAYOUT` describes, by the `# Safety` of `Pun` for `T`.
+// `Elem` is `T`, and the other lists are `()`. Its bytes are those of its elements, none of which
+// is inside an `UnsafeCell`, since `T: Pun`.
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#array-layout:
 //
@@ -1447,10 +1448,10 @@ unsafe impl<T: Pun, const N: usize> Pun for [T; N] {
 // SAFETY: `Layout::slice` is the layout of elements that have the layout of `T`, the size of `T`
 // apart, with the alignment of `T`, as many as the length of the slice: the layout of `[T]` [1]. A
 // slice is valid if, and only if, each of its elements is a valid `T`, as an array is. No
-// documentation states the "if", on which `puns` relies (`docs/rust.md`, "A value whose fields are
-// valid"). A valid `T` is what `T::LAYOUT` describes, by the `# Safety` of `Pun` for `T`. `Elem` is
-// `T`, and the other lists are `()`. Its bytes are those of its elements, none of which is inside
-// an `UnsafeCell`, since `T: Pun`.
+// documentation states the "if", on which `puns` relies (`docs/what_puns_relies_on.md`, "A value
+// whose fields are valid"). A valid `T` is what `T::LAYOUT` describes, by the `# Safety` of `Pun`
+// for `T`. `Elem` is `T`, and the other lists are `()`. Its bytes are those of its elements, none
+// of which is inside an `UnsafeCell`, since `T: Pun`.
 //
 // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#slice-layout:
 //
@@ -1630,12 +1631,12 @@ macro_rules! tuple {
     // the alignment of the tuple from the compiler, and asserts that no two fields overlap and that
     // each is within the size. A tuple is valid if, and only if, each of its elements is valid, and
     // every byte that no element covers is padding. The Rust Reference states the "only if" [1].
-    // `puns` relies on the "if", which no documentation states (`docs/rust.md`, "A value whose
-    // fields are valid"). So the layout is that of the tuple, by the `# Safety` of `Pun` for each
-    // element. `rust` and `identified` change neither the size, the alignment, the offsets nor the
-    // values. `Fields` lists the elements in order (see `TupleField`). The other lists are `()`. No
-    // byte of an element is in an `UnsafeCell`, since each is `Pun`, and a byte of padding belongs
-    // to no element.
+    // `puns` relies on the "if", which no documentation states (`docs/what_puns_relies_on.md`, "A
+    // value whose fields are valid"). So the layout is that of the tuple, by the `# Safety` of
+    // `Pun` for each element. `rust` and `identified` change neither the size, the alignment, the
+    // offsets nor the values. `Fields` lists the elements in order (see `TupleField`). The other
+    // lists are `()`. No byte of an element is in an `UnsafeCell`, since each is `Pun`, and a byte
+    // of padding belongs to no element.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/behavior-considered-undefined.html#r-undefined.validity.struct:
     //
@@ -1861,8 +1862,8 @@ pub enum Error {
   /// cannot be computed, the pointee of an aim does not fit, or the pointee of an eager aim is not
   /// a valid value within the bytes.
   ///
-  /// [valid]: crate::reference::concepts#what-is-a-valid-value
-  /// [requirements]: crate::reference::concepts#requirements
+  /// [valid]: crate::reference::how_puns_decides#what-is-a-valid-value
+  /// [requirements]: crate::reference::how_puns_decides#requirements
   Validity,
   /// The check of the pointees of eager aims ([`Check::Eager`](layout::Check::Eager)) stopped at
   /// its limit before it found the bytes valid or not: pointees within one another of more parts
@@ -2396,7 +2397,7 @@ impl Message {
 /// assert_eq!(puns::pun::<[bool; 2], u16>([true, true]), 0x0101);
 /// ```
 ///
-/// [Reinterpreting a value](crate::reference::functions#reinterpreting-a-value) shows a real use:
+/// [Reinterpreting a value](crate::reference::api#reinterpreting-a-value) shows a real use:
 /// the bits of an `f32`.
 ///
 /// A pun that needs a check is refused, since `pun` checks nothing ([its message and fix][check
@@ -2408,12 +2409,12 @@ impl Message {
 /// ```
 ///
 /// [compiles]: crate::reference::errors
-/// [same extent]: crate::reference::functions#sizes
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
-/// [proven target]: crate::reference::functions#proven-target
+/// [same extent]: crate::reference::api#sizes
+/// [initialized bytes]: crate::reference::api#initialized-bytes
+/// [proven target]: crate::reference::api#proven-target
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [check message]: crate::reference::errors#values-and-padding
-/// [no eager aim]: crate::reference::functions#no-eager-aim
+/// [no eager aim]: crate::reference::api#no-eager-aim
 #[inline(always)]
 pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
   const { Plan::<S, D>::BY_VALUE };
@@ -2441,7 +2442,7 @@ pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// assert_eq!(puns::head::<[u8; 4], [u8; 2]>([1, 2, 3, 4]), [1, 2]);
 /// ```
 ///
-/// [Taking the front or the back](crate::reference::functions#taking-the-front-or-the-back) shows a
+/// [Taking the front or the back](crate::reference::api#taking-the-front-or-the-back) shows a
 /// real use: the low byte of a little-endian number.
 ///
 /// A byte that may be padding in the covered bytes is refused ([its message and fix][padding
@@ -2455,12 +2456,12 @@ pub const fn pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// ```
 ///
 /// [compiles]: crate::reference::errors
-/// [room for the target]: crate::reference::functions#sizes
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
-/// [proven target]: crate::reference::functions#proven-target
+/// [room for the target]: crate::reference::api#sizes
+/// [initialized bytes]: crate::reference::api#initialized-bytes
+/// [proven target]: crate::reference::api#proven-target
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [padding message]: crate::reference::errors#reading-an-error
-/// [no eager aim]: crate::reference::functions#no-eager-aim
+/// [no eager aim]: crate::reference::api#no-eager-aim
 #[inline(always)]
 pub const fn head<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
   const { Plan::<S, D>::HEAD };
@@ -2490,7 +2491,7 @@ pub const fn head<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// assert_eq!(puns::tail::<[bool; 3], u16>([false, true, true]), 0x0101);
 /// ```
 ///
-/// [Taking the front or the back](crate::reference::functions#taking-the-front-or-the-back) shows a
+/// [Taking the front or the back](crate::reference::api#taking-the-front-or-the-back) shows a
 /// real use: the low half of a big-endian number.
 ///
 /// A pun that needs a check is refused, since `tail` checks nothing ([its message and fix][check
@@ -2516,13 +2517,13 @@ pub const fn head<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// ```
 ///
 /// [compiles]: crate::reference::errors
-/// [room for the target]: crate::reference::functions#sizes
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
-/// [proven target]: crate::reference::functions#proven-target
+/// [room for the target]: crate::reference::api#sizes
+/// [initialized bytes]: crate::reference::api#initialized-bytes
+/// [proven target]: crate::reference::api#proven-target
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [check message]: crate::reference::errors#values-and-padding
 /// [padding message]: crate::reference::errors#reading-an-error
-/// [no eager aim]: crate::reference::functions#no-eager-aim
+/// [no eager aim]: crate::reference::api#no-eager-aim
 #[inline(always)]
 pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
   const { Plan::<S, D>::TAIL };
@@ -2567,7 +2568,7 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// assert_eq!(puns::try_pun::<u8, bool>(2), Err(puns::Error::Validity));
 /// ```
 ///
-/// [Reinterpreting a value](crate::reference::functions#reinterpreting-a-value) shows a real use: a
+/// [Reinterpreting a value](crate::reference::api#reinterpreting-a-value) shows a real use: a
 /// `u32` that is a `char` only if it is a Unicode scalar value.
 ///
 /// A pair where no value of the source is a valid target is refused, since no check could accept
@@ -2578,17 +2579,17 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 /// let _ = puns::try_pun::<puns::num::u8c<2>, bool>(Default::default());
 /// ```
 ///
-/// [valid]: crate::reference::concepts#what-is-a-valid-value
-/// [requirement]: crate::reference::concepts#requirements
-/// [Why the pair decides]: crate::reference::concepts#why-the-pair-decides
-/// [the analysis]: crate::reference::concepts#layouts-and-rules
+/// [valid]: crate::reference::how_puns_decides#what-is-a-valid-value
+/// [requirement]: crate::reference::how_puns_decides#requirements
+/// [Why the pair decides]: crate::reference::how_puns_decides#why-the-pair-decides
+/// [the analysis]: crate::reference::how_puns_decides#layouts-and-rules
 /// [compiles]: crate::reference::errors
-/// [same extent]: crate::reference::functions#sizes
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
-/// [accepted by a check]: crate::reference::functions#accepted-by-a-check
+/// [same extent]: crate::reference::api#sizes
+/// [initialized bytes]: crate::reference::api#initialized-bytes
+/// [accepted by a check]: crate::reference::api#accepted-by-a-check
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [check message]: crate::reference::errors#values-and-padding
-/// [no eager aim]: crate::reference::functions#no-eager-aim
+/// [no eager aim]: crate::reference::api#no-eager-aim
 #[inline]
 pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Result<D, Error> {
   const { Plan::<S, D>::TRY };
@@ -2675,10 +2676,10 @@ const unsafe fn pun_unchecked<S: Copy, D: Copy>(value: S) -> D {
 /// ```
 ///
 /// [compiles]: crate::reference::errors
-/// [same extent]: crate::reference::functions#sizes
-/// [alignment]: crate::reference::functions#alignment
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
-/// [proven target]: crate::reference::functions#proven-target
+/// [same extent]: crate::reference::api#sizes
+/// [alignment]: crate::reference::api#alignment
+/// [initialized bytes]: crate::reference::api#initialized-bytes
+/// [proven target]: crate::reference::api#proven-target
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [alignment message]: crate::reference::errors#alignment
 #[inline(always)]
@@ -2739,15 +2740,15 @@ pub const fn pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 /// ```
 ///
 /// [compiles]: crate::reference::errors
-/// [same extent]: crate::reference::functions#sizes
-/// [alignment]: crate::reference::functions#alignment
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
-/// [proven target]: crate::reference::functions#proven-target
-/// [writes leave a valid source]: crate::reference::functions#writes-leave-a-valid-source
+/// [same extent]: crate::reference::api#sizes
+/// [alignment]: crate::reference::api#alignment
+/// [initialized bytes]: crate::reference::api#initialized-bytes
+/// [proven target]: crate::reference::api#proven-target
+/// [writes leave a valid source]: crate::reference::api#writes-leave-a-valid-source
 /// [layout independence]: crate::reference::layouts#layout-independence
-/// [writing through `&mut`]: crate::reference::functions#writing-through-mut
+/// [writing through `&mut`]: crate::reference::api#writing-through-mut
 /// [write message]: crate::reference::errors#writing-through-mut
-/// [no eager aim]: crate::reference::functions#no-eager-aim
+/// [no eager aim]: crate::reference::api#no-eager-aim
 #[inline(always)]
 pub const fn pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D {
   const { Plan::<S, D>::BY_MUT };
@@ -2790,12 +2791,12 @@ pub const fn pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D 
 /// let _: &u8 = puns::head_ref::<[u8], u8>(&[1, 2]);
 /// ```
 ///
-/// [extent]: crate::reference::concepts#layouts-and-rules
+/// [extent]: crate::reference::how_puns_decides#layouts-and-rules
 /// [compiles]: crate::reference::errors
-/// [room for the target]: crate::reference::functions#sizes
-/// [alignment]: crate::reference::functions#alignment
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
-/// [proven target]: crate::reference::functions#proven-target
+/// [room for the target]: crate::reference::api#sizes
+/// [alignment]: crate::reference::api#alignment
+/// [initialized bytes]: crate::reference::api#initialized-bytes
+/// [proven target]: crate::reference::api#proven-target
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [sizes message]: crate::reference::errors#sizes
 #[inline(always)]
@@ -2850,11 +2851,11 @@ pub const fn head_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 /// ```
 ///
 /// [compiles]: crate::reference::errors
-/// [room for the target]: crate::reference::functions#sizes
-/// [sized source and target]: crate::reference::functions#sizes
-/// [alignment]: crate::reference::functions#alignment
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
-/// [proven target]: crate::reference::functions#proven-target
+/// [room for the target]: crate::reference::api#sizes
+/// [sized source and target]: crate::reference::api#sizes
+/// [alignment]: crate::reference::api#alignment
+/// [initialized bytes]: crate::reference::api#initialized-bytes
+/// [proven target]: crate::reference::api#proven-target
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [alignment message]: crate::reference::errors#alignment
 /// [last bytes message]: crate::reference::errors#the-last-bytes-of-a-value
@@ -2918,14 +2919,14 @@ pub const fn tail_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> &D {
 /// ```
 ///
 /// [compiles]: crate::reference::errors
-/// [room for the target]: crate::reference::functions#sizes
-/// [alignment]: crate::reference::functions#alignment
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
-/// [proven target]: crate::reference::functions#proven-target
-/// [writes leave a valid source]: crate::reference::functions#writes-leave-a-valid-source
+/// [room for the target]: crate::reference::api#sizes
+/// [alignment]: crate::reference::api#alignment
+/// [initialized bytes]: crate::reference::api#initialized-bytes
+/// [proven target]: crate::reference::api#proven-target
+/// [writes leave a valid source]: crate::reference::api#writes-leave-a-valid-source
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [write message]: crate::reference::errors#writing-through-mut
-/// [no eager aim]: crate::reference::functions#no-eager-aim
+/// [no eager aim]: crate::reference::api#no-eager-aim
 #[inline(always)]
 pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D {
   const { Plan::<S, D>::HEAD_MUT };
@@ -2961,7 +2962,7 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 /// assert_eq!(words, [0x0102, 7, 8]);
 /// ```
 ///
-/// [Writing through `&mut`](crate::reference::functions#writing-through-mut) shows a real use: the
+/// [Writing through `&mut`](crate::reference::api#writing-through-mut) shows a real use: the
 /// text of a note, without its flag.
 ///
 /// A `&mut` that overlaps a struct with a rule is refused ([its message and fix][write message]):
@@ -2980,15 +2981,15 @@ pub const fn head_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 /// ```
 ///
 /// [compiles]: crate::reference::errors
-/// [room for the target]: crate::reference::functions#sizes
-/// [sized source and target]: crate::reference::functions#sizes
-/// [alignment]: crate::reference::functions#alignment
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
-/// [proven target]: crate::reference::functions#proven-target
-/// [writes leave a valid source]: crate::reference::functions#writes-leave-a-valid-source
+/// [room for the target]: crate::reference::api#sizes
+/// [sized source and target]: crate::reference::api#sizes
+/// [alignment]: crate::reference::api#alignment
+/// [initialized bytes]: crate::reference::api#initialized-bytes
+/// [proven target]: crate::reference::api#proven-target
+/// [writes leave a valid source]: crate::reference::api#writes-leave-a-valid-source
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [write message]: crate::reference::errors#writing-through-mut
-/// [no eager aim]: crate::reference::functions#no-eager-aim
+/// [no eager aim]: crate::reference::api#no-eager-aim
 #[inline(always)]
 pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D {
   const { Plan::<S, D>::TAIL_MUT };
@@ -3039,20 +3040,20 @@ pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 /// let _ = puns::try_pun_ref::<_, [u8; 4]>(&(0u8, 0u16));
 /// ```
 ///
-/// [valid]: crate::reference::concepts#what-is-a-valid-value
-/// [requirement]: crate::reference::concepts#requirements
-/// [Why the pair decides]: crate::reference::concepts#why-the-pair-decides
-/// [the analysis]: crate::reference::concepts#layouts-and-rules
-/// [extent]: crate::reference::concepts#layouts-and-rules
+/// [valid]: crate::reference::how_puns_decides#what-is-a-valid-value
+/// [requirement]: crate::reference::how_puns_decides#requirements
+/// [Why the pair decides]: crate::reference::how_puns_decides#why-the-pair-decides
+/// [the analysis]: crate::reference::how_puns_decides#layouts-and-rules
+/// [extent]: crate::reference::how_puns_decides#layouts-and-rules
 /// [compiles]: crate::reference::errors
-/// [an extent in common]: crate::reference::functions#sizes
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
-/// [accepted by a check]: crate::reference::functions#accepted-by-a-check
-/// [no address check in a constant]: crate::reference::functions#in-a-constant
+/// [an extent in common]: crate::reference::api#sizes
+/// [initialized bytes]: crate::reference::api#initialized-bytes
+/// [accepted by a check]: crate::reference::api#accepted-by-a-check
+/// [no address check in a constant]: crate::reference::api#in-a-constant
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [padding message]: crate::reference::errors#reading-an-error
 /// [aims]: crate::reference::aims
-/// [bytes for a pointee]: crate::reference::functions#bytes-for-a-pointee
+/// [bytes for a pointee]: crate::reference::api#bytes-for-a-pointee
 #[inline]
 pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<&D, Error> {
   const { Plan::<S, D>::TRY_REF };
@@ -3118,16 +3119,16 @@ pub const fn try_pun_ref<S: ?Sized + Pun, D: ?Sized + Pun>(value: &S) -> Result<
 /// let _ = puns::try_pun_mut::<bool, u8>(&mut true);
 /// ```
 ///
-/// [the analysis]: crate::reference::concepts#layouts-and-rules
+/// [the analysis]: crate::reference::how_puns_decides#layouts-and-rules
 /// [compiles]: crate::reference::errors
-/// [an extent in common]: crate::reference::functions#sizes
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
-/// [accepted by a check]: crate::reference::functions#accepted-by-a-check
-/// [writes leave a valid source]: crate::reference::functions#writes-leave-a-valid-source
-/// [no address check in a constant]: crate::reference::functions#in-a-constant
+/// [an extent in common]: crate::reference::api#sizes
+/// [initialized bytes]: crate::reference::api#initialized-bytes
+/// [accepted by a check]: crate::reference::api#accepted-by-a-check
+/// [writes leave a valid source]: crate::reference::api#writes-leave-a-valid-source
+/// [no address check in a constant]: crate::reference::api#in-a-constant
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [write message]: crate::reference::errors#writing-through-mut
-/// [no eager aim]: crate::reference::functions#no-eager-aim
+/// [no eager aim]: crate::reference::api#no-eager-aim
 #[inline]
 pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Result<&mut D, Error> {
   const { Plan::<S, D>::TRY_MUT };
@@ -3192,12 +3193,12 @@ pub const fn try_pun_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> Res
 /// let _ = puns::zeroed::<core::num::NonZero<u8>>();
 /// ```
 ///
-/// [valid]: crate::reference::concepts#what-is-a-valid-value
-/// [rules]: crate::reference::concepts#layouts-and-rules
+/// [valid]: crate::reference::how_puns_decides#what-is-a-valid-value
+/// [rules]: crate::reference::how_puns_decides#layouts-and-rules
 /// [compiles]: crate::reference::errors
 /// [zeros message]: crate::reference::errors#zeros
 /// [layout independence]: crate::reference::layouts#layout-independence
-/// [no eager aim]: crate::reference::functions#no-eager-aim
+/// [no eager aim]: crate::reference::api#no-eager-aim
 /// [aim]: crate::reference::aims
 #[inline(always)]
 #[must_use]
@@ -3280,7 +3281,7 @@ pub const fn int<T: Pun>(value: &T) -> u128 {
 /// assert_eq!(puns::as_bytes(&[1u16.to_be(), 2u16.to_be()]), &[0, 1, 0, 2]);
 /// ```
 ///
-/// [Reading again after a write](crate::reference::formats#reading-again-after-a-write) shows a
+/// [Reading again after a write](crate::reference::in_practice#reading-again-after-a-write) shows a
 /// real use: checking a value again from its bytes.
 ///
 /// A value with a byte of padding is refused ([its message and fix][padding message]):
@@ -3291,7 +3292,7 @@ pub const fn int<T: Pun>(value: &T) -> u128 {
 /// ```
 ///
 /// [compiles]: crate::reference::errors
-/// [initialized bytes]: crate::reference::functions#initialized-bytes
+/// [initialized bytes]: crate::reference::api#initialized-bytes
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [padding message]: crate::reference::errors#reading-an-error
 #[inline(always)]
@@ -3307,7 +3308,7 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 ///
 /// `from_bytes(bytes)` is [`try_pun_ref::<[u8], D>(bytes)`](try_pun_ref), with identical behavior,
 /// and one type parameter, which fixes the source to bytes ([Reading
-/// bytes](crate::reference::functions#reading-bytes) says why).
+/// bytes](crate::reference::api#reading-bytes) says why).
 ///
 /// # Errors
 ///
@@ -3357,12 +3358,12 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 /// let _ = puns::from_bytes::<core::convert::Infallible>(&[]);
 /// ```
 ///
-/// [valid]: crate::reference::concepts#what-is-a-valid-value
-/// [requirements]: crate::reference::concepts#requirements
-/// [extent]: crate::reference::concepts#layouts-and-rules
-/// [inhabited]: crate::reference::concepts#uninhabited-types
+/// [valid]: crate::reference::how_puns_decides#what-is-a-valid-value
+/// [requirements]: crate::reference::how_puns_decides#requirements
+/// [extent]: crate::reference::how_puns_decides#layouts-and-rules
+/// [inhabited]: crate::reference::how_puns_decides#uninhabited-types
 /// [compiles]: crate::reference::errors
-/// [no address check in a constant]: crate::reference::functions#in-a-constant
+/// [no address check in a constant]: crate::reference::api#in-a-constant
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [check message]: crate::reference::errors#values-and-padding
 /// [aims]: crate::reference::aims
@@ -3413,13 +3414,13 @@ pub const fn from_bytes<D: ?Sized + Pun>(bytes: &[u8]) -> Result<&D, Error> {
 /// let _ = puns::from_bytes_mut::<(u8, u16)>(&mut [0; 4]);
 /// ```
 ///
-/// [inhabited]: crate::reference::concepts#uninhabited-types
+/// [inhabited]: crate::reference::how_puns_decides#uninhabited-types
 /// [compiles]: crate::reference::errors
-/// [writes leave a valid source]: crate::reference::functions#writes-leave-a-valid-source
-/// [no address check in a constant]: crate::reference::functions#in-a-constant
+/// [writes leave a valid source]: crate::reference::api#writes-leave-a-valid-source
+/// [no address check in a constant]: crate::reference::api#in-a-constant
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [write message]: crate::reference::errors#writing-through-mut
-/// [no eager aim]: crate::reference::functions#no-eager-aim
+/// [no eager aim]: crate::reference::api#no-eager-aim
 #[inline]
 pub const fn from_bytes_mut<D: ?Sized + Pun>(bytes: &mut [u8]) -> Result<&mut D, Error> {
   // The body of `try_pun_mut`, not a call to it, for the reason given in `as_bytes`.
@@ -3475,8 +3476,8 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
   /// Returns the `D` at the start of the `n` bytes at `addr`, and its size, as [`Plan::front`]
   /// does, but checks what `C` marks rather than everything that bytes do not prove.
   ///
-  /// A `D` whose [extent](crate::reference::concepts#layouts-and-rules) is not `extent` is not
-  /// valid, unless `extent` is `usize::MAX`, which allows any extent.
+  /// A `D` whose [extent](crate::reference::how_puns_decides#layouts-and-rules) is not `extent` is
+  /// not valid, unless `extent` is `usize::MAX`, which allows any extent.
   ///
   /// # Safety
   ///
@@ -3646,12 +3647,12 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
 /// assert_eq!((chunk.kind, &chunk.data, rest), (7, &b"hi"[..], &[1, 2, 3][..]));
 /// ```
 ///
-/// [valid]: crate::reference::concepts#what-is-a-valid-value
-/// [requirements]: crate::reference::concepts#requirements
-/// [extent]: crate::reference::concepts#layouts-and-rules
-/// [inhabited]: crate::reference::concepts#uninhabited-types
+/// [valid]: crate::reference::how_puns_decides#what-is-a-valid-value
+/// [requirements]: crate::reference::how_puns_decides#requirements
+/// [extent]: crate::reference::how_puns_decides#layouts-and-rules
+/// [inhabited]: crate::reference::how_puns_decides#uninhabited-types
 /// [compiles]: crate::reference::errors
-/// [no address check in a constant]: crate::reference::functions#in-a-constant
+/// [no address check in a constant]: crate::reference::api#in-a-constant
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [aims]: crate::reference::aims
 #[inline]
@@ -4015,11 +4016,11 @@ pub const fn rejects<D: ?Sized + Pun>(bytes: &[u8]) -> bool {
 /// let _ = puns::from_tail::<[u16]>(&[0; 4]);
 /// ```
 ///
-/// [valid]: crate::reference::concepts#what-is-a-valid-value
-/// [requirements]: crate::reference::concepts#requirements
-/// [inhabited]: crate::reference::concepts#uninhabited-types
+/// [valid]: crate::reference::how_puns_decides#what-is-a-valid-value
+/// [requirements]: crate::reference::how_puns_decides#requirements
+/// [inhabited]: crate::reference::how_puns_decides#uninhabited-types
 /// [compiles]: crate::reference::errors
-/// [no address check in a constant]: crate::reference::functions#in-a-constant
+/// [no address check in a constant]: crate::reference::api#in-a-constant
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [last bytes message]: crate::reference::errors#the-last-bytes-of-a-value
 /// [aims]: crate::reference::aims
@@ -4076,13 +4077,13 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Result<(&[u8], &D), Err
 /// let _ = puns::from_head_mut::<(u8, u16)>(&mut [0; 4]);
 /// ```
 ///
-/// [inhabited]: crate::reference::concepts#uninhabited-types
+/// [inhabited]: crate::reference::how_puns_decides#uninhabited-types
 /// [compiles]: crate::reference::errors
-/// [writes leave a valid source]: crate::reference::functions#writes-leave-a-valid-source
-/// [no address check in a constant]: crate::reference::functions#in-a-constant
+/// [writes leave a valid source]: crate::reference::api#writes-leave-a-valid-source
+/// [no address check in a constant]: crate::reference::api#in-a-constant
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [write message]: crate::reference::errors#writing-through-mut
-/// [no eager aim]: crate::reference::functions#no-eager-aim
+/// [no eager aim]: crate::reference::api#no-eager-aim
 #[inline]
 pub const fn from_head_mut<D: ?Sized + Pun>(
   bytes: &mut [u8],
@@ -4143,13 +4144,13 @@ pub const fn from_head_mut<D: ?Sized + Pun>(
 /// let _ = puns::from_tail_mut::<(u8, u16)>(&mut [0; 4]);
 /// ```
 ///
-/// [inhabited]: crate::reference::concepts#uninhabited-types
+/// [inhabited]: crate::reference::how_puns_decides#uninhabited-types
 /// [compiles]: crate::reference::errors
-/// [writes leave a valid source]: crate::reference::functions#writes-leave-a-valid-source
-/// [no address check in a constant]: crate::reference::functions#in-a-constant
+/// [writes leave a valid source]: crate::reference::api#writes-leave-a-valid-source
+/// [no address check in a constant]: crate::reference::api#in-a-constant
 /// [layout independence]: crate::reference::layouts#layout-independence
 /// [write message]: crate::reference::errors#writing-through-mut
-/// [no eager aim]: crate::reference::functions#no-eager-aim
+/// [no eager aim]: crate::reference::api#no-eager-aim
 #[inline]
 pub const fn from_tail_mut<D: ?Sized + Pun>(
   bytes: &mut [u8],

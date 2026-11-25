@@ -194,7 +194,7 @@ through a union, since no stable `const fn` gives the address on Rust 1.99. Of t
 
 At run time, `core` does not call it undefined behavior, but says to avoid it, and no documentation
 promises that the integer is the address. The integer is never made into a pointer again. A check
-of an address does not compile in a constant ([In a constant][functions#in-a-constant]). The tests
+of an address does not compile in a constant ([In a constant][api#in-a-constant]). The tests
 run it under Miri with strict provenance ([Miri][testing#miri]).
 
 ### The provenance of a reference to a value with an eager aim
@@ -283,7 +283,7 @@ future.
 [derive#enums-with-fields]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
 [model types]: https://github.com/uael/puns/blob/v0.2.4/puns-model/src/types.rs
 
-[functions#in-a-constant]: functions.md#in-a-constant
+[api#in-a-constant]: api.md#in-a-constant
 [limits#bounds-of-the-analysis]: limits.md#bounds-of-the-analysis
 [aims]: aims.md
 [layouts#what-puns-assumes]: layouts.md#what-puns-assumes

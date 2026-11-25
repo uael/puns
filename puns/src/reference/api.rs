@@ -1,4 +1,4 @@
-// The chapter is docs/functions.md, read on GitHub as well. Rustdoc keeps the first
+// The chapter is docs/api.md, read on GitHub as well. Rustdoc keeps the first
 // definition of a link, so these, before it, make its links to items and chapters intra-doc.
 //! [`as_bytes`]: as_bytes
 //! [`check_compact`]: check_compact
@@ -23,11 +23,11 @@
 //! [`try_pun`]: try_pun
 //! [`Worklist`]: Worklist
 //! [aims]: super::aims
-//! [concepts#layouts-and-rules]: super::concepts#layouts-and-rules
-//! [concepts#proven-checked-and-refused]: super::concepts#proven-checked-and-refused
-//! [concepts#requirements]: super::concepts#requirements
-//! [concepts#what-is-a-valid-value]: super::concepts#what-is-a-valid-value
-//! [concepts#why-the-pair-decides]: super::concepts#why-the-pair-decides
+//! [how_puns_decides#layouts-and-rules]: super::how_puns_decides#layouts-and-rules
+//! [how_puns_decides#proven-checked-and-refused]: super::how_puns_decides#proven-checked-and-refused
+//! [how_puns_decides#requirements]: super::how_puns_decides#requirements
+//! [how_puns_decides#what-is-a-valid-value]: super::how_puns_decides#what-is-a-valid-value
+//! [how_puns_decides#why-the-pair-decides]: super::how_puns_decides#why-the-pair-decides
 //! [core::mem::transmute#transmutation-between-pointers-and-integers]: core::mem::transmute#transmutation-between-pointers-and-integers
 //! [crate#going-further]: crate#going-further
 //! [crate#reading-one-of-several-types]: crate#reading-one-of-several-types
@@ -35,7 +35,7 @@
 //! [limits#bounds-of-the-checks]: super::limits#bounds-of-the-checks
 //! [limits#limits-of-rust]: super::limits#limits-of-rust
 //! [limits#not-yet]: super::limits#not-yet
-#![doc = include_str!("../../docs/functions.md")]
+#![doc = include_str!("../../docs/api.md")]
 
 // The items of the crate, which the links of this chapter name. Only rustdoc reads them.
 #[cfg(doc)]

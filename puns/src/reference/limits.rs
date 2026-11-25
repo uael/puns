@@ -17,13 +17,13 @@
 //! [`tail_mut`]: tail_mut
 //! [`tail`]: tail
 //! [aims]: super::aims
-//! [concepts#why-the-pair-decides]: super::concepts#why-the-pair-decides
+//! [how_puns_decides#why-the-pair-decides]: super::how_puns_decides#why-the-pair-decides
 //! [errors]: super::errors
 //! [errors#values-and-padding]: super::errors#values-and-padding
-//! [formats#a-byte-order-that-the-value-gives]: super::formats#a-byte-order-that-the-value-gives
-//! [functions#writing-through-mut]: super::functions#writing-through-mut
-//! [functions#writes-leave-a-valid-source]: super::functions#writes-leave-a-valid-source
-//! [kinds]: super::concepts#proven-checked-and-refused
+//! [in_practice#a-byte-order-that-the-value-gives]: super::in_practice#a-byte-order-that-the-value-gives
+//! [api#writing-through-mut]: super::api#writing-through-mut
+//! [api#writes-leave-a-valid-source]: super::api#writes-leave-a-valid-source
+//! [kinds]: super::how_puns_decides#proven-checked-and-refused
 //! [layouts#the-same-type]: super::layouts#the-same-type
 //! [layouts#what-puns-assumes]: super::layouts#what-puns-assumes
 //! [layouts#what-a-check-may-read]: super::layouts#what-a-check-may-read
@@ -33,7 +33,7 @@
 //! [macro@Pun#what-the-view-functions-check]: macro@Pun#what-the-view-functions-check
 //! [macro@Pun#views]: macro@Pun#views
 //! [rules]: super::rules
-//! [concepts#layouts-and-rules]: super::concepts#layouts-and-rules
+//! [how_puns_decides#layouts-and-rules]: super::how_puns_decides#layouts-and-rules
 //! [rules#fields-in-a-rule]: super::rules#fields-in-a-rule
 //! [rules#functions]: super::rules#functions
 //! [rules#limits-of-the-evaluator]: super::rules#limits-of-the-evaluator

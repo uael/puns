@@ -4,12 +4,12 @@
 //! value of `S` is a [valid] value of `D`. It walks both layouts together, as the product of two
 //! automata, and answers the following questions:
 //!
-//! - **Fit** ([`Fit`]): how the [extent](crate::reference::concepts#layouts-and-rules) of a source
-//!   maps to the extent of a target. The extents are the same always, for some lengths of a slice,
-//!   or never, or the source is truncated to the extent of the target. The trailing padding of an
-//!   unsized target is not part of its extent: where the target is more aligned than the source,
-//!   `Plan::check_by` checks that the source has room for it. [`Layout::structure`] checks the
-//!   size that the layout gives an unsized struct, trailing padding included, against
+//! - **Fit** ([`Fit`]): how the [extent](crate::reference::how_puns_decides#layouts-and-rules) of a
+//!   source maps to the extent of a target. The extents are the same always, for some lengths of a
+//!   slice, or never, or the source is truncated to the extent of the target. The trailing padding
+//!   of an unsized target is not part of its extent: where the target is more aligned than the
+//!   source, `Plan::check_by` checks that the source has room for it. [`Layout::structure`] checks
+//!   the size that the layout gives an unsized struct, trailing padding included, against
 //!   `size_of_val_raw`.
 //! - **Uninitialized bytes**: whether a byte that the target requires to be initialized may be
 //!   padding in the source ([`Relation`], `uninit`). This is always an error.
@@ -200,11 +200,12 @@
 //! Rules are checked when a value is made from something else, and tell `from_head` how long a
 //! value is. Each rule of a struct is a leaf of its own, proven or checked on its own. A rule is
 //! proven only by the same rule, at the same place of the source, in a struct of the same extent
-//! ([`proves_rule`]), as [Why the pair decides](crate::reference::concepts#why-the-pair-decides)
-//! states. [`Layout::same_extent`] and [`Layout::has_rule`] say why such a struct computes the same
-//! rule over the same bytes, whatever its fields, which are related to the target as any others,
-//! and whatever its other rules, but for an aim at the cursor, which the aims at the cursor before
-//! it place: the source must have the same ones first. A rule that is proven is not checked, though
+//! ([`proves_rule`]), as [Why the pair
+//! decides](crate::reference::how_puns_decides#why-the-pair-decides) states.
+//! [`Layout::same_extent`] and [`Layout::has_rule`] say why such a struct computes the same rule
+//! over the same bytes, whatever its fields, which are related to the target as any others, and
+//! whatever its other rules, but for an aim at the cursor, which the aims at the cursor before it
+//! place: the source must have the same ones first. A rule that is proven is not checked, though
 //! the step of a proven aim at the cursor is still taken where a checked one follows it. This is
 //! how `Frame<Ipv4<Udp>>` proves the rules of `Frame<Ipv4>`, since the payload of `Ipv4` is a typed
 //! region of its bytes, not a field of another type. A part of a struct of a dynamic size has
@@ -233,14 +234,14 @@
 //!   struct or a tuple whose size is the same in every layout may also be proven field by field
 //!   ([`relate_fields`]). A field may be anywhere, so it must be proven everywhere that it may be,
 //!   and since a struct is valid if each of its fields is valid at its place ([A value whose fields
-//!   are valid](crate::reference::rust#a-value-whose-fields-are-valid)), the source proves the
-//!   struct in every order of its fields if, and only if, it proves each field at each offset that
-//!   the field has in some order. This is exact, and tries no order. The offsets taken are the
-//!   multiples of the alignment of the field where the field fits or, where no order needs padding,
-//!   the multiples of the greatest common divisor of the sizes, of which every sum of sizes is one.
-//!   A few of these offsets are in no order, such as the second byte of a `(bool, [u8; 3])`, so
-//!   more is then required, never less. A struct that has a rule, which names fields, proves only
-//!   itself, as an enum does.
+//!   are valid](crate::reference::what_puns_relies_on#a-value-whose-fields-are-valid)), the source
+//!   proves the struct in every order of its fields if, and only if, it proves each field at each
+//!   offset that the field has in some order. This is exact, and tries no order. The offsets taken
+//!   are the multiples of the alignment of the field where the field fits or, where no order needs
+//!   padding, the multiples of the greatest common divisor of the sizes, of which every sum of
+//!   sizes is one. A few of these offsets are in no order, such as the second byte of a `(bool,
+//!   [u8; 3])`, so more is then required, never less. A struct that has a rule, which names fields,
+//!   proves only itself, as an enum does.
 //! - **A check does not replace a proof in an opaque node,** since a check would read where the
 //!   compiler may not have put the field. What is not proven does not compile
 //!   ([`Relation::unspecified`]), and whatever reads a relation reads this, including what a
@@ -272,7 +273,7 @@
 //! not accept zeros that make a part whose representation Rust does not specify and `puns` does not
 //! assume, other than a struct or a tuple (`Stable::specified`).
 //!
-//! [valid]: crate::reference::concepts#what-is-a-valid-value
+//! [valid]: crate::reference::how_puns_decides#what-is-a-valid-value
 
 use crate::layout::{
   Dfa, Endian, Kind, Layout, Op, Rule, Spec, Tags, UNSTABLE, Uniform, Valid, max_value,
@@ -1427,13 +1428,14 @@ const PLACES: usize = 1024;
 /// proven everywhere it may be.
 ///
 /// A struct is valid if each of its fields is valid at its place ([A value whose fields are
-/// valid](crate::reference::rust#a-value-whose-fields-are-valid)). So the source proves the struct
-/// in every order of its fields if, and only if, it proves each field at each offset that the field
-/// has in some order. This is exact, and no order is tried. The offsets taken are all those that
-/// the field may have, the multiples of its alignment where it fits. Where no order needs padding,
-/// because every size is a multiple of every alignment, they are the multiples of the greatest
-/// common divisor of the sizes, since every sum of sizes is one. Some of these offsets are in no
-/// order, such as the second byte of a `(bool, [u8; 3])`. More is then required, never less.
+/// valid](crate::reference::what_puns_relies_on#a-value-whose-fields-are-valid)). So the source
+/// proves the struct in every order of its fields if, and only if, it proves each field at each
+/// offset that the field has in some order. This is exact, and no order is tried. The offsets taken
+/// are all those that the field may have, the multiples of its alignment where it fits. Where no
+/// order needs padding, because every size is a multiple of every alignment, they are the multiples
+/// of the greatest common divisor of the sizes, since every sum of sizes is one. Some of these
+/// offsets are in no order, such as the second byte of a `(bool, [u8; 3])`. More is then required,
+/// never less.
 ///
 /// Nothing is left to check at run time, since a check would read where the compiler may not have
 /// put the field. A field that the source does not prove somewhere fails the relation. So does a
@@ -3005,8 +3007,8 @@ pub enum Exact {
   Never(&'static str),
 }
 
-/// How the [extent](crate::reference::concepts#layouts-and-rules) of a source maps to the extent of
-/// a target.
+/// How the [extent](crate::reference::how_puns_decides#layouts-and-rules) of a source maps to the
+/// extent of a target.
 ///
 /// The extent of an unsized value is the offset of its slice tail plus the size of that slice.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

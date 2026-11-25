@@ -11,10 +11,10 @@
 //! [`try_pun_ref`]: try_pun_ref
 //! [`zeroed`]: zeroed
 //! [aims]: super::aims
-//! [concepts#proven-checked-and-refused]: super::concepts#proven-checked-and-refused
-//! [concepts#requirements]: super::concepts#requirements
-//! [functions#writes-leave-a-valid-source]: super::functions#writes-leave-a-valid-source
-//! [functions#writing-through-mut]: super::functions#writing-through-mut
+//! [how_puns_decides#proven-checked-and-refused]: super::how_puns_decides#proven-checked-and-refused
+//! [how_puns_decides#requirements]: super::how_puns_decides#requirements
+//! [api#writes-leave-a-valid-source]: super::api#writes-leave-a-valid-source
+//! [api#writing-through-mut]: super::api#writing-through-mut
 //! [layouts#the-same-type]: super::layouts#the-same-type
 //! [layouts#what-puns-assumes]: super::layouts#what-puns-assumes
 //! [macro@Pun#compile-time-errors]: macro@Pun#compile-time-errors
@@ -22,11 +22,11 @@
 //! [macro@Pun#enums-with-fields]: macro@Pun#enums-with-fields
 //! [rules]: super::rules
 //! [rules#fields-in-a-rule]: super::rules#fields-in-a-rule
-//! [rust]: super::rust
+//! [what_puns_relies_on]: super::what_puns_relies_on
 //! [trust#the-generated-code]: super::trust#the-generated-code
-//! [uninhabited]: super::concepts#uninhabited-types
-//! [unspecified layout]: super::concepts#unspecified-layouts
-//! [msrv]: super::target#minimum-rust-version
+//! [uninhabited]: super::how_puns_decides#uninhabited-types
+//! [unspecified layout]: super::how_puns_decides#unspecified-layouts
+//! [msrv]: super::rust_version_and_targets#minimum-rust-version
 #![doc = include_str!("../../docs/errors.md")]
 
 // The items of the crate, which the links of this chapter name. Only rustdoc reads them.

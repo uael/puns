@@ -78,8 +78,8 @@
 //! [`NonZero<T>`](NonZero) is an integer of 2, 4, 8 or 16 bytes of this module that is not zero,
 //! whose `Option` has its size.
 //!
-//! [guarantee]: crate::reference::concepts#what-is-a-valid-value
-//! [requirement]: crate::reference::concepts#requirements
+//! [guarantee]: crate::reference::how_puns_decides#what-is-a-valid-value
+//! [requirement]: crate::reference::how_puns_decides#requirements
 
 use core::{fmt, marker::PhantomData};
 
@@ -317,9 +317,9 @@ macro_rules! ints {
     // - Every value of `$name` is initialized bytes, all of which `Spec::any` accepts.
     // - Every initialized `[u8; $size]` is a valid `$name`, whose one field is all that it requires
     //   to be valid. The Rust Reference requires the field to be valid [2]. `puns` relies on this
-    //   being all, which no documentation states (`docs/rust.md`, "A value whose fields are
-    //   valid"). No code of `$name` relies on what its bytes are: `from_bytes` makes one of any
-    //   bytes.
+    //   being all, which no documentation states (`docs/what_puns_relies_on.md`, "A value whose
+    //   fields are valid"). No code of `$name` relies on what its bytes are: `from_bytes` makes one
+    //   of any bytes.
     // - `$name` holds no `UnsafeCell`.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi:
@@ -643,9 +643,9 @@ macro_rules! numbers {
     // - Every value of `$name` is initialized bytes, all of which `Spec::any` accepts.
     // - Every initialized `[u8; $size]` is a valid `$name`, whose one field is all that it requires
     //   to be valid. The Rust Reference requires the field to be valid [2]. `puns` relies on this
-    //   being all, which no documentation states (`docs/rust.md`, "A value whose fields are
-    //   valid"). No code of `$name` relies on what its bytes are: `from_bytes` makes one of any
-    //   bytes.
+    //   being all, which no documentation states (`docs/what_puns_relies_on.md`, "A value whose
+    //   fields are valid"). No code of `$name` relies on what its bytes are: `from_bytes` makes one
+    //   of any bytes.
     // - `$name` holds no `UnsafeCell`.
     //
     // [1] Per https://doc.rust-lang.org/1.99.0/reference/type-layout.html#r-layout.repr.transparent.layout-abi:

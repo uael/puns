@@ -1,13 +1,13 @@
 # Compile-time errors
 
-A pun that `puns` [refuses][concepts#proven-checked-and-refused] does not compile. Most refusals are
-panics of `const` blocks in the generic functions of `puns` (error E0080), which `rustc` evaluates
-only when it generates code for an instance of the function, after monomorphization. `cargo check`
-and editors generate no code, so they do not report them, while `cargo build` does. A generic
-function that calls `puns` therefore compiles until it is instantiated with a pun that is refused,
-and the error then points inside it. The conditions would be trait bounds, which `cargo check`
-reports, if stable Rust could bound the value of a constant expression, as `generic_const_exprs`
-does on nightly ([Minimum Rust version][msrv]).
+A pun that `puns` [refuses][how_puns_decides#proven-checked-and-refused] does not compile. Most
+refusals are panics of `const` blocks in the generic functions of `puns` (error E0080), which
+`rustc` evaluates only when it generates code for an instance of the function, after
+monomorphization. `cargo check` and editors generate no code, so they do not report them, while
+`cargo build` does. A generic function that calls `puns` therefore compiles until it is instantiated
+with a pun that is refused, and the error then points inside it. The conditions would be trait
+bounds, which `cargo check` reports, if stable Rust could bound the value of a constant expression,
+as `generic_const_exprs` does on nightly ([Minimum Rust version][msrv]).
 
 ## Reading an error
 
@@ -310,7 +310,7 @@ assert_eq!(puns::try_pun_ref::<[u8; 4], str>(&[0xff; 4]), Err(puns::Error::Valid
 ```
 
 The message says "rules", but a `#[pun(valid(..))]` range of the target that the source does not
-prove gives it too, since both are [requirements][concepts#requirements].
+prove gives it too, since both are [requirements][how_puns_decides#requirements].
 
 ### Alignment
 
@@ -440,7 +440,7 @@ assert_eq!(bytes, b"text");
 ```
 
 A value outside a `#[pun(valid(..))]` range of the source gives this message too, since a write
-must stay in such a range ([Writing through `&mut`][functions#writing-through-mut]). An enum
+must stay in such a range ([Writing through `&mut`][api#writing-through-mut]). An enum
 gives it as well: a value written through the `&mut Drawing` made from a `&mut Shape` could be a
 `Nothing`, or a `Rect` whose second field is not a `bool`. A shared reference reads it:
 
@@ -489,7 +489,7 @@ assert!(matches!(drawing, Drawing::Rect(3, 1)));
 ```
 
 A `&mut` to the first or last bytes is refused where it overlaps a struct that has a rule, except
-where [Writes leave a valid source][functions#writes-leave-a-valid-source] allows it:
+where [Writes leave a valid source][api#writes-leave-a-valid-source] allows it:
 
 ```rust,compile_fail,E0080
 #[derive(puns::Pun)]
@@ -689,9 +689,10 @@ expression that is not a rule is refused at the part that is not one, with what 
   `Rust` representation in the layout that `rustc` chose ([its
   conditions][macro@Pun#enums-with-fields]). Give the enum a primitive representation, such as
   `#[repr(u8)]`, whose layout RFC 2195 specifies.
-- A message that starts with "unsupported compiler", or says that the discriminant of an enum is
-  not what `puns` takes it to be: `rustc` does not behave as [What `puns` relies on][rust] says. No
-  change of the type fixes it, and the version of `rustc` is the cause.
+- A message that starts with "unsupported compiler", or says that the discriminant of an enum is not
+  what `puns` takes it to be: `rustc` does not behave as [What `puns` relies
+  on][what_puns_relies_on] says. No change of the type fixes it, and the version of `rustc` is the
+  cause.
 - "not where the field is", "not the rules of the struct" and "not the operations of the
   expression": the path of [`#[pun(crate = ..)]`][macro@Pun#crate] names items other than those of
   `puns` ([The generated code][trust#the-generated-code]).
@@ -746,10 +747,10 @@ assert!(level.negative());
 [`try_pun_ref`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun_ref.html
 [`zeroed`]: https://docs.rs/puns/0.2.4/puns/fn.zeroed.html
 [aims]: aims.md
-[concepts#proven-checked-and-refused]: concepts.md#proven-checked-and-refused
-[concepts#requirements]: concepts.md#requirements
-[functions#writes-leave-a-valid-source]: functions.md#writes-leave-a-valid-source
-[functions#writing-through-mut]: functions.md#writing-through-mut
+[how_puns_decides#proven-checked-and-refused]: how_puns_decides.md#proven-checked-and-refused
+[how_puns_decides#requirements]: how_puns_decides.md#requirements
+[api#writes-leave-a-valid-source]: api.md#writes-leave-a-valid-source
+[api#writing-through-mut]: api.md#writing-through-mut
 [layouts#the-same-type]: layouts.md#the-same-type
 [layouts#what-puns-assumes]: layouts.md#what-puns-assumes
 [macro@Pun#compile-time-errors]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#compile-time-errors
@@ -757,8 +758,8 @@ assert!(level.negative());
 [macro@Pun#enums-with-fields]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#enums-with-fields
 [rules]: rules.md
 [rules#fields-in-a-rule]: rules.md#fields-in-a-rule
-[rust]: rust.md
+[what_puns_relies_on]: what_puns_relies_on.md
 [trust#the-generated-code]: trust.md#the-generated-code
-[uninhabited]: concepts.md#uninhabited-types
-[unspecified layout]: concepts.md#unspecified-layouts
-[msrv]: target.md#minimum-rust-version
+[uninhabited]: how_puns_decides.md#uninhabited-types
+[unspecified layout]: how_puns_decides.md#unspecified-layouts
+[msrv]: rust_version_and_targets.md#minimum-rust-version

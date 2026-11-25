@@ -332,8 +332,8 @@ enum Level {
 }
 
 /// Reads the tag of a `repr(C)` enum made at run time, which `rustc` stores as an integer, so that
-/// Miri reports it if a byte of the tag is not initialized (`docs/rust.md`, "The tag of a `repr(C)`
-/// enum").
+/// Miri reports it if a byte of the tag is not initialized (`docs/what_puns_relies_on.md`, "The tag
+/// of a `repr(C)` enum").
 #[test]
 fn a_repr_c_tag_made_at_run_time() {
   let (low, high): (core::ffi::c_int, core::ffi::c_int) = (0, 1);

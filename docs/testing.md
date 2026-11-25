@@ -7,13 +7,13 @@
 
 The *model check*, the crate [`puns-model`][model], compares every verdict of the analysis with
 *oracles*. An oracle decides whether some bytes are a valid value of a type from what the language
-and the type's documentation say, without the analysis. The model check takes every ordered pair
-of its types of the same size, and tries every value of the source up to 2 bytes and a chosen set
-of values above. Its oracles of enums of the `Rust` representation follow how `rustc` lays them
-out, so they also check the layouts that the
-[experiments][rust#the-tag-of-an-enum-of-the-rust-representation] find. The model check runs in
-full every night and on demand, and in part on every push, with and without the `unstable`
-feature. Its crate documentation describes its types, its oracles and what runs where.
+and the type's documentation say, without the analysis. The model check takes every ordered pair of
+its types of the same size, and tries every value of the source up to 2 bytes and a chosen set of
+values above. Its oracles of enums of the `Rust` representation follow how `rustc` lays them out, so
+they also check the layouts that the
+[experiments][what_puns_relies_on#the-tag-of-an-enum-of-the-rust-representation] find. The model
+check runs in full every night and on demand, and in part on every push, with and without the
+`unstable` feature. Its crate documentation describes its types, its oracles and what runs where.
 
 ## Miri
 
@@ -66,7 +66,7 @@ and `Result`, and the tests of the layout that `rustc` chose. CI also builds the
 the 178 of `compile-fail` with and without the feature, the 9 of `compile-fail-kept` without it, and
 the 8 of `compile-fail-unstable` with it. 4 others must compile. `discover_reads_padding`,
 `discover_invalid_tag` and `structure_too_large` check the three [errors of const
-evaluation][rust#errors-of-const-evaluation] that `puns` relies on.
+evaluation][what_puns_relies_on#errors-of-const-evaluation] that `puns` relies on.
 
 ## The derive against other paths and rewritten items
 
@@ -110,7 +110,7 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-strict-provenance" cargo +nightly-2026-11-
 [aims]: aims.md
 [layouts]: layouts.md
 [layouts#what-puns-assumes]: layouts.md#what-puns-assumes
-[rust#errors-of-const-evaluation]: rust.md#errors-of-const-evaluation
-[rust#the-tag-of-an-enum-of-the-rust-representation]: rust.md#the-tag-of-an-enum-of-the-rust-representation
+[what_puns_relies_on#errors-of-const-evaluation]: what_puns_relies_on.md#errors-of-const-evaluation
+[what_puns_relies_on#the-tag-of-an-enum-of-the-rust-representation]: what_puns_relies_on.md#the-tag-of-an-enum-of-the-rust-representation
 [soundness]: soundness.md
 [trust]: trust.md

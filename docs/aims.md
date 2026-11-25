@@ -1,7 +1,7 @@
 # Aims
 
-This chapter says how `puns` checks and reads an [aim][concepts#aims] and its pointee. An aim
-([`layout::Aim`]) says three things, and every combination of them is an aim that `puns` checks
+This chapter says how `puns` checks and reads an [aim][how_puns_decides#aims] and its pointee. An
+aim ([`layout::Aim`]) says three things, and every combination of them is an aim that `puns` checks
 and reads:
 
 - Where the pointee is ([`layout::Start`]): at the address of the struct plus an offset that an
@@ -79,15 +79,15 @@ this way, as `nearest` does.
 ## Reading a pointee
 
 The pointee is read by the methods that the derive writes for an aim with a name, which find it as
-the check does. An eager one is safe and checks nothing: the value exists only with a valid
-pointee. It reads the pointee through the reference to the value, which has the provenance of the
-bytes of the pointee under the tree borrows model of Miri, which `puns` relies on there ([The
-provenance of a reference to a value with an eager
-aim][rust#the-provenance-of-a-reference-to-a-value-with-an-eager-aim]). A pointee outside the value
-is outside what a reference to the value gives access to under stacked borrows, where code reads it
-with [`aim`] from a pointer to the bytes that hold both, or writes it with [`aim_mut`]. These name
-the aim by its name, a field of the constant `AIMS` that the derive writes ([`AimOf`]). A lazy one
-checks the pointee when it reads it.
+the check does. An eager one is safe and checks nothing: the value exists only with a valid pointee.
+It reads the pointee through the reference to the value, which has the provenance of the bytes of
+the pointee under the tree borrows model of Miri, which `puns` relies on there ([The provenance of a
+reference to a value with an eager
+aim][what_puns_relies_on#the-provenance-of-a-reference-to-a-value-with-an-eager-aim]). A pointee
+outside the value is outside what a reference to the value gives access to under stacked borrows,
+where code reads it with [`aim`] from a pointer to the bytes that hold both, or writes it with
+[`aim_mut`]. These name the aim by its name, a field of the constant `AIMS` that the derive writes
+([`AimOf`]). A lazy one checks the pointee when it reads it.
 
 ```rust
 use puns::{InPlace, Pun};
@@ -137,8 +137,8 @@ assert!(puns::from_head::<Ptr>(puns::as_bytes(&[(-4i32).cast_unsigned(), 7])).is
 [`try_pun`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
 [`Worklist`]: https://docs.rs/puns/0.2.4/puns/trait.Worklist.html
 [`zeroed`]: https://docs.rs/puns/0.2.4/puns/fn.zeroed.html
-[concepts#aims]: concepts.md#aims
+[how_puns_decides#aims]: how_puns_decides.md#aims
 [layouts#the-same-type]: layouts.md#the-same-type
 [limits#bounds-of-the-checks]: limits.md#bounds-of-the-checks
 [macro@Pun#aims]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#aims
-[rust#the-provenance-of-a-reference-to-a-value-with-an-eager-aim]: rust.md#the-provenance-of-a-reference-to-a-value-with-an-eager-aim
+[what_puns_relies_on#the-provenance-of-a-reference-to-a-value-with-an-eager-aim]: what_puns_relies_on.md#the-provenance-of-a-reference-to-a-value-with-an-eager-aim

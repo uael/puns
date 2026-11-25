@@ -378,24 +378,24 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 `puns` by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
 additional terms or conditions.
 
-[valid]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#what-is-a-valid-value
-[kinds]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#proven-checked-and-refused
-[pairs]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#why-the-pair-decides
-[requirements]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#requirements
-[layouts]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md#layouts-and-rules
-[msrv]: https://github.com/uael/puns/blob/v0.2.4/docs/target.md#minimum-rust-version
+[valid]: https://github.com/uael/puns/blob/v0.2.4/docs/how_puns_decides.md#what-is-a-valid-value
+[kinds]: https://github.com/uael/puns/blob/v0.2.4/docs/how_puns_decides.md#proven-checked-and-refused
+[pairs]: https://github.com/uael/puns/blob/v0.2.4/docs/how_puns_decides.md#why-the-pair-decides
+[requirements]: https://github.com/uael/puns/blob/v0.2.4/docs/how_puns_decides.md#requirements
+[layouts]: https://github.com/uael/puns/blob/v0.2.4/docs/how_puns_decides.md#layouts-and-rules
+[msrv]: https://github.com/uael/puns/blob/v0.2.4/docs/rust_version_and_targets.md#minimum-rust-version
 [rules]: https://github.com/uael/puns/blob/v0.2.4/docs/rules.md
 [aims]: https://github.com/uael/puns/blob/v0.2.4/docs/aims.md
 [performance]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md
 [comparison]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md#compared-with-zerocopy-and-bytemuck
-[rust]: https://github.com/uael/puns/blob/v0.2.4/docs/rust.md
+[rust]: https://github.com/uael/puns/blob/v0.2.4/docs/what_puns_relies_on.md
 [reference]: https://github.com/uael/puns/tree/v0.2.4/docs
-[concepts]: https://github.com/uael/puns/blob/v0.2.4/docs/concepts.md
-[functions]: https://github.com/uael/puns/blob/v0.2.4/docs/functions.md
-[formats]: https://github.com/uael/puns/blob/v0.2.4/docs/formats.md
+[concepts]: https://github.com/uael/puns/blob/v0.2.4/docs/how_puns_decides.md
+[functions]: https://github.com/uael/puns/blob/v0.2.4/docs/api.md
+[formats]: https://github.com/uael/puns/blob/v0.2.4/docs/in_practice.md
 [limits]: https://github.com/uael/puns/blob/v0.2.4/docs/limits.md
 [trust]: https://github.com/uael/puns/blob/v0.2.4/docs/trust.md
-[target]: https://github.com/uael/puns/blob/v0.2.4/docs/target.md
+[target]: https://github.com/uael/puns/blob/v0.2.4/docs/rust_version_and_targets.md
 [not-yet]: https://github.com/uael/puns/blob/v0.2.4/docs/limits.md#not-yet
 [Compile-time errors]: https://github.com/uael/puns/blob/v0.2.4/docs/errors.md
 [Soundness]: https://github.com/uael/puns/blob/v0.2.4/docs/soundness.md

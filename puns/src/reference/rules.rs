@@ -6,13 +6,13 @@
 //! [`layout::Op`]: layout::Op
 //! [`try_pun`]: try_pun
 //! [aims]: super::aims
-//! [concepts#layouts-and-rules]: super::concepts#layouts-and-rules
-//! [concepts#requirements]: super::concepts#requirements
-//! [concepts#why-the-pair-decides]: super::concepts#why-the-pair-decides
+//! [how_puns_decides#layouts-and-rules]: super::how_puns_decides#layouts-and-rules
+//! [how_puns_decides#requirements]: super::how_puns_decides#requirements
+//! [how_puns_decides#why-the-pair-decides]: super::how_puns_decides#why-the-pair-decides
 //! [fn@crc32]: fn@layout::crc32
 //! [fn@sum16]: fn@layout::sum16
 //! [soundness#what-deriving-pun-means]: super::soundness#what-deriving-pun-means
-//! [formats]: super::formats
+//! [in_practice]: super::in_practice
 //! [limits#not-yet]: super::limits#not-yet
 //! [limits#limits-of-rust]: super::limits#limits-of-rust
 //! [macro@Pun#assert]: macro@Pun#assert

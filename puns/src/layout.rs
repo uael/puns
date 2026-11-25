@@ -29,7 +29,7 @@
 //! [`Op`]s. [`Enum`] and [`Variant`] are an enum with fields or a union. [`DfaState`] is a state of
 //! a `Dfa`, and [`sorted_ranges`] makes the ranges of a `Spec`.
 //!
-//! [valid]: crate::reference::concepts#what-is-a-valid-value
+//! [valid]: crate::reference::how_puns_decides#what-is-a-valid-value
 
 use core::mem;
 
@@ -115,7 +115,7 @@ pub(crate) enum Valid {
 /// - a scalar that may be uninitialized ([`Spec::maybe_uninit`]) accepts some values, but is known
 ///   to hold anything, padding included.
 ///
-/// [requirement]: crate::reference::concepts#requirements
+/// [requirement]: crate::reference::how_puns_decides#requirements
 ///
 /// # Examples
 ///
@@ -1143,7 +1143,7 @@ pub(crate) enum Kind {
 /// A target union is one of its fields, while a source union may hold any bytes
 /// ([Unions](crate::reference::soundness#unions)).
 ///
-/// [uninhabited]: crate::reference::concepts#uninhabited-types
+/// [uninhabited]: crate::reference::how_puns_decides#uninhabited-types
 ///
 /// # Examples
 ///
@@ -1764,7 +1764,7 @@ impl Field {
   /// hold only what its type guarantees, since safe code may write any value of its type to it: a
   /// [requirement], not a guarantee.
   ///
-  /// [requirement]: crate::reference::concepts#requirements
+  /// [requirement]: crate::reference::how_puns_decides#requirements
   ///
   /// # Panics
   ///
@@ -2049,7 +2049,7 @@ impl Layout {
   /// bytes that may be uninitialized, and the variants of values whose tags may be invalid, which
   /// is undefined behavior at run time, and an error of const evaluation at compile time, which
   /// no documentation promises ([Errors of const
-  /// evaluation](crate::reference::rust#errors-of-const-evaluation)).
+  /// evaluation](crate::reference::what_puns_relies_on#errors-of-const-evaluation)).
   #[doc(hidden)]
   #[must_use]
   pub const unsafe fn discover<E, const V: usize>(
@@ -3593,7 +3593,7 @@ impl Layout {
   /// Returns the layout of `T`, an enum without variants such as `Infallible`, which is
   /// [uninhabited] and has size 0. No value has this layout.
   ///
-  /// [uninhabited]: crate::reference::concepts#uninhabited-types
+  /// [uninhabited]: crate::reference::how_puns_decides#uninhabited-types
   ///
   /// # Examples
   ///
@@ -5253,8 +5253,8 @@ pub enum Op {
     /// bits, as `as u128` converts it in Rust, so that `-1` is `u128::MAX`.
     signed: bool,
   },
-  /// Pushes the [extent](crate::reference::concepts#layouts-and-rules) of the value in bytes,
-  /// `size_of_val(self)` in a rule.
+  /// Pushes the [extent](crate::reference::how_puns_decides#layouts-and-rules) of the value in
+  /// bytes, `size_of_val(self)` in a rule.
   Size,
   /// Replaces an offset with the integer of `size` bytes at that offset in the value. Fails if
   /// these bytes are not all within the value.
@@ -6231,8 +6231,8 @@ pub(crate) const fn same_ops(a: &[Op], b: &[Op]) -> bool {
 /// ```
 #[derive(Copy, Clone, Debug)]
 pub enum Rule {
-  /// The [extent](crate::reference::concepts#layouts-and-rules) of the value is the value of the
-  /// expression.
+  /// The [extent](crate::reference::how_puns_decides#layouts-and-rules) of the value is the value
+  /// of the expression.
   Size(&'static [Op]),
   /// The length of the tail of the value, an array, a slice or a `str`, is the value of the
   /// expression.

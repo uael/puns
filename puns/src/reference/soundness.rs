@@ -6,17 +6,17 @@
 //! [`zeroed`]: zeroed
 //! [bytes]: super::rules#reading-the-bytes-of-the-value
 //! [limits#not-yet]: super::limits#not-yet
-//! [padding]: super::concepts#layouts-and-rules
-//! [pair]: super::concepts#why-the-pair-decides
-//! [requirements]: super::concepts#requirements
+//! [padding]: super::how_puns_decides#layouts-and-rules
+//! [pair]: super::how_puns_decides#why-the-pair-decides
+//! [requirements]: super::how_puns_decides#requirements
 //! [rule]: super::rules
-//! [rust]: super::rust
-//! [rust#the-padding-of-a-new-value]: super::rust#the-padding-of-a-new-value
-//! [rust#the-tag-of-a-reprc-enum]: super::rust#the-tag-of-a-reprc-enum
+//! [what_puns_relies_on]: super::what_puns_relies_on
+//! [what_puns_relies_on#the-padding-of-a-new-value]: super::what_puns_relies_on#the-padding-of-a-new-value
+//! [what_puns_relies_on#the-tag-of-a-reprc-enum]: super::what_puns_relies_on#the-tag-of-a-reprc-enum
 //! [testing]: super::testing
 //! [trust]: super::trust
-//! [uninhabited]: super::concepts#uninhabited-types
-//! [valid]: super::concepts#what-is-a-valid-value
+//! [uninhabited]: super::how_puns_decides#uninhabited-types
+//! [valid]: super::how_puns_decides#what-is-a-valid-value
 #![doc = include_str!("../../docs/soundness.md")]
 
 // The items of the crate, which the links of this chapter name. Only rustdoc reads them.

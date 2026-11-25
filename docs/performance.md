@@ -1,7 +1,7 @@
 # Measured performance
 
 A proven pun compiles to no check, and a checked pun to the checks that the analysis leaves to run
-time ([Proven, checked and refused][concepts#proven-checked-and-refused]).
+time ([Proven, checked and refused][how_puns_decides#proven-checked-and-refused]).
 
 ## Machine code
 
@@ -173,7 +173,7 @@ mostly does not do. If you measure the checks, measure them in a release build.
 > proportion to the fifth power of the size. Limit the size of the untrusted bytes that you read
 > as such a type.
 
-[concepts#proven-checked-and-refused]: concepts.md#proven-checked-and-refused
+[how_puns_decides#proven-checked-and-refused]: how_puns_decides.md#proven-checked-and-refused
 [limits#bounds-of-the-analysis]: limits.md#bounds-of-the-analysis
 [walks]: rules.md#walks
 [build-time]: https://github.com/uael/puns/blob/v0.2.4/xtask/src/build_time.rs

@@ -41,8 +41,8 @@ assert_eq!(puns::from_head::<Record>(&long).err(), Some(puns::Error::Validity));
 assert_eq!(puns::from_head::<Record>(&[2, 0, 3, b'a']).err(), Some(puns::Error::Size));
 ```
 
-The expressions of `len` and `assert` are [rules][concepts#layouts-and-rules]. A record has the
-length that its rule gives, so you can take it from the front of a stream with [`from_head`]. A
+The expressions of `len` and `assert` are [rules][how_puns_decides#layouts-and-rules]. A record has
+the length that its rule gives, so you can take it from the front of a stream with [`from_head`]. A
 rule can also read bytes beyond the fields, such as a checksum over the data, as the packet of the
 [crate page][crate#reading-a-packet] does.
 
@@ -68,7 +68,7 @@ assert!(puns::from_bytes::<List>(&[2, 0, 1]).is_err());
 ## A header with options
 
 Where the size of a value is not the length of its slice, [`size`][macro@Pun#size] gives its
-[extent][concepts#layouts-and-rules] instead, and the slice takes the bytes that remain.
+[extent][how_puns_decides#layouts-and-rules] instead, and the slice takes the bytes that remain.
 The low half of the first byte of this header is its length in words of 4 bytes, and what
 follows the two fixed bytes is options:
 
@@ -93,8 +93,8 @@ assert_eq!((&header.options, payload), (&[1, 2, 3, 4, 5, 6][..], &[0xaa][..]));
 
 Read a byte that holds several values with getters, which [`get`][macro@Pun#get] generates from
 expressions on the fields. Split a field that holds several pieces of data into
-[regions][concepts#layouts-and-rules] with [`regions`][macro@Pun#regions], whose methods return
-the bytes of each region:
+[regions][how_puns_decides#layouts-and-rules] with [`regions`][macro@Pun#regions], whose methods
+return the bytes of each region:
 
 ```rust
 use puns::Pun;
@@ -227,7 +227,7 @@ view functions check][macro@Pun#what-the-view-functions-check]).
 ## Reading again after a write
 
 The attributes describe the bytes that `puns` reads. They are
-[requirements][concepts#requirements], and the fields stay writable. So the bytes of a
+[requirements][how_puns_decides#requirements], and the fields stay writable. So the bytes of a
 value that [`as_bytes`] returns may fail the check of [`from_bytes`] for the same type, once a
 write has broken a requirement:
 
@@ -257,8 +257,8 @@ Check bytes again when they come from code that may have written them.
 [`from_head`]: https://docs.rs/puns/0.2.4/puns/fn.from_head.html
 [`num`]: https://docs.rs/puns/0.2.4/puns/num/index.html
 [`Tag`]: https://docs.rs/puns/0.2.4/puns/trait.Tag.html
-[concepts#layouts-and-rules]: concepts.md#layouts-and-rules
-[concepts#requirements]: concepts.md#requirements
+[how_puns_decides#layouts-and-rules]: how_puns_decides.md#layouts-and-rules
+[how_puns_decides#requirements]: how_puns_decides.md#requirements
 [crate#reading-a-packet]: ../README.md#reading-a-packet
 [macro@Pun]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
 [macro@Pun#assert]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#assert

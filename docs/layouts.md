@@ -16,7 +16,7 @@ Rust leaves these choices of layout to the compiler, and a type whose layout dep
 whether a pun may also depend on that choice. Without it, the layouts that `puns` relies on are of
 two kinds:
 
-- *Specified*: Rust documents them ([What Rust documents][rust#what-rust-documents]).
+- *Specified*: Rust documents them ([What Rust documents][what_puns_relies_on#what-rust-documents]).
 - *Assumed and checked when compiling*: `rustc` lays out an enum of the `Rust` representation by
   one algorithm, from the layouts of the fields of its variants, which Rust does not document.
   `puns` assumes that algorithm where its result is the same in every layout that Rust allows for
@@ -37,11 +37,11 @@ included, which `puns` assumes and checks when compiling: a compiler that lays o
 makes it fail to compile, rather than change what a pun does ([What `puns`
 assumes](#what-puns-assumes)).
 
-Layout independence assumes that the compiler places the fields of a struct as `rustc` does
-([How `rustc` places fields][rust#how-rustc-places-fields]). Under another placement, a pun could
-only fail to compile. It also assumes that the path of `puns` that the derive names is `puns`
-itself: a crate that redirects it can make a verdict depend on how `rustc` arranged two types
-([The identity of a type and the compiler][trust-identity]).
+Layout independence assumes that the compiler places the fields of a struct as `rustc` does ([How
+`rustc` places fields][what_puns_relies_on#how-rustc-places-fields]). Under another placement, a pun
+could only fail to compile. It also assumes that the path of `puns` that the derive names is `puns`
+itself: a crate that redirects it can make a verdict depend on how `rustc` arranged two types ([The
+identity of a type and the compiler][trust-identity]).
 
 Layout independence holds of a pun, which is a function and a pair, not of a type: of the rows of
 `(bool, u8)` below, some are proven and some refused. It does not cover the message of a refusal,
@@ -152,10 +152,10 @@ field does, so the union accepts every value of the source. The pun then compile
 byte under the part is initialized in the source.
 
 Niches are not guaranteed beyond what `core` documents of the representation of `Option` and
-`Result` ([What Rust documents][rust#what-rust-documents]). `Option<bool>` is one byte with `None`
-at 2 only because `rustc` does it so today, so `puns` assumes it, and checks it when compiling
-([What `puns` assumes](#what-puns-assumes)). Niches that Rust documents only as ABI-compatible are
-assumed in the same way, not taken from that documentation: `enum Ticket { Free,
+`Result` ([What Rust documents][what_puns_relies_on#what-rust-documents]). `Option<bool>` is one
+byte with `None` at 2 only because `rustc` does it so today, so `puns` assumes it, and checks it
+when compiling ([What `puns` assumes](#what-puns-assumes)). Niches that Rust documents only as
+ABI-compatible are assumed in the same way, not taken from that documentation: `enum Ticket { Free,
 Paid(NonZero<u32>) }` is laid out like `Option<NonZero<u32>>`, and the check compares it with the
 layout that the assumption gives.
 
@@ -284,9 +284,9 @@ as well ([The identity of a type and the compiler][trust-identity]).
 [`Spec::maybe_uninit`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Spec.html#method.maybe_uninit
 [`Spec::stored_as`]: https://docs.rs/puns/0.2.4/puns/layout/struct.Spec.html#method.stored_as
 [errors#unspecified-layouts]: errors.md#unspecified-layouts
-[kinds]: concepts.md#proven-checked-and-refused
-[rule]: concepts.md#layouts-and-rules
-[rust#how-rustc-places-fields]: rust.md#how-rustc-places-fields
-[rust#what-rust-documents]: rust.md#what-rust-documents
+[kinds]: how_puns_decides.md#proven-checked-and-refused
+[rule]: how_puns_decides.md#layouts-and-rules
+[what_puns_relies_on#how-rustc-places-fields]: what_puns_relies_on.md#how-rustc-places-fields
+[what_puns_relies_on#what-rust-documents]: what_puns_relies_on.md#what-rust-documents
 [trust-identity]: trust.md#the-identity-of-a-type-and-the-compiler
-[unspecified layout]: concepts.md#unspecified-layouts
+[unspecified layout]: how_puns_decides.md#unspecified-layouts

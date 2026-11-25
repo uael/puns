@@ -1,16 +1,16 @@
 # The language of rules
 
-The [rules][concepts#layouts-and-rules] of a struct are the expressions of its
-[`size`][macro@Pun#size] and [`assert`][macro@Pun#assert] attributes, of [`len`][macro@Pun#len]
-and [`regions`][macro@Pun#regions] on its last field, and of [`pointer`][macro@Pun#pointer] on a
-field. They give the [extent][concepts#layouts-and-rules] of a value, the length of its trailing
-slice, the size of a [region](#regions), the place of a pointee, or a condition such as a
-checksum, the relations that binary formats store in their headers. [In practice][formats] shows
-them in use, and [Aims][aims] says how the pointees of `regions` and `pointer` are checked.
+The [rules][how_puns_decides#layouts-and-rules] of a struct are the expressions of its
+[`size`][macro@Pun#size] and [`assert`][macro@Pun#assert] attributes, of [`len`][macro@Pun#len] and
+[`regions`][macro@Pun#regions] on its last field, and of [`pointer`][macro@Pun#pointer] on a field.
+They give the [extent][how_puns_decides#layouts-and-rules] of a value, the length of its trailing
+slice, the size of a [region](#regions), the place of a pointee, or a condition such as a checksum,
+the relations that binary formats store in their headers. [In practice][in_practice] shows them in
+use, and [Aims][aims] says how the pointees of `regions` and `pointer` are checked.
 
-A rule is a [requirement][concepts#requirements]. It is checked when a value of the
+A rule is a [requirement][how_puns_decides#requirements]. It is checked when a value of the
 struct is made from another type, as by [`try_pun`] or [`from_head`], unless the source proves
-it ([Why the pair decides][concepts#why-the-pair-decides]). A `size` or `len` rule also
+it ([Why the pair decides][how_puns_decides#why-the-pair-decides]). A `size` or `len` rule also
 tells `from_head` how long a value is.
 
 A rule is a Rust expression over the fields of its struct, constants, and the bytes of the value.
@@ -26,10 +26,11 @@ of a CRC or the steps of a walk, is data of the operations.
 
 ## Regions
 
-The methods of lazy [regions][concepts#layouts-and-rules] ([`regions`][macro@Pun#regions]) do not
-trust the fields that give the sizes, which are [requirements][concepts#requirements]. A region that
-does not fit in the field is truncated, and a region whose expression fails takes the rest of the
-field. An eager region was checked with its struct, which no safe code writes ([Aims][aims]).
+The methods of lazy [regions][how_puns_decides#layouts-and-rules] ([`regions`][macro@Pun#regions])
+do not trust the fields that give the sizes, which are
+[requirements][how_puns_decides#requirements]. A region that does not fit in the field is truncated,
+and a region whose expression fails takes the rest of the field. An eager region was checked with
+its struct, which no safe code writes ([Aims][aims]).
 
 ## Values and types
 
@@ -103,10 +104,10 @@ assert!(puns::from_bytes::<Level>(&[7]).is_ok());
 assert!(puns::from_bytes::<Level>(&(-1i8).to_ne_bytes()).is_err());
 ```
 
-`size_of_val(self)` is the [extent][concepts#layouts-and-rules] of the value in bytes. It differs
-from what Rust's `size_of_val` gives where padding follows the trailing slice, which the extent
-leaves out. A `size` or `len` rule, which defines the extent, does not read it, and the derive
-reports one that does.
+`size_of_val(self)` is the [extent][how_puns_decides#layouts-and-rules] of the value in bytes. It
+differs from what Rust's `size_of_val` gives where padding follows the trailing slice, which the
+extent leaves out. A `size` or `len` rule, which defines the extent, does not read it, and the
+derive reports one that does.
 
 ## Literals, constants and operators
 
@@ -365,13 +366,13 @@ numbers. The steps of a walk are bounded too ([Walks](#walks)).
 [`layout::Op`]: https://docs.rs/puns/0.2.4/puns/layout/enum.Op.html
 [`try_pun`]: https://docs.rs/puns/0.2.4/puns/fn.try_pun.html
 [aims]: aims.md
-[concepts#layouts-and-rules]: concepts.md#layouts-and-rules
-[concepts#requirements]: concepts.md#requirements
-[concepts#why-the-pair-decides]: concepts.md#why-the-pair-decides
+[how_puns_decides#layouts-and-rules]: how_puns_decides.md#layouts-and-rules
+[how_puns_decides#requirements]: how_puns_decides.md#requirements
+[how_puns_decides#why-the-pair-decides]: how_puns_decides.md#why-the-pair-decides
 [fn@crc32]: https://docs.rs/puns/0.2.4/puns/layout/fn.crc32.html
 [fn@sum16]: https://docs.rs/puns/0.2.4/puns/layout/fn.sum16.html
 [soundness#what-deriving-pun-means]: soundness.md#what-deriving-pun-means
-[formats]: formats.md
+[in_practice]: in_practice.md
 [limits#not-yet]: limits.md#not-yet
 [limits#limits-of-rust]: limits.md#limits-of-rust
 [macro@Pun#assert]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html#assert
