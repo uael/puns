@@ -23,11 +23,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The unit tests, the doc tests (README included).
+          # The unit tests (those of the derive read the arguments of `rustc`), the doc tests
+          # (README included).
           - name: library, docs
             id: library
             run: |
               cargo test -p puns --lib
+              cargo test -p puns-derive --lib
               cargo test --workspace --exclude puns-model --doc
           # Apart: trybuild builds each program, about twenty seconds of each half (the two tests
           # of `compile_fail.rs`). The cases of `compile-fail-kept`: the refusals and their
@@ -111,7 +113,7 @@ jobs:
             id: model-rules
             tests: >-
               --lib --test core_shadowed --test regressions --test rules --test dst --test views
-              --test aims
+              --test aims --test puns_model
           - name: shapes
             id: model-shapes
             tests: --test shapes
@@ -131,7 +133,7 @@ jobs:
             id: model-unstable-rules
             tests: >-
               --features unstable --lib --test core_shadowed --test regressions --test rules
-              --test dst --test views --test aims
+              --test dst --test views --test aims --test puns_model
           - name: unstable, shapes
             id: model-unstable-shapes
             tests: --features unstable --test shapes
@@ -239,6 +241,25 @@ jobs:
         with:
           key: msrv
       - run: cargo build -p puns --examples
+
+  # A host whose C library gives no arguments to the `std` of a library: musl. The derive, a library
+  # in `rustc`, reads them from `/proc/self/cmdline` there. The toolchain of the image is the musl
+  # one. `puns_model` needs identities: each type with an eager aim proves itself. (The unit tests
+  # of `puns` do not build there: const evaluation fails to allocate their types of 2^40 elements,
+  # which it does with the `rustc` of glibc.)
+  musl:
+    name: Linux with musl
+    runs-on: ubuntu-latest
+    container: rust:1.100.0-alpine
+    steps:
+      # What the checkout and the cache actions need, which Alpine does not have.
+      - run: apk add --no-cache bash git tar zstd
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: musl
+      - run: cargo test -p puns-derive --lib
+      - run: cargo test -p puns-model --test puns_model
 
   no_std:
     name: No std
@@ -421,7 +442,9 @@ jobs:
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
           - name: model, library, regressions, views
             id: model
-            args: -p puns-model --lib --test core_shadowed --test regressions --test views
+            args: >-
+              -p puns-model --lib --test core_shadowed --test regressions --test views
+              --test puns_model
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
           - name: model, layouts
             id: model

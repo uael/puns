@@ -132,7 +132,7 @@ mod fake {
       end + 1
     }
   }
-  pub use puns::{__site, At, Fields, Path, Pun};
+  pub use puns::{At, Fields, Path, Pun};
 }
 
 #[derive(Pun, Debug)]
