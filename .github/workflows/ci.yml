@@ -325,43 +325,48 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Of the tests of `puns`, the ones that Miri runs, for each run: seven parts without the
+          # Of the tests of `puns`, the ones that Miri runs, for each run: eight parts without the
           # `unstable` feature, none above twenty seconds of Miri, and the files about it, with it,
           # in two parts (see the step that selects them).
-          - name: tree borrows, 1 of 7
+          - name: tree borrows, 1 of 8
             id: tree
             args: -p puns
             part: 1
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
-          - name: tree borrows, 2 of 7
+          - name: tree borrows, 2 of 8
             id: tree
             args: -p puns
             part: 2
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
-          - name: tree borrows, 3 of 7
+          - name: tree borrows, 3 of 8
             id: tree
             args: -p puns
             part: 3
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
-          - name: tree borrows, 4 of 7
+          - name: tree borrows, 4 of 8
             id: tree
             args: -p puns
             part: 4
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
-          - name: tree borrows, 5 of 7
+          - name: tree borrows, 5 of 8
             id: tree
             args: -p puns
             part: 5
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
-          - name: tree borrows, 6 of 7
+          - name: tree borrows, 6 of 8
             id: tree
             args: -p puns
             part: 6
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
-          - name: tree borrows, 7 of 7
+          - name: tree borrows, 7 of 8
             id: tree
             args: -p puns
             part: 7
+            flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
+          - name: tree borrows, 8 of 8
+            id: tree
+            args: -p puns
+            part: 8
             flags: -Zmiri-tree-borrows -Zmiri-strict-provenance
           - name: tree borrows, unstable, 1 of 2
             id: tree-unstable-1
@@ -376,47 +381,53 @@ jobs:
           # Stacked borrows, on a big-endian target: what loads integers, sums and CRCs several
           # bytes at a time must not depend on the byte order of the target, and the rules of
           # stacked borrows do not depend on the target (x86-64 has the jobs above).
-          - name: stacked borrows, big-endian, 1 of 7
+          - name: stacked borrows, big-endian, 1 of 8
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 1
             flags: -Zmiri-strict-provenance
-          - name: stacked borrows, big-endian, 2 of 7
+          - name: stacked borrows, big-endian, 2 of 8
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 2
             flags: -Zmiri-strict-provenance
-          - name: stacked borrows, big-endian, 3 of 7
+          - name: stacked borrows, big-endian, 3 of 8
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 3
             flags: -Zmiri-strict-provenance
-          - name: stacked borrows, big-endian, 4 of 7
+          - name: stacked borrows, big-endian, 4 of 8
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 4
             flags: -Zmiri-strict-provenance
-          - name: stacked borrows, big-endian, 5 of 7
+          - name: stacked borrows, big-endian, 5 of 8
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 5
             flags: -Zmiri-strict-provenance
-          - name: stacked borrows, big-endian, 6 of 7
+          - name: stacked borrows, big-endian, 6 of 8
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 6
             flags: -Zmiri-strict-provenance
-          - name: stacked borrows, big-endian, 7 of 7
+          - name: stacked borrows, big-endian, 7 of 8
             id: stacked-s390x
             args: -p puns
             target: s390x-unknown-linux-gnu
             part: 7
+            flags: -Zmiri-strict-provenance
+          - name: stacked borrows, big-endian, 8 of 8
+            id: stacked-s390x
+            args: -p puns
+            target: s390x-unknown-linux-gnu
+            part: 8
             flags: -Zmiri-strict-provenance
           - name: stacked borrows, big-endian, unstable, 1 of 2
             id: stacked-s390x-unstable-1
@@ -431,47 +442,53 @@ jobs:
             part: unstable-2
             flags: -Zmiri-strict-provenance
           # 32 bits: a smaller `usize`, a `u64` aligned to 4.
-          - name: 32 bits, 1 of 7
+          - name: 32 bits, 1 of 8
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 1
             flags: -Zmiri-strict-provenance
-          - name: 32 bits, 2 of 7
+          - name: 32 bits, 2 of 8
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 2
             flags: -Zmiri-strict-provenance
-          - name: 32 bits, 3 of 7
+          - name: 32 bits, 3 of 8
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 3
             flags: -Zmiri-strict-provenance
-          - name: 32 bits, 4 of 7
+          - name: 32 bits, 4 of 8
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 4
             flags: -Zmiri-strict-provenance
-          - name: 32 bits, 5 of 7
+          - name: 32 bits, 5 of 8
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 5
             flags: -Zmiri-strict-provenance
-          - name: 32 bits, 6 of 7
+          - name: 32 bits, 6 of 8
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 6
             flags: -Zmiri-strict-provenance
-          - name: 32 bits, 7 of 7
+          - name: 32 bits, 7 of 8
             id: i686
             args: -p puns
             target: i686-unknown-linux-gnu
             part: 7
+            flags: -Zmiri-strict-provenance
+          - name: 32 bits, 8 of 8
+            id: i686
+            args: -p puns
+            target: i686-unknown-linux-gnu
+            part: 8
             flags: -Zmiri-strict-provenance
           - name: 32 bits, unstable, 1 of 2
             id: i686-unstable-1
@@ -559,17 +576,18 @@ jobs:
       # A test file that is not for Miri says so (`#![cfg(not(miri))]`: the examples other than
       # `ethernet`, the trybuild test, what is about the derive and not the unsafe code). With
       # `--tests`, each would still be a binary that Miri starts to run nothing, a second each. The
-      # first six parts are named, at most twenty seconds of Miri each on x86-64 with tree borrows,
-      # as the times of the test binaries in the logs of the jobs say. `aims`, which follows deep
-      # data with loops, is three of them: the fifth runs its tests whose names have the word
-      # `deep`, the ones that take the loops with the most data, the sixth those whose names have
-      # one of the words of `orders` and not `deep`, and the fourth skips both, so that a test of
-      # any name runs in one of the three. The seventh is every other file that Miri runs without
-      # the feature, so that a new file runs. A named file that is not there fails the job. Stacked
-      # borrows skips the module `reads` of `aims`, the reads of pointees through references, which
-      # follow tree borrows, and the fourth part of a target with stacked borrows runs it with tree
-      # borrows, in the step after. The files about the feature run with it, every other one each.
-      # Under Miri, the unit tests run without the feature only: with it, fourteen seconds more.
+      # first seven parts are named, at most twenty seconds of Miri each on x86-64 with tree
+      # borrows, as the times of the test binaries in the logs of the jobs say. `aims`, which
+      # follows deep data with loops, is four of them: the fifth runs its tests whose names have the
+      # word `deep`, the ones that take the loops with the most data, the sixth those whose names
+      # have one of the words of `orders` and not `deep`, the seventh those with one of the words of
+      # `places` and none of these, and the fourth skips them all, so that a test of any name runs
+      # in one of the four. The eighth is every other file that Miri runs without the feature, so
+      # that a new file runs. A named file that is not there fails the job. Stacked borrows skips
+      # the module `reads` of `aims`, the reads of pointees through references, which follow tree
+      # borrows, and the fourth part of a target with stacked borrows runs it with tree borrows, in
+      # the step after. The files about the feature run with it, every other one each. Under Miri,
+      # the unit tests run without the feature only: with it, fourteen seconds more.
       - name: Select the tests that Miri runs
         if: matrix.part
         env:
@@ -581,6 +599,7 @@ jobs:
           three="--test api --test assumed --test enums --test core_shadowed --test str"
           four="--test aims"
           orders="windows order_of_a_copy"
+          places="place loop"
           filter=""
           case "${{ matrix.part }}" in
             1) tests=$one ;;
@@ -588,7 +607,7 @@ jobs:
             3) tests=$three ;;
             4)
               tests=$four
-              for word in deep $orders; do filter="$filter --skip $word"; done
+              for word in deep $orders $places; do filter="$filter --skip $word"; done
               ;;
             5)
               tests=$four
@@ -599,6 +618,11 @@ jobs:
               filter="$orders --skip deep"
               ;;
             7)
+              tests=$four
+              filter=$places
+              for word in deep $orders; do filter="$filter --skip $word"; done
+              ;;
+            8)
               tests=""
               files=$(MIRI=1 sh .github/tests.sh default | sed 's/^--test //')
               for test in $files; do
