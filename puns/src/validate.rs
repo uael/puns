@@ -1365,6 +1365,8 @@ pub struct Loops {
   /// pointee itself, or whether a loop below does, after claims that still end its window
   /// ([`run`]).
   waits_at: usize,
+  /// The entry of that pointee: a loop that takes this entry goes on in the sequence.
+  waits_in: u8,
 }
 
 impl Loops {
@@ -1400,7 +1402,7 @@ impl Loops {
       entry.write(pointee);
       self.links.as_mut_ptr().add(index).write((*of).head);
       (*of).head = index as u8;
-      self.waits_at = (*of).depth;
+      (self.waits_at, self.waits_in) = ((*of).depth, index as u8);
       Some(&raw mut (*entry).hi)
     }
   }
@@ -1523,6 +1525,7 @@ const unsafe fn start<P: ?Sized + Pointee>(
     free: NO_ENTRY,
     used: 0,
     waits_at: 0,
+    waits_in: NO_ENTRY,
   };
   input.loops = &raw mut loops;
   // The loop takes parts of a budget of its own, since it starts where the check in place has taken
@@ -1558,8 +1561,9 @@ const unsafe fn start<P: ?Sized + Pointee>(
 /// window of the sequence ([`Input::hi`]). The first sequence is that of the value that the check
 /// reads, whose window ends with the bytes. A pointee that is checked where it is found goes on in
 /// the sequence that claimed it: its pointees are claimed after it, as a copy writes them. So does
-/// the first pointee of a loop, and the next pointee of a loop that nothing was claimed after
-/// ([`Waiting::OPEN`]): a chain is one sequence.
+/// the first pointee of a loop, and the pointee that a loop takes while nothing was claimed after
+/// it, its next pointee ([`Waiting::OPEN`]) or the entry that a loop above just put: a chain is one
+/// sequence.
 ///
 /// Any other pointee that waits has a sequence of its own, which starts where its loop takes it,
 /// at the end of its claim. Its window ends where the claim that followed it in the sequence that
@@ -1614,7 +1618,7 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
   // claims of that sequence and the pointee below this loop that waits since the last of them.
   let window = input.hi;
   let mut tail = true;
-  let mut aside: Option<(usize, *mut usize, usize)> = None;
+  let mut aside: Option<(usize, *mut usize, usize, u8)> = None;
   // Each value takes the same parts while it is checked, and gives them back.
   let nested = input.nest(parts);
   let valid = nested
@@ -1649,6 +1653,13 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
           loops.links.as_mut_ptr().add(index).write(loops.free);
         }
         loops.free = index as u8;
+        if !input.open.is_null() && loops.waits_at == depth && loops.waits_in == index as u8 {
+          // The entry is that of the pointee that waits since the last claim: a loop above put it
+          // while this loop had no next pointee. Nothing was claimed since its claim, so it goes
+          // on in the same sequence, as the next pointee does.
+          input.open = core::ptr::null_mut();
+          continue;
+        }
       } else {
         // The last sequence ends within its window.
         break input.cursor <= input.hi;
@@ -1657,9 +1668,9 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
       if input.cursor > input.hi {
         break false;
       }
-      let (mut high, mut kept, mut kept_at) = match aside {
+      let (mut high, mut kept, mut kept_at, mut kept_in) = match aside {
         Some(aside) => aside,
-        None => (0, core::ptr::null_mut(), 0),
+        None => (0, core::ptr::null_mut(), 0, NO_ENTRY),
       };
       if !input.open.is_null() {
         // A pointee waits since the last claim. After a sequence of an entry, its window ends
@@ -1671,7 +1682,7 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
             // uses while this runs, and entries do not move.
             unsafe { *input.open = Waiting::OPEN };
           } else {
-            (kept, kept_at) = (input.open, loops.waits_at);
+            (kept, kept_at, kept_in) = (input.open, loops.waits_at, loops.waits_in);
           }
         }
         input.open = core::ptr::null_mut();
@@ -1679,7 +1690,7 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
       if input.cursor > high {
         high = input.cursor;
       }
-      aside = Some((high, kept, kept_at));
+      aside = Some((high, kept, kept_at, kept_in));
       // The sequence of `pointee` starts at the end of its claim.
       // SAFETY: The value of `pointee` is within the bytes of `input`, in one allocation, at or
       // after their start, as `offset_from_unsigned` requires.
@@ -1697,11 +1708,11 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
   }
   // SAFETY: As above.
   unsafe {
-    if let Some((high, kept, kept_at)) = aside {
+    if let Some((high, kept, kept_at, kept_in)) = aside {
       // The loop took entries: the sequence in which it started goes on where it returns, from the
       // largest end of its claims, with the pointee below this loop that its tail ended on.
       if !tail || input.open.is_null() {
-        (input.open, (*loops).waits_at) = (kept, kept_at);
+        (input.open, (*loops).waits_at, (*loops).waits_in) = (kept, kept_at, kept_in);
       }
       input.cursor = if input.cursor > high { input.cursor } else { high };
       input.hi = window;

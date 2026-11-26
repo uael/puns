@@ -172,9 +172,12 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   in which a loop starts is not over where the loop returns, since the value that found its first
   pointee is still checked: `validate::run` says how it goes on, in the last claim of the loop
   (`Waiting::OPEN`) and in a pointee that waits for a loop below (`Loops::waits_at`), so the
-  entries of the loops are lists whose entries never move. `tests/aims.rs` compares the check with
-  a walk that claims each pointee where it finds it, on values of two types that point at each
-  other. A claimed pointee takes nothing from the budget of bytes (`Input::spends`), which bounds
+  entries of the loops are lists whose entries never move. A loop that takes the entry of the
+  last claim goes on in the sequence, as it does for its next pointee. `tests/aims.rs` compares
+  the check with a walk that claims each pointee where it finds it, on values of two types that
+  point at each other, and `puns-model/tests/order.rs` on every small tree of three types under a
+  chain, of up to 6 values with the `full` feature: the two defects that these tests found took 3
+  and 5 values of types that point at each other. A claimed pointee takes nothing from the budget of bytes (`Input::spends`), which bounds
   only what is not claimed. A pointee at the cursor, or one
   that ends with the tail of its struct (`Extent::Rest`), is within the struct and claims nothing,
   and its pointee is never handed to a loop, so that no pointee waits without a claim. The pointee
