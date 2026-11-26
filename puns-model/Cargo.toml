@@ -11,6 +11,7 @@ puns = { path = "../puns", features = ["verdict"] }
 
 [dev-dependencies]
 fakecore = { path = "fakecore" }
+frames = { path = "frames" }
 
 [features]
 # The model check of `puns` with its `unstable` feature, which takes the layout that `rustc` chose:

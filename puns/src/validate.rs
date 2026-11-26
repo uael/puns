@@ -1283,6 +1283,13 @@ const fn in_place<C: Checks, P: ?Sized + Pointee>() -> usize {
   if fit < kept { fit } else { kept }
 }
 
+/// Returns what [`level`], [`parts`] and [`in_place`] give for the pointee `P`, for
+/// `puns::hook::frames`.
+#[cfg(feature = "verdict")]
+pub(crate) const fn model<P: ?Sized + Pointee>() -> (usize, usize, usize, usize) {
+  (level::<P>(), parts::<P>(), in_place::<All, P>(), in_place::<InPlace<P>, P>())
+}
+
 /// Returns the frames of evaluation from the check of the pointee `P` in place ([`check_value`]) to
 /// that of a pointee that its value, or what the next pointee of its type stores before its value,
 /// holds, as deep as any: [`check_whole`], then [`validate_whole`] but for a link of a chain, then

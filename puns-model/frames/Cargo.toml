@@ -1,0 +1,13 @@
+[package]
+name = "frames"
+version = "0.0.0"
+edition.workspace = true
+license = "Apache-2.0 OR MIT"
+publish = false
+description = "Checks in constants, whose frames of evaluation the frames test of puns-model measures"
+
+[dependencies]
+puns = { path = "../../puns", features = ["verdict"] }
+
+[lints]
+workspace = true

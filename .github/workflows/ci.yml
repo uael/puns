@@ -117,6 +117,9 @@ jobs:
           - name: shapes
             id: model-shapes
             tests: --test shapes --test order
+          - name: frames
+            id: model-frames
+            tests: --test frames
           - name: parts
             id: model-parts
             tests: --test parts --test parts_by_size_1
@@ -658,6 +661,46 @@ jobs:
           cargo miri test -p puns --target ${{ matrix.target }} --test aims -- reads::
         env:
           MIRIFLAGS: -Zmiri-tree-borrows -Zmiri-strict-provenance
+
+  # Temporary: instructions per check of trees of alignment 1, on `main` and on this branch.
+  cost:
+    name: Cost (${{ matrix.side }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        side: [main, branch]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - run: sudo apt-get install -y valgrind > /dev/null
+      - name: Build
+        run: |
+          dir=.
+          if [ "${{ matrix.side }}" = main ]; then
+            git worktree add ../main origin/main
+            cp -r cost-probe ../main/
+            dir=../main
+          fi
+          cd "$dir/cost-probe"
+          cargo build --release
+          echo "PROBE=$PWD/target/release/cost-probe" >> "$GITHUB_ENV"
+      - name: Count
+        run: |
+          for case in "2 4" "2 6" "2 8" "2 9" "2 10" "2 11" "2 12" "2 13" "2 14" "2 16" "2 18" "2 20" \
+            "1 9" "1 12" "1 20" "1 100" "1 1000" "4 4" "4 6" "4 8"; do
+            set -- $case
+            nodes=$(python3 -c "f,l=$1,$2; print(l+1 if f==1 else (f**(l+1)-1)//(f-1))")
+            runs=$(( 4000000 / nodes )); [ "$runs" -lt 1 ] && runs=1
+            valgrind --tool=callgrind --toggle-collect='*runs*' --callgrind-out-file=cg.out \
+              "$PROBE" "$1" "$2" "$runs" > /dev/null 2>&1
+            total=$(grep -E '^(summary|totals):' cg.out | head -1 | awk '{print $2}')
+            echo "fan $1 levels $2 nodes $nodes runs $runs instructions/check $(( total / runs ))"
+          done
 
   deny:
     name: Cargo Deny

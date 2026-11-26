@@ -65,6 +65,9 @@
 !puns-model/fakecore/
 !puns-model/fakecore/Cargo.toml
 !puns-model/fakecore/src/
+!puns-model/frames/
+!puns-model/frames/Cargo.toml
+!puns-model/frames/src/
 !puns-model/rewrite/
 !puns-model/rewrite/Cargo.toml
 !puns-model/rewrite/src/

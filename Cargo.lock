@@ -125,6 +125,13 @@ name = "fakecore"
 version = "0.0.0"
 
 [[package]]
+name = "frames"
+version = "0.0.0"
+dependencies = [
+ "puns",
+]
+
+[[package]]
 name = "glob"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -208,6 +215,7 @@ name = "puns-model"
 version = "0.0.0"
 dependencies = [
  "fakecore",
+ "frames",
  "puns",
 ]
 

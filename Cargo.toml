@@ -4,6 +4,7 @@ members = [
   "puns-derive",
   "puns-model",
   "puns-model/fakecore",
+  "puns-model/frames",
   "puns-model/rewrite",
   "xtask",
 ]

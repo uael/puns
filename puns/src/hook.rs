@@ -1,14 +1,16 @@
 //! The verdicts of the analysis, for the model check of `puns-model`.
 //!
 //! Each function of this module makes the same checks as the public function of the same name.
-//! Where the public function does not compile, this one returns `None` instead.
+//! Where the public function does not compile, this one returns `None` instead. [`frames`] gives
+//! what the validation counts of the frames of a check in a `const`, which `tests/frames.rs`
+//! compares with what `rustc` counts.
 //!
 //! This module is not part of the API. It is compiled only with the `verdict` feature, which only
 //! tests may enable, and which changes nothing else.
 
 use crate::{
-  Error, MESSAGE_LEN, Need, Plan, Pun, Root, pun_unchecked,
-  validate::{Input, validate},
+  Error, MESSAGE_LEN, Need, Plan, Pointee, Pun, Root, pun_unchecked,
+  validate::{self, Input, validate},
 };
 
 /// Whether each of these public functions compiles for a pun from `S` to `D`.
@@ -377,4 +379,26 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Option<Result<(&[u8], &
     Ok((start, target)) => Ok((bytes.split_at(start).0, unsafe { &*target })),
     Err(error) => Err(error),
   })
+}
+
+/// What the validation counts of the frames of evaluation of a check in a `const`, for a pointee
+/// that a loop can take ("The stack of a check" in the documentation of `validate`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Frames {
+  /// The frames from the check of a pointee in place to that of the next one of its type.
+  pub level: usize,
+  /// The parts of the layouts of a value of the pointee.
+  pub parts: usize,
+  /// The parts that a check nests in place before such a pointee waits for a loop, below a value
+  /// that is not of its type.
+  pub in_place: usize,
+  /// The same, below a value of its type that leads to one pointee at most, a link of a chain.
+  pub chained: usize,
+}
+
+/// Returns what the validation counts of the frames of a check in a `const` for the pointee `P`.
+#[must_use]
+pub const fn frames<P: ?Sized + Pointee>() -> Frames {
+  let (level, parts, in_place, chained) = validate::model::<P>();
+  Frames { level, parts, in_place, chained }
 }
