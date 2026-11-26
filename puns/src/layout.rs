@@ -1101,6 +1101,34 @@ impl Id {
     self.unwrapped().same(other.unwrapped())
   }
 
+  /// Returns a hash of the identity, the same for two identities that [`Id::equals`] finds equal:
+  /// of the identity without the `ManuallyDrop`s that wrap the whole, as `equals` compares it.
+  ///
+  /// A check compares it before `equals`, which it does not replace: two identities of one hash
+  /// may still be of two types (`validate::PointeeType`).
+  pub(crate) const fn key(&self) -> u64 {
+    self.unwrapped().hash(0xcbf2_9ce4_8422_2325)
+  }
+
+  /// Returns the FNV-1a hash of the name, the length and the parameters of the identity, from `h`,
+  /// the hash of what comes before it.
+  const fn hash(&self, mut h: u64) -> u64 {
+    const PRIME: u64 = 0x0100_0000_01b3;
+    let name = self.name.as_bytes();
+    let mut i = 0;
+    while i < name.len() {
+      h = (h ^ name[i] as u64).wrapping_mul(PRIME);
+      i += 1;
+    }
+    h = (h ^ self.len as u64).wrapping_mul(PRIME);
+    let mut i = 0;
+    while i < self.args.len() {
+      h = self.args[i].hash(h);
+      i += 1;
+    }
+    h
+  }
+
   /// Returns whether `self` and `other` are the identity of the same type (both are known, with the
   /// same name, length and parameters).
   const fn same(&self, other: &Id) -> bool {
@@ -4228,6 +4256,56 @@ impl Layout {
   #[must_use]
   pub const fn holds_eager_aims(&self) -> bool {
     self.holds_eager(false)
+  }
+
+  /// Returns the most eager aims ([`Check::Eager`]) that a value of the layout holds, at any depth:
+  /// those of a struct and of its fields, of the variant that holds the most, and of each element
+  /// of an array, and [`usize::MAX`] for a slice whose elements hold one.
+  pub(crate) const fn most_eager_aims(&self) -> usize {
+    // An aim is a rule, which is a leaf.
+    if self.leaves == 0 {
+      return 0;
+    }
+    match self.kind {
+      Kind::Scalar(_) | Kind::Pattern(_) => 0,
+      Kind::Array(elem, len) => elem.most_eager_aims().saturating_mul(len),
+      Kind::Slice(elem) => {
+        if elem.most_eager_aims() == 0 {
+          0
+        } else {
+          usize::MAX
+        }
+      }
+      Kind::Struct(fields, rules) => {
+        let mut aims = 0usize;
+        let mut i = 0;
+        while i < rules.len() {
+          if let Some(aim) = rules[i].aim()
+            && matches!(aim.check, Check::Eager)
+          {
+            aims = aims.saturating_add(1);
+          }
+          i += 1;
+        }
+        let mut i = 0;
+        while i < fields.len() {
+          aims = aims.saturating_add(fields[i].layout.most_eager_aims());
+          i += 1;
+        }
+        aims
+      }
+      Kind::Enum(layout) => {
+        let (mut most, mut i) = (0, 0);
+        while i < layout.variants.len() {
+          let aims = layout.variants[i].layout.most_eager_aims();
+          if aims > most {
+            most = aims;
+          }
+          i += 1;
+        }
+        most
+      }
+    }
   }
 
   /// Returns whether a struct of the layout, at any depth, has an eager aim

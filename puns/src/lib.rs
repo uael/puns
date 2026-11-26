@@ -634,11 +634,12 @@
 //!   pointee must be within them, aligned for its type, of a size that its type has, and every part
 //!   of it is checked, what it stores before its value first, its own eager aims included, one
 //!   level deeper. A pointee may be before the struct, and may be shared by several aims. These
-//!   functions check the pointees in place, one within another, and stop with [`Error::Limit`] past
-//!   [`AIM_PARTS`] parts of their layouts, a few levels of a type that points at itself, which
-//!   bounds their stack whatever the bytes, small enough for an embedded target ([`AIM_PARTS`] says
-//!   how much), or past pointees of twice as many bytes as they read, so that a check of a cycle
-//!   ends. They allocate nothing. Deeper data is for [`check`].
+//!   functions check the pointees of a type that points at itself in place, and, in the same pass,
+//!   hand the deeper ones over to a loop for each type of pointee, so that their stack does not
+//!   grow with the data, in a `const` too, and is small enough for an embedded target
+//!   ([`AIM_PARTS`] says how much). They stop with [`Error::Limit`] past pointees of twice as many
+//!   bytes as they read, so that a check of a cycle ends, and where the loops cannot take the
+//!   pointees that wait ([`AIM_PARTS`] says when). They allocate nothing.
 //! - [`check`] and [`check_compact`] check bytes for a value at any depth, with a stack that does
 //!   not grow with the data: the pointees wait in a [`Worklist`] that the caller gives, each value
 //!   before its pointees, depth first. They make no reference, so the bytes may be at any address,
@@ -1104,10 +1105,11 @@
 //!   `&mut` to a part of an array whose elements have rules looks at no more than 64 elements, and
 //!   is refused past them.
 //! - A packed struct whose unsized field has trailing padding of its own is refused.
-//! - The check of eager [aims](#aims) of a reference follows pointees one within another up to
-//!   [`AIM_PARTS`] parts of their layouts, a few levels of a type that points at itself, and
-//!   pointees of at most twice the bytes that it reads, and returns [`Error::Limit`] past either.
-//!   [`check`] has no such bound: its stack does not grow with the data.
+//! - The check of eager [aims](#aims) of a reference follows pointees at any depth, but returns
+//!   [`Error::Limit`] past pointees of twice the bytes that it reads, and where its loops cannot
+//!   take the pointees that wait: a chain of a type without an identity, a chain each of whose
+//!   values has several pointees of its type, or a path through many types ([`AIM_PARTS`]).
+//!   [`check`] has no such bound.
 //! - A union does not hold an eager aim.
 //! - The build time of a view enum whose variants overlap grows with the square of the number of
 //!   variants, or faster.
@@ -2016,7 +2018,7 @@ pub use layout::{crc32, sum16};
 pub use puns_derive::Pun;
 pub use thin::{Metadata, Pointee, Thin};
 pub use validate::{AIM_PARTS, Pending};
-use validate::{Checks, Input, validate};
+use validate::{All, Checks, Input, validate};
 
 // -------------------------------------------------------------------------------------------------
 // Traits
@@ -3255,8 +3257,8 @@ pub enum Error {
   /// bytes.
   Validity,
   /// The check of the pointees of eager aims ([`Check::Eager`](layout::Check::Eager)) stopped at
-  /// its limit before it found the bytes valid or not: pointees within one another of more parts
-  /// than [`AIM_PARTS`], pointees of more than twice as many bytes as are checked in all, or, for
+  /// its limit before it found the bytes valid or not: pointees that its loops cannot take
+  /// ([`AIM_PARTS`]), pointees of more than twice as many bytes as are checked in all, or, for
   /// [`check`], a [`Worklist`] that was full and could not grow.
   Limit,
 }
@@ -3705,6 +3707,7 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
 
 impl<S: ?Sized + Pun, D: ?Sized + Pun> Checks for Plan<S, D> {
   const MARKS: Marks = Self::ANALYSIS.relation.marks;
+  type Whole = All;
 }
 
 /// The most bytes of a compile-time error message. The rest of a longer one is cut.
@@ -4385,9 +4388,8 @@ pub const fn tail_mut<S: ?Sized + Pun, D: ?Sized + Pun>(value: &mut S) -> &mut D
 /// the extent of `value` (its size without the padding that may follow its slice) or if that `D` is
 /// larger than `value`, and [`Error::Validity`] if the bytes are not a [valid](crate#soundness)
 /// `D`. The checks are made in this order, so a value that fails two of them gives the error of the
-/// first. It returns [`Error::Limit`] if `D` holds eager [aims](crate#aims) whose pointees, one
-/// within another, have more than [`AIM_PARTS`] parts of their layouts, or more bytes than twice
-/// those checked.
+/// first. It returns [`Error::Limit`] if `D` holds eager [aims](crate#aims) whose pointees have
+/// more bytes than twice those checked, or that its loops cannot take ([`AIM_PARTS`]).
 ///
 /// # Compile-time errors
 ///
@@ -4656,8 +4658,8 @@ pub const fn as_bytes<S: ?Sized + Pun>(value: &S) -> &[u8] {
 /// Returns [`Error::Alignment`] if `bytes` is not aligned for `D`, [`Error::Size`] if the length of
 /// `bytes` is not a size that `D` can have, [`Error::Validity`] if the bytes are not a
 /// [valid](crate#soundness) `D`, and [`Error::Limit`] if `D` holds eager [aims](crate#aims) whose
-/// pointees, one within another, have more than [`AIM_PARTS`] parts of their layouts, or more bytes
-/// than twice those checked.
+/// pointees have more bytes than twice those checked, or that its loops cannot take
+/// ([`AIM_PARTS`]).
 ///
 /// # Compile-time errors
 ///
@@ -4945,8 +4947,8 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
 /// `bytes` is not aligned for `D`, and [`Error::Validity`] if the `size` or `len` rule of `D`
 /// cannot be computed or gives a size that `D` cannot have, or if the bytes taken are not a
 /// [valid](crate#soundness) `D`, and [`Error::Limit`] if `D` holds eager [aims](crate#aims) whose
-/// pointees, one within another, have more than [`AIM_PARTS`] parts of their layouts, or more bytes
-/// than twice those checked.
+/// pointees have more bytes than twice those checked, or that its loops cannot take
+/// ([`AIM_PARTS`]).
 ///
 /// # Compile-time errors
 ///
@@ -5306,8 +5308,8 @@ pub const fn rejects<D: ?Sized + Pun>(bytes: &[u8]) -> bool {
 /// Returns [`Error::Size`] if `bytes` is shorter than `size_of::<D>()`, [`Error::Alignment`] if the
 /// last `size_of::<D>()` bytes are not aligned for `D`, [`Error::Validity`] if they are not a
 /// [valid](crate#soundness) `D`, and [`Error::Limit`] if `D` holds eager [aims](crate#aims) whose
-/// pointees, one within another, have more than [`AIM_PARTS`] parts of their layouts, or more bytes
-/// than twice those checked.
+/// pointees have more bytes than twice those checked, or that its loops cannot take
+/// ([`AIM_PARTS`]).
 ///
 /// # Compile-time errors
 ///

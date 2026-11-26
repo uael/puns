@@ -208,8 +208,14 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |   const { assert!(listed::<T, T::Rules>(0), "not the rules of the struct") };
-  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   const { RulesOf::<T>::LISTED };
+  |           ^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   const { RulesOf::<T>::LISTED };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
@@ -387,15 +393,21 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     match T::LAYOUT.rule(L::RULE) {
-  |           ^^^^^^^^^
+  |   let Some(Rule::Aim(aim)) = T::LAYOUT.rule(L::RULE) else { return };
+  |                              ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |     let () = AimOf::<T, L>::CHECKED;
+  |              ^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs
   |
   |     let (eager, next) = const {
   |  _______________________^
-  | |     pointee_checked::<T, L>();
+  | |     let () = AimOf::<T, L>::CHECKED;
   | |     match T::LAYOUT.rule(L::RULE) {
   | |       Some(Rule::Aim(Aim { check, start, .. })) => {
 ... |
@@ -575,14 +587,14 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  | /   const {
-  | |     let leaf = match F::FIELD {
-  | |       Some(field) => P::LEAF + field.leaf(),
-  | |       None => P::LEAF,
-  | |     };
-  | |     assert!(<F::Path<P> as Path>::LEAF == leaf, "not where the field is");
-  | |   };
-  | |___^
+  |   const { FieldAt::<P, F>::PLACED };
+  |           ^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |   const { FieldAt::<P, F>::PLACED };
+  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/lib.rs

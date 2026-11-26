@@ -73,7 +73,7 @@ use crate::{
   analysis::{Exact, Marks, analyze},
   layout::{Kind, Layout, Spec, Valid},
   ptr, rejects,
-  validate::Checks,
+  validate::{All, Checks},
 };
 
 mod sealed {
@@ -251,6 +251,7 @@ where
     let head = if head.0 == NONE { all } else { head.1 };
     whole.union(&head)
   };
+  type Whole = All;
 }
 
 /// Returns the index of the first base of the variant at `index` of a list, among the variants
