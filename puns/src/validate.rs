@@ -1659,6 +1659,12 @@ const unsafe fn start<P: ?Sized + Pointee>(
 /// largest end of its claims: every other window ends at or before a claim of the sequence that
 /// its pointee waited in.
 ///
+/// A loop compares the cursor of a sequence with the end of its window where the sequence ends,
+/// and returns the pointee whose sequence it is if its claims end past it. So it does not compare
+/// the sequence in which it started, which is not over: the loop below does, where that sequence
+/// ends, and names the pointee whose own pointees end past its window, not the first pointee of
+/// this loop. The first sequence of a check has the bytes as its window, which no claim passes.
+///
 /// # Safety
 ///
 /// The caller must ensure that a loop runs, the first one or this one ([`start`]), and the
@@ -1698,7 +1704,8 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
   let mut aside: Option<(usize, *mut usize, usize, u8)> = None;
   // Each value takes the same parts while it is checked, and gives them back.
   let nested = input.nest(parts);
-  // The pointee whose sequence the check is in.
+  // The pointee whose sequence the check is in, once the loop takes an entry: before that, and in
+  // a tail, the sequence is that of a pointee of a loop below, or the first one.
   let mut owner = pointee.value;
   let fault = if nested {
     loop {
@@ -1741,11 +1748,12 @@ const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) ->
           continue;
         }
       } else {
-        // The last sequence ends within its window.
-        break fails(input.cursor <= input.hi, owner);
+        // The last sequence ends within its window, unless it is the one in which the loop
+        // started, which is not over.
+        break if tail { VALID } else { fails(input.cursor <= input.hi, owner) };
       }
-      // The sequence ends within its window.
-      if input.cursor > input.hi {
+      // The sequence ends within its window, likewise.
+      if !tail && input.cursor > input.hi {
         break owner;
       }
       let (mut high, mut kept, mut kept_at, mut kept_in) = match aside {

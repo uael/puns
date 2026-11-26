@@ -370,6 +370,55 @@ fn a_pointee_handed_down_by_two_loops_ends_at_the_next_claim() {
   }
 }
 
+/// A value that points at two values of its own type, then at an [`Other`].
+#[derive(Pun)]
+#[repr(C)]
+struct Twice {
+  first: Option<Near<Self>>,
+  second: Option<Near<Self>>,
+  other: Option<Near<Other>>,
+}
+
+/// A value of another type, which holds a pointer, so that it has a loop of its own.
+#[derive(Pun)]
+#[repr(C)]
+struct Other {
+  same: Option<Near<Self>>,
+}
+
+#[test]
+fn the_place_of_a_window_is_the_pointee_whose_pointees_end_past_it() {
+  // A chain of `Twice`, for its loop to run, whose last value points at two more. The first of
+  // them waits, and its window ends where the second starts. Its `Other` is before the second,
+  // as a copy writes it, or after it.
+  let image = |copied: bool| {
+    let mut image = Image::new();
+    let mut last = image.reserve(size_of::<Twice>(), 4);
+    for _ in 0..30 {
+      let next = image.reserve(size_of::<Twice>(), 4);
+      image.aim(last, next);
+      last = next;
+    }
+    let first = image.reserve(size_of::<Twice>(), 4);
+    let (other, second) = if copied {
+      let other = image.reserve(size_of::<Other>(), 4);
+      (other, image.reserve(size_of::<Twice>(), 4))
+    } else {
+      let second = image.reserve(size_of::<Twice>(), 4);
+      (image.reserve(size_of::<Other>(), 4), second)
+    };
+    image.aim(last, first);
+    image.aim(last + 4, second);
+    image.aim(first + 8, other);
+    (image, first)
+  };
+  assert_eq!(head::<Twice>(&image(true).0), Ok(()));
+  // The loop of `Other` starts in the sequence of the first, which ends past its window. The
+  // place is the first, whose own pointee is past its window, not the `Other`, which has none.
+  let (image, first) = image(false);
+  assert_eq!(head::<Twice>(&image), Err(Error::Validity { at: first }));
+}
+
 #[test]
 fn a_cycle_is_refused() {
   let (mut image, at) = two();
