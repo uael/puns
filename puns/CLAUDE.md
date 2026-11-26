@@ -178,7 +178,10 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   `puns-model/tests/order.rs` on every small tree of three types under a chain, of up to 6 values
   with the `full` feature: the two defects that these tests found took 3 and 5 values of types that
   point at each other. A claimed pointee takes nothing from the budget of bytes (`Input::spends`),
-  which bounds only what is not claimed. A pointee at the cursor, or one that ends with the tail of
+  nor does one at the cursor, which is within its struct and shares no byte with the other pointees
+  at that cursor: the budget bounds what other aims may reach, shared pointees and those that end
+  with the tail of their struct, and pointees of no byte that hold an eager aim, 1 each, which may
+  nest each other at any width. A pointee at the cursor, or one that ends with the tail of
   its struct (`Extent::Rest`), is within the struct and claims nothing, and its pointee is never
   handed to a loop, so that no pointee waits without a claim. One that takes the rest of the tail
   starts in its struct too (`stored_at`), or other aims could reach bytes that nothing claims. In a
@@ -190,7 +193,8 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   `validate::Shared`, which claims nothing, and `aim_mut` refuses the aim at compile time. An aim
   within what a shared aim reaches is not claimed either, even one that is not shared, for which
   `aim_mut` compiles: its `# Safety` says that nothing tells that such a pointee is reached once. So
-  a cycle through shared aims ends with `Limit` (the budget of twice the bytes), and their depth is
+  a cycle through shared aims ends with `Limit` (the budget of twice the bytes, plus `AIM_PARTS`),
+  and their depth is
   bounded by `AIM_PARTS`; a write through `aim_mut` must leave valid every shared pointee that
   overlaps what it writes, since its read trusts it (the `# Safety` of `aim_mut`).
 - The functions that check in place (`from_head` and the others) check a pointee in place, nested

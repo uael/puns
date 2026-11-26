@@ -1602,6 +1602,42 @@ fn a_region_stores_its_length() {
   assert_eq!(strings.second(), "");
 }
 
+/// Eager regions, each the whole tail of the struct that holds it, three deep.
+#[derive(Pun)]
+#[repr(C)]
+struct Whole {
+  #[pun(regions(eager all: [u8]))]
+  tail: InPlace<[u8]>,
+}
+
+#[derive(Pun)]
+#[repr(C)]
+struct InWhole {
+  #[pun(regions(eager whole: Whole))]
+  tail: InPlace<[u8]>,
+}
+
+#[derive(Pun)]
+#[repr(C)]
+struct InInWhole {
+  #[pun(regions(eager in_whole: InWhole))]
+  tail: InPlace<[u8]>,
+}
+
+#[test]
+fn nested_regions_are_within_their_struct() {
+  // A pointee at the cursor is within its struct, and is checked once for each check of it, so
+  // regions over the same bytes, nested, take nothing from the budget of bytes, and the empty ones,
+  // of no byte, take nothing from it, or 1 each if they hold an eager aim.
+  for n in [0, 1, 2, 8, 64] {
+    let bytes = vec![7u8; n];
+    assert!(puns::from_bytes::<Whole>(&bytes).is_ok(), "{n} bytes");
+    assert!(puns::from_bytes::<InWhole>(&bytes).is_ok(), "{n} bytes");
+    let three = puns::from_bytes::<InInWhole>(&bytes).unwrap();
+    assert_eq!(three.in_whole().whole().all(), &bytes[..]);
+  }
+}
+
 /// A pointee without an identity: its parameter is not bounded by `Pun`.
 #[derive(Pun)]
 #[repr(C)]
