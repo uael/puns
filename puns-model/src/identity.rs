@@ -18,11 +18,12 @@ pub struct Bounded {
   pub value: u8,
 }
 
-/// A `Bounded` at the offset that its first byte holds, in the struct.
+/// A `Bounded` at the offset that its first byte holds, in the struct, which only a shared pointee
+/// may be.
 #[derive(Pun)]
 #[repr(C)]
 pub struct Holds {
-  #[pun(pointer(Bounded = off as u128))]
+  #[pun(pointer(shared Bounded = off as u128))]
   pub off: InPlace<u8>,
   pub value: u8,
 }

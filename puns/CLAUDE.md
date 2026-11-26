@@ -159,6 +159,40 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   as an `M` that ends with the length, at which the pointer points, and nothing for a sized `T`
   (`Metadata::Stored`). `Pun::Metadata` is a sealed `Metadata`, `()` exactly when the layout is
   sized (`Layout::measured` asserts it of every struct).
+- The pointees of the aims at a stored place are claimed in the order of a copy (`Input::claim`, in
+  `validate::check_stored`): each starts at or after the cursor, the end of the claims before it and
+  of the value that the reader reads (`Input::new` takes where its pointees may be), and ends within
+  the window of the claims (`Input::hi`), which is compared with the cursor where the window ends,
+  not at each claim (`validate::run`, and `from_tail`, whose pointees end before its value). So the
+  pointees form a tree, which `aim_mut` relies on, and a cycle is `Validity`. The check of the loops
+  is not in that order: a pointee that waits is claimed where it is found, and its pointees later,
+  in a sequence of their own, in a window from the end of its claim to the start of the next claim
+  of the sequence that claimed it, which that claim writes where it waits (`Input::open`,
+  `Waiting::hi`), or else to the end of the window of that sequence. The sequence in which a loop
+  starts is not over where the loop returns, since the value that found its first pointee is still
+  checked: `validate::run` says how it goes on, in the last claim of the loop (`Waiting::OPEN`) and
+  in a pointee that waits for a loop below (`Loops::waits_at`), so the entries of the loops are
+  lists whose entries never move. A loop that takes the entry of the last claim goes on in the
+  sequence, as it does for its next pointee. `tests/aims.rs` compares the check with a walk that
+  claims each pointee where it finds it, on values of two types that point at each other, and
+  `puns-model/tests/order.rs` on every small tree of three types under a chain, of up to 6 values
+  with the `full` feature: the two defects that these tests found took 3 and 5 values of types that
+  point at each other. A claimed pointee takes nothing from the budget of bytes (`Input::spends`),
+  which bounds only what is not claimed. A pointee at the cursor, or one that ends with the tail of
+  its struct (`Extent::Rest`), is within the struct and claims nothing, and its pointee is never
+  handed to a loop, so that no pointee waits without a claim. One that takes the rest of the tail
+  starts in its struct too (`stored_at`), or other aims could reach bytes that nothing claims. In a
+  struct, the fields are checked before the rules, so the pointees of the aims that its fields hold
+  are claimed before those of its own aims; and what a pointee stores before its value is checked
+  before the pointee is claimed. The read of a lazy region is a check of its own, whose claims start
+  at the end of the region (`region_as`): it does not know the claims of another check. The pointee
+  of a shared aim (`Aim::shared`), and what it reaches, are checked in place with
+  `validate::Shared`, which claims nothing, and `aim_mut` refuses the aim at compile time. An aim
+  within what a shared aim reaches is not claimed either, even one that is not shared, for which
+  `aim_mut` compiles: its `# Safety` says that nothing tells that such a pointee is reached once. So
+  a cycle through shared aims ends with `Limit` (the budget of twice the bytes), and their depth is
+  bounded by `AIM_PARTS`; a write through `aim_mut` must leave valid every shared pointee that
+  overlaps what it writes, since its read trusts it (the `# Safety` of `aim_mut`).
 - The functions that check in place (`from_head` and the others) check a pointee in place, nested
   in the check of the struct whose aim leads to it, as a check without loops does, and in one pass
   hand a pointee whose type holds an eager aim and has an identity over to a loop of its type

@@ -1,6 +1,9 @@
 //! The model check of aims: every value of small types with eager aims, at a stored place and at
 //! the cursor, and with lazy ones, at the cursor, whose oracles read the pointee in the bytes, as
-//! the documentation says, and the verdicts of the pairs of these types.
+//! the documentation says, and the verdicts of the pairs of these types. The pointers that lead
+//! into the struct are shared, since the pointee of an aim that is not shared may not overlap the
+//! value that holds it; those that are not shared lead after it, where their oracle claims each
+//! pointee after the one before, in the order of a copy.
 //!
 //! The oracles of `puns_model` take a value of a `Copy` type, and a type with an eager aim is
 //! never one, nor made by value: its field is an `InPlace`. So this file has oracles of its own,
@@ -22,7 +25,7 @@ use puns::{InPlace, Pun, Thin, hook};
 #[derive(Pun)]
 #[repr(C)]
 struct Hop {
-  #[pun(pointer(bool = off as u128))]
+  #[pun(pointer(shared bool = off as u128))]
   off: InPlace<u8>,
   a: u8,
   b: u8,
@@ -32,7 +35,7 @@ struct Hop {
 #[derive(Pun)]
 #[repr(C)]
 struct HopNext {
-  #[pun(pointer(bool = off as u128 + 1))]
+  #[pun(pointer(shared bool = off as u128 + 1))]
   off: InPlace<u8>,
   a: u8,
   b: u8,
@@ -69,7 +72,7 @@ struct Bools {
 #[derive(Pun)]
 #[repr(C)]
 struct Wide {
-  #[pun(pointer([bool] = off as u128, len = n as u128))]
+  #[pun(pointer(shared [bool] = off as u128, len = n as u128))]
   off: InPlace<u8>,
   n: u8,
   a: u8,
@@ -84,6 +87,16 @@ struct Rest {
   off: InPlace<u8>,
   a: u8,
   b: u8,
+}
+
+/// Two pointers to `bool`s after the struct, at the offsets that its bytes hold.
+#[derive(Pun)]
+#[repr(C)]
+struct Two {
+  #[pun(pointer(bool = a as u128))]
+  a: InPlace<u8>,
+  #[pun(pointer(bool = b as u128))]
+  b: InPlace<u8>,
 }
 
 /// The bytes of a value of `n` bytes, every one of the alphabet.
@@ -131,6 +144,13 @@ fn wide(b: &[u8]) -> bool {
   at + len <= b.len() && (at..at + len).all(|i| boolean(b, i))
 }
 
+/// The two pointees in the order of a copy: the first after the struct, the second after the first,
+/// both within the bytes.
+fn two(b: &[u8]) -> bool {
+  let (a, second) = (usize::from(b[0]), usize::from(b[1]));
+  a >= 2 && second > a && boolean(b, a) && boolean(b, second)
+}
+
 fn rest(b: &[u8]) -> bool {
   let at = usize::from(b[0]);
   at <= b.len() && b[at..].iter().all(|byte| *byte != 0)
@@ -157,8 +177,19 @@ fn model<T: Pun>(name: &str, oracle: fn(&[u8]) -> bool, eager: bool) {
   }
 }
 
+/// Checks every value of `n` bytes with `from_head` of a `T` against `oracle`.
+fn model_head<T: Pun>(name: &str, n: usize, oracle: fn(&[u8]) -> bool) {
+  let wrong: Vec<_> = values(n)
+    .into_iter()
+    .filter(|value| puns::from_head::<T>(value).is_ok() != oracle(value))
+    .map(|value| format!("{value:?}: oracle {}", oracle(&value)))
+    .collect();
+  assert!(wrong.is_empty(), "{name}: {wrong:#?}");
+}
+
 #[test]
 fn every_value_of_each_type() {
+  model_head::<Two>("Two", 5, two);
   model::<Hop>("Hop", hop, true);
   model::<HopNext>("HopNext", hop_next, true);
   model::<Flag>("Flag", flag, true);

@@ -1,0 +1,33 @@
+error[E0080]: evaluation panicked: the pointee of a shared aim is not written: other aims may reach it
+ --> $RUST/core/src/panic.rs
+  |
+  = note: evaluation of `puns::aim_mut::<'_, Next, puns::First>::{constant#0}` failed here
+  |
+ ::: src/lib.rs
+  |
+  | /     assert!(
+  | |       !matches!(
+  | |         S::LAYOUT.rule(K::Of::RULE),
+  | |         Some(layout::Rule::Aim(layout::Aim { shared: true, .. }))
+  | |       ),
+  | |       "the pointee of a shared aim is not written: other aims may reach it"
+  | |     );
+  | |_____- in this macro invocation
+
+note: erroneous constant encountered
+ --> src/lib.rs
+  |
+  | /   const {
+  | |     assert!(
+  | |       !matches!(
+  | |         S::LAYOUT.rule(K::Of::RULE),
+... |
+  | |     );
+  | |   };
+  | |___^
+
+note: the above error was encountered while instantiating `fn aim_mut::<'_, Next, puns::First>`
+  --> tests/compile-fail/aim_mut_shared.rs:16:20
+   |
+16 |   let _ = unsafe { puns::aim_mut(holder, Next::AIMS.next) };
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

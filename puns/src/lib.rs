@@ -635,13 +635,37 @@
 //!   those of `from_bytes`, `from_head` and `from_tail`, or the source of a `try_` function. The
 //!   pointee must be within them, aligned for its type, of a size that its type has, and every part
 //!   of it is checked, what it stores before its value first, its own eager aims included, one
-//!   level deeper. A pointee may be before the struct, and may be shared by several aims. These
-//!   functions check the pointees of a type that points at itself in place, and, in the same pass,
-//!   hand the deeper ones over to a loop for each type of pointee, so that their stack does not
-//!   grow with the data, in a `const` too, and is small enough for an embedded target
-//!   ([`AIM_PARTS`] says how much). They stop with [`Error::Limit`] past pointees of twice as many
-//!   bytes as they read, so that a check of a cycle ends, and where the loops cannot take the
+//!   level deeper. These functions check the pointees of a type that points at itself in place,
+//!   and, in the same pass, hand the deeper ones over to a loop for each type of pointee, so that
+//!   their stack does not grow with the data, in a `const` too, and is small enough for an embedded
+//!   target ([`AIM_PARTS`] says how much). A pointee that is claimed, as the next item says, shares
+//!   no byte with another, so the time of a check grows with the bytes. They stop with
+//!   [`Error::Limit`] where the pointees that are not claimed reach twice as many bytes as they
+//!   read, so that a check of a cycle through shared aims ends, and where the loops cannot take the
 //!   pointees that wait ([`AIM_PARTS`] says when). They allocate nothing.
+//! - The pointees of the aims at a stored place are in the order of a copy: depth first, each value
+//!   before its pointees, the elements of a list in order. In a struct, the pointees of the aims
+//!   that its fields hold come first, in the order of the fields, then those of its own aims, in
+//!   the order of the fields that declare them: the fields are checked before the rules, which read
+//!   them. What a pointee stores before its value is checked before the pointee is claimed, so the
+//!   pointee of an aim that it holds comes before the pointee that stores it. Each pointee, with
+//!   what it stores before its value, starts at or after the end of every one before it, and of the
+//!   value that the check reads: after it for `from_head`, `from_bytes` and the `try_` functions,
+//!   before it for `from_tail`. Bytes that no aim reaches may be between them. So no two pointees
+//!   share a byte, none overlaps a value that holds the aim of another, and a cycle, which reaches
+//!   a pointee again, is refused with [`Error::Validity`]: the pointees form a tree, which a write
+//!   of a pointee relies on ([`aim_mut`]). The check keeps one cursor, the end of the last pointee,
+//!   and, for a pointee that waits for a loop, where the pointees after it start, which bound its
+//!   own. A pointee that ends where the tail of its struct ends (`size = ..`) is within the struct,
+//!   as a pointee at the cursor is, and is not counted: one that starts before the struct is
+//!   refused. An aim declared `shared` may lead to a pointee that other aims reach, anywhere in the
+//!   bytes, within the struct too: it and what it reaches are not counted and are checked in place.
+//!   So is the pointee of an aim within what it reaches, shared or not: other aims may reach that
+//!   one as well. [`aim_mut`] does not compile for a shared aim, and its caller answers for an aim
+//!   within what a shared aim reaches. So a cycle through shared aims, or many paths to one
+//!   pointee, end with [`Error::Limit`], when the pointees checked reach twice the bytes read, not
+//!   with [`Error::Validity`]; and shared pointees do not use the loops, so their depth is bounded
+//!   by [`AIM_PARTS`].
 //! - So a reference to a struct with an eager aim is a reference to a valid pointee, which code
 //!   reads without a check, through a safe method that the derive writes. No function makes a value
 //!   that holds an eager aim (`pun`, `try_pun`, `zeroed` and the other functions that return a
@@ -659,15 +683,18 @@
 //!   nor in a proof, unless the pointee stores its length, which places the next one. What reads
 //!   the pointee checks it then. Where safe code wrote the fields of the struct so that a region
 //!   does not fit, the read truncates it to the tail, and a size whose expression fails takes what
-//!   remains.
+//!   remains. That read is a check of its own, of the bytes of the struct: it claims the pointees
+//!   of the eager aims of the region in the order of a copy, from the end of the region. It does
+//!   not know what another check claimed: the pointers of two lazy regions may lead to one
+//!   pointee, and a pointer of a region into a later region.
 //!
 //! The derive declares aims through two options ([Aims](macro@Pun#aims)), one for each place where
 //! a pointee is: `pointer(..)` on a field, whose integer is where the pointee is unless an
 //! expression of the option says otherwise, and `regions(..)` on the last field, whose tail the
 //! regions cut. A pointer is eager, and a region eager or lazy. They compose: a struct with regions
 //! may hold pointers, and the pointee of a region may hold pointers too, whose pointees its read
-//! looks for within the bytes of the struct, so that a pointer in a region may point at another
-//! region, but not at a byte outside the struct.
+//! looks for within the bytes of the struct, after the region unless the pointer is shared, so
+//! that a pointer in a region may point at another region, but not at a byte outside the struct.
 //!
 //! A struct with an eager aim holds its field (the offset of a pointer, or the bytes of eager
 //! regions) in an [`InPlace<T>`](InPlace), which no code makes, so no safe code makes a value of
@@ -1449,8 +1476,10 @@ pub use layout::{crc32, sum16};
 /// of a value without a check. A lazy region is checked when it is read, and its field is of any
 /// type. A pointer is always eager, since nothing but the bytes that hold the struct bounds where
 /// its pointee is, and a reference to the struct does not give them: it takes neither keyword, and
-/// `pointer(eager ..)` and `pointer(lazy ..)` do not compile. With a name, a method reads the
-/// pointee, as visible as the field:
+/// `pointer(eager ..)` and `pointer(lazy ..)` do not compile. A pointer may say `shared` first:
+/// its pointee may be reached by other aims, or lie within the struct, and [`aim_mut`] does not
+/// write it ([Aims](crate#aims)). With a name, a method reads the pointee, as visible as the
+/// field:
 ///
 /// - eager: `fn name(&self) -> &Type`, safe, which reads through the reference to the value, which
 ///   has the provenance of the bytes of the pointee under the tree borrows model of Miri. The
@@ -1472,7 +1501,8 @@ pub use layout::{crc32, sum16};
 ///   large as what it stores says: the size of a sized type, or of an unsized one with the length
 ///   that a `Thin` stores, or that its own `size` or `len` rule gives from its sized fields. After
 ///   it, `len = EXPR` gives the length of an unsized pointee, `size = EXPR` its size in bytes, and
-///   `size = ..` makes it end where the tail of the struct ends. The name may be left out
+///   `size = ..` makes it end where the tail of the struct ends, for a pointee within the struct,
+///   which starts in it too. The name may be left out
 ///   (`pointer(Type = EXPR)`), for an aim that no method reads. The derive requires the type of the
 ///   field to be `Pun`, as it requires the type of a field, and the pointee to be a `Pointee`.
 /// - `#[pun(regions(first: Type = EXPR, second: Type, last))]`, on the last field: the bytes of the
@@ -3246,12 +3276,15 @@ pub enum Error {
   Size,
   /// The bytes are not a valid target, because a scalar holds a value that the target does not
   /// accept, a `str` is not UTF-8, a rule of the target does not hold or cannot be computed, the
-  /// pointee of an aim does not fit, or the pointee of an eager aim is not a valid value within the
-  /// bytes.
+  /// pointee of an aim does not fit, the pointee of an eager aim is not a valid value within the
+  /// bytes, or a pointee is not in the order of a copy after the ones before it ("Aims" in the
+  /// crate documentation): shared with another aim, overlapping a value, or reached by a cycle.
   Validity,
   /// The check of the pointees of eager aims ([`Check::Eager`](layout::Check::Eager)) stopped at
   /// its limit before it found the bytes valid or not: pointees that its loops cannot take
-  /// ([`AIM_PARTS`]), or pointees of more than twice as many bytes as are checked in all.
+  /// ([`AIM_PARTS`]), or pointees that are not claimed, those of shared aims and those within their
+  /// struct, of more than twice as many bytes as are checked in all, which a cycle through shared
+  /// aims reaches ("Aims" in the crate documentation).
   Limit,
 }
 
@@ -3637,8 +3670,9 @@ impl<S: ?Sized + Pun, D: ?Sized + Pun> Plan<S, D> {
     let layout = const { S::LAYOUT };
     // The size of a value that exists: no overflow.
     let extent = layout.head() + ptr::metadata(source) * layout.stride();
-    // The pointees of eager aims are looked for in the bytes of the source.
-    let mut input = Input::new(source.cast::<u8>(), extent);
+    // The pointees of eager aims are looked for in the bytes of the source, which the target
+    // covers.
+    let mut input = Input::new(source.cast::<u8>(), extent, extent);
     // SAFETY: The requirements of `try_cast_in` are those of this call, and the bytes of `input`
     // are those of `source`, which are valid for reads and initialized where a marked check reads
     // them.
@@ -3952,7 +3986,7 @@ pub const fn tail<S: Pun + Copy, D: Pun + Copy>(value: S) -> D {
 pub const fn try_pun<S: Pun + Copy, D: Pun + Copy>(value: S) -> Result<D, Error> {
   const { Plan::<S, D>::TRY };
   // `D` holds no eager aim (`Plan::TRY`), so nothing is looked for in these bytes.
-  let mut input = Input::new((&raw const value).cast(), size_of::<S>());
+  let mut input = Input::new((&raw const value).cast(), size_of::<S>(), 0);
   // SAFETY: `Plan::<S, D>::TRY` compiled, so the analysis meets `Need::TRY`. `S` and `D` are
   // `Copy`, so `Sized`, and the fit is `Exact::Always`: they have the same size. So `value` is
   // valid for reads of a `D`, which `validate` does not need aligned. The relation records no byte
@@ -4878,8 +4912,8 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
       _ => return Err(Error::Size),
     };
     let target = ptr::from_raw_parts::<D>(addr, len);
-    // The pointees of eager aims are looked for in the `n` bytes.
-    let mut input = Input::new(addr, n);
+    // The pointees of eager aims are looked for in the `n` bytes, after the target.
+    let mut input = Input::new(addr, n, size);
     // SAFETY: This satisfies the safety contract of `validate`. `target` is at `addr`, and its
     // size, `size`, is at most `n`, which is checked above. So it is valid for reads of a `D`, by
     // contract on the caller. Every one of the `n` bytes is initialized, by contract on the
@@ -4902,9 +4936,10 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
   #[inline(always)]
   const unsafe fn back(addr: *const u8, n: usize) -> Result<(usize, *const D), Error> {
     let layout = const { D::LAYOUT };
-    // The pointees of eager aims are looked for in the `n` bytes, before the `D` too.
-    let mut input = Input::new(addr, n);
     let Some(start) = n.checked_sub(layout.size()) else { return Err(Error::Size) };
+    // The pointees of eager aims are looked for in the `n` bytes, before the target, where their
+    // claims must end.
+    let mut input = Input::new(addr, n, 0);
     // SAFETY: `start <= n`, and `addr` is valid for reads of `n` bytes, by contract on the
     // caller. So `addr..addr + start` is in bounds of one allocation, as `add` requires.
     let addr = unsafe { addr.add(start) };
@@ -4915,7 +4950,7 @@ impl<D: ?Sized + Pun> Plan<[u8], D> {
     // SAFETY: This satisfies the safety contract of `validate`. `D` is `Sized`, by contract on the
     // caller, and `target` is the `size_of::<D>()` bytes from `start`, which end at `n`. So it is
     // valid for reads of a `D`, and its bytes are initialized, by contract on the caller.
-    if !unsafe { validate::<Self, Root, D>(target, &mut input) } {
+    if !unsafe { validate::<Self, Root, D>(target, &mut input) } || input.cursor > start {
       return Err(if input.limit { Error::Limit } else { Error::Validity });
     }
     Ok((start, target))
@@ -5304,8 +5339,10 @@ pub const fn region<S: ?Sized + Pun, K: Item<S::Rules>>(value: &S) -> &[u8] {
 ///
 /// The bytes of the region are found as [`region`] finds them, and checked as [`from_bytes`]
 /// checks bytes, after what the pointee stores before its value, but the pointees of the eager aims
-/// of the region are looked for in the bytes of `value`, so that a pointer in a region may point at
-/// another region of the same struct.
+/// of the region are looked for in the bytes of `value`, after the region, in the order of a copy,
+/// so that a pointer in a region may point at a later region of the same struct, and a shared one
+/// anywhere in them. Each read is a check of its own, which does not know what another one
+/// claimed.
 ///
 /// # Errors
 ///
@@ -5341,7 +5378,8 @@ pub const fn region_as<S: ?Sized + Pun, K: Item<S::Rules>>(
     return Err(Error::Size);
   }
   let (start, n) = (step.value, step.size);
-  let mut input = Input::new(base, size);
+  // The pointees of its eager aims are looked for in the bytes of `value`, after it.
+  let mut input = Input::new(base, size, start + n);
   // SAFETY: `start + n <= size` (`region_at`), and the pointee is the one of the list of `S`, whose
   // step `region_at` took, so if it has a size of its type, what it stores before its value is in
   // the tail, before `start`. So the pointee is within the bytes of `value`, which are valid for
@@ -5539,22 +5577,39 @@ pub const fn aim_of<S: ?Sized + Pun, K: Item<S::Rules>>(value: &S) -> &ValueOf<S
 /// - `holder` has the provenance of the bytes of that pointee.
 /// - For `'a`, the bytes of the pointee are accessed only through the result, and the bytes of the
 ///   value are not written.
+/// - What is written through the result leaves a valid value at every pointee that a shared aim
+///   reaches, its own and those of the aims within it at any depth, and that overlaps the bytes
+///   written, as its check found one there: a read of these aims, safe too, trusts it without a
+///   check.
 ///
 /// A value that a function of `puns` checked with its eager aims meets the first two, such as one
 /// that a reference that `puns` returned points to, or a value within one. Unsafe code that writes
 /// a value with an eager aim, as `nearest` writes its regions, keeps them for each value that it
 /// writes, since safe code reads its pointees. Rules of the pointee that do not give its length,
-/// such as an `assert`, are not needed: the read relies on none. The bytes of a value that `puns`
-/// checked may hold pointees that several aims share, since a check allows it, and a reference that
-/// `puns` returned is shared, so these bytes are not for this function: it is for the bytes that
-/// unsafe code owns, as `nearest` owns a region, whose pointees it does not share. What is written
-/// through the result is what later reads of the pointee rely on, safe ones included.
+/// such as an `assert`, are not needed: the read relies on none. A check of `puns` claims, in the
+/// order of a copy ("Aims" in the crate documentation), the pointee of each eager aim at a stored
+/// place that is not shared, that no shared aim leads to, and that does not take the rest of the
+/// tail of its struct. So no other such aim that the same check reaches leads to its bytes, nor
+/// does a value that holds one: in bytes that unsafe code owns and that one check accepted, as
+/// `nearest` loads a region, the pointee of such an aim is reached through it only, unless what a
+/// shared aim reaches overlaps it. This function compiles for other aims, whose pointees nothing
+/// tells to be reached once:
+///
+/// - An aim within what a shared aim reaches, even one that is not shared: nothing is claimed
+///   there.
+/// - An aim whose pointee is within its struct, at the cursor or of `size = ..`: its bytes are
+///   bytes of the value, which whatever leads to the value reaches.
+/// - An aim of a lazy region: each read of a region is a check of its own, so the pointers of two
+///   regions may lead to one pointee, or into a later region.
+///
+/// A reference that `puns` returned is shared, so its bytes are not for this function. What is
+/// written through the result is what later reads of the pointee rely on, safe ones included.
 ///
 /// # Compile-time errors
 ///
-/// A call compiles only if the aim is eager, and a pointee whose extent is what it stores is sized,
-/// a `Thin`, or stores the length of its tail in its sized fields, as the check of the aim
-/// requires.
+/// A call compiles only if the aim is eager and not shared, and a pointee whose extent is what it
+/// stores is sized, a `Thin`, or stores the length of its tail in its sized fields, as the check of
+/// the aim requires.
 ///
 /// # Examples
 ///
@@ -5583,6 +5638,15 @@ pub const unsafe fn aim_mut<'a, S: ?Sized + Pun, K: Item<S::Rules>>(
   holder: *mut S,
   _: AimOf<S, K>,
 ) -> &'a mut ValueOf<S, K> {
+  const {
+    assert!(
+      !matches!(
+        S::LAYOUT.rule(K::Of::RULE),
+        Some(layout::Rule::Aim(layout::Aim { shared: true, .. }))
+      ),
+      "the pointee of a shared aim is not written: other aims may reach it"
+    );
+  };
   // SAFETY: The first three requirements of this call are those of `pointee`, and `K::Of` is an
   // item of the list of `S` (`Item`). The pointee at the address that it returns, with its length,
   // is valid and aligned, and accessed only through the result for `'a`, by contract on the
