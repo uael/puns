@@ -620,6 +620,27 @@ fn a_pointer_of_a_lazy_region_leads_after_the_region() {
   assert_eq!((label(0), label(-4), label(12)), (refused, refused, refused));
 }
 
+/// Two shared pointers to one list, whose prefix holds a pointer that is not shared.
+#[derive(Pun)]
+#[repr(C)]
+struct TwoNoted {
+  #[pun(pointer(shared first: Thin<[u32], Noted> = first as u128))]
+  first: InPlace<i32>,
+  #[pun(pointer(shared second: Thin<[u32], Noted> = second as u128))]
+  second: InPlace<i32>,
+}
+
+#[test]
+fn what_a_shared_pointee_stores_before_its_value_is_not_claimed() {
+  // The struct at 0, whose two pointers count from its start; the prefix at 8 (its pointer, to
+  // the word at 20) and 12 (the length, 1), an element at 16. Both shared pointers lead to the
+  // list, so its prefix is checked twice, and the
+  // pointee of the pointer of the prefix is reached twice: nothing within a shared pointee is
+  // claimed, what it stores before its value included.
+  let words = [12i32, 12, 12, 1, 77, 5];
+  assert_eq!(puns::from_head::<TwoNoted>(puns::as_bytes(&words)).map(|_| ()), Ok(()));
+}
+
 /// A chain of `n` pairs, each pointing at the next, with an empty name and an empty list, in the
 /// order of a copy.
 fn chain(n: usize) -> Image {
