@@ -173,19 +173,21 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   pointee is still checked: `validate::run` says how it goes on, in the last claim of the loop
   (`Waiting::OPEN`) and in a pointee that waits for a loop below (`Loops::waits_at`), so the
   entries of the loops are lists whose entries never move. A loop that takes the entry of the
-  last claim goes on in the sequence, as it does for its next pointee. `tests/aims.rs` compares
-  the check with a walk that claims each pointee where it finds it, on values of two types that
-  point at each other, and `puns-model/tests/order.rs` on every small tree of three types under a
-  chain, of up to 6 values with the `full` feature: the two defects that these tests found took 3
-  and 5 values of types that point at each other. A claimed pointee takes nothing from the budget of bytes (`Input::spends`), which bounds
-  only what is not claimed. A pointee at the cursor, or one
-  that ends with the tail of its struct (`Extent::Rest`), is within the struct and claims nothing,
-  and its pointee is never handed to a loop, so that no pointee waits without a claim. The pointee
-  of a shared aim (`Aim::shared`), and what it reaches, are checked in place with
-  `validate::Shared`, which claims nothing, and `aim_mut` refuses the aim at compile time. So a
-  cycle through shared aims ends with `Limit` (the budget of twice the bytes), and their depth is
-  bounded by `AIM_PARTS`; a write through `aim_mut` must leave valid every shared pointee that
-  overlaps what it writes, since its read trusts it (the `# Safety` of `aim_mut`).
+  last claim goes on in the sequence, as it does for its next pointee. `tests/aims.rs` compares the
+  check with a walk that claims each pointee where it finds it, on values of two types that point at
+  each other, and `puns-model/tests/order.rs` on every small tree of three types under a chain, of
+  up to 6 values with the `full` feature: the two defects that these tests found took 3 and 5 values
+  of types that point at each other. A claimed pointee takes nothing from the budget of bytes
+  (`Input::spends`), which bounds only what is not claimed. A pointee at the cursor, or one that
+  ends with the tail of its struct (`Extent::Rest`), is within the struct and claims nothing, and
+  its pointee is never handed to a loop, so that no pointee waits without a claim. The pointee of a
+  shared aim (`Aim::shared`), and what it reaches, are checked in place with `validate::Shared`,
+  which claims nothing, and `aim_mut` refuses the aim at compile time. An aim within what a shared
+  aim reaches is not claimed either, even one that is not shared, for which `aim_mut` compiles: its
+  `# Safety` says that nothing tells that such a pointee is reached once. So a cycle through shared
+  aims ends with `Limit` (the budget of twice the bytes), and their depth is bounded by `AIM_PARTS`;
+  a write through `aim_mut` must leave valid every shared pointee that overlaps what it writes,
+  since its read trusts it (the `# Safety` of `aim_mut`).
 - The functions that check in place (`from_head` and the others) check a pointee in place, nested
   in the check of the struct whose aim leads to it, as a check without loops does, and in one pass
   hand a pointee whose type holds an eager aim and has an identity over to a loop of its type

@@ -405,6 +405,41 @@ fn a_shared_pointee_is_anywhere() {
   assert_eq!(read(&cycle), Err(Error::Validity));
 }
 
+/// A pointer to a pair that other pointers may share, and a pointer to a pair that is not
+/// shared. The pointers of a pair are not shared.
+#[derive(Pun)]
+#[repr(C)]
+struct Lends {
+  #[pun(pointer(shared lent: Pair = lent as u128))]
+  lent: InPlace<i32>,
+  own: Near<Pair>,
+}
+
+#[test]
+fn what_a_shared_pointee_reaches_is_not_claimed() {
+  // The root, then one pair with its name and its numbers, which both pointers of the root lead
+  // to.
+  let mut image = Image::new();
+  let root = image.reserve(size_of::<Lends>(), 4);
+  let pair = image.reserve(size_of::<Pair>(), 4);
+  let text = image.text("a");
+  image.aim(pair, text);
+  let words = image.words(&[1]);
+  image.aim(pair + 4, words);
+  image.aim(root, pair);
+  image.aim(root + 4, pair);
+  // The name and the numbers are claimed once, for the pair of the pointer that is not shared.
+  // The pointers of the pair, which are not shared, reach them again through the shared pointer,
+  // where nothing is claimed.
+  let read = |image: &Image| puns::from_head::<Lends>(image.aligned().bytes()).map(|_| ());
+  assert_eq!(read(&image), Ok(()));
+  // Two pairs that are not shared may not have one name.
+  let (mut two, at) = two();
+  let name = at[0].wrapping_add_signed(isize::try_from(two.get_i32(at[0])).unwrap());
+  two.aim(at[1], name);
+  assert_eq!(check(&two), Err(Error::Validity));
+}
+
 /// A chain of `n` pairs, each pointing at the next, with an empty name and an empty list, in the
 /// order of a copy.
 fn chain(n: usize) -> Image {
