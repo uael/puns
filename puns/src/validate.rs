@@ -1212,7 +1212,8 @@ const unsafe fn waits<C: Checks, P: ?Sized + Pointee>(
     return unsafe { waits_below::<C, P>(value, len, input) };
   }
   // SAFETY: A loop runs, so `loops` points to the loops of the check, in the frame of the first
-  // loop (`start`), which nothing else uses while this runs.
+  // loop (`start`), which nothing else uses while this runs, with the innermost loop and the
+  // entries, as `Loops::wait` requires.
   match unsafe { (*input.loops).wait(Waiting { value, len, hi: input.hi }) } {
     Some(window) => {
       input.open = window;
@@ -1242,7 +1243,8 @@ const unsafe fn waits_below<C: Checks, P: ?Sized + Pointee>(
 ) -> bool {
   let pointee = Waiting { value, len, hi: input.hi };
   // SAFETY: A loop runs, so `loops` points to the loops of the check, in the frame of the first
-  // loop (`start`), which nothing else uses while this runs.
+  // loop (`start`), which nothing else uses while this runs, with the loops that run and the
+  // entries, as `Loops::wait_below` requires.
   let wait = unsafe { (*input.loops).wait_below::<P>(pointee) };
   // SAFETY: The requirements of `run` and `full` are those of this call, and a loop runs, whose
   // entries are those of the first loop (`start`).
@@ -1413,36 +1415,47 @@ impl Loops {
   ///
   /// It is called in the check of a value of that loop only (`Checks::LOOP`), of the type of
   /// `pointee`, and inlined there with optimizations.
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure that a loop runs: `running` is the innermost one, in the frame of its
+  /// `run`, which nothing else uses while this runs, and `entries` is that of the first loop
+  /// ([`start`]).
   #[cfg_attr(not(debug_assertions), inline(always))]
-  const fn wait(&mut self, pointee: Waiting) -> Option<*mut usize> {
+  const unsafe fn wait(&mut self, pointee: Waiting) -> Option<*mut usize> {
     if self.next.value.is_null() {
       self.next = Waiting { hi: Waiting::OPEN, ..pointee };
       return Some(&raw mut self.next.hi);
     }
-    // SAFETY: A loop runs, the innermost one, in the frame of its `run`, and the entries are those
-    // of the first loop.
+    // SAFETY: The requirements of `put` for the innermost loop are those of this call.
     unsafe { self.put(self.running, pointee) }
   }
 
   /// Puts `pointee`, of the type `P`, on top of the entries of the innermost loop of its type, if
   /// one runs and there is room, so that the loop checks it once the loops above it return. A loop
   /// is of the type of `P` as [`PointeeType::is`] tells.
-  const fn wait_below<P: ?Sized + Pointee>(&mut self, pointee: Waiting) -> Wait {
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure that `running` is null or the innermost loop that runs, each loop in
+  /// the frame of its `run` with the loop below it as its `outer`, which nothing else uses while
+  /// this runs, and that `entries` is that of the first loop ([`start`]).
+  const unsafe fn wait_below<P: ?Sized + Pointee>(&mut self, pointee: Waiting) -> Wait {
     let of = const { &Looped::<P>::LOOP };
     let mut at = self.running;
     loop {
       if at.is_null() {
         return Wait::NoLoop;
       }
-      // SAFETY: `at` is a loop that runs, in the frame of its `run`, below this one, which nothing
-      // else uses while this runs.
+      // SAFETY: `at` is a loop that runs, in the frame of its `run`, by contract on the caller.
       let running = unsafe { &*at };
       if running.of.is(of) {
         break;
       }
       at = running.outer;
     }
-    // SAFETY: `at` is a loop that runs, as above, and the entries are those of the first loop.
+    // SAFETY: `at` is a loop that runs, as above, and the entries are those of the first loop, by
+    // contract on the caller.
     match unsafe { self.put(at, pointee) } {
       Some(window) => Wait::Waits(window),
       None => Wait::Full,
@@ -2045,8 +2058,10 @@ pub const fn sized_as<P: ?Sized + Pun>(size: usize) -> Option<usize> {
 /// `base` is, in bytes from the start of `input`, and how large the aim says it is: at the address
 /// of the struct plus the value of the expression of the aim, an `i128` in two's complement, plus
 /// what is before the value where the aim points (`Pointee::VALUE_AT`). The value must be within
-/// the bytes of `input`, after what is stored before it (`Pointee::Prefix`). For a pointee that
-/// takes the rest of the tail of the struct, its value starts at or before the end of that tail.
+/// the bytes of `input`, after what is stored before it (`Pointee::Prefix`). A pointee that takes
+/// the rest of the tail of the struct is within the struct, which is why it is not claimed
+/// ([`check_stored`]): it starts, with what it stores before its value, at or after the start of
+/// the struct, and its value at or before the end of that tail.
 ///
 /// # Safety
 ///
@@ -2099,7 +2114,9 @@ const unsafe fn stored_at<T: ?Sized + Pun, L: Rules>(
             tail.start + tail.bytes
           }
         };
-      if to > end {
+      // `before <= to`, checked above. A pointee that starts before its struct is not within it:
+      // other aims may reach its bytes, which nothing claims.
+      if to - before < from || to > end {
         return None;
       }
       Size::Bytes((end - to) as u128)
@@ -2216,7 +2233,10 @@ pub struct Input {
   /// ends, by the reader whose claims end before that (`from_tail`).
   hi: usize,
   /// The end of the window of the pointee that waits since the last claim in the check of the
-  /// value of a loop, which the next claim sets to where it starts, or null.
+  /// value of a loop, which the next claim sets to where it starts, or null. While it is not null,
+  /// it points to the `hi` of the next pointee of a loop or of an entry ([`Loops`]), in the frame
+  /// of the first loop, which is valid for writes and does not move: only [`waits`] and [`run`]
+  /// set it, and [`start`] sets it to null before that frame ends.
   open: *mut usize,
 }
 
@@ -2257,8 +2277,7 @@ impl Input {
       return false;
     }
     if looped && !self.open.is_null() {
-      // SAFETY: `open` is the end of the window of the next pointee of a loop or of an entry,
-      // which nothing else uses while this runs, and neither moves.
+      // SAFETY: `open` is not null, so it is valid for writes, as the field says.
       unsafe { *self.open = from };
       self.open = core::ptr::null_mut();
     }
