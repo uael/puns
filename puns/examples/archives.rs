@@ -311,17 +311,17 @@ pub fn main() {
   // record at all (the search runs to the start, and fails).
   let mut bytes = ZIP;
   bytes[40] ^= 1;
-  assert_eq!(from_head::<LocalHeader>(&bytes).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<LocalHeader>(&bytes), Err(Error::Validity { .. })));
   for (at, value) in [(119, 2), (115, 1)] {
     let mut bytes = ZIP;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Zip>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Zip>(&bytes[..]), Err(Error::Validity { .. })));
   }
-  assert_eq!(try_pun_ref::<_, Zip>(&ZIP[..99]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Zip>(&ZIP[..99]), Err(Error::Validity { .. })));
   // A data descriptor: the size of the data is not in the header.
   let mut bytes = ZIP;
   bytes[6] = 8;
-  assert_eq!(from_head::<LocalHeader>(&bytes).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<LocalHeader>(&bytes), Err(Error::Validity { .. })));
 
   // ---- tar: octal sizes, a checksum, data padded to 512 bytes.
   let mut tar = [0u8; 1024];
@@ -344,7 +344,7 @@ pub fn main() {
   for (at, value) in [(134, b'8'), (0, b'H'), (150, b'5'), (156, b'9'), (258, b'S')] {
     let mut bytes = tar;
     bytes[at] = value;
-    assert_eq!(from_head::<TarEntry>(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(from_head::<TarEntry>(&bytes), Err(Error::Validity { .. })));
   }
   assert_eq!(from_head::<TarEntry>(&tar[..1000]).err(), Some(Error::Size));
 
@@ -362,13 +362,13 @@ pub fn main() {
   for (at, value) in [(3, 0x3e), (17, b'E'), (29, b'C'), (36, 0x40)] {
     let mut bytes = GZIP_ALL;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Gzip>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Gzip>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // Not deflate; a name without its NUL, which extends beyond the member.
   let mut bytes = GZIP;
   bytes[2] = 9;
-  assert_eq!(try_pun_ref::<_, Gzip>(&bytes[..]).err(), Some(Error::Validity));
-  assert_eq!(try_pun_ref::<_, Gzip>(&GZIP_NAMED[..18]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Gzip>(&bytes[..]), Err(Error::Validity { .. })));
+  assert!(matches!(try_pun_ref::<_, Gzip>(&GZIP_NAMED[..18]), Err(Error::Validity { .. })));
 
   println!("ok");
 }

@@ -181,7 +181,7 @@ fn option_of_a_type_without_niche_is_a_tag_then_the_value() {
   assert_eq!(puns::try_pun::<Tagged, Option<u16>>(Tagged { tag: 0, value: 9 }), Ok(None));
   assert_eq!(
     puns::try_pun::<Tagged, Option<u16>>(Tagged { tag: 2, value: 9 }),
-    Err(Error::Validity)
+    Err(Error::Validity { at: 0 })
   );
   // From bytes, in the byte order of the target.
   let mut bytes = [0u16; 2];
@@ -204,7 +204,7 @@ fn option_of_a_type_with_a_niche_takes_a_value_outside_it() {
   // `None` is 2, after the values of `bool`.
   assert_eq!(puns::try_pun::<u8, Option<bool>>(2), Ok(None));
   assert_eq!(puns::try_pun::<u8, Option<bool>>(1), Ok(Some(true)));
-  assert_eq!(puns::try_pun::<u8, Option<bool>>(3), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<u8, Option<bool>>(3), Err(Error::Validity { .. })));
   assert_eq!(puns::pun::<bool, Option<bool>>(false), Some(false));
   // `None` of `Option<Option<bool>>` is 255, before them.
   assert_eq!(puns::try_pun::<u8, Option<Option<bool>>>(255), Ok(None));
@@ -212,7 +212,7 @@ fn option_of_a_type_with_a_niche_takes_a_value_outside_it() {
   // `None` of `Option<char>` is `u32::MAX`.
   assert_eq!(puns::try_pun::<u32, Option<char>>(u32::MAX), Ok(None));
   assert_eq!(puns::try_pun::<u32, Option<char>>(0x41), Ok(Some('A')));
-  assert_eq!(puns::try_pun::<u32, Option<char>>(0xD800), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<u32, Option<char>>(0xD800), Err(Error::Validity { .. })));
 }
 
 #[test]
@@ -242,16 +242,16 @@ fn derived_enums_are_assumed_too() {
   };
   assert_eq!(shape([0, 0, 0, 0]), Ok(Shape::Dot));
   assert_eq!(shape([2, 9, 0, 0]), Ok(Shape::Byte(9)));
-  assert_eq!(shape([3, 0, 0, 0]), Err(Error::Validity));
+  assert!(matches!(shape([3, 0, 0, 0]), Err(Error::Validity { .. })));
   // An enum without fields.
   assert_eq!(puns::from_bytes::<Color>(&[2]), Ok(&Color::Blue));
-  assert_eq!(puns::from_bytes::<Color>(&[3]), Err(Error::Validity));
+  assert!(matches!(puns::from_bytes::<Color>(&[3]), Err(Error::Validity { .. })));
   assert_eq!(puns::pun::<Color, u8>(Color::Green), 1);
   // Which field holds which byte depends on the order that `rustc` chose, but not whether the
   // bytes are a `Pair`.
   assert!(matches!(puns::from_bytes::<Pair>(&[0, 4, 4]), Ok(&Pair::Both(4, 4))));
   assert_eq!(puns::from_bytes::<Pair>(&[1, 4, 4]), Ok(&Pair::Neither));
-  assert_eq!(puns::from_bytes::<Pair>(&[2, 4, 4]), Err(Error::Validity));
+  assert!(matches!(puns::from_bytes::<Pair>(&[2, 4, 4]), Err(Error::Validity { .. })));
 }
 
 #[test]

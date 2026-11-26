@@ -32,7 +32,7 @@ fn a_size_read_from_the_value() {
   // What the length says is not there.
   assert_eq!(from_head::<Frame>(&[0x81, 126, 0, 9, 1]).err(), Some(Error::Size));
   // The length itself is not there: it cannot be read.
-  assert_eq!(from_head::<Frame>(&[0x81, 126, 0]).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Frame>(&[0x81, 126, 0]), Err(Error::Validity { .. })));
   // The same rule, checked against the bytes that are the value.
   assert!(from_bytes::<Frame>(&[0x81, 126, 0, 2, 1, 2]).is_ok());
   assert!(from_bytes::<Frame>(&[0x81, 126, 0, 2, 1, 2, 3]).is_err());
@@ -60,7 +60,7 @@ struct Named {
 fn a_walk_in_a_size_and_in_a_region() {
   let (string, rest) = from_head::<CString>(b"abc\0def").unwrap();
   assert_eq!((&string.bytes, rest), (&b"abc\0"[..], &b"def"[..]));
-  assert_eq!(from_head::<CString>(b"abc").err(), Some(Error::Validity));
+  assert!(matches!(from_head::<CString>(b"abc"), Err(Error::Validity { .. })));
   let named = from_bytes::<Named>(b"\x07key\0value").unwrap();
   assert_eq!((named.kind, named.name(), named.value()), (7, &b"key"[..], &b"value"[..]));
 }
@@ -190,5 +190,5 @@ fn deeper_expressions() {
   assert_eq!((der.rest.len(), rest), (2, &[9][..]));
   let (der, rest) = from_head::<Der>(&[0x30, 0x82, 0, 3, 1, 2, 3]).unwrap();
   assert_eq!((der.rest.len(), rest.len()), (5, 0));
-  assert_eq!(from_head::<Der>(&[0x30, 0x85, 0, 3, 1, 2, 3]).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Der>(&[0x30, 0x85, 0, 3, 1, 2, 3]), Err(Error::Validity { .. })));
 }

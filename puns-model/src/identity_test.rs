@@ -25,7 +25,7 @@ fn a_type_of_the_library_is_not_one_of_the_executable() {
   // The pointee is the second byte.
   let bytes = [1, 2];
   let lax = puns::from_bytes::<Lax>(&bytes).unwrap();
-  assert_eq!(puns::from_bytes::<Strict>(&bytes).err(), Some(Error::Validity));
+  assert!(matches!(puns::from_bytes::<Strict>(&bytes), Err(Error::Validity { .. })));
   assert!(hook::pun_ref::<Lax, Strict>(lax).is_none());
   assert!(puns::from_bytes::<Strict>(&[1, 1]).is_ok());
 }

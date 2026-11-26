@@ -328,7 +328,7 @@ macro_rules! ints {
     #[doc = concat!("assert!(puns::from_bytes::<Magic>(&", sample!(bytes $size), ").is_ok());")]
     /// assert_eq!(
     #[doc = concat!("  puns::from_bytes::<Magic>(&[0; ", stringify!($size), "]),")]
-    ///   Err(puns::Error::Validity),
+    ///   Err(puns::Error::Validity { at: 0 }),
     /// );
     /// // Proven: nothing is checked.
     #[doc = concat!("let x: ", stringify!($name), " = puns::pun(Magic::new());")]
@@ -959,7 +959,7 @@ non_zero! {
 /// type Version = u8c<4>;
 ///
 /// assert!(puns::from_bytes::<Version>(&[4]).is_ok());
-/// assert_eq!(puns::from_bytes::<Version>(&[6]), Err(puns::Error::Validity));
+/// assert_eq!(puns::from_bytes::<Version>(&[6]), Err(puns::Error::Validity { at: 0 }));
 /// // Proven: nothing is checked.
 /// assert_eq!(puns::pun::<Version, u8>(Version::new()), 4);
 /// ```

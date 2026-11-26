@@ -432,11 +432,11 @@ pub fn main() {
   for (at, value) in [(0, b's'), (17, 1), (21, 63), (67, 4), (75, 1)] {
     let mut bytes = SQLITE;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, SqliteHeader>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, SqliteHeader>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // The header counts two pages, one is there; half a page.
-  assert_eq!(try_pun_ref::<_, Sqlite>(&database[..4096]).err(), Some(Error::Validity));
-  assert_eq!(try_pun_ref::<_, Sqlite>(&database[..6000]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Sqlite>(&database[..4096]), Err(Error::Validity { .. })));
+  assert!(matches!(try_pun_ref::<_, Sqlite>(&database[..6000]), Err(Error::Validity { .. })));
   // A page size of 1 means 65536.
   let mut large = SQLITE;
   large[16..18].copy_from_slice(&[0, 1]);
@@ -462,18 +462,18 @@ pub fn main() {
   // Too many clusters for FAT16: five times the sectors.
   let mut bytes = fat16.clone();
   bytes[34] = 5;
-  assert_eq!(FatBoot::from_bytes(&bytes).err(), Some(Error::Validity));
+  assert!(matches!(FatBoot::from_bytes(&bytes), Err(Error::Validity { .. })));
   // The jump, the size of a sector, the media, the signature, the extended boot signature.
   for (at, value) in [(0, 0x00), (11, 0x01), (21, 0x00), (511, 0xab), (38, 0x28)] {
     let mut bytes = fat16.clone();
     bytes[at] = value;
-    assert_eq!(FatBoot::from_bytes(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(FatBoot::from_bytes(&bytes), Err(Error::Validity { .. })));
   }
   // FAT32: a root directory of a fixed size; the root cluster.
   for (at, value) in [(17, 1), (44, 1)] {
     let mut bytes = fat32.clone();
     bytes[at] = value;
-    assert_eq!(FatBoot::from_bytes(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(FatBoot::from_bytes(&bytes), Err(Error::Validity { .. })));
   }
 
   // ---- GPT: a protective MBR, a header, entries and their CRC.
@@ -491,20 +491,20 @@ pub fn main() {
   for (at, value) in [(1024 + 3, 1), (512 + 1, 0), (512 + 84, 100), (450, 0x07), (512 + 40, 40)] {
     let mut bytes = disk.clone();
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, GptDisk<512>>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, GptDisk<512>>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // The CRC of the header, or a byte that it covers.
   for at in [512 + 16, 512 + 40] {
     let mut bytes = disk.clone();
     bytes[at] ^= 1;
-    assert_eq!(try_pun_ref::<_, GptDisk<512>>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, GptDisk<512>>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // The sector size is a parameter: as sectors of 4096 bytes, this is not a GPT disk.
-  assert_eq!(try_pun_ref::<_, GptDisk<4096>>(&disk[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, GptDisk<4096>>(&disk[..]), Err(Error::Validity { .. })));
   // An entry that ends before it starts.
   let mut bytes = GPT_ENTRY;
   bytes[40] = 30;
-  assert_eq!(try_pun_ref::<_, GptEntry>(&bytes[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, GptEntry>(&bytes[..]), Err(Error::Validity { .. })));
 
   // ---- USB: descriptors of fixed sizes, and a configuration that they fill.
   let device: &DeviceDescriptor = try_pun_ref(&DEVICE).unwrap();
@@ -514,7 +514,7 @@ pub fn main() {
   );
   let mut bytes = DEVICE;
   bytes[7] = 65;
-  assert_eq!(try_pun_ref::<_, DeviceDescriptor>(&bytes).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, DeviceDescriptor>(&bytes), Err(Error::Validity { .. })));
   let (configuration, rest) = from_head::<Configuration>(&CONFIGURATION).unwrap();
   assert_eq!((configuration.descriptors.len(), configuration.max_power, rest.len()), (32, 50, 0));
   let (mut descriptors, mut endpoints) = (&configuration.descriptors[..], vec![]);
@@ -540,7 +540,10 @@ pub fn main() {
   // An endpoint 0, which is not described.
   let mut bytes = CONFIGURATION;
   bytes[20] = 0x80;
-  assert_eq!(try_pun_ref::<_, EndpointDescriptor>(&bytes[18..25]).err(), Some(Error::Validity));
+  assert!(matches!(
+    try_pun_ref::<_, EndpointDescriptor>(&bytes[18..25]),
+    Err(Error::Validity { .. })
+  ));
 
   println!("ok");
 }

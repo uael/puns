@@ -645,29 +645,38 @@ pub fn main() {
   for (at, value) in [(0, 0x31), (1, 0x28)] {
     let mut bytes = GET_REQUEST;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, SnmpMessage>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, SnmpMessage>(&bytes[..]), Err(Error::Validity { .. })));
   }
   let longer = [&[0x30, 0x81][..], &GET_REQUEST[1..]].concat();
-  assert_eq!(try_pun_ref::<_, SnmpMessage>(&longer[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, SnmpMessage>(&longer[..]), Err(Error::Validity { .. })));
   // What is inside is a typed region, checked when read: version 3, a PDU tag of `0xa9`.
   let mut bytes = GET_REQUEST;
   bytes[4] = 3;
   let message: &SnmpMessage = try_pun_ref(&bytes[..]).unwrap();
-  assert_eq!(message.contents().unwrap().first().unwrap().contents().err(), Some(Error::Validity));
+  assert!(matches!(
+    message.contents().unwrap().first().unwrap().contents(),
+    Err(Error::Validity { .. })
+  ));
   let mut bytes = GET_REQUEST;
   bytes[13] = 0xa9;
   let message: &SnmpMessage = try_pun_ref(&bytes[..]).unwrap();
-  assert_eq!(message.contents().unwrap().rest().unwrap().rest().err(), Some(Error::Validity));
+  assert!(matches!(
+    message.contents().unwrap().rest().unwrap().rest(),
+    Err(Error::Validity { .. })
+  ));
   // INTEGERs and OIDs of the shortest forms.
-  assert_eq!(try_pun_ref::<_, Integer>(&[0x00u8, 0x7f][..]).err(), Some(Error::Validity));
-  assert_eq!(try_pun_ref::<_, Integer>(&[0xffu8, 0x80][..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Integer>(&[0x00u8, 0x7f][..]), Err(Error::Validity { .. })));
+  assert!(matches!(try_pun_ref::<_, Integer>(&[0xffu8, 0x80][..]), Err(Error::Validity { .. })));
   assert!(try_pun_ref::<_, Integer>(&[0x00u8, 0x80][..]).is_ok());
-  assert_eq!(
-    try_pun_ref::<_, ObjectIdentifier>(&[0x2bu8, 0x80, 0x01][..]).err(),
-    Some(Error::Validity)
-  );
+  assert!(matches!(
+    try_pun_ref::<_, ObjectIdentifier>(&[0x2bu8, 0x80, 0x01][..]),
+    Err(Error::Validity { .. })
+  ));
   assert!(try_pun_ref::<_, ObjectIdentifier>(&[0x2bu8, 0x81, 0x00][..]).is_ok());
-  assert_eq!(try_pun_ref::<_, ObjectIdentifier>(&[0x2bu8, 0x81][..]).err(), Some(Error::Validity));
+  assert!(matches!(
+    try_pun_ref::<_, ObjectIdentifier>(&[0x2bu8, 0x81][..]),
+    Err(Error::Validity { .. })
+  ));
   // Kerberos: fixed values in a chain, then the rest as bytes.
   let request: &AsReq = try_pun_ref(&AS_REQ[..]).unwrap();
   let sequence = request.contents().unwrap().contents().unwrap();
@@ -677,10 +686,13 @@ pub fn main() {
   bytes[8] = 4;
   let request: &AsReq = try_pun_ref(&bytes[..]).unwrap();
   let pvno = request.contents().unwrap().contents().unwrap().first().unwrap();
-  assert_eq!(pvno.contents().unwrap().contents().err(), Some(Error::Validity));
+  assert!(matches!(pvno.contents().unwrap().contents(), Err(Error::Validity { .. })));
   let time: &KerberosTime = try_pun_ref(b"20261117120000Z").unwrap();
   assert_eq!(time.digits[3].get(), b'6');
-  assert_eq!(try_pun_ref::<_, KerberosTime>(b"2026111712000aZ").err(), Some(Error::Validity));
+  assert!(matches!(
+    try_pun_ref::<_, KerberosTime>(b"2026111712000aZ"),
+    Err(Error::Validity { .. })
+  ));
 
   // ---- Protocol Buffers: a message, then its fields, of their own forms.
   assert!(try_pun_ref::<_, Message>(&PROTOBUF[..]).is_ok());
@@ -688,7 +700,7 @@ pub fn main() {
   for (at, value) in [(13, 0x83), (12, 0x1b), (4, 0x30)] {
     let mut bytes = PROTOBUF;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Message>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Message>(&bytes[..]), Err(Error::Validity { .. })));
   }
   let mut bytes = PROTOBUF.to_vec();
   bytes.extend([0x18, 0x80, 0x80, 0x01]);
@@ -715,7 +727,7 @@ pub fn main() {
   for bytes in
     [&[0x0b, 0][..], &[0x0e, 0], &[0x00, 1], &[0x08, 0x80, 0x00], &[0x08, 0x80, 0x80, 0x01]]
   {
-    assert_eq!(Field::from_bytes(bytes).err(), Some(Error::Validity));
+    assert!(matches!(Field::from_bytes(bytes), Err(Error::Validity { .. })));
   }
 
   // ---- MessagePack: a map, item by item.
@@ -752,7 +764,7 @@ pub fn main() {
   assert_eq!(pi.value(), core::f64::consts::PI);
   // Not UTF-8; `0xc1`, never used; too short.
   for bytes in [&[0xa2, 0xff, 0xfe][..], &[0xc1], &[0xa3, b'a', b'b']] {
-    assert_eq!(MsgPack::from_bytes(bytes).err(), Some(Error::Validity));
+    assert!(matches!(MsgPack::from_bytes(bytes), Err(Error::Validity { .. })));
   }
 
   // ---- CBOR: items of the shortest forms.
@@ -782,36 +794,36 @@ pub fn main() {
   assert_eq!(describe(&[&[0x78, 24][..], &[b'x'; 24]].concat()), format!("{:?}", "x".repeat(24)));
   assert_eq!(describe(&[0xf4]), "false (0xf4)");
   assert_eq!(describe(&[0xf6]), "null (0xf6)");
-  assert_eq!(describe(&[0xf7]), "not an item: value is not valid for the target type");
+  assert_eq!(describe(&[0xf7]), "not an item: value is not valid for the target type, at byte 0");
   // Not the shortest forms; not UTF-8.
   for bytes in [&[0x18, 0x17][..], &[0x19, 0x00, 0xff], &[0x61, 0xff]] {
-    assert_eq!(Cbor::from_bytes(bytes).err(), Some(Error::Validity));
+    assert!(matches!(Cbor::from_bytes(bytes), Err(Error::Validity { .. })));
   }
 
   // ---- Text: lengths, NULs, padding.
   let (field, rest) = from_head::<Utf8Field>(b"\x00\x06h\xc3\xa9llo!").unwrap();
   assert_eq!((&field.text, rest), ("héllo", &b"!"[..]));
   for bytes in [&b"\x00\x02\xc3\x28"[..], b"\x00\x01\xc3\xa9"] {
-    assert_eq!(from_head::<Utf8Field>(bytes).err(), Some(Error::Validity));
+    assert!(matches!(from_head::<Utf8Field>(bytes), Err(Error::Validity { .. })));
   }
   assert!(try_pun_ref::<_, CStr>(&b"hello\0"[..]).is_ok());
   // From a stream: up to the first NUL.
   let (string, rest) = from_head::<CStr>(b"hello\0world\0").unwrap();
   assert_eq!((&string.0, rest), (&b"hello\0"[..], &b"world\0"[..]));
-  assert_eq!(from_head::<CStr>(b"hello").err(), Some(Error::Validity));
+  assert!(matches!(from_head::<CStr>(b"hello"), Err(Error::Validity { .. })));
   for bytes in [&b"hel\0lo\0"[..], b"hello"] {
-    assert_eq!(try_pun_ref::<_, CStr>(bytes).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, CStr>(bytes), Err(Error::Validity { .. })));
   }
   let text: &CText = try_pun_ref("café\0".as_bytes()).unwrap();
   assert_eq!(text.text(), Ok("café"));
   let text: &CText = try_pun_ref(&b"caf\xe9\0"[..]).unwrap();
-  assert_eq!(text.text(), Err(Error::Validity));
+  assert!(matches!(text.text(), Err(Error::Validity { .. })));
   let mut name = [0u8; 32];
   name[..5].copy_from_slice(b"alice");
   assert!(try_pun_ref::<_, Padded32>(&name).is_ok());
   name[20] = b'x';
-  assert_eq!(try_pun_ref::<_, Padded32>(&name).err(), Some(Error::Validity));
-  assert_eq!(try_pun_ref::<_, Padded32>(&[b'a'; 32]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Padded32>(&name), Err(Error::Validity { .. })));
+  assert!(matches!(try_pun_ref::<_, Padded32>(&[b'a'; 32]), Err(Error::Validity { .. })));
   // HTTP: a request line, a header of a decimal number.
   assert!(try_pun_ref::<_, RequestLine>(&b"GET /index.html?q=1 HTTP/1.1\r\n"[..]).is_ok());
   // A method in small letters; two spaces; another version; a space in the target; a line feed
@@ -825,7 +837,7 @@ pub fn main() {
     b" / HTTP/1.1\r\n",
     b"GET /\x7f HTTP/1.1\r\n",
   ] {
-    assert_eq!(try_pun_ref::<_, RequestLine>(bytes).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, RequestLine>(bytes), Err(Error::Validity { .. })));
   }
   let header: &ContentLength = try_pun_ref(&b"Content-Length: 1234\r\n"[..]).unwrap();
   assert_eq!(&header.value, b"1234\r\n");
@@ -839,7 +851,7 @@ pub fn main() {
     b"Content-Length: 99999999999999999999\r\n",
     b"Content-length: 1\r\n",
   ] {
-    assert_eq!(try_pun_ref::<_, ContentLength>(bytes).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, ContentLength>(bytes), Err(Error::Validity { .. })));
   }
 
   println!("ok");

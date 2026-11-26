@@ -26,7 +26,7 @@ fn a_requirement_does_not_prove_a_guarantee_in_an_enum() {
   // Safe code can write anything to the field.
   *byte = 5;
   // This used to be `pun`, without any check, which made a `bool` of 5.
-  assert_eq!(puns::try_pun::<Soft, Hard>(soft), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<Soft, Hard>(soft), Err(Error::Validity { .. })));
   assert_eq!(puns::try_pun::<Soft, Hard>(Soft::V(1)), Ok(Hard::V(true)));
 }
 
@@ -63,7 +63,7 @@ fn a_rule_reads_padding_only_if_it_is_initialized() {
   assert_eq!(puns::try_pun_ref::<[u8; 4], ReadsPadding>(ok).map(|r| (r.a, r.b)), Ok((7, 9)));
   let bad = [u16::from_ne_bytes([1, 5]), 0];
   let bad: &[u8; 4] = puns::pun_ref(&bad);
-  assert_eq!(puns::try_pun_ref::<[u8; 4], ReadsPadding>(bad).unwrap_err(), Error::Validity);
+  assert!(matches!(puns::try_pun_ref::<[u8; 4], ReadsPadding>(bad), Err(Error::Validity { .. })));
   // In the variant of an enum, the same.
   let mut bytes = [0u8; 6];
   bytes[2] = 7;
@@ -71,7 +71,10 @@ fn a_rule_reads_padding_only_if_it_is_initialized() {
   let HoldsReadsPadding::A(value) = puns::try_pun::<[u8; 6], HoldsReadsPadding>(bytes).unwrap();
   assert_eq!((value.a, value.b), (7, 9));
   bytes[3] = 5;
-  assert_eq!(puns::try_pun::<[u8; 6], HoldsReadsPadding>(bytes).err(), Some(Error::Validity));
+  assert!(matches!(
+    puns::try_pun::<[u8; 6], HoldsReadsPadding>(bytes),
+    Err(Error::Validity { .. })
+  ));
   // The same rule, at the same place, proves it: nothing is checked, nothing is read.
   let mut value = puns::pun::<HoldsReadsPadding, HoldsReadsPadding>(HoldsReadsPadding::A(value));
   let HoldsReadsPadding::A(inner) = &mut value;
@@ -154,9 +157,9 @@ enum Toggle {
 #[test]
 fn the_crate_path_does_not_choose_the_functions() {
   assert_eq!(puns::try_pun::<u8, Toggle>(1), Ok(Toggle::On));
-  assert_eq!(puns::try_pun::<u8, Toggle>(7), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<u8, Toggle>(7), Err(Error::Validity { .. })));
   let bytes = [0u16, u16::from_ne_bytes([7, 1])];
-  assert_eq!(puns::try_pun_ref::<[u16; 2], Late>(&bytes).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun_ref::<[u16; 2], Late>(&bytes), Err(Error::Validity { .. })));
   let bytes = [0u16, u16::from_ne_bytes([1, 7])];
   assert!(puns::try_pun_ref::<[u16; 2], Late>(&bytes).unwrap().on);
 }
@@ -178,9 +181,9 @@ fn self_in_a_field_is_the_type() {
     A(bool, PhantomData<Self>),
   }
   assert!(puns::try_pun_ref::<[u8; 1], Node>(&[1]).unwrap().on);
-  assert_eq!(puns::try_pun_ref::<[u8; 1], Node>(&[2]).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun_ref::<[u8; 1], Node>(&[2]), Err(Error::Validity { .. })));
   assert!(matches!(puns::try_pun::<[u8; 2], Choice>([0, 1]), Ok(Choice::A(true, _))));
-  assert_eq!(puns::try_pun::<[u8; 2], Choice>([0, 2]).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 2], Choice>([0, 2]), Err(Error::Validity { .. })));
   assert_eq!(puns::pun::<Choice, [u8; 2]>(Choice::A(true, PhantomData)), [0, 1]);
 }
 
@@ -240,12 +243,12 @@ fn a_macro_in_a_field_names_the_type_of_the_field() {
     byte: byte!(),
   }
   assert!(puns::from_bytes::<Tail>(&[1, 7]).unwrap().on);
-  assert_eq!(puns::from_bytes::<Tail>(&[2, 7]).err(), Some(Error::Validity));
+  assert!(matches!(puns::from_bytes::<Tail>(&[2, 7]), Err(Error::Validity { .. })));
   assert!(puns::try_pun::<[u8; 3], Packed<[byte!(); 2]>>([1, 2, 3]).is_ok_and(|packed| packed.on));
   assert!(puns::try_pun::<[u8; 3], Packed<[byte!(); 2]>>([2, 2, 3]).is_err());
   assert!(matches!(puns::try_pun::<[u8; 2], Choice>([0, 9]), Ok(Choice::A(9))));
   assert!(matches!(puns::try_pun::<[u8; 2], Choice>([1, 1]), Ok(Choice::B { on: true })));
-  assert_eq!(puns::try_pun::<[u8; 2], Choice>([1, 2]).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 2], Choice>([1, 2]), Err(Error::Validity { .. })));
   assert_eq!(puns::pun::<Choice, [u8; 2]>(Choice::A(9)), [0, 9]);
   assert_eq!(puns::pun::<Choice, [u8; 2]>(Choice::B { on: true }), [1, 1]);
   // SAFETY: `byte` is a `u8`, valid for every byte.
@@ -493,13 +496,16 @@ fn a_part_that_is_proven_unread_is_not_read_by_a_check() {
   let source = Source { flags: Flags { first: true }, byte: 1 };
   assert!(puns::try_pun::<Source, Target>(source).unwrap().flag);
   let source = Source { byte: 2, ..source };
-  assert_eq!(puns::try_pun::<Source, Target>(source).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<Source, Target>(source), Err(Error::Validity { .. })));
   // The same union proves each element of an array, with nothing to check.
   let pair = [Flags { first: true }, Flags { both: [true, false] }];
   let _: &[Flags; 2] = puns::pun_ref(&pair);
   // From initialized bytes, each element is checked, its first field first.
   assert!(puns::try_pun::<[u8; 4], [Flags; 2]>([1, 0, 0, 1]).is_ok());
-  assert_eq!(puns::try_pun::<[u8; 4], [Flags; 2]>([1, 0, 2, 1]).err(), Some(Error::Validity));
+  assert!(matches!(
+    puns::try_pun::<[u8; 4], [Flags; 2]>([1, 0, 2, 1]),
+    Err(Error::Validity { .. })
+  ));
   // An enum that is proven variant by variant, and holds the union: nothing is checked.
   let Loose::A(_, byte) = puns::pun(Strict::A(Flags { first: true }, true));
   assert_eq!(byte, 1);
@@ -507,7 +513,7 @@ fn a_part_that_is_proven_unread_is_not_read_by_a_check() {
   // variant, is checked.
   assert!(puns::try_pun::<Plain, Ruled>(Plain { shape: Shape::A(7) }).is_ok());
   let plain = Plain { shape: Shape::B(7) };
-  assert_eq!(puns::try_pun::<Plain, Ruled>(plain).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<Plain, Ruled>(plain), Err(Error::Validity { .. })));
   // The same enum proves itself where a rule of what it holds reads padding: nothing is checked.
   let holds = [Holds::A(Padded { a: 1, b: 2 }); 2];
   let _: &[Holds; 2] = puns::pun_ref(&holds);
@@ -578,11 +584,11 @@ fn a_period_does_not_cut_an_enum() {
   assert!(puns::try_pun::<Source, Target>(source).is_ok());
   assert!(puns::try_pun::<Source, Target>(Source { tag: 1, ..source }).is_ok());
   let tag = Source { tag: 2, ..source };
-  assert_eq!(puns::try_pun::<Source, Target>(tag).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<Source, Target>(tag), Err(Error::Validity { .. })));
   // A union that its second field proves. Its first field is checked first, and fails on zeros.
   assert!(puns::try_pun::<Source, Tagged>(source).is_ok());
   assert!(puns::try_pun::<Source, Tagged>(Source { bytes: [1, 0], ..source }).is_ok());
-  assert_eq!(puns::try_pun::<Source, Tagged>(tag).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<Source, Tagged>(tag), Err(Error::Validity { .. })));
 }
 
 /// Checks that a rule that loads a field is checked where the field is initialized, and reads the
@@ -659,7 +665,7 @@ fn a_rule_reads_the_fields_that_it_loads() {
   // From initialized bytes: the rule of the first field holds for 1, and the second field takes 7.
   assert!(matches!(puns::try_pun::<[u8; 2], Target>([0, 1]), Ok(Target::V(_))));
   assert!(matches!(puns::try_pun::<[u8; 2], Target>([0, 7]), Ok(Target::V(_))));
-  assert_eq!(puns::try_pun::<[u8; 2], Target>([2, 7]).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 2], Target>([2, 7]), Err(Error::Validity { .. })));
   // Without a rule, nothing reads the byte, which is not written.
   let source = Source { tag: 0, byte: Byte { none: () } };
   assert!(matches!(puns::try_pun::<Source, Free>(source), Ok(Free::V(_))));
@@ -667,7 +673,7 @@ fn a_rule_reads_the_fields_that_it_loads() {
   let gapped = Gapped { x: 1, gap: Byte { none: () }, y: 2 };
   assert_eq!(puns::try_pun::<Gapped, Padded>(gapped).map(|padded| padded.y), Ok(2));
   let gapped = Gapped { x: 5, ..gapped };
-  assert_eq!(puns::try_pun::<Gapped, Padded>(gapped).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<Gapped, Padded>(gapped), Err(Error::Validity { .. })));
 }
 
 /// Checks that a struct that ends with an unsized struct has values only if that struct does.
@@ -762,7 +768,7 @@ fn a_part_left_to_the_compiler_is_checked_only_from_initialized_bytes() {
     assert!(matches!(puns::try_pun::<[u8; 3], Target>(bytes), Ok(Target::V(_))));
   }
   assert!(matches!(puns::try_pun::<[u8; 3], Target>([1, 2, 2]), Ok(Target::X)));
-  assert_eq!(puns::try_pun::<[u8; 3], Target>([2, 0, 0]).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 3], Target>([2, 0, 0]), Err(Error::Validity { .. })));
 }
 
 /// Checks that a union proven by a field through a requirement is checked by its next field where
@@ -838,7 +844,7 @@ fn a_union_proven_through_a_requirement_is_checked_past_it() {
   assert!(matches!(puns::try_pun::<SourceRuled, TargetRuled>(ruled), Ok(TargetRuled::V(_))));
   // Neither field.
   let soft = SourceSoft { tag: 0, soft: Soft { x: 1, rest: 7 } };
-  assert_eq!(puns::try_pun::<SourceSoft, TargetSoft>(soft).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<SourceSoft, TargetSoft>(soft), Err(Error::Validity { .. })));
   let ruled = SourceRuled { tag: 0, ruled: Ruled { x: 1, rest: 7 } };
-  assert_eq!(puns::try_pun::<SourceRuled, TargetRuled>(ruled).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun::<SourceRuled, TargetRuled>(ruled), Err(Error::Validity { .. })));
 }

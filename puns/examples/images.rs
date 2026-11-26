@@ -292,17 +292,17 @@ pub fn main() {
   for at in [8, 12, 20, 33, 40, 50, 60, 91] {
     let mut bytes = PNG;
     bytes[at] ^= 0x01;
-    assert_eq!(try_pun_ref::<_, Png>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Png>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // No IEND at the end.
-  assert_eq!(try_pun_ref::<_, Png>(&PNG[..80]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Png>(&PNG[..80]), Err(Error::Validity { .. })));
   // An IHDR chunk with a correct CRC and a bit depth that its color type does not allow. The file
   // is a valid `Png`, but reading its header returns an error.
   let bad = [&PNG[..8], &IHDR_4_BITS[..], &PNG[33..]].concat();
   let png: &Png = try_pun_ref(&bad[..]).unwrap();
-  assert_eq!(png.header().unwrap().data().err(), Some(Error::Validity));
+  assert!(matches!(png.header().unwrap().data(), Err(Error::Validity { .. })));
   // A chunk type that is not letters; IDAT first.
-  assert_eq!(try_pun_ref::<_, ChunkType>(b"I1DR").err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, ChunkType>(b"I1DR"), Err(Error::Validity { .. })));
   let idat_first = [&PNG[..8], &PNG[55..80], &PNG[8..55], &PNG[80..]].concat();
   assert!(try_pun_ref::<_, Png>(&idat_first[..]).is_err());
 
@@ -320,7 +320,7 @@ pub fn main() {
   for (at, value) in [(22, 3), (28, 23), (22, 0), (10, 40), (2, 0x4d)] {
     let mut bytes = BMP;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Bmp>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Bmp>(&bytes[..]), Err(Error::Validity { .. })));
   }
 
   // ---- Fonts: fields derived from a count, records sorted, tables in the file.
@@ -345,7 +345,7 @@ pub fn main() {
   for (at, value) in [(7, 0x41), (9, 3), (11, 1), (12, b'p'), (23, 0xff), (23, 0x5e)] {
     let mut bytes = FONT;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Font>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Font>(&bytes[..]), Err(Error::Validity { .. })));
   }
 
   println!("ok");

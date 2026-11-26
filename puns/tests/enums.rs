@@ -163,18 +163,18 @@ fn layouts_are_the_ones_of_the_compiler() {
 fn tags_are_the_discriminants() {
   // 2, then 3 after it, then 5, 11 and 13.
   assert_eq!(puns::try_pun::<[u8; 2], Declared>([2, 1]), Ok(Declared::Literal(true)));
-  assert_eq!(puns::try_pun::<[u8; 2], Declared>([2, 7]), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 2], Declared>([2, 7]), Err(Error::Validity { .. })));
   assert_eq!(puns::try_pun::<[u8; 2], Declared>([3, 7]), Ok(Declared::Next(7)));
   assert_eq!(puns::try_pun::<[u8; 2], Declared>([5, 7]), Ok(Declared::Constant(7)));
   assert_eq!(puns::try_pun::<[u8; 2], Declared>([11, 7]), Ok(Declared::Expression(7)));
   assert_eq!(puns::try_pun::<[u8; 2], Declared>([13, 7]), Ok(Declared::Attributed(7)));
   for tag in [0, 1, 4, 6, 10, 12] {
-    assert_eq!(puns::try_pun::<[u8; 2], Declared>([tag, 0]), Err(Error::Validity));
+    assert!(matches!(puns::try_pun::<[u8; 2], Declared>([tag, 0]), Err(Error::Validity { .. })));
   }
   // `A` is 2, checked as a `bool`, and `B` is 3. No variant is 1.
   assert_eq!(puns::try_pun_ref::<[u8; 2], OfSelf>(&[2, 1]), Ok(&OfSelf::A(true)));
-  assert_eq!(puns::try_pun_ref::<[u8; 2], OfSelf>(&[2, 7]), Err(Error::Validity));
-  assert_eq!(puns::try_pun_ref::<[u8; 2], OfSelf>(&[1, 0]), Err(Error::Validity));
+  assert!(matches!(puns::try_pun_ref::<[u8; 2], OfSelf>(&[2, 7]), Err(Error::Validity { .. })));
+  assert!(matches!(puns::try_pun_ref::<[u8; 2], OfSelf>(&[1, 0]), Err(Error::Validity { .. })));
   assert_eq!(puns::try_pun_ref::<[u8; 2], OfSelf>(&[3, 7]), Ok(&OfSelf::B(7)));
 }
 
@@ -196,7 +196,7 @@ fn offsets_and_alignments() {
   bytes[..4].copy_from_slice(&2u32.to_ne_bytes());
   assert_eq!(puns::try_pun::<[u8; SIZE], Wide>(bytes), Ok(Wide::Unit));
   bytes[..4].copy_from_slice(&0x0100_0000u32.to_ne_bytes());
-  assert_eq!(puns::try_pun::<[u8; SIZE], Wide>(bytes), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; SIZE], Wide>(bytes), Err(Error::Validity { .. })));
   // From words, where they are aligned as the enum is.
   let words = [Wide::Long(5); 2];
   let back = puns::try_pun_ref::<[Wide; 2], [Wide; 2]>(&words);
@@ -207,7 +207,7 @@ fn offsets_and_alignments() {
   let flags = puns::try_pun::<u32, Aligned<2>>(u32::from_ne_bytes([2, 1, 0, 0xee]));
   assert_eq!(flags, Ok(Aligned::Flags([true, false])));
   let flags = puns::try_pun::<u32, Aligned<2>>(u32::from_ne_bytes([2, 1, 2, 0]));
-  assert_eq!(flags, Err(Error::Validity));
+  assert!(matches!(flags, Err(Error::Validity { .. })));
   let bytes = puns::try_pun::<u32, Aligned<2>>(u32::from_ne_bytes([1, 1, 2, 0]));
   assert_eq!(bytes, Ok(Aligned::Bytes([1, 2])));
   assert_eq!(size_of::<Aligned<5>>(), 8);
@@ -219,21 +219,21 @@ fn offsets_and_alignments() {
 #[test]
 fn what_is_not_a_variant_is_refused() {
   // No such tag.
-  assert_eq!(puns::try_pun::<[u8; 4], Shape>([3, 0, 0, 0]), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 4], Shape>([3, 0, 0, 0]), Err(Error::Validity { .. })));
   // The tag of a variant whose field is not valid.
-  assert_eq!(puns::try_pun::<[u8; 4], Shape>([1, 0, 2, 0]), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 4], Shape>([1, 0, 2, 0]), Err(Error::Validity { .. })));
   // The same bytes are fine for another variant.
   assert!(puns::try_pun::<[u8; 4], Shape>([0, 0, 2, 0]).is_ok());
-  assert_eq!(puns::try_pun::<[u8; 2], Bit>([2, 0]), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 2], Bit>([2, 0]), Err(Error::Validity { .. })));
 
   let mut flag = [0u8; 8];
   flag[..4].copy_from_slice(&2u32.to_ne_bytes());
   flag[4] = 1;
   assert_eq!(puns::try_pun::<[u8; 8], Tagged>(flag), Ok(Tagged::Flag(true)));
   flag[4] = 2;
-  assert_eq!(puns::try_pun::<[u8; 8], Tagged>(flag), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 8], Tagged>(flag), Err(Error::Validity { .. })));
   flag[..4].copy_from_slice(&3u32.to_ne_bytes());
-  assert_eq!(puns::try_pun::<[u8; 8], Tagged>(flag), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 8], Tagged>(flag), Err(Error::Validity { .. })));
 
   assert!(puns::try_pun::<[u8; 2], Either<u8, bool>>([0x20, 2]).is_err());
   assert!(puns::try_pun::<[u8; 2], Either<u8, bool>>([0x00, 0]).is_err());
@@ -241,14 +241,14 @@ fn what_is_not_a_variant_is_refused() {
   // Restrictions of the fields of a variant, by an option or by their type.
   let mut signed = [0u8; 4];
   signed[..2].copy_from_slice(&(-1i16).to_ne_bytes());
-  assert_eq!(puns::try_pun::<[u8; 4], Signed>(signed), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 4], Signed>(signed), Err(Error::Validity { .. })));
   signed[..2].copy_from_slice(&1i16.to_ne_bytes());
   let plus = Signed::Plus { digit: u8in::new(0).unwrap(), even: false };
   assert_eq!(puns::try_pun::<[u8; 4], Signed>(signed), Ok(plus));
   signed[2] = 10;
-  assert_eq!(puns::try_pun::<[u8; 4], Signed>(signed), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 4], Signed>(signed), Err(Error::Validity { .. })));
   signed[..2].copy_from_slice(&0i16.to_ne_bytes());
-  assert_eq!(puns::try_pun::<[u8; 4], Signed>(signed), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 4], Signed>(signed), Err(Error::Validity { .. })));
 }
 
 #[test]
@@ -289,11 +289,14 @@ fn variant_by_variant() {
   // The other way, a variant may not be one, or may hold what the other does not.
   let back = puns::try_pun_ref::<[Drawing], [Shape]>(drawings);
   assert_eq!(back, Ok(&shapes[..]));
-  assert_eq!(puns::try_pun::<Drawing, Shape>(Drawing::Rect(0, 2)), Err(Error::Validity));
+  assert!(matches!(
+    puns::try_pun::<Drawing, Shape>(Drawing::Rect(0, 2)),
+    Err(Error::Validity { .. })
+  ));
   let line = Drawing::Line { to: (1, 1) };
-  assert_eq!(puns::try_pun::<Drawing, Shape>(line), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<Drawing, Shape>(line), Err(Error::Validity { .. })));
   let drawings = [Drawing::Empty, line];
-  assert_eq!(puns::try_pun_ref::<_, [Shape; 2]>(&drawings), Err(Error::Validity));
+  assert!(matches!(puns::try_pun_ref::<_, [Shape; 2]>(&drawings), Err(Error::Validity { .. })));
 }
 
 #[test]
@@ -311,7 +314,7 @@ fn enums_in_slices() {
   }
   let bits = puns::try_pun_ref::<[u8], [Bit]>(&[1, 8, 0, 9, 1, 1]).unwrap();
   assert_eq!(bits, [Bit::One(8), Bit::Zero(9), Bit::One(1)]);
-  assert_eq!(puns::try_pun_ref::<[u8], [Bit]>(&[1, 8, 2, 9]), Err(Error::Validity));
+  assert!(matches!(puns::try_pun_ref::<[u8], [Bit]>(&[1, 8, 2, 9]), Err(Error::Validity { .. })));
   // Half an element.
   assert_eq!(puns::try_pun_ref::<[u8], [Bit]>(&[1, 8, 0]), Err(Error::Size));
 }

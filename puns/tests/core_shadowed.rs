@@ -70,7 +70,7 @@ fn offsets_are_not_read_from_core() {
   assert!(puns::try_pun_ref::<[u8; 2], Pair>(&bytes).unwrap().b);
   let mut bytes = [1u8; 2];
   bytes[std::mem::offset_of!(Pair, b)] = 7;
-  assert_eq!(puns::try_pun_ref::<[u8; 2], Pair>(&bytes).err(), Some(Error::Validity));
+  assert!(matches!(puns::try_pun_ref::<[u8; 2], Pair>(&bytes), Err(Error::Validity { .. })));
 }
 
 #[test]
@@ -81,5 +81,5 @@ fn variants_are_not_measured_with_core() {
   assert_eq!(puns::try_pun::<[u8; 16], Aligned>(bytes), Ok(Aligned::A(true)));
   bytes[4] = 7;
   bytes[8] = 1;
-  assert_eq!(puns::try_pun::<[u8; 16], Aligned>(bytes), Err(Error::Validity));
+  assert!(matches!(puns::try_pun::<[u8; 16], Aligned>(bytes), Err(Error::Validity { .. })));
 }

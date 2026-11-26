@@ -79,12 +79,12 @@ fn by_value() {
   assert_eq!(head::<u32, [u8; 2]>(u32::from_ne_bytes([1, 2, 3, 4])), [1, 2]);
 
   assert_eq!(try_pun::<u8, Sign>(0xff), Ok(Sign::Minus));
-  assert_eq!(try_pun::<i8, Sign>(2), Err(Error::Validity));
+  assert!(matches!(try_pun::<i8, Sign>(2), Err(Error::Validity { .. })));
   assert_eq!(try_pun::<u16, Wide>(0xfffe), Ok(Wide::B));
-  assert_eq!(try_pun::<[u8; 2], Wide>([0, 0]), Err(Error::Validity));
+  assert!(matches!(try_pun::<[u8; 2], Wide>([0, 0]), Err(Error::Validity { .. })));
   assert_eq!(try_pun::<u32, char>(0x1f980), Ok('🦀'));
-  assert_eq!(try_pun::<u32, char>(0xd800), Err(Error::Validity));
-  assert_eq!(try_pun::<u16, NonZero<u16>>(0), Err(Error::Validity));
+  assert!(matches!(try_pun::<u32, char>(0xd800), Err(Error::Validity { .. })));
+  assert!(matches!(try_pun::<u16, NonZero<u16>>(0), Err(Error::Validity { .. })));
 }
 
 /// Checks the layouts that the compiler chose for `Level` and `Rust`.
@@ -95,19 +95,19 @@ fn by_value() {
 #[test]
 fn default_representation() {
   assert_eq!(try_pun::<u8, Level>(1), Ok(Level::Mid));
-  assert_eq!(try_pun::<u8, Level>(3), Err(Error::Validity));
+  assert!(matches!(try_pun::<u8, Level>(3), Err(Error::Validity { .. })));
   // Whatever the order the compiler chose for the fields.
   let rust = Rust { flag: true, word: 0xdead_beef, level: Level::High, bytes: [7, 8] };
   assert_eq!(try_pun::<[u8; 8], Rust>(pun(rust)), Ok(rust));
   let mut bytes: [u8; 8] = pun(rust);
   bytes.fill(0xff);
-  assert_eq!(try_pun::<[u8; 8], Rust>(bytes), Err(Error::Validity));
+  assert!(matches!(try_pun::<[u8; 8], Rust>(bytes), Err(Error::Validity { .. })));
   // Enums, in slices.
   assert_eq!(
     try_pun_ref::<[u8], [Level]>(&[0, 1, 2]),
     Ok(&[Level::Low, Level::Mid, Level::High][..])
   );
-  assert_eq!(try_pun_ref::<[u8], [Level]>(&[0, 1, 3]), Err(Error::Validity));
+  assert!(matches!(try_pun_ref::<[u8], [Level]>(&[0, 1, 3]), Err(Error::Validity { .. })));
   assert_eq!(pun_ref::<[Level], [u8]>(&[Level::High]), &[2]);
 }
 
@@ -158,7 +158,7 @@ fn rules() {
   assert_eq!((list.1.len(), list.1[1].get(), rest), (2, 2, &[9][..]));
   assert_eq!(from_head::<List>(&[6, 1, 0, 2, 0, 9]).err(), Some(Error::Size));
   assert!(try_pun_ref::<[u8], List>(&[4, 1, 0, 2, 0]).is_ok());
-  assert_eq!(try_pun_ref::<[u8], List>(&[2, 1, 0, 2, 0]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<[u8], List>(&[2, 1, 0, 2, 0]), Err(Error::Validity { .. })));
   assert_eq!(try_pun_ref::<[u8], List>(&[4, 1, 0, 2]).err(), Some(Error::Size));
 
   // An assertion over two fields.
@@ -168,9 +168,9 @@ fn rules() {
   };
   assert_eq!(checked([1, 0, 0, 5]), Ok(5));
   assert_eq!(checked([2, 0, 1, 0]), Ok(0x100));
-  assert_eq!(checked([2, 0, 0, 5]), Err(Error::Validity));
-  assert_eq!(checked([3, 0, 1, 0]), Err(Error::Validity));
-  assert_eq!(checked([1, 1, 0, 5]), Err(Error::Validity));
+  assert!(matches!(checked([2, 0, 0, 5]), Err(Error::Validity { .. })));
+  assert!(matches!(checked([3, 0, 1, 0]), Err(Error::Validity { .. })));
+  assert!(matches!(checked([1, 1, 0, 5]), Err(Error::Validity { .. })));
   // The same type proves its own rules: no check, and this would not compile otherwise.
   let checked: &Checked = try_pun_ref(&[1u8, 0, 0, 5]).unwrap();
   assert_eq!(pun_ref::<Checked, Checked>(checked), checked);
@@ -304,13 +304,13 @@ mod views {
     let Any::Other(other) = third else { panic!() };
     assert_eq!((other.kind, other.body(), rest), (Kind(9), Ok(&[][..]), &[3, 3][..]));
     // A size that is not the one of the message.
-    assert_eq!(Any::from_head(rest).err(), Some(Error::Validity));
+    assert!(matches!(Any::from_head(rest), Err(Error::Validity { .. })));
     // The whole of the bytes, or nothing.
     assert!(matches!(Any::from_bytes(&bytes[..4]), Ok(Any::Ping(_))));
     assert!(Any::from_bytes(&bytes[..5]).is_err());
     // What a message says it carries is checked when it is looked at.
     let Ok(Any::Text(text)) = Any::from_bytes(&[2, 3, 0xff]) else { panic!() };
-    assert_eq!(text.body().err(), Some(Error::Validity));
+    assert!(matches!(text.body(), Err(Error::Validity { .. })));
     // In `const`.
     let first: Result<(Any<'static>, &[u8]), Error> = const { Any::from_head(&[1, 4, 0, 7, 0]) };
     assert!(matches!(first, Ok((Any::Ping(_), [0]))));
@@ -359,17 +359,17 @@ mod walks {
     assert!(try_pun_ref::<_, Chain>(&[1u8, 0, 0x01, 0x00][..]).is_ok());
     // A sum that is not the one of what is before.
     bytes[3] ^= 1;
-    assert_eq!(try_pun_ref::<_, Chain>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Chain>(&bytes[..]), Err(Error::Validity { .. })));
     bytes[3] ^= 1;
     // A length that leads out of the value, or to something that is not its end.
     for length in [3, 200, 1] {
       let mut bytes = bytes.clone();
       bytes[6] = length;
-      assert_eq!(try_pun_ref::<_, Chain>(&bytes[..]).err(), Some(Error::Validity));
+      assert!(matches!(try_pun_ref::<_, Chain>(&bytes[..]), Err(Error::Validity { .. })));
     }
     // No end.
-    assert_eq!(try_pun_ref::<_, Chain>(&[1u8, 7, 0, 7, 0][..]).err(), Some(Error::Validity));
-    assert_eq!(try_pun_ref::<_, Chain>(&[1u8][..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Chain>(&[1u8, 7, 0, 7, 0][..]), Err(Error::Validity { .. })));
+    assert!(matches!(try_pun_ref::<_, Chain>(&[1u8][..]), Err(Error::Validity { .. })));
     // In `const`.
     let (valid, invalid) = const {
       (
@@ -423,9 +423,12 @@ fn a_tuple_of_twelve() {
   assert_eq!(bools, Ok([true; 12]));
   let mut two = [1; 12];
   two[11] = 2;
-  assert_eq!(try_pun::<[u8; 12], Twelve<bool>>(two), Err(Error::Validity));
+  assert!(matches!(try_pun::<[u8; 12], Twelve<bool>>(two), Err(Error::Validity { .. })));
   assert!(puns::from_bytes::<Twelve<NonZero<u8>>>(&[1; 12]).is_ok());
-  assert_eq!(puns::from_bytes::<Twelve<NonZero<u8>>>(&two.map(|b| b - 1)), Err(Error::Validity));
+  assert!(matches!(
+    puns::from_bytes::<Twelve<NonZero<u8>>>(&two.map(|b| b - 1)),
+    Err(Error::Validity { .. })
+  ));
   // The layout that `rustc` chose tells which byte is the first `bool`.
   #[cfg(feature = "unstable")]
   {
@@ -435,7 +438,7 @@ fn a_tuple_of_twelve() {
     flags[first] = 1;
     assert_eq!(try_pun::<[u8; 12], First>(flags).map(|t| (t.0, t.1)), Ok((true, 2)));
     flags[first] = 2;
-    assert_eq!(try_pun::<[u8; 12], First>(flags), Err(Error::Validity));
+    assert!(matches!(try_pun::<[u8; 12], First>(flags), Err(Error::Validity { .. })));
   }
 }
 
@@ -446,10 +449,10 @@ fn signed_non_zero() {
   let minus = NonZero::new(-1i32).unwrap();
   assert_eq!(pun::<NonZero<i32>, [u8; 4]>(minus), [0xff; 4]);
   assert_eq!(try_pun::<i32, NonZero<i32>>(-5), Ok(NonZero::new(-5).unwrap()));
-  assert_eq!(try_pun::<i32, NonZero<i32>>(0), Err(Error::Validity));
+  assert!(matches!(try_pun::<i32, NonZero<i32>>(0), Err(Error::Validity { .. })));
   assert_eq!(try_pun::<[u8; 1], NonZero<i8>>([0x80]), Ok(NonZero::new(i8::MIN).unwrap()));
   assert_eq!(try_pun::<i128, NonZero<i128>>(i128::MIN).map(NonZero::get), Ok(i128::MIN));
-  assert_eq!(try_pun::<isize, NonZero<isize>>(0), Err(Error::Validity));
+  assert!(matches!(try_pun::<isize, NonZero<isize>>(0), Err(Error::Validity { .. })));
   assert_eq!(pun::<i16, Option<NonZero<i16>>>(-2), NonZero::new(-2));
   assert_eq!(pun::<Option<NonZero<i64>>, i64>(None), 0);
   // Every `NonZero<i32>` is a `NonZero<u32>`, and back: the same bit patterns.
@@ -479,8 +482,8 @@ fn non_zero_of_a_fixed_byte_order() {
       let one = $name::new(1);
       assert_eq!(try_pun::<[u8; N], NonZero<$name>>(one.to_bytes()).map(NonZero::get), Ok(one));
       assert_eq!(try_pun::<[u8; N], Option<NonZero<$name>>>(one.to_bytes()), Ok(NonZero::new(one)));
-      assert_eq!(try_pun::<[u8; N], NonZero<$name>>([0; N]), Err(Error::Validity));
-      assert_eq!(try_pun::<$name, NonZero<$name>>($name::new(0)), Err(Error::Validity));
+      assert!(matches!(try_pun::<[u8; N], NonZero<$name>>([0; N]), Err(Error::Validity { .. })));
+      assert_eq!(try_pun::<$name, NonZero<$name>>($name::new(0)), Err(Error::Validity { at: 0 }));
       // Every `NonZero` of it is the integer: proven.
       assert_eq!(pun::<NonZero<$name>, $name>(non_zero), value);
       assert_eq!(pun::<Option<NonZero<$name>>, $name>(Some(non_zero)), value);

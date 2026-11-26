@@ -678,7 +678,7 @@ pub fn main() {
   let datagram: &Frame<Ipv4<Udp>> = try_pun_ref(&bytes[..]).unwrap();
   let udp = datagram.payload.payload().unwrap();
   assert_eq!((udp.destination_port.get(), &udp.payload), (53, &b"hello"[..]));
-  assert_eq!(try_pun_ref::<_, Frame<Ipv4<Tcp>>>(&bytes[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Frame<Ipv4<Tcp>>>(&bytes[..]), Err(Error::Validity { .. })));
   // And back to any packet, proven: the rules of `Ipv4<Udp>` are those of `Ipv4`, over the same
   // bytes, and what the protocol is known to be is a `Protocol`. Nothing is checked.
   let any: &Frame<Ipv4> = pun_ref(datagram);
@@ -687,20 +687,23 @@ pub fn main() {
   let (option, rest) = from_head::<Ipv4Option>(ip.payload.options()).unwrap();
   assert_eq!((option.kind, option.length, &option.data), (7, 6, &[4, 10, 0, 0][..]));
   assert_eq!(from_head::<[u8c<1>; 2]>(rest).unwrap().1.len(), 0);
-  assert_eq!(from_head::<Ipv4Option>(rest).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Ipv4Option>(rest), Err(Error::Validity { .. })));
 
   // ---- It is not something else.
   assert_eq!(try_pun_ref::<_, Frame<Arp>>(&bytes[..]).err(), Some(Error::Size));
-  assert_eq!(try_pun_ref::<_, Frame<Vlan>>(&bytes[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Frame<Vlan>>(&bytes[..]), Err(Error::Validity { .. })));
   // Not an EtherType.
-  assert_eq!(try_pun_ref::<_, Frame>(&frame(100, &[0; 100])[..]).err(), Some(Error::Validity));
+  assert!(matches!(
+    try_pun_ref::<_, Frame>(&frame(100, &[0; 100])[..]),
+    Err(Error::Validity { .. })
+  ));
   // Version 6, a header of 16 bytes, a total length that is not the one of the packet, and a
   // time to live that the checksum does not agree with.
   for (at, value) in [(14, 0x67), (14, 0x44), (17, 40), (22, 63)] {
     let mut bytes = bytes.clone();
     bytes[at] = value;
     assert!(try_pun_ref::<_, Frame>(&bytes[..]).is_ok());
-    assert_eq!(try_pun_ref::<_, Frame<Ipv4>>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Frame<Ipv4>>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // The checksum of UDP covers the addresses of the packet and what the datagram carries.
   for at in [14 + 12, 14 + 28 + 8] {
@@ -710,7 +713,7 @@ pub fn main() {
       // An address changed: `0x0a00` is now `0x0b00`, so the checksum of the header changes too.
       bytes[14 + 10] = 0x17;
     }
-    assert_eq!(try_pun_ref::<_, Frame<Ipv4>>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Frame<Ipv4>>(&bytes[..]), Err(Error::Validity { .. })));
     // A UDP checksum of 0 is no checksum.
     bytes[14 + 28 + 6..][..2].copy_from_slice(&[0, 0]);
     assert!(try_pun_ref::<_, Frame<Ipv4>>(&bytes[..]).is_ok());
@@ -728,11 +731,11 @@ pub fn main() {
   );
   let mut corrupted = segment.clone();
   corrupted[14 + 45] ^= 1;
-  assert_eq!(try_pun_ref::<_, Frame<Ipv4>>(&corrupted[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Frame<Ipv4>>(&corrupted[..]), Err(Error::Validity { .. })));
   // Options that are longer than the packet.
   let mut short = frame(0x0800, &UDP[..24]);
   short[17] = 24;
-  assert_eq!(try_pun_ref::<_, Frame<Ipv4>>(&short[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Frame<Ipv4>>(&short[..]), Err(Error::Validity { .. })));
   // Too short for the header.
   assert_eq!(try_pun_ref::<_, Frame<Ipv4>>(&bytes[..20]).err(), Some(Error::Size));
 
@@ -740,8 +743,8 @@ pub fn main() {
   let mut wire = bytes.clone();
   wire.resize(60, 0);
   assert!(try_pun_ref::<_, WireFrame>(&wire[..]).is_ok());
-  assert_eq!(try_pun_ref::<_, WireFrame>(&bytes[..]).err(), Some(Error::Validity));
-  assert_eq!(try_pun_ref::<_, Frame<Ipv4>>(&wire[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, WireFrame>(&bytes[..]), Err(Error::Validity { .. })));
+  assert!(matches!(try_pun_ref::<_, Frame<Ipv4>>(&wire[..]), Err(Error::Validity { .. })));
   let (ip, padding) = from_head::<Frame<Ipv4>>(&wire).unwrap();
   assert_eq!((size_of_val(ip), padding), (55, &[0; 5][..]));
   assert!(try_pun_ref::<_, WireFrame>(&[0xff; 1515][..]).is_err());
@@ -755,7 +758,7 @@ pub fn main() {
   for at in [0, 30, 59, 60, 63] {
     let mut wire = wire.clone();
     wire[at] ^= 1;
-    assert_eq!(try_pun_ref::<_, CheckedFrame>(&wire[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, CheckedFrame>(&wire[..]), Err(Error::Validity { .. })));
   }
   assert!(try_pun_ref::<_, CheckedFrame>(&wire[..63]).is_err());
   // On the medium, after its preamble.
@@ -763,7 +766,7 @@ pub fn main() {
   let packet: &Packet = try_pun_ref(&medium[..]).unwrap();
   assert_eq!((packet.frame.source, packet.frame.payload().len()), (A, 46));
   medium[7] = 0x55;
-  assert_eq!(try_pun_ref::<_, Packet>(&medium[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Packet>(&medium[..]), Err(Error::Validity { .. })));
 
   // ---- 802.1Q: a tag, then a frame; twice for "Q-in-Q".
   let tagged = frame(0x8100, &[&[0xb0, 0x2a, 0x08, 0x00][..], &UDP].concat());
@@ -771,9 +774,12 @@ pub fn main() {
   let tag = &vlan.payload;
   assert_eq!((tag.priority(), tag.drop_eligible(), tag.id()), (5, true, 42));
   assert_eq!(tag.payload.time_to_live, 64);
-  assert_eq!(try_pun_ref::<_, Frame<Ipv4>>(&tagged[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Frame<Ipv4>>(&tagged[..]), Err(Error::Validity { .. })));
   let reserved = frame(0x8100, &[&[0x2f, 0xff, 0x08, 0x00][..], &UDP].concat());
-  assert_eq!(try_pun_ref::<_, Frame<Vlan<Ipv4>>>(&reserved[..]).err(), Some(Error::Validity));
+  assert!(matches!(
+    try_pun_ref::<_, Frame<Vlan<Ipv4>>>(&reserved[..]),
+    Err(Error::Validity { .. })
+  ));
   let double = frame(0x8100, &[&[0, 1, 0x81, 0x00, 0, 2, 0x08, 0x06][..], &ARP[..]].concat());
   let qinq: &Frame<Vlan<Vlan<Arp>>> = try_pun_ref(&double[..]).unwrap();
   assert_eq!((qinq.payload.id(), qinq.payload.payload.id()), (1, 2));
@@ -832,7 +838,7 @@ pub fn main() {
   let operation = try_pun_ref::<_, Frame<Arp>>(&reply).unwrap().payload.operation;
   assert_eq!(operation, Operation::Reply);
   reply[21] = 3;
-  assert_eq!(try_pun_ref::<_, Frame<Arp>>(&reply).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Frame<Arp>>(&reply), Err(Error::Validity { .. })));
 
   // ---- A protocol that is not known: nothing is read where UDP or TCP have their checksum,
   // which is outside this packet.
@@ -859,7 +865,7 @@ pub fn main() {
   let mut corrupted_echo = echo.clone();
   corrupted_echo[14 + 32] ^= 1;
   let ip: &Frame<Ipv4<Icmp>> = try_pun_ref(&corrupted_echo[..]).unwrap();
-  assert_eq!(ip.payload.payload().err(), Some(Error::Validity));
+  assert!(matches!(ip.payload.payload(), Err(Error::Validity { .. })));
 
   // ---- IPv6 extension headers: each says what follows it, and how long it is.
   let options6 = frame(0x86dd, &OPTIONS6);
@@ -870,13 +876,13 @@ pub fn main() {
   // It is not a datagram right after the header, nor options followed by a segment.
   assert!(try_pun_ref::<_, Frame<Ipv6<Udp>>>(&options6[..]).is_err());
   let ip6: &Frame<Ipv6<HopByHop<Tcp>>> = try_pun_ref(&options6[..]).unwrap();
-  assert_eq!(ip6.payload.payload().err(), Some(Error::Validity));
+  assert!(matches!(ip6.payload.payload(), Err(Error::Validity { .. })));
   // The checksum of the datagram is checked with the packet, behind the options: it covers the
   // addresses of the packet, and what the datagram carries.
   for at in [14 + 8, 14 + 60] {
     let mut corrupted = options6.clone();
     corrupted[at] ^= 1;
-    assert_eq!(try_pun_ref::<_, Frame<Ipv6>>(&corrupted[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Frame<Ipv6>>(&corrupted[..]), Err(Error::Validity { .. })));
     assert!(try_pun_ref::<_, Frame>(&corrupted[..]).is_ok());
   }
   // The options are not covered.
@@ -886,7 +892,7 @@ pub fn main() {
   // Options that are longer than the packet: what they are followed by is not in the packet.
   let mut long = options6.clone();
   long[14 + 41] = 2;
-  assert_eq!(try_pun_ref::<_, Frame<Ipv6>>(&long[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Frame<Ipv6>>(&long[..]), Err(Error::Validity { .. })));
   // A chain of headers, of the two units of size: the segment at its end is checked as well.
   let chain6 = frame(0x86dd, &CHAIN6);
   let ip6: &Frame<Ipv6<HopByHop<Routing<Authentication<Tcp>>>>> = try_pun_ref(&chain6[..]).unwrap();
@@ -900,14 +906,14 @@ pub fn main() {
   for at in [14 + 39, 14 + 80, 14 + 101] {
     let mut corrupted = chain6.clone();
     corrupted[at] ^= 1;
-    assert_eq!(try_pun_ref::<_, Frame<Ipv6>>(&corrupted[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Frame<Ipv6>>(&corrupted[..]), Err(Error::Validity { .. })));
   }
   // A header of the chain that gives a size which is not its own: the segment is not where it
   // is looked for, or not in the packet.
   for (at, value) in [(14 + 57, 3), (14 + 57, 200)] {
     let mut corrupted = chain6.clone();
     corrupted[at] = value;
-    assert_eq!(try_pun_ref::<_, Frame<Ipv6>>(&corrupted[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Frame<Ipv6>>(&corrupted[..]), Err(Error::Validity { .. })));
   }
   // ICMPv6: the same checksum.
   let echo6 = frame(0x86dd, &ECHO6);
@@ -917,7 +923,7 @@ pub fn main() {
   for at in [14 + 23, 14 + 51] {
     let mut corrupted = echo6.clone();
     corrupted[at] ^= 1;
-    assert_eq!(try_pun_ref::<_, Frame<Ipv6>>(&corrupted[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Frame<Ipv6>>(&corrupted[..]), Err(Error::Validity { .. })));
   }
   // A fragment is not the whole of what is carried: there is no checksum to check with it.
   let fragment6 = frame(0x86dd, &FRAGMENT6);
@@ -937,7 +943,7 @@ pub fn main() {
   // ---- PPPoE and 802.1X: a length in the header, and the padding of the frame after it.
   let mut pppoe = frame(0x8864, &[0x11, 0, 0, 7, 0, 4, 0xc0, 0x21, 9, 1]);
   pppoe.resize(60, 0);
-  assert_eq!(try_pun_ref::<_, Frame<Pppoe>>(&pppoe[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Frame<Pppoe>>(&pppoe[..]), Err(Error::Validity { .. })));
   let (session, padding) = from_head::<Frame<Pppoe>>(&pppoe).unwrap();
   assert_eq!(
     (session.payload.session.get(), &session.payload.payload),
@@ -1006,7 +1012,10 @@ pub fn main() {
   assert_eq!(describe(&frame(0x0800, &UDP)), "UDP to port 53");
   assert_eq!(describe(&frame(0x0800, &TCP)), "TCP to port 80");
   assert_eq!(describe(&echo), "ICMP 8");
-  assert_eq!(describe(&corrupted_echo), "ICMP, but value is not valid for the target type");
+  assert_eq!(
+    describe(&corrupted_echo),
+    "ICMP, but value is not valid for the target type, at byte 20"
+  );
   assert_eq!(describe(&ping), "IPv4, protocol 253");
   assert_eq!(describe(&datagram6), "UDP over IPv6, 64 hops left");
   assert_eq!(describe(&echo6), "ICMPv6 128");
@@ -1025,9 +1034,9 @@ pub fn main() {
   assert_eq!(describe(&frame(0x88f7, &[0; 46])), "EtherType 0x88f7");
   assert_eq!(
     describe(&frame(1501, &[0; 46])),
-    "not a frame: value is not valid for the target type"
+    "not a frame: value is not valid for the target type, at byte 0"
   );
-  assert_eq!(describe(&[0; 13]), "not a frame: value is not valid for the target type");
+  assert_eq!(describe(&[0; 13]), "not a frame: value is not valid for the target type, at byte 0");
   // A frame that does not hold what its EtherType names is still a frame, of that EtherType.
   assert_eq!(describe(&corrupted), "EtherType 0x86dd");
   // Padded, as on the wire: the packet says where it ends.

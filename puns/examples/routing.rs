@@ -550,12 +550,12 @@ pub fn main() {
   for (at, value) in [(19, 3), (23, 2), (28, 1)] {
     let mut bytes = OPEN;
     bytes[at] = value;
-    assert_eq!(from_head::<Message<Open>>(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(from_head::<Message<Open>>(&bytes), Err(Error::Validity { .. })));
   }
   for (at, value) in [(3, 0xfe), (18, 6)] {
     let mut bytes = OPEN;
     bytes[at] = value;
-    assert_eq!(from_head::<Message>(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(from_head::<Message>(&bytes), Err(Error::Validity { .. })));
   }
   // UPDATE: three parts; attributes of their own forms.
   let (update, _) = from_head::<Message<Update>>(&UPDATE).unwrap();
@@ -577,9 +577,9 @@ pub fn main() {
   // Attributes longer than the message; an origin of 3; a prefix of 33 bits.
   let mut bytes = UPDATE;
   bytes[22] = 30;
-  assert_eq!(from_head::<Message<Update>>(&bytes).err(), Some(Error::Validity));
-  assert_eq!(try_pun_ref::<_, Origin>(&[0x40u8, 1, 1, 3][..]).err(), Some(Error::Validity));
-  assert_eq!(from_head::<Prefix>(&[33, 1, 2, 3, 4, 5]).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Message<Update>>(&bytes), Err(Error::Validity { .. })));
+  assert!(matches!(try_pun_ref::<_, Origin>(&[0x40u8, 1, 1, 3][..]), Err(Error::Validity { .. })));
+  assert!(matches!(from_head::<Prefix>(&[33, 1, 2, 3, 4, 5]), Err(Error::Validity { .. })));
   // The extended length flag on ORIGIN: its length is then `[1, 0]`, beyond the bytes.
   assert!(from_head::<Attribute>(&[0x50, 1, 1, 0]).is_err());
 
@@ -596,7 +596,7 @@ pub fn main() {
   for at in [1, 5, 30, 43] {
     let mut bytes = HELLO;
     bytes[at] ^= 0x10;
-    assert_eq!(from_head::<Ospf>(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(from_head::<Ospf>(&bytes), Err(Error::Validity { .. })));
   }
   // LSAs: the Fletcher checksum covers every byte but the age.
   let (lsa, rest) = from_head::<Lsa>(&LSA).unwrap();
@@ -607,7 +607,7 @@ pub fn main() {
   for at in 2..LSA.len() {
     let mut bytes = LSA;
     bytes[at] ^= 0x01;
-    assert_eq!(try_pun_ref::<_, Lsa>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Lsa>(&bytes[..]), Err(Error::Validity { .. })));
   }
 
   // ---- GRE: optional fields, a checksum, a typed payload.
@@ -621,7 +621,7 @@ pub fn main() {
   // The checksum covers what is carried.
   let mut bytes = GRE;
   bytes[30] ^= 1;
-  assert_eq!(try_pun_ref::<_, Gre>(&bytes[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Gre>(&bytes[..]), Err(Error::Validity { .. })));
   // Without a checksum, and with the EtherType of IPv6 over the same IPv4 bytes: a `Gre`, not a
   // `Gre<Ipv4>`.
   let plain = [&[0x30, 0x00, 0x86, 0xdd][..], &GRE[8..]].concat();
@@ -630,14 +630,14 @@ pub fn main() {
     (gre.protocol, gre.has_checksum(), gre.payload().unwrap().len()),
     (EtherType(0x86dd.into()), false, 20)
   );
-  assert_eq!(try_pun_ref::<_, Gre<Ipv4>>(&plain[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Gre<Ipv4>>(&plain[..]), Err(Error::Validity { .. })));
   // Version 1; a routing bit; optional fields beyond the packet.
   for (at, value) in [(1, 1), (0, 0x70)] {
     let mut bytes = plain.clone();
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Gre>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Gre>(&bytes[..]), Err(Error::Validity { .. })));
   }
-  assert_eq!(try_pun_ref::<_, Gre>(&plain[..10]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Gre>(&plain[..10]), Err(Error::Validity { .. })));
   // Ethernet over GRE.
   let bridged = [&[0x00u8, 0x00, 0x65, 0x58][..], &[0xff; 12], &[0x08, 0x00]].concat();
   let gre: &Gre<Ethernet> = try_pun_ref(&bridged[..]).unwrap();
@@ -653,7 +653,7 @@ pub fn main() {
   for at in [0, 2, 7] {
     let mut bytes = vxlan.clone();
     bytes[at] ^= 1;
-    assert_eq!(try_pun_ref::<_, Vxlan>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Vxlan>(&bytes[..]), Err(Error::Validity { .. })));
   }
 
   // ---- Geneve: options of their own sizes, then IPv4.
@@ -670,7 +670,7 @@ pub fn main() {
   for (at, value) in [(11, 2), (0, 0x42)] {
     let mut bytes = geneve.clone();
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Geneve>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Geneve>(&bytes[..]), Err(Error::Validity { .. })));
   }
 
   // ---- IGMP: checksums, a count of sources, records that fill a report.
@@ -678,7 +678,7 @@ pub fn main() {
   assert_eq!((report.kind, report.group), (0x16, [224, 0, 0, 251]));
   let mut bytes = IGMP2;
   bytes[7] = 252;
-  assert_eq!(try_pun_ref::<_, Igmp2>(&bytes[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Igmp2>(&bytes[..]), Err(Error::Validity { .. })));
   let query: &Query3 = try_pun_ref(&QUERY3[..]).unwrap();
   assert_eq!((query.robustness(), query.suppress()), (2, false));
   assert_eq!(query.sources, [[10, 0, 0, 1], [10, 0, 0, 2]]);
@@ -700,7 +700,7 @@ pub fn main() {
   let mut bytes = REPORT3;
   bytes[7] = 3;
   bytes[3] = 0xdf;
-  assert_eq!(try_pun_ref::<_, Report3>(&bytes[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Report3>(&bytes[..]), Err(Error::Validity { .. })));
 
   // ---- Neighbor discovery: options in units of 8 bytes.
   let advertisement: &RouterAdvertisement = try_pun_ref(&ADVERTISEMENT[..]).unwrap();
@@ -717,16 +717,19 @@ pub fn main() {
   for (at, value) in [(17, 0), (25, 5)] {
     let mut bytes = ADVERTISEMENT;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, RouterAdvertisement>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(
+      try_pun_ref::<_, RouterAdvertisement>(&bytes[..]),
+      Err(Error::Validity { .. })
+    ));
   }
   // A solicitation, then one of a multicast target.
   let mut solicitation = [&[135u8, 0, 0, 0, 0, 0, 0, 0, 0xfe, 0x80][..], &[1; 14]].concat();
   assert!(try_pun_ref::<_, NeighborSolicitation>(&solicitation[..]).is_ok());
   solicitation[8] = 0xff;
-  assert_eq!(
-    try_pun_ref::<_, NeighborSolicitation>(&solicitation[..]).err(),
-    Some(Error::Validity)
-  );
+  assert!(matches!(
+    try_pun_ref::<_, NeighborSolicitation>(&solicitation[..]),
+    Err(Error::Validity { .. })
+  ));
 
   println!("ok");
 }

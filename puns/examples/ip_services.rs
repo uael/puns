@@ -686,19 +686,19 @@ pub fn main() {
   // A label longer than the name: the message, and the name of its question, are not valid.
   let mut long = QUERY;
   long[20] = 9;
-  assert_eq!(try_pun_ref::<_, Dns>(&long[..]).err(), Some(Error::Validity));
-  assert_eq!(try_pun_ref::<_, Question>(&long[12..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Dns>(&long[..]), Err(Error::Validity { .. })));
+  assert!(matches!(try_pun_ref::<_, Question>(&long[12..]), Err(Error::Validity { .. })));
   // A label of a reserved form (`0x40`); no end to the name; opcode 3; the Z bit.
   for (at, value) in [(12, 0x47), (2, 0x18), (3, 0x40)] {
     let mut bytes = QUERY;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Dns>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Dns>(&bytes[..]), Err(Error::Validity { .. })));
   }
-  assert_eq!(try_pun_ref::<_, Name>(&[0x47, 0][..]).err(), Some(Error::Validity));
-  assert_eq!(try_pun_ref::<_, Dns>(&QUERY[..24]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Name>(&[0x47, 0][..]), Err(Error::Validity { .. })));
+  assert!(matches!(try_pun_ref::<_, Dns>(&QUERY[..24]), Err(Error::Validity { .. })));
   // A pointer to itself: the walk loops, and is cut. A pointer to a name after the question.
   let mut looping = [&QUERY[..12], &[0xc0, 0x0c, 0, 1, 0, 1]].concat();
-  assert_eq!(try_pun_ref::<_, Dns>(&looping[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Dns>(&looping[..]), Err(Error::Validity { .. })));
   looping[13] = 18;
   looping.extend([1, b'a', 0]);
   assert!(try_pun_ref::<_, Dns>(&looping[..]).is_ok());
@@ -706,11 +706,11 @@ pub fn main() {
   // before the bytes do.
   let mut record = RESPONSE[29..].to_vec();
   record[0] = 0x03;
-  assert_eq!(from_head::<PointerRecord>(&record).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<PointerRecord>(&record), Err(Error::Validity { .. })));
   let mut record = RESPONSE[29..].to_vec();
   record[11] = 5;
   assert_eq!(from_head::<PointerRecord>(&record).err(), Some(Error::Size));
-  assert_eq!(try_pun_ref::<_, Name>(&QUERY[12..26]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Name>(&QUERY[12..26]), Err(Error::Validity { .. })));
 
   // ---- DHCP: a header, a cookie, options down to "end".
   let discover = [&DISCOVER_HEADER[..], &[0; 202], &DISCOVER_OPTIONS].concat();
@@ -727,7 +727,7 @@ pub fn main() {
   for (at, value) in [(0, 3), (2, 17), (239, 0x64), (249, 0), (245, 30), (240, 54), (242, 9)] {
     let mut bytes = discover.clone();
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Dhcp>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Dhcp>(&bytes[..]), Err(Error::Validity { .. })));
   }
   assert_eq!(try_pun_ref::<_, Dhcp>(&discover[..239]).err(), Some(Error::Size));
 
@@ -741,12 +741,12 @@ pub fn main() {
   let (extension, rest) = from_head::<Extension>(&packet.extensions).unwrap();
   assert_eq!((extension.kind.get(), extension.value.len(), rest.len()), (0x0104, 12, 0));
   extended[48 + 3] = 15;
-  assert_eq!(from_head::<Extension>(&extended[48..]).err(), Some(Error::Validity));
+  assert!(matches!(from_head::<Extension>(&extended[48..]), Err(Error::Validity { .. })));
   // Version 0, version 5, mode 0, stratum 17.
   for (at, value) in [(0, 0x03), (0, 0x2b), (0, 0x20), (1, 17)] {
     let mut bytes = NTP;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Ntp>(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Ntp>(&bytes), Err(Error::Validity { .. })));
   }
   assert_eq!(try_pun_ref::<_, Ntp>(&NTP[..47]).err(), Some(Error::Size));
 
@@ -764,11 +764,11 @@ pub fn main() {
   for (at, value) in [(0, 6), (21, 1), (21, 8), (28, 9)] {
     let mut bytes = RADIUS;
     bytes[at] = value;
-    assert_eq!(from_head::<Radius>(&bytes).err(), Some(Error::Validity));
+    assert!(matches!(from_head::<Radius>(&bytes), Err(Error::Validity { .. })));
   }
   let mut bytes = RADIUS;
   bytes[24] = 0xff;
-  assert_eq!(try_pun_ref::<_, UserName>(&bytes[20..27]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, UserName>(&bytes[20..27]), Err(Error::Validity { .. })));
 
   // ---- NetFlow: records, counted.
   let flows: &NetFlow5 = try_pun_ref(&NETFLOW[..]).unwrap();
@@ -779,7 +779,7 @@ pub fn main() {
   for (at, value) in [(3, 3), (24 + 44, 33), (24 + 48 + 31, 99)] {
     let mut bytes = NETFLOW;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, NetFlow5>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, NetFlow5>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // What follows the records is not theirs.
   let longer = [&NETFLOW[..], &[1, 2]].concat();
@@ -796,7 +796,7 @@ pub fn main() {
   for at in [0, 3, 4, 10, 25, 36, 47] {
     let mut bytes = STUN;
     bytes[at] ^= 0x01;
-    assert_eq!(try_pun_ref::<_, Stun>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Stun>(&bytes[..]), Err(Error::Validity { .. })));
   }
   // Without the fingerprint (and of the length that says so), it is a message.
   let mut short = STUN[..44].to_vec();
@@ -804,7 +804,7 @@ pub fn main() {
   assert!(try_pun_ref::<_, Stun>(&short[..]).is_ok());
   // An attribute that extends beyond the message.
   short[35] = 9;
-  assert_eq!(try_pun_ref::<_, Stun>(&short[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Stun>(&short[..]), Err(Error::Validity { .. })));
 
   // ---- RTP: CSRCs, an extension, padding.
   let rtp: &Rtp = try_pun_ref(&RTP[..]).unwrap();
@@ -821,7 +821,7 @@ pub fn main() {
   for (at, value) in [(0, 0x71), (33, 0), (33, 30), (19, 9)] {
     let mut bytes = RTP;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Rtp>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Rtp>(&bytes[..]), Err(Error::Validity { .. })));
   }
   let plain: &Rtp = try_pun_ref(&[0x80u8, 0x00, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 9, 9][..]).unwrap();
   assert_eq!(
@@ -838,11 +838,11 @@ pub fn main() {
   assert_eq!((description.kind, rest.len()), (202, 0));
   // It must start with a report; a length that is not the one of the packet; a version 1.
   let reversed = [&RTCP[52..], &RTCP[..52]].concat();
-  assert_eq!(try_pun_ref::<_, Compound>(&reversed[..]).err(), Some(Error::Validity));
+  assert!(matches!(try_pun_ref::<_, Compound>(&reversed[..]), Err(Error::Validity { .. })));
   for (at, value) in [(3, 13), (52, 0x41)] {
     let mut bytes = RTCP;
     bytes[at] = value;
-    assert_eq!(try_pun_ref::<_, Compound>(&bytes[..]).err(), Some(Error::Validity));
+    assert!(matches!(try_pun_ref::<_, Compound>(&bytes[..]), Err(Error::Validity { .. })));
   }
 
   // ---- One of several kinds.
@@ -861,7 +861,7 @@ pub fn main() {
   assert_eq!(describe(&NTP), "NTP v4");
   assert_eq!(describe(&RADIUS), "RADIUS code 1");
   assert_eq!(describe(&RESPONSE), "DNS 0x1234, 1 answers");
-  assert_eq!(describe(&[0; 4]), "not a message: value is not valid for the target type");
+  assert_eq!(describe(&[0; 4]), "not a message: value is not valid for the target type, at byte 0");
 
   println!("ok");
 }
