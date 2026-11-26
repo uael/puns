@@ -1128,11 +1128,9 @@ const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
 /// its parts from the budget of [`AIM_PARTS`] while it runs ([`Input::nest`]), and, if other aims
 /// may reach its bytes (`SPENDS`), its size from the budget of bytes ([`Input::spends`]): one of a
 /// shared aim, or one that ends with the tail of a struct that holds another eager aim. A pointee
-/// that is claimed (`WAITS`),
-/// or at the cursor of its struct, takes 1 if it has no byte and holds an eager aim. A link of a
-/// chain
-/// ([`links`]) whose type has an identity is checked with [`InPlace`], so that a link of its type
-/// within it is known to be nested in it. A pointee of a type that holds an eager aim and has an
+/// that is claimed (`WAITS`), or at the cursor of its struct, takes 1 if it has no byte and holds
+/// an eager aim. A link of a chain ([`links`]) whose type has an identity is checked with
+/// [`InPlace`], so that a link of its type within it is known to be nested in it. A pointee of a type that holds an eager aim and has an
 /// identity waits for a loop of its type instead ([`waits`]), so that the frames stop growing with
 /// the data:
 ///
