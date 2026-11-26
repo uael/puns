@@ -641,11 +641,12 @@
 //!   target ([`AIM_PARTS`] says how much). A pointee that is claimed, as the next item says, shares
 //!   no byte with another, so the time of a check grows with the bytes. They stop with
 //!   [`Error::Limit`] where the pointees that other aims may reach, those of shared aims and those
-//!   that end with the tail of their struct, reach twice as many bytes as they read, so that a check
-//!   of a cycle through shared aims ends, and where the loops cannot take the pointees that wait
-//!   ([`AIM_PARTS`] says when). A pointee at the cursor is within its struct and shares no byte
-//!   with the others there, so regions nest at any depth that the parts allow. They allocate
-//!   nothing.
+//!   that end with the tail of a struct that holds another eager aim, reach twice as many bytes as
+//!   they read, so that a check of a cycle through shared aims ends, and where the loops cannot
+//!   take the pointees that wait ([`AIM_PARTS`] says when). A pointee at the cursor is within its
+//!   struct and shares no byte with the others there, and so is one that ends with the tail of a
+//!   struct that holds no other eager aim, so regions, and such pointees, nest at any depth that
+//!   the parts allow. They allocate nothing.
 //! - The pointees of the aims at a stored place are in the order of a copy: depth first, each value
 //!   before its pointees, the elements of a list in order. In a struct, the pointees of the aims
 //!   that its fields hold come first, in the order of the fields, then those of its own aims, in
@@ -1133,7 +1134,7 @@
 //! - A packed struct whose unsized field has trailing padding of its own is refused.
 //! - The check of eager [aims](#aims) of a reference follows pointees at any depth, but returns
 //!   [`Error::Limit`] past pointees that other aims may reach of twice the bytes that it reads (those
-//!   of shared aims, and those that end with the tail of their struct, even nested in one another),
+//!   of shared aims, and those that end with the tail of a struct that holds another eager aim),
 //!   and where its loops cannot take the pointees that wait: a chain of a type without an identity,
 //!   or a chain each of whose values has several deep pointees of its type ([`AIM_PARTS`]).
 //! - A union does not hold an eager aim.
@@ -3302,8 +3303,9 @@ pub enum Error {
   /// The check of the pointees of eager aims ([`Check::Eager`](layout::Check::Eager)) stopped at
   /// its limit before it found the bytes valid or not: pointees that its loops cannot take
   /// ([`AIM_PARTS`]), or pointees that other aims may reach, those of shared aims and those that end
-  /// with the tail of their struct, of more bytes than twice those checked in all, plus
-  /// [`AIM_PARTS`], which a cycle through shared aims reaches ("Aims" in the crate documentation).
+  /// with the tail of a struct that holds another eager aim, of more bytes than twice those checked
+  /// in all, plus [`AIM_PARTS`], which a cycle through shared aims reaches ("Aims" in the crate
+  /// documentation).
   /// A pointee of no byte that holds an eager aim counts as 1.
   Limit,
 }

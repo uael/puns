@@ -421,6 +421,12 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
+  |       if const { T::LAYOUT.most_eager_aims() > 1 } {
+  |                  ^^^^^^^^^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
   |     match T::LAYOUT.rule(L::RULE) {
   |           ^^^^^^^^^
 
@@ -435,6 +441,12 @@ note: erroneous constant encountered
   | |     }
   | |   };
   | |___^
+
+note: erroneous constant encountered
+ --> src/validate.rs
+  |
+  |       if const { T::LAYOUT.most_eager_aims() > 1 } {
+  |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 note: erroneous constant encountered
  --> src/validate.rs

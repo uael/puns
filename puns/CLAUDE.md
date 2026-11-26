@@ -179,24 +179,26 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   with the `full` feature: the two defects that these tests found took 3 and 5 values of types that
   point at each other. A claimed pointee takes nothing from the budget of bytes (`Input::spends`),
   nor does one at the cursor, which is within its struct and shares no byte with the other pointees
-  at that cursor: the budget bounds what other aims may reach, shared pointees and those that end
-  with the tail of their struct, and pointees of no byte that hold an eager aim, 1 each, which may
-  nest each other at any width. A pointee at the cursor, or one that ends with the tail of
-  its struct (`Extent::Rest`), is within the struct and claims nothing, and its pointee is never
-  handed to a loop, so that no pointee waits without a claim. One that takes the rest of the tail
-  starts in its struct too (`stored_at`), or other aims could reach bytes that nothing claims. In a
-  struct, the fields are checked before the rules, so the pointees of the aims that its fields hold
-  are claimed before those of its own aims; and what a pointee stores before its value is checked
-  before the pointee is claimed. The read of a lazy region is a check of its own, whose claims start
-  at the end of the region (`region_as`): it does not know the claims of another check. The pointee
-  of a shared aim (`Aim::shared`), and what it reaches, are checked in place with
-  `validate::Shared`, which claims nothing, and `aim_mut` refuses the aim at compile time. An aim
-  within what a shared aim reaches is not claimed either, even one that is not shared, for which
-  `aim_mut` compiles: its `# Safety` says that nothing tells that such a pointee is reached once. So
-  a cycle through shared aims ends with `Limit` (the budget of twice the bytes, plus `AIM_PARTS`),
-  and their depth is
-  bounded by `AIM_PARTS`; a write through `aim_mut` must leave valid every shared pointee that
-  overlaps what it writes, since its read trusts it (the `# Safety` of `aim_mut`).
+  at that cursor, nor one that ends with the tail of a struct that holds no other eager aim
+  (`Layout::most_eager_aims`), whose nesting is a path: the budget bounds what other aims may
+  reach, shared pointees and those that end with the tail of a struct that holds another eager
+  aim, whose checks of the same bytes would multiply at each level, and pointees of no byte that
+  hold an eager aim, 1 each, which may nest each other at any width. A pointee at the cursor, or
+  one that ends with the tail of its struct (`Extent::Rest`), is within the struct and claims
+  nothing, and its pointee is never handed to a loop, so that no pointee waits without a claim.
+  One that takes the rest of the tail starts in its struct too (`stored_at`), or other aims could
+  reach bytes that nothing claims. In a struct, the fields are checked before the rules, so the
+  pointees of the aims that its fields hold are claimed before those of its own aims; and what a
+  pointee stores before its value is checked before the pointee is claimed. The read of a lazy
+  region is a check of its own, whose claims start at the end of the region (`region_as`): it does
+  not know the claims of another check. The pointee of a shared aim (`Aim::shared`), and what it
+  reaches, are checked in place with `validate::Shared`, which claims nothing, and `aim_mut` refuses
+  the aim at compile time. An aim within what a shared aim reaches is not claimed either, even one
+  that is not shared, for which `aim_mut` compiles: its `# Safety` says that nothing tells that such
+  a pointee is reached once. So a cycle through shared aims ends with `Limit` (the budget of twice
+  the bytes, plus `AIM_PARTS`), and their depth is bounded by `AIM_PARTS`; a write through `aim_mut`
+  must leave valid every shared pointee that overlaps what it writes, since its read trusts it (the
+  `# Safety` of `aim_mut`).
 - The functions that check in place (`from_head` and the others) check a pointee in place, nested
   in the check of the struct whose aim leads to it, as a check without loops does, and in one pass
   hand a pointee whose type holds an eager aim and has an identity over to a loop of its type
