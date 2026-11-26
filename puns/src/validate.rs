@@ -26,17 +26,19 @@
 //! The `try_` and `from_` functions check a pointee in place, nested in the check of the value that
 //! holds its aim, bounded by the bytes and by the parts of the layouts that [`Input`] counts
 //! ([`AIM_PARTS`]), which bound the stack. A pointee whose type holds an eager aim, and has an
-//! identity, is handed over to a loop of its type ([`run`]) where it is nested past [`IN_PLACE`]
-//! parts ([`check_value`], [`waits`]): the check goes on in one pass over the bytes, from where it
-//! stands, with one frame for each type on the path, whatever the data. In the value of a loop,
-//! every such pointee waits for a loop: the first pointee of its type is the next one that the
-//! loop checks, and the others wait in entries, a list for each loop; a pointee whose type has a
-//! loop lower on the path waits for that loop ([`Loops::wait_below`]). So a chain takes no entry, a
-//! tree takes entries as it is deep, and data that alternates types takes the frames of their
-//! loops. The pointees that hold no eager aim, those of a type without an identity, and those that
-//! find no entry are checked in place: a type without an identity that points at itself is checked
-//! by a recursive call of the same instance, and stops at [`AIM_PARTS`]. A pointee that holds no
-//! eager aim, or an empty slice, takes no parts, since it nests no other pointee.
+//! identity, is handed over to a loop of its type ([`run`]) where the check in place would stop for
+//! its parts, where it is a link of a chain nested past [`IN_PLACE`] parts, and where a check in a
+//! `const` would not leave room for that loop ([`in_place`], [`check_value`], [`waits`]): the check
+//! goes on in one pass over the bytes, from where it stands, with one frame for each type on the
+//! path, whatever the data. In the value of a loop, every such pointee waits for a loop: the first
+//! pointee of its type is the next one that the loop checks, and the others wait in entries, a list
+//! for each loop; a pointee whose type has a loop lower on the path waits for that loop
+//! ([`Loops::wait_below`]). So a chain takes no entry, a tree takes entries as it is deep, and data
+//! that alternates types takes the frames of their loops. The pointees that hold no eager aim,
+//! those of a type without an identity, and those that find no entry are checked in place: a type
+//! without an identity that points at itself is checked by a recursive call of the same instance,
+//! and stops at [`AIM_PARTS`]. A pointee that holds no eager aim, or an empty slice, takes no
+//! parts, since it nests no other pointee.
 //!
 //! The pointee of an aim at a stored place is claimed where it is found ([`Input::claim`]): it
 //! starts at or after the end of the claim before it, the cursor, so the pointees form a tree in
@@ -163,6 +165,9 @@ pub trait Checks {
   /// [`PointeeType::NONE`], which is no type: a pointee of that type waits for the loop
   /// ([`waits`]).
   const LOOP: PointeeType = PointeeType::NONE;
+  /// The type of the pointee whose value this checks in place ([`InPlace`]), or
+  /// [`PointeeType::NONE`]: a pointee of that type within it is nested in a value of its type.
+  const MARK: PointeeType = PointeeType::NONE;
   /// Whether this checks a value within the pointee of a shared aim ([`Shared`]), where nothing is
   /// claimed, a constant so that no other check compiles the test.
   const SHARED: bool = false;
@@ -195,6 +200,17 @@ impl<P: ?Sized + Pointee> Checks for Looped<P> {
   type Whole = Self;
 }
 
+/// The [`Checks`] of the value of a pointee `P` that is a link of a chain ([`links`]), checked in
+/// place: every part, and a pointee of its type within it is a link nested in another
+/// ([`check_value`]).
+pub struct InPlace<P: ?Sized>(PhantomData<P>);
+
+impl<P: ?Sized + Pointee> Checks for InPlace<P> {
+  const MARKS: Marks = Marks::ALL;
+  const MARK: PointeeType = Looped::<P>::LOOP;
+  type Whole = Self;
+}
+
 /// The [`Checks`] of the pointee of a shared aim and of what it reaches: every part, in place,
 /// and nothing claimed ([`check_stored`]), since other aims may reach it.
 pub struct Shared;
@@ -214,7 +230,7 @@ pub const VALID: Fault = core::ptr::null();
 
 /// Returns where a part of the `T` at `ptr` is not valid ([`Fault`]): [`validate`] with
 /// `C::Whole`, as the check of an enum, a union and a pointee checks them: [`All`], or [`Looped`]
-/// in the value of a loop.
+/// or [`InPlace`] in the value of a pointee.
 ///
 /// # Safety
 ///
@@ -1103,11 +1119,23 @@ const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
 /// its parts from the budget of [`AIM_PARTS`] while it runs ([`Input::nest`]), and, if other aims
 /// may reach its bytes (`SPENDS`), its size from the budget of bytes ([`Input::spends`]): one of a
 /// shared aim, or one that ends with the tail of its struct. A pointee that is claimed (`WAITS`),
-/// or at the cursor of its struct, takes 1 if it has no byte and holds an eager aim. A pointee of a
-/// type that holds an eager aim and has an identity waits for a loop of its type instead
-/// ([`waits`]), so that the frames stop growing with the data: in a value of a loop ([`Looped`]),
-/// always, and in place, where it is nested past [`IN_PLACE`] parts, so that a check in a `const`
-/// stays within the frames that Rust allows by default.
+/// or at the cursor of its struct, takes 1 if it has no byte and holds an eager aim. A link of a
+/// chain ([`links`]) whose type has an identity is checked with [`InPlace`], so that a link of its
+/// type within it is known to be nested in it. A pointee of a type that holds an eager aim and has
+/// an identity waits for a loop of its type instead ([`waits`]), so that the frames stop growing
+/// with the data:
+///
+/// - in a value of a loop ([`Looped`]), always;
+/// - where its parts are not left, where a check without loops stops ([`Error::Limit`]);
+/// - nested in a value of its type that leads to one pointee at most, a link of a chain, past
+///   [`IN_PLACE`] parts: a loop checks a chain with no entry;
+/// - where a check in a `const` would not leave room for the loop of its type within the frames
+///   that Rust allows by default ([`in_place`]).
+///
+/// So data that a check in place takes, and that a `const` can take, is checked as it is, and a
+/// check takes loops only past it, and for chains.
+///
+/// [`Error::Limit`]: crate::Error::Limit
 ///
 /// # Safety
 ///
@@ -1124,13 +1152,12 @@ const unsafe fn check_value<
   input: &mut Input,
 ) -> Fault {
   let (before, parts, nested) = const {
-    let parts =
-      <P::Value as Pun>::LAYOUT.parts().saturating_add(<P::Prefix as Pun>::LAYOUT.parts());
-    (size_of::<P::Prefix>(), parts, parts.saturating_add(AIM_PARTS - IN_PLACE))
+    let parts = parts::<P>();
+    (size_of::<P::Prefix>(), parts, parts.saturating_add(AIM_PARTS - in_place::<C, P>()))
   };
   let value = ptr::from_raw_parts::<P::Value>(addr, len);
   // An empty slice holds no aim, whatever its elements hold, and is checked in place at once. A
-  // pointee waits for a loop in a value of a loop, or, in place, past `IN_PLACE` parts.
+  // pointee waits for a loop in a value of a loop, or, in place, past `in_place` parts.
   let is_empty = const { matches!(<P::Value as Pun>::LAYOUT.kind, Kind::Slice(_)) } && len == 0;
   // A pointee that was claimed takes nothing from the budget of bytes: its claim moved the cursor
   // forward, which bounds the claims. One at the cursor is within the bytes of its struct, which
@@ -1142,25 +1169,25 @@ const unsafe fn check_value<
   if spends && !input.spends(bytes) {
     return addr;
   }
+  if const { WAITS && loops::<P>() }
+    && !is_empty
+    && (const { C::LOOP.some() } || input.parts < nested)
+  {
+    // SAFETY: The requirements of `waits` are those of this call, and a pointee that waits was
+    // claimed just before (`WAITS`).
+    return unsafe { waits::<C, P>(addr, len, input) };
+  }
   // An empty slice has no part to check, so that no check of it is called where a check of its
   // type is not inlined, as for the leaves of a tree.
   if is_empty {
     return VALID;
-  }
-  if const { WAITS && loops::<P>() } && (const { C::LOOP.some() } || input.parts < nested) {
-    // SAFETY: The requirements of `waits` are those of this call, and a pointee that waits was
-    // claimed just before (`WAITS`).
-    return unsafe { waits::<C, P>(addr, len, input) };
   }
   // A pointee that holds no eager aim nests the check of no other pointee: its check is as deep as
   // its own parts, a constant of its type, as the check of a value at the top of the bytes is, so
   // it takes no parts. Counting them stopped a chain of values, each with a list of numbers, where
   // the last value fitted in the parts and its list did not.
   let parts = if const { !holds_aims::<P>() } { 0 } else { parts };
-  if const { WAITS && loops::<P>() } {
-    // It did not wait, so at least `nested` parts are left, compared above.
-    input.parts -= parts;
-  } else if !input.nest(parts) {
+  if !input.nest(parts) {
     return addr;
   }
   // SAFETY: The value of `P` at `addr` is within the bytes of `input` or of a value within them,
@@ -1190,6 +1217,8 @@ const unsafe fn check_whole<C: Checks, P: ?Sized + Pointee>(
       validate_whole::<C, P::Value>(value, input)
     } else if const { !holds_aims::<P>() } {
       validate::<All, Root, P::Value>(value, input)
+    } else if const { loops::<P>() && !C::LOOP.some() && links::<P>() } {
+      validate::<InPlace<P>, Root, P::Value>(value, input)
     } else {
       validate_whole::<C, P::Value>(value, input)
     }
@@ -1201,6 +1230,130 @@ const unsafe fn check_whole<C: Checks, P: ?Sized + Pointee>(
 /// ([`PointeeType`]).
 const fn loops<P: ?Sized + Pointee>() -> bool {
   holds_aims::<P>() && P::POINTEE_ID.known()
+}
+
+/// Returns whether the pointee `P`, checked in place with `C`, is nested in a value of its type that
+/// leads to one pointee at most: a link of a chain, which a loop checks with no entry.
+const fn chained<C: Checks, P: ?Sized + Pointee>() -> bool {
+  C::MARK.is(&Looped::<P>::LOOP) && links::<P>()
+}
+
+/// Returns whether a value of the pointee `P`, with what it stores before it, leads to one pointee
+/// at most: the pointees of its type are links of a chain. Only such a pointee is checked in place
+/// with [`InPlace`], which tells that a link is nested in another; any other is checked as in a
+/// check without loops, with one instance.
+const fn links<P: ?Sized + Pointee>() -> bool {
+  <P::Value as Pun>::LAYOUT
+    .most_eager_aims()
+    .saturating_add(<P::Prefix as Pun>::LAYOUT.most_eager_aims())
+    <= 1
+}
+
+/// Returns how many parts of the layouts the check with `C` nests in place before a pointee of the
+/// type `P`, which a loop can take, waits for the loop of its type ([`check_value`]): [`IN_PLACE`]
+/// for a link of a chain, and [`AIM_PARTS`] for any other, but no more than those of as many values
+/// of `P`, one within another, as leave room within the frames of evaluation of a `const`
+/// ([`FRAMES`]) for the value at the top, counted as one of them, and for the loop that checks the
+/// next one, which nests no frame for those after it ([`level`]).
+///
+/// A check in a `const` cannot read an address ([`aligned`]), so it never checks a pointee that
+/// must be aligned, whose frames take nothing from the parts in place.
+const fn in_place<C: Checks, P: ?Sized + Pointee>() -> usize {
+  let kept = if chained::<C, P>() { IN_PLACE } else { AIM_PARTS };
+  if P::POINTEE_ALIGN > 1 {
+    return kept;
+  }
+  // The value at the top and those in place take a level each, and the loop one frame more.
+  let level = level::<P>();
+  let values = (FRAMES - RESERVED).saturating_sub(level + 1) / level;
+  let fit = values.saturating_sub(1).saturating_mul(parts::<P>());
+  if fit < kept { fit } else { kept }
+}
+
+/// Returns the frames of evaluation from the check of the pointee `P` in place ([`check_value`]) to
+/// that of a pointee that its value, or what the next pointee of its type stores before its value,
+/// holds, as deep as any: [`check_whole`], then [`validate_whole`] but for a link of a chain, then
+/// the check of its value and of that of what is stored before it ([`frames`]).
+const fn level<P: ?Sized + Pointee>() -> usize {
+  let whole = if links::<P>() { 1 } else { 2 };
+  whole + frames(&<P::Value as Pun>::LAYOUT) + frames(&<P::Prefix as Pun>::LAYOUT)
+}
+
+/// Returns the parts of the layouts of the value of the pointee `P` and of what it stores before it
+/// ([`Layout::parts`](layout::Layout::parts)).
+const fn parts<P: ?Sized + Pointee>() -> usize {
+  <P::Value as Pun>::LAYOUT.parts().saturating_add(<P::Prefix as Pun>::LAYOUT.parts())
+}
+
+/// Returns the frames of evaluation that the check of a value of `layout` stacks, from its
+/// [`validate`] to the [`check_value`] of the deepest pointee of its eager aims, both included, or
+/// 0 if it holds no eager aim. In a `const`, each call is a frame, and an item of a list (a field,
+/// a variant, a rule) is checked in a call nested in that of the item before it.
+const fn frames(layout: &layout::Layout) -> usize {
+  match layout.kind {
+    Kind::Scalar(_) | Kind::Pattern(_) => 0,
+    // `validate` and `validate_elems`.
+    Kind::Array(elem, _) | Kind::Slice(elem) => within(2, frames(elem)),
+    Kind::Struct(fields, rules) => {
+      // `validate`, then the fields.
+      let mut most = fields_frames(1, fields);
+      let mut j = 0;
+      while j < rules.len() {
+        if let Rule::Aim(aim) = rules[j]
+          && matches!(aim.check(), Check::Eager)
+        {
+          // `validate`, `check_rules`, `check_listed` up to the rule, `check_aim`, then
+          // `check_stored`, or `check_next` and `check_placed`, then `check_value`.
+          let at = 3 + (j + 1) + if matches!(aim.start, Start::Next(_)) { 3 } else { 2 };
+          if at > most {
+            most = at;
+          }
+        }
+        j += 1;
+      }
+      most
+    }
+    // A union holds no eager aim (`Layout::union`).
+    Kind::Enum(layout) if layout.union => 0,
+    Kind::Enum(layout) => {
+      let mut most = 0;
+      let mut k = 0;
+      while k < layout.variants.len() {
+        // `validate`, `validate_enum`, `validate_variants` up to the variant, `validate_variant`,
+        // then its fields.
+        let at = match layout.variants[k].layout.kind {
+          Kind::Struct(fields, _) => fields_frames(3 + (k + 1), fields),
+          _ => 0,
+        };
+        if at > most {
+          most = at;
+        }
+        k += 1;
+      }
+      most
+    }
+  }
+}
+
+/// Returns the frames of [`frames`] through the fields `fields`, `above` frames below the
+/// [`validate`] of their struct included: [`validate_fields`] for each field up to one, then the
+/// frames of its check.
+const fn fields_frames(above: usize, fields: &[layout::Field]) -> usize {
+  let mut most = 0;
+  let mut i = 0;
+  while i < fields.len() {
+    let at = within(above + (fields[i].index + 1), frames(fields[i].layout));
+    if at > most {
+      most = at;
+    }
+    i += 1;
+  }
+  most
+}
+
+/// Returns `frames` frames `above` more, or 0 if `frames` is: no eager aim.
+const fn within(above: usize, frames: usize) -> usize {
+  if frames == 0 { 0 } else { above + frames }
 }
 
 /// Returns whether the pointee `P` holds an eager aim, in its value or in what it stores before it,
@@ -1323,8 +1476,7 @@ const unsafe fn full<C: Checks, P: ?Sized + Pointee>(
   len: usize,
   input: &mut Input,
 ) -> Fault {
-  let parts =
-    const { <P::Value as Pun>::LAYOUT.parts().saturating_add(<P::Prefix as Pun>::LAYOUT.parts()) };
+  let parts = const { parts::<P>() };
   if !input.nest(parts) {
     return value;
   }
@@ -1644,8 +1796,7 @@ const unsafe fn start<P: ?Sized + Pointee>(
 /// requirements of [`check_value`] for `pointee`, a `P`, the last claim of the check.
 #[cfg_attr(not(debug_assertions), inline(always))]
 const unsafe fn run<P: ?Sized + Pointee>(pointee: Waiting, input: &mut Input) -> Fault {
-  let parts =
-    const { <P::Value as Pun>::LAYOUT.parts().saturating_add(<P::Prefix as Pun>::LAYOUT.parts()) };
+  let parts = const { parts::<P>() };
   let of = const { &Looped::<P>::LOOP };
   // The loops of the check, in the frame of the first loop, which nothing else uses while this
   // runs, read and written through this pointer, which the checks within the loop use as well.
@@ -2216,16 +2367,16 @@ pub const unsafe fn value_of<T: ?Sized + Pun, L: Rules>(
 /// leads to it, and the check of each part nests a few calls of the validation, whose frames depend
 /// on the code of `puns` and on how it is compiled, not on the type. So the check counts the parts
 /// of the layouts of the values that it nests, one within another (`Layout::parts`). A pointee that
-/// holds no eager aim, or an empty slice, nests no other pointee, so it takes no parts: its check
-/// is as deep as its own parts, a constant of its type, as the check of a value at the top of the
+/// holds no eager aim, or an empty slice, nests no other pointee, so it takes no parts: its check is
+/// as deep as its own parts, a constant of its type, as the check of a value at the top of the
 /// bytes is. Where a pointee of a type that holds an eager aim and has an identity would nest past
-/// `IN_PLACE` parts, it waits for a loop of its type instead, which nests a frame for each type
-/// on the path, not for each value, and each loop counts its parts again from this many: the loops
-/// that run at once are of different types, so the types bound them. What nests in a loop is the
-/// value that it checks, the pointees of a type without an identity, and those for which none of
-/// the 64 entries of the loops is left. The check returns [`Error::Limit`](crate::Error::Limit)
-/// where these nest past this many parts, whatever the bytes: a chain of a type without an
-/// identity, or a chain each of whose values has several deep pointees of its type.
+/// this many, it waits for a loop of its type instead, which nests a frame for each type on the
+/// path, not for each value, and each loop counts its parts again from this many: the loops that
+/// run at once are of different types, so the types bound them. What nests in a loop is the value
+/// that it checks, the pointees of a type without an identity, and those for which none of the 64
+/// entries of the loops is left. The check returns [`Error::Limit`](crate::Error::Limit) where these
+/// nest past this many parts, whatever the bytes: a chain of a type without an identity, or a chain
+/// each of whose values has several deep pointees of its type.
 ///
 /// A check takes at most 37 KiB of stack in a build without optimizations, and at most 3 KiB with
 /// them, whatever the depth of the data, and, for each loop of another type that runs within a
@@ -2241,14 +2392,25 @@ pub const unsafe fn value_of<T: ?Sized + Pun, L: Rules>(
 /// data of each shape, past this many parts, on a thread of 64 KiB.
 pub const AIM_PARTS: usize = 64;
 
-/// How many parts of the layouts the check nests in place before a pointee that a loop can take
-/// waits for the loop of its type ([`check_value`]). A check in a `const` then takes as many frames
-/// of evaluation whatever the depth of the data, within the 128 that Rust allows by default: 103
-/// for a chain of 1,000 links, and 81 for 1,000 lists of one value nested in each other
-/// (`tests/aims.rs`). Fewer would hand shallower data to the loops, whose first one costs about 50
-/// instructions to start for each part of the data that it takes. What a loop does not take nests further: the pointees past its entries, those
-/// of a type without an identity, and the loops of other types, each up to [`AIM_PARTS`].
-const IN_PLACE: usize = 32;
+/// How many parts of the layouts of a chain the check nests in place before a link of the chain
+/// waits for a loop of its type ([`check_value`]). A loop checks a chain with no entry and as fast
+/// as in place, so a chain leaves most of the parts in place to the values between its links that
+/// no loop takes, such as those of a type without an identity.
+const IN_PLACE: usize = 24;
+
+/// The frames of evaluation that Rust allows a `const` by default (`recursion_limit`), each call a
+/// frame. A check in a `const` takes, for each value that it nests in place, the frames of the
+/// check of the value ([`level`]), so it hands its pointees to the loops of their types before it
+/// passes them ([`in_place`]). From their constants, the checks of `tests/aims.rs` take 86 for its
+/// chain of 1,000 links, 112 for its 1,000 lists nested in each other, and 92 for its 1,000 links
+/// whose pointer is 12 structs deep.
+const FRAMES: usize = 128;
+
+/// The frames of evaluation of a check in a `const` that [`in_place`] leaves out of [`FRAMES`]:
+/// those of the caller, of the function of the crate that it calls, and of the deepest calls below
+/// the check of a pointee, which find where the pointee is. The checks of `tests/aims.rs` take up
+/// to 13 of them, which leaves 11 to the caller.
+const RESERVED: usize = 24;
 
 /// The bytes that a check reads, and what the check of eager aims may still spend in them.
 ///

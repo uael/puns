@@ -1151,6 +1151,46 @@ fn a_pointee_without_an_identity_is_checked_in_place() {
   assert_eq!(results, [Ok(()), Err(Error::Limit)]);
 }
 
+/// A value whose next value is of a type without an identity, which leads to one of this type.
+#[derive(Pun)]
+#[repr(C)]
+struct Linked {
+  next: Option<Near<Between<u8>>>,
+}
+
+/// A value of a type without an identity, of more parts than a `Linked`: a field is a part.
+#[derive(Pun)]
+#[repr(C)]
+struct Between<T> {
+  a: u32,
+  b: u32,
+  c: u32,
+  d: u32,
+  next: Option<Near<Linked>>,
+  _p: PhantomData<T>,
+}
+
+#[test]
+fn a_chain_leaves_its_parts_to_the_values_between_its_links() {
+  // A `Linked` is a link of a chain, nested in one of its type past a `Between`, so it waits for
+  // its loop past `IN_PLACE` parts, which leaves each `Between` the parts that it takes
+  // in place: had the links nested until their parts ran out, the last `Between` would not fit.
+  let mut image = Image::new();
+  let mut at = image.reserve(size_of::<Linked>(), 4);
+  for i in 1..if cfg!(miri) { 20 } else { 1_000 } {
+    // The pointer of a `Between` to a `Linked`, or of a `Linked` to a `Between`.
+    let (size, next) = if i % 2 == 0 {
+      (size_of::<Linked>(), core::mem::offset_of!(Between<u8>, next))
+    } else {
+      (size_of::<Between<u8>>(), core::mem::offset_of!(Linked, next))
+    };
+    let to = image.reserve(size, 4);
+    image.aim(at + next, to);
+    at = to;
+  }
+  assert_eq!(on_a_small_stack(move || head::<Linked>(&image)), Ok(()));
+}
+
 /// A list of bytes, of alignment 1: a check evaluated when compiling knows no address, so only a
 /// pointee of alignment 1 is aligned there (`puns::ptr::is_aligned`).
 #[derive(Pun)]
@@ -1256,9 +1296,9 @@ const fn nest_rest(bytes: &[u8]) -> Result<usize, Error> {
   }
 }
 
-/// The check of the lists when compiling: a list that may hold several values waits for the loop
-/// of its type past the parts that the check nests in place (`IN_PLACE`), as a link of a chain
-/// does, so the evaluation stays within the frames that Rust allows by default.
+/// The check of the lists when compiling: a list waits for the loop of its type where the check in
+/// place would not leave room for that loop in a `const`, as a link of a chain does, so the
+/// evaluation stays within the frames that Rust allows by default.
 const NESTED_REST: Result<usize, Error> = nest_rest(&NESTED);
 
 #[test]
@@ -1269,6 +1309,60 @@ fn nested_lists_are_checked_when_compiling() {
   let n = if cfg!(miri) { 40 } else { 1_000 };
   nested[2 * n + 1] = 0;
   assert_eq!(nest_rest(core::hint::black_box(&nested)), NESTED_REST);
+}
+
+/// A struct around a `T`.
+#[derive(Pun)]
+#[pun(bound(T: Pun))]
+#[repr(C)]
+struct Around<T> {
+  around: T,
+}
+
+/// A list of bytes whose pointer is 12 structs deep in each link, so that the check of a link takes
+/// more frames than that of a `Chain`.
+#[derive(Pun)]
+#[repr(u8)]
+enum DeepChain {
+  End,
+  Link(u8, Around<Around<Around<Around<Around<Around<Deeper>>>>>>),
+}
+
+/// 6 more structs around the pointer to the next value of a `DeepChain`.
+type Deeper = Around<Around<Around<Around<Around<Around<DeepNext>>>>>>;
+
+/// The next value of a `DeepChain`, at the distance that a little-endian `i32` gives, from its own
+/// address.
+#[derive(Pun)]
+#[repr(transparent)]
+struct DeepNext {
+  #[pun(pointer(next: DeepChain))]
+  off: InPlace<i32le>,
+}
+
+/// Returns what `from_head` finds of a `DeepChain` at the start of `bytes`: how many bytes follow
+/// it.
+const fn deep_chain_rest(bytes: &[u8]) -> Result<usize, Error> {
+  match puns::from_head::<DeepChain>(bytes) {
+    Ok((_, rest)) => Ok(rest.len()),
+    Err(error) => Err(error),
+  }
+}
+
+/// The links of `LINKS` as a `DeepChain`, checked when compiling: the check nests in place only as
+/// many links as leave room for their loop, whatever the frames that a link takes.
+const DEEP_LIST: Result<usize, Error> = deep_chain_rest(&LINKS);
+
+#[test]
+fn a_deep_list_of_deep_links_is_checked_when_compiling() {
+  assert_eq!(DEEP_LIST, Ok(6_006 - size_of::<DeepChain>()));
+  // The same check when running.
+  let mut links = LINKS;
+  let n = if cfg!(miri) { 40 } else { 1_000 };
+  if n < 1_000 {
+    links[6 * n] = 0;
+  }
+  assert_eq!(deep_chain_rest(core::hint::black_box(&links)), DEEP_LIST);
 }
 
 /// The value of an expression.

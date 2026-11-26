@@ -1136,10 +1136,15 @@
 //!   of shared aims, and those that end with the tail of their struct, even nested in one another),
 //!   and where its loops cannot take the pointees that wait: a chain of a type without an identity,
 //!   or a chain each of whose values has several deep pointees of its type ([`AIM_PARTS`]).
-//! - In a `const`, a check whose pointees its loops take stays within the 128 frames of evaluation
-//!   that Rust allows by default, whatever the depth of the data. What the loops do not take nests
-//!   in place, and each loop of another type adds its frames, so such a check may need a higher
-//!   `#![recursion_limit]`.
+//! - In a `const`, a check nests values in place only while the loop of their type still fits in
+//!   the 128 frames of evaluation that Rust allows by default, less 24 for its caller and its
+//!   deepest calls. So a check of data whose pointees that hold eager aims are of one type stays
+//!   within them whatever the depth of the data, if two such values fit, and the value at the top
+//!   is no deeper. What the loops do not take nests in place, up to [`AIM_PARTS`] parts in place and
+//!   again in each loop, at most 3 frames for each part: the pointees past the 64 entries of the
+//!   loops, those of a type without an identity, and those that never wait (at the cursor of their
+//!   struct, ending with its tail, or of a shared aim). Each loop of another type adds the frames
+//!   of one of its values. Such a check may need a higher `#![recursion_limit]`.
 //! - A union does not hold an eager aim.
 //! - The build time of a view enum whose variants overlap grows with the square of the number of
 //!   variants, or faster.
