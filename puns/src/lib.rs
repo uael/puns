@@ -1103,8 +1103,8 @@
 //! - A packed struct whose unsized field has trailing padding of its own is refused.
 //! - The check of eager [aims](#aims) of a reference follows pointees at any depth, but returns
 //!   [`Error::Limit`] past pointees of twice the bytes that it reads, and where its loops cannot
-//!   take the pointees that wait: a chain of a type without an identity, a chain each of whose
-//!   values has several pointees of its type, or a path through many types ([`AIM_PARTS`]).
+//!   take the pointees that wait: a chain of a type without an identity, or a chain each of whose
+//!   values has several deep pointees of its type ([`AIM_PARTS`]).
 //! - A union does not hold an eager aim.
 //! - The build time of a view enum whose variants overlap grows with the square of the number of
 //!   variants, or faster.
