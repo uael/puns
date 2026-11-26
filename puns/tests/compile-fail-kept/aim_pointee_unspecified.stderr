@@ -13,7 +13,7 @@ note: inside `puns::validate::pointee_checked::<Near<Rusty>, puns::RuleAt<0, pun
  ::: src/validate.rs
   |
   | /   assert!(
-  | |     matches!(aim.check, Check::Lazy)
+  | |     matches!(aim.check(), Check::Lazy)
   | |       || <<L::Pointee as Pointee>::Value as Pun>::LAYOUT.checks_kept()
   | |         && <<L::Pointee as Pointee>::Prefix as Pun>::LAYOUT.checks_kept(),
 ... |
@@ -30,12 +30,10 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let (eager, next) = const {
-  |  _______________________^
+  |     let next = const {
+  |  ______________^
   | |     let () = AimOf::<T, L>::CHECKED;
-  | |     match T::LAYOUT.rule(L::RULE) {
-  | |       Some(Rule::Aim(Aim { check, start, .. })) => {
-... |
+  | |     matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Next(_), .. })))
   | |   };
   | |___^
 

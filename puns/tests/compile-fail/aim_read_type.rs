@@ -41,9 +41,7 @@ type Fake = puns::RuleAt<0, (), puns::RuleAt<1, (), (), [u8]>, Thin<U, u64>>;
 fn main() {
   let bytes = [2u16, 7];
   let next = puns::from_head::<Next>(puns::as_bytes(&bytes)).unwrap().0;
-  // SAFETY: Not called: the instance does not compile.
-  let item = puns::AimOf::<Next, puns::RuleAt<0, puns::steps::One<0>, (), u32>>::NEW;
-  let _ = unsafe { puns::aim(next, item) };
+  let _ = puns::aim_of::<Next, puns::RuleAt<0, puns::steps::One<0>, (), u32>>(next);
   let words = [0u64; 2];
   let regions = puns::from_bytes::<Regions>(puns::as_bytes(&words)).unwrap();
   let _ = puns::region_as::<Regions, Fake>(regions);

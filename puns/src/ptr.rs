@@ -263,15 +263,6 @@ pub const unsafe fn head_size<T: ?Sized>(probe: *const T) -> usize {
 /// of these is a `const fn` on Rust 1.99.
 #[inline(always)]
 pub const fn is_aligned(addr: *const u8, align: usize) -> bool {
-  address(addr) & (align - 1) == 0
-}
-
-/// Returns the address of `addr`, as an integer.
-///
-/// The address is read through a union, as [`is_aligned`] explains. A call evaluated at compile
-/// time does not compile, unless the pointer was made from an integer.
-#[inline(always)]
-pub const fn address(addr: *const u8) -> usize {
   // SAFETY: A pointer to a sized type has the size of a `usize` (see `from_raw_parts`). So the
   // bytes of `addr`, which are initialized, are a `usize` of the same size (see `Cast`). This
   // reinterprets a pointer as an integer, which `core` says to avoid at run time [1], since its
@@ -290,5 +281,6 @@ pub const fn address(addr: *const u8) -> usize {
   //     use the resulting value for integer operations will abort const-evaluation. (And even
   //     outside `const`, such transmutation is touching on many unspecified aspects of the Rust
   //     memory model and should be avoided. [...])
-  unsafe { Cast::<*const u8, usize> { from: addr }.to }
+  let addr = unsafe { Cast::<*const u8, usize> { from: addr }.to };
+  addr & (align - 1) == 0
 }

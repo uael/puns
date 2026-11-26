@@ -1,5 +1,5 @@
 //! A union does not hold an eager aim: which of its fields its bytes are would depend on pointees
-//! that a check with a worklist checks after it.
+//! that a check may check after it, in a loop of their type.
 
 use core::mem::ManuallyDrop;
 

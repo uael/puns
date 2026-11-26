@@ -1,13 +1,13 @@
-//! The model check of aims: every value of small types with eager and lazy aims, at a stored place
-//! and at the cursor, whose oracles read the pointee in the bytes, as the documentation says, and
-//! the verdicts of the pairs of these types.
+//! The model check of aims: every value of small types with eager aims, at a stored place and at
+//! the cursor, and with lazy ones, at the cursor, whose oracles read the pointee in the bytes, as
+//! the documentation says, and the verdicts of the pairs of these types.
 //!
 //! The oracles of `puns_model` take a value of a `Copy` type, and a type with an eager aim is
 //! never one, nor made by value: its field is an `InPlace`. So this file has oracles of its own,
-//! over the bytes of a value, which hold its pointees: those of `try_pun_ref` from bytes, and of
-//! `check`. Each type is checked over every value of an alphabet of bytes against its oracle, and
-//! each pair against the oracle of its target: a pun that is proven must make a valid target of
-//! every valid source, and none makes a value with an eager aim, or a `&mut` to one.
+//! over the bytes of a value, which hold its pointees: those of `try_pun_ref` from bytes. Each type
+//! is checked over every value of an alphabet of bytes against its oracle, and each pair against
+//! the oracle of its target: a pun that is proven must make a valid target of every valid source,
+//! and none makes a value with an eager aim, or a `&mut` to one.
 //!
 //! This file is not built under Miri: it checks verdicts and every value, whose unsafe paths the
 //! tests of `puns` on aims (`puns/tests/aims.rs`) reach under Miri.
@@ -16,7 +16,7 @@
 
 use core::num::NonZero;
 
-use puns::{InPlace, Pending, Pun, Thin, hook};
+use puns::{InPlace, Pun, Thin, hook};
 
 /// A pointer to a `bool` in the struct, at the offset that its first byte holds.
 #[derive(Pun)]
@@ -34,16 +34,6 @@ struct Hop {
 struct HopNext {
   #[pun(pointer(bool = off as u128 + 1))]
   off: InPlace<u8>,
-  a: u8,
-  b: u8,
-}
-
-/// The same place, checked when it is read: it requires nothing of the struct.
-#[derive(Pun, Clone, Copy)]
-#[repr(C)]
-struct HopLazy {
-  #[pun(pointer(lazy bool = off as u128))]
-  off: u8,
   a: u8,
   b: u8,
 }
@@ -146,16 +136,15 @@ fn rest(b: &[u8]) -> bool {
   at <= b.len() && b[at..].iter().all(|byte| *byte != 0)
 }
 
-/// Checks every value of `T` with `from_bytes` and `check` against `oracle`, and that `T` is
-/// never made by value or reached through a `&mut` if it holds an eager aim.
+/// Checks every value of `T` with `from_bytes` against `oracle`, and that `T` is never made by
+/// value or reached through a `&mut` if it holds an eager aim.
 fn model<T: Pun>(name: &str, oracle: fn(&[u8]) -> bool, eager: bool) {
   let mut wrong = vec![];
   for value in values(size_of::<T>()) {
     let expected = oracle(&value);
     let from = puns::from_bytes::<T>(&value).is_ok();
-    let checked = puns::check::<T, 1, _>(&value, &mut [Pending::default(); 4]).is_ok();
-    if from != expected || checked != expected {
-      wrong.push(format!("{value:?}: from_bytes {from}, check {checked}, oracle {expected}"));
+    if from != expected {
+      wrong.push(format!("{value:?}: from_bytes {from}, oracle {expected}"));
     }
   }
   assert!(wrong.is_empty(), "{name}: {wrong:#?}");
@@ -172,7 +161,6 @@ fn model<T: Pun>(name: &str, oracle: fn(&[u8]) -> bool, eager: bool) {
 fn every_value_of_each_type() {
   model::<Hop>("Hop", hop, true);
   model::<HopNext>("HopNext", hop_next, true);
-  model::<HopLazy>("HopLazy", |_| true, false);
   model::<Flag>("Flag", flag, true);
   model::<FlagLazy>("FlagLazy", flag_lazy, false);
   model::<Bools>("Bools", bools, true);
@@ -205,16 +193,17 @@ fn pair<S: Pun, D: Pun>(name: &str, source: fn(&[u8]) -> bool, target: fn(&[u8])
 
 #[test]
 fn pairs() {
-  // The same aim proves itself, another place or a lazy aim does not prove an eager one, and an
-  // eager aim checks what a lazy one requires.
+  // The same aim proves itself, and an eager aim its bytes. Another place, bytes or a lazy aim do
+  // not prove an eager one, and an eager aim checks what a lazy one requires.
   pair::<Hop, Hop>("Hop -> Hop", hop, hop);
   pair::<Hop, HopNext>("Hop -> HopNext", hop, hop_next);
-  pair::<HopLazy, Hop>("HopLazy -> Hop", |_| true, hop);
-  pair::<Hop, HopLazy>("Hop -> HopLazy", hop, |_| true);
+  pair::<[u8; 3], Hop>("[u8; 3] -> Hop", |_| true, hop);
+  pair::<Hop, [u8; 3]>("Hop -> [u8; 3]", hop, |_| true);
   pair::<Flag, FlagLazy>("Flag -> FlagLazy", flag, flag_lazy);
   pair::<FlagLazy, Flag>("FlagLazy -> Flag", flag_lazy, flag);
   pair::<Bools, Bools>("Bools -> Bools", bools, bools);
   pair::<[u8; 4], Wide>("[u8; 4] -> Wide", |_| true, wide);
   assert!(hook::verdict::<Hop, Hop>().pun_ref, "the same aim proves itself");
-  assert!(!hook::verdict::<HopLazy, Hop>().pun_ref, "a lazy aim proves no eager one");
+  assert!(hook::verdict::<Hop, [u8; 3]>().pun_ref, "an eager aim proves its bytes");
+  assert!(!hook::verdict::<FlagLazy, Flag>().pun_ref, "a lazy aim proves no eager one");
 }

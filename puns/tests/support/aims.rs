@@ -5,7 +5,6 @@
 use core::{
   marker::{PhantomData, PhantomPinned},
   num::NonZero,
-  ptr,
 };
 
 use puns::{InPlace, Pun, Thin};
@@ -26,27 +25,6 @@ pub struct Near<T: ?Sized> {
   pub off: InPlace<NonZero<i32>>,
   _t: PhantomData<T>,
   _pin: PhantomPinned,
-}
-
-impl<T: ?Sized + Pun> Near<T> {
-  /// Returns the pointee, read with the provenance of `image`.
-  ///
-  /// A reference to a `Near` borrows only its 4 bytes, and the stacked borrows model of Miri
-  /// refuses a read of the pointee through a pointer made from it, which `target` makes, though
-  /// tree borrows accepts one. So the pointee is read with the provenance of the bytes that hold
-  /// both.
-  ///
-  /// # Safety
-  ///
-  /// `image` holds this `Near` and its pointee.
-  pub unsafe fn get<'a>(&'a self, image: &'a [u8]) -> &'a T {
-    #[expect(clippy::cast_ptr_alignment, reason = "the address of `self`, which is aligned")]
-    let this = image.as_ptr().with_addr(ptr::from_ref(self).addr()).cast::<Self>();
-    // SAFETY: A `Near` exists only where `puns` checked it with its pointee, and `image` holds
-    // both (the caller's contract), so `this` has the provenance of the bytes of both, which are
-    // not written while `image` is borrowed.
-    unsafe { puns::aim(this, Self::AIMS.pointee) }
-  }
 }
 
 /// A pair of a name, numbers and the next pair.

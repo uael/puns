@@ -105,7 +105,8 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   crate would declare it.
 - An aim (`layout::Aim`) is where its pointee is (`Start`: stored, or the cursor of the tail),
   how large it is (`Extent`: what the pointee stores, a length, a size in bytes, or the rest of the
-  tail of the struct), and when it is checked (`Check`), and every combination is checked and read.
+  tail of the struct), and, at the cursor, when it is checked (`Check`, in `Start::Next`): a
+  pointee at a stored place is checked with the struct. Every combination is checked and read.
   The size of a pointee is the size of its value with its metadata, as `size_of_val` gives. An
   eager aim is checked with the struct that holds it, its pointee within the bytes that the check
   reads (`validate::Input`), and code reads the pointee without a check, through a safe method.
@@ -119,9 +120,9 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   safe code makes a value of the struct, nor a reference to one but through `puns`: the
   documentation of `InPlace` states this argument, and the obligation of unsafe code that makes
   such values, as `nearest` does, and the `# Safety` of `Pun` the property that the reads rely
-  on. An `InPlace<T>` is a `T` in the layout. A lazy aim at the cursor requires of the struct only
-  that its pointee fits, and a lazy aim at a stored place nothing, so its type counts in a proof
-  only where the pointee stores its length.
+  on. An `InPlace<T>` is a `T` in the layout. A lazy aim, at the cursor, requires of the struct
+  only that its pointee fits, so its type counts in a proof only where the pointee stores its
+  length.
 - Both kinds of start are one rule (`Rule::Aim`), checked in one place (`validate::check_aim`),
   which places the pointee by one step of the cursor (`validate::cursor_step`) or at a stored place
   (`validate::stored_at`), written by the derive in one place (`aim_rule` in `puns-derive`), which
@@ -134,12 +135,13 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   of `aim_of`, a safe function of `puns`, with no `unsafe` block, so a crate path that names
   another function there calls safe code. `aim_of` relies on the `# Safety` of `Pun`, which the
   `InPlace` of the aim meets, and on the reference having the provenance of the bytes of the
-  pointee, which tree borrows gives and stacked borrows does not. `aim` and `aim_mut` take a
-  pointer, so that a caller under stacked borrows gives the provenance of the checked bytes, as the
-  tests that Miri runs with stacked borrows do (`tests/aims.rs`); the tests of the reads of
-  pointees outside the value through a reference (`tests/aim_reads.rs`) run under tree borrows
-  only. They name an aim by its name, a field of the constant `AIMS` that the derive writes
-  (`AimOf`). The derive writes no method that writes a pointee: such a method would be `unsafe`,
+  pointee, which tree borrows gives and stacked borrows does not. Tree borrows is the model of
+  `puns` for the reads of pointees: there is one read for each pointee, `name(&self)` over
+  `aim_of`, and none from a pointer for stacked borrows. The tests that read pointees through a
+  reference are the module `reads` of `tests/aims.rs`, which Miri runs under tree borrows only;
+  stacked borrows runs every other test. `aim_mut` writes a pointee from a pointer to the bytes
+  that unsafe code owns, and names an aim by its name, a field of the constant `AIMS` that the
+  derive writes (`AimOf`). The derive writes no method that writes a pointee: such a method would be `unsafe`,
   and would call a function that the crate path names. The length of a pointee that stores it is
   read from its sized fields or before its value only, by the check and by the read
   (`Layout::stores_length`, `validate::own_length`), so the read never meets a length that the
@@ -192,19 +194,6 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   assertion of a type that a check makes in `const` is an associated constant of its own
   (`validate::AimOf`, `FieldAt`, `RulesOf`), so that a refusal is reported once, whatever
   instances check it.
-- `check` and `check_compact` check with `validate::Work`: every pointee of an eager aim waits in
-  the worklist (`Pending`, a stage and where it applies), and `validate::drive`, one function for
-  every type (its steps are function pointers, the worklist a trait object), runs them depth
-  first, reversing those that each step adds, so that the parts of each value are checked before
-  its pointees, in the order that `nearest` 0.8 checked an image. Once an element of a slice put a
-  pointee in the worklist, the rest of the slice waits in one entry (`validate_elems`), so the
-  worklist grows with the depth of the data. Before a step, the driver grows the worklist to the
-  most entries that the step may add (`Layout::defers`), so no step is made twice, and a worklist
-  that cannot grow stops the check where an entry does not fit. Where the check fails is recorded
-  as it runs (`Input::fail`). A compact check claims each pointee where `check_stored` checks it
-  (`Input::claim`), so in the order of a copy. Alignment is by offset from a base alignment there
-  (`Input::aligned`), since the bytes are checked before they are copied. `Worklist` is an
-  `unsafe` trait: the driver keeps its entries in the memory that it gives.
 
 ## Not done yet
 

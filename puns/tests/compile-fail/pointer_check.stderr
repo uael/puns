@@ -1,0 +1,11 @@
+error: a `pointer` takes no `eager` or `lazy`: it is always eager, its pointee checked with the struct, since nothing but the bytes that hold the struct bounds where it is. A region says either
+ --> tests/compile-fail/pointer_check.rs:9:17
+  |
+9 |   #[pun(pointer(lazy next: u8 = at as u128))]
+  |                 ^^^^
+
+error: a `pointer` takes no `eager` or `lazy`: it is always eager, its pointee checked with the struct, since nothing but the bytes that hold the struct bounds where it is. A region says either
+  --> tests/compile-fail/pointer_check.rs:16:17
+   |
+16 |   #[pun(pointer(eager [u8] = at as u128, size = 1))]
+   |                 ^^^^^

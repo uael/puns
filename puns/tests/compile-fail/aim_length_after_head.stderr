@@ -29,12 +29,10 @@ note: erroneous constant encountered
 note: erroneous constant encountered
  --> src/validate.rs
   |
-  |     let (eager, next) = const {
-  |  _______________________^
+  |     let next = const {
+  |  ______________^
   | |     let () = AimOf::<T, L>::CHECKED;
-  | |     match T::LAYOUT.rule(L::RULE) {
-  | |       Some(Rule::Aim(Aim { check, start, .. })) => {
-... |
+  | |     matches!(T::LAYOUT.rule(L::RULE), Some(Rule::Aim(Aim { start: Start::Next(_), .. })))
   | |   };
   | |___^
 
