@@ -58,4 +58,4 @@ user's crate can redefine.
 [sample]: ../puns-model/tests/miri_sample.rs
 [aims]: ../puns/tests/aims.rs
 [compile-fail]: ../puns/tests/compile-fail
-[Soundness]: https://docs.rs/puns/0.2.4/puns/#soundness
+[Soundness]: https://docs.rs/puns/0.3.0/puns/#soundness

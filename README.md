@@ -1,8 +1,8 @@
 # puns
 
 [![CI](https://github.com/uael/puns/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/uael/puns/actions/workflows/ci.yml?query=branch%3Amain)
-[![docs.rs](https://img.shields.io/docsrs/puns/0.2.4)](https://docs.rs/puns/0.2.4)
-[![crates.io](https://img.shields.io/crates/v/puns)](https://crates.io/crates/puns/0.2.4)
+[![docs.rs](https://img.shields.io/docsrs/puns/0.3.0)](https://docs.rs/puns/0.3.0)
+[![crates.io](https://img.shields.io/crates/v/puns)](https://crates.io/crates/puns/0.3.0)
 [![license](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)](#license)
 
 Type punning proven at compile time: a safe alternative to `transmute` and to hand-written parsing
@@ -220,7 +220,7 @@ between half and 1.1 times as long. What you pay for is mostly build time: about
 in a debug build, and up to 25 s in release for a view of 64 overlapping variants.
 [`docs/performance.md`][performance] has the code, the method and the other cases.
 
-![Time of each check by puns, relative to the same check written by hand](https://raw.githubusercontent.com/uael/puns/v0.2.4/docs/charts/checks.svg)
+![Time of each check by puns, relative to the same check written by hand](https://raw.githubusercontent.com/uael/puns/v0.3.0/docs/charts/checks.svg)
 
 ## Safety and testing
 
@@ -286,30 +286,30 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 `puns` by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any
 additional terms or conditions.
 
-[msrv]: https://docs.rs/puns/0.2.4/puns/#minimum-rust-version
-[api]: https://docs.rs/puns/0.2.4/puns/#reference
-[Limitations]: https://docs.rs/puns/0.2.4/puns/#limitations
-[num]: https://docs.rs/puns/0.2.4/puns/num/index.html
-[error-type]: https://docs.rs/puns/0.2.4/puns/enum.Error.html
-[aim-parts]: https://docs.rs/puns/0.2.4/puns/constant.AIM_PARTS.html
-[derive]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
-[Soundness]: https://docs.rs/puns/0.2.4/puns/#soundness
-[deriving]: https://docs.rs/puns/0.2.4/puns/#what-deriving-pun-means
-[Compile-time errors]: https://docs.rs/puns/0.2.4/puns/#compile-time-errors
-[const]: https://docs.rs/puns/0.2.4/puns/#using-the-functions
-[unstable]: https://docs.rs/puns/0.2.4/puns/#the-unstable-feature
-[performance]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md
-[comparison]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md#compared-with-zerocopy-and-bytemuck
-[costs]: https://github.com/uael/puns/blob/v0.2.4/docs/performance.md#costs
-[testing]: https://github.com/uael/puns/blob/v0.2.4/docs/testing.md
-[changelog]: https://github.com/uael/puns/blob/v0.2.4/CHANGELOG.md
-[examples]: https://github.com/uael/puns/tree/v0.2.4/puns/examples
-[media]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/media.rs
-[link]: https://github.com/uael/puns/blob/v0.2.4/puns/examples/link.rs
+[msrv]: https://docs.rs/puns/0.3.0/puns/#minimum-rust-version
+[api]: https://docs.rs/puns/0.3.0/puns/#reference
+[Limitations]: https://docs.rs/puns/0.3.0/puns/#limitations
+[num]: https://docs.rs/puns/0.3.0/puns/num/index.html
+[error-type]: https://docs.rs/puns/0.3.0/puns/enum.Error.html
+[aim-parts]: https://docs.rs/puns/0.3.0/puns/constant.AIM_PARTS.html
+[derive]: https://docs.rs/puns/0.3.0/puns/derive.Pun.html
+[Soundness]: https://docs.rs/puns/0.3.0/puns/#soundness
+[deriving]: https://docs.rs/puns/0.3.0/puns/#what-deriving-pun-means
+[Compile-time errors]: https://docs.rs/puns/0.3.0/puns/#compile-time-errors
+[const]: https://docs.rs/puns/0.3.0/puns/#using-the-functions
+[unstable]: https://docs.rs/puns/0.3.0/puns/#the-unstable-feature
+[performance]: https://github.com/uael/puns/blob/v0.3.0/docs/performance.md
+[comparison]: https://github.com/uael/puns/blob/v0.3.0/docs/performance.md#compared-with-zerocopy-and-bytemuck
+[costs]: https://github.com/uael/puns/blob/v0.3.0/docs/performance.md#costs
+[testing]: https://github.com/uael/puns/blob/v0.3.0/docs/testing.md
+[changelog]: https://github.com/uael/puns/blob/v0.3.0/CHANGELOG.md
+[examples]: https://github.com/uael/puns/tree/v0.3.0/puns/examples
+[media]: https://github.com/uael/puns/blob/v0.3.0/puns/examples/media.rs
+[link]: https://github.com/uael/puns/blob/v0.3.0/puns/examples/link.rs
 [issues]: https://github.com/uael/puns/issues
 [wip]: https://github.com/uael/puns/tree/wip
-[apache]: https://github.com/uael/puns/blob/v0.2.4/LICENSE-APACHE
-[mit]: https://github.com/uael/puns/blob/v0.2.4/LICENSE-MIT
+[apache]: https://github.com/uael/puns/blob/v0.3.0/LICENSE-APACHE
+[mit]: https://github.com/uael/puns/blob/v0.3.0/LICENSE-MIT
 [zerocopy]: https://crates.io/crates/zerocopy
 [bytemuck]: https://crates.io/crates/bytemuck
 [binrw]: https://crates.io/crates/binrw
