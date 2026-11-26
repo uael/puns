@@ -50,8 +50,9 @@
 //! each claim. A pointee at the cursor, or one that ends with the tail of its struct, is within the
 //! struct and claims nothing, so it never waits, which would give it a window without a claim. The
 //! pointee of a shared aim is checked with [`Shared`], under which nothing is claimed and nothing
-//! waits. What is claimed shares no byte, so the claims bound the time of a check; what is not
-//! takes its size from a budget ([`Input`]).
+//! waits. What is claimed shares no byte, so the claims bound the time of a check; a pointee at
+//! the cursor is within its struct, which no other pointee at that cursor shares; what other aims
+//! may reach takes its size from a budget ([`Input`]).
 //!
 //! # Where a check fails
 //!
@@ -1022,20 +1023,21 @@ const unsafe fn check_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
   };
   if shared {
     // SAFETY: As below.
-    return unsafe { check_value::<Shared, L::Pointee, false>(addr, (len, size), input) };
+    return unsafe { check_value::<Shared, L::Pointee, false, true>(addr, (len, size), input) };
   }
   // A pointee that ends where the tail of the struct ends is within the struct, claimed with it,
-  // as a pointee at the cursor is, and is checked in place: no pointee waits without a claim.
+  // as a pointee at the cursor is, and is checked in place: no pointee waits without a claim. It
+  // takes its size from the budget, since other such pointees of the struct may share its bytes.
   if within {
     // SAFETY: As below.
-    return unsafe { check_value::<C, L::Pointee, false>(addr, (len, size), input) };
+    return unsafe { check_value::<C, L::Pointee, false, true>(addr, (len, size), input) };
   }
   if !input.claim(to - before, to + size, const { C::LOOP.some() }) {
     return base;
   }
   // SAFETY: The value is at `addr` with the length `len`, within the bytes of `input`, which are
   // valid for reads and initialized, as `check_value` requires.
-  unsafe { check_value::<C, L::Pointee, true>(addr, (len, size), input) }
+  unsafe { check_value::<C, L::Pointee, true, false>(addr, (len, size), input) }
 }
 
 /// Returns where the value of the pointee of the eager aim at a stored place `L` of the struct `T`
@@ -1102,8 +1104,10 @@ const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
   }
   // The value exists in the bytes: its size does not overflow.
   let Some(size) = const { <P::Value as Pun>::LAYOUT }.size_of_val(len) else { return addr };
+  // The pointees at the cursor of a struct share no byte, and lie within it: each is checked once
+  // for each check of the struct, so it takes nothing from the budget.
   // SAFETY: The requirements of `check_value` are those of this call.
-  unsafe { check_value::<C, P, false>(addr, (len, size), input) }
+  unsafe { check_value::<C, P, false, false>(addr, (len, size), input) }
 }
 
 /// Returns where the value of the pointee `P` at `addr`, the length of whose tail is `len` and
@@ -1111,8 +1115,11 @@ const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
 /// included. The caller computes the size, which a claim needs first.
 ///
 /// A pointee is checked in place, nested in the check of the value that holds its aim: it takes
-/// its parts from the budget of [`AIM_PARTS`] while it runs ([`Input::nest`]), and, if it is not
-/// claimed (`WAITS`), its size from the budget of bytes ([`Input::spends`]). A link of a chain
+/// its parts from the budget of [`AIM_PARTS`] while it runs ([`Input::nest`]), and, if other aims
+/// may reach its bytes (`SPENDS`), its size from the budget of bytes ([`Input::spends`]): one of a
+/// shared aim, or one that ends with the tail of its struct. A pointee that is claimed (`WAITS`),
+/// or at the cursor of its struct, takes 1 if it has no byte and holds an eager aim. A link of a
+/// chain
 /// ([`links`]) whose type has an identity is checked with [`InPlace`], so that a link of its type
 /// within it is known to be nested in it. A pointee of a type that holds an eager aim and has an
 /// identity waits for a loop of its type instead ([`waits`]), so that the frames stop growing with
@@ -1133,7 +1140,12 @@ const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
 ///
 /// The caller must ensure that the value of `P` at `addr` with that length is within the bytes of
 /// `input` or of a value within them, which are in one allocation, valid for reads and initialized.
-const unsafe fn check_value<C: Checks, P: ?Sized + Pointee, const WAITS: bool>(
+const unsafe fn check_value<
+  C: Checks,
+  P: ?Sized + Pointee,
+  const WAITS: bool,
+  const SPENDS: bool,
+>(
   addr: *const u8,
   (len, size): (usize, usize),
   input: &mut Input,
@@ -1149,10 +1161,13 @@ const unsafe fn check_value<C: Checks, P: ?Sized + Pointee, const WAITS: bool>(
   // type past `IN_PLACE` parts, or where its parts are not left.
   let is_empty = const { matches!(<P::Value as Pun>::LAYOUT.kind, Kind::Slice(_)) } && len == 0;
   // A pointee that was claimed takes nothing from the budget of bytes: its claim moved the cursor
-  // forward, which bounds the claims. One of no byte moved nothing, and takes 1, as any pointee
-  // that is not claimed takes its size (`Input::spends`).
+  // forward, which bounds the claims. One at the cursor is within the bytes of its struct, which
+  // no other pointee at the cursor shares. One of no byte moved nothing: it takes 1 if it holds an
+  // eager aim, as pointees of no byte may nest each other at any width (`Input::spends`), and
+  // nothing otherwise, since it nests no other pointee.
   let bytes = size.saturating_add(before);
-  if (const { !WAITS } || bytes == 0) && !input.spends(bytes) {
+  let spends = if bytes == 0 { !is_empty && const { holds_aims::<P>() } } else { SPENDS };
+  if spends && !input.spends(bytes) {
     return addr;
   }
   if const { WAITS && loops::<P>() }
@@ -2284,10 +2299,15 @@ const IN_PLACE: usize = 24;
 ///
 /// The pointee of an aim at a stored place must lie within these bytes ([`stored_at`]). A pointee
 /// that is claimed ([`Input::claim`]) shares no byte with another, so the claims of a check add up
-/// to at most the bytes, and its time grows with them. A pointee that is not claimed may be reached
-/// again: that of a shared aim, one within its struct, and one of no byte, whose claim moves
-/// nothing. Each of these takes its size from a budget of twice the length of the bytes, at least 1
-/// each ([`Input::spends`]), so that a check of a cycle through them ends.
+/// to at most the bytes, and its time grows with them. A pointee at the cursor of its struct is
+/// within it and shares no byte with the other pointees at that cursor, so it is checked once for
+/// each check of its struct, as deep as the parts allow. A pointee that is not claimed may be
+/// reached again: that of a shared aim, and one that ends with the tail of its struct, which other
+/// such aims of the struct may reach. Each of these takes its size from a budget of twice the
+/// length of the bytes, plus [`AIM_PARTS`] ([`Input::spends`]), so that a check of a cycle through
+/// them ends. So does each pointee of no byte that holds an eager aim, wherever it is, whose claim
+/// moves nothing: it takes 1, so that pointees of no byte that each nest several others end, and a
+/// chain of them as deep as the parts allow fits.
 ///
 /// It is `repr(C)`, so that `budget` and `parts` are not next to each other: a check writes them
 /// apart, and a load of both at once, which the compiler makes of two fields next to each other,
@@ -2333,7 +2353,7 @@ impl Input {
   pub const fn new(start: *const u8, len: usize, cursor: usize) -> Self {
     Self {
       start,
-      budget: len.saturating_mul(2),
+      budget: len.saturating_mul(2).saturating_add(AIM_PARTS),
       len,
       parts: AIM_PARTS,
       limit: false,
@@ -2387,8 +2407,8 @@ impl Input {
     true
   }
 
-  /// Takes a pointee of `size` bytes that is not claimed, or one of no byte, from the budget of
-  /// bytes, if there are enough left.
+  /// Takes a pointee of `size` bytes that other aims may reach, or 1 for one of no byte, from the
+  /// budget of bytes, if there are enough left.
   const fn spends(&mut self, size: usize) -> bool {
     let cost = if size == 0 { 1 } else { size };
     if self.budget < cost {
