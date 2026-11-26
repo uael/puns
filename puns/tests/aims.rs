@@ -449,6 +449,128 @@ fn what_a_shared_pointee_reaches_is_not_claimed() {
   assert_eq!(check(&two), Err(Error::Validity { at: at[1] }));
 }
 
+/// A pointer to a `u32`, a distance in bytes from itself, which no other pointer shares.
+#[derive(Pun)]
+#[repr(transparent)]
+struct Word {
+  #[pun(pointer(word: u32 = off as u128))]
+  off: InPlace<i32>,
+}
+
+/// An aim of the struct itself, on its first field, then a field that holds an aim.
+#[derive(Pun)]
+#[repr(C)]
+struct Mixed {
+  #[pun(pointer(first: u32 = off as u128))]
+  off: InPlace<i32>,
+  second: Word,
+}
+
+#[test]
+fn the_aims_within_the_fields_of_a_struct_come_before_its_own() {
+  let check = |words: [i32; 4]| puns::from_head::<Mixed>(puns::as_bytes(&words)).map(|_| ());
+  // The struct at 0, then two words. The fields are checked before the rules of the struct: the
+  // pointee of the pointer of the second field is at 8, and the one of the aim of the struct,
+  // which its first field declares, after it, at 12.
+  assert_eq!(check([12, 4, 1, 2]), Ok(()));
+  // In the order of the two fields, the second pointee claimed is before the first: the struct,
+  // whose aim leads to it, is where the bytes are not valid.
+  assert_eq!(check([8, 8, 1, 2]), Err(Error::Validity { at: 0 }));
+}
+
+/// What a list stores before its elements: a pointer, then its length.
+#[derive(Pun)]
+#[repr(C)]
+struct Noted {
+  note: Word,
+  len: i32,
+}
+
+/// A pointer to a list behind that prefix, at its length.
+#[derive(Pun)]
+#[repr(C)]
+struct ToNoted {
+  #[pun(pointer(list: Thin<[u32], Noted> = off as u128))]
+  off: InPlace<i32>,
+  pad: u32,
+}
+
+#[test]
+fn the_pointee_of_an_aim_of_a_prefix_comes_before_the_pointee_that_stores_it() {
+  let check = |words: [i32; 6]| puns::from_head::<ToNoted>(puns::as_bytes(&words)).map(|_| ());
+  // What a pointee stores before its value is checked before the pointee is claimed. The pointee
+  // of the pointer of the prefix is at 8, then the prefix at 12 and 16, and an element at 20.
+  assert_eq!(check([16, 0, 5, -4, 1, 77]), Ok(()));
+  // The prefix at 8 and 12, an element at 16, then the pointee of the pointer of the prefix at
+  // 20: the list is claimed after it, and starts before it.
+  assert_eq!(check([12, 0, 12, 1, 77, 5]), Err(Error::Validity { at: 0 }));
+}
+
+/// The rest of the tail of the struct, from a signed distance.
+#[derive(Pun)]
+#[repr(C)]
+struct Tail {
+  #[pun(pointer(rest: [u8] = from as u128, size = ..))]
+  from: InPlace<i8>,
+  x: u8,
+}
+
+/// A pointer to a `Tail`, after its offset, a byte.
+#[derive(Pun)]
+#[repr(C)]
+struct ToTail {
+  #[pun(pointer(tail: Tail = off as u128))]
+  off: InPlace<u8>,
+  a: u8,
+}
+
+#[test]
+fn a_pointee_of_the_rest_of_the_tail_starts_within_its_struct() {
+  let check = |from: i8| puns::from_head::<ToTail>(&[2, 9, from.cast_unsigned(), 7]).map(|_| ());
+  // The `Tail` is the bytes 2 and 3. Its rest is within it: both bytes, the last one, or none.
+  assert_eq!((check(0), check(1), check(2)), (Ok(()), Ok(()), Ok(())));
+  // Past its end, there is no rest: the `Tail`, whose aim leads to none, is not valid.
+  let refused = Err(Error::Validity { at: 2 });
+  assert_eq!(check(3), refused);
+  // Before it, the rest would hold bytes of the root, and the `Tail`, which the root claims: a
+  // pointee within its struct is not claimed, so it may not start before the struct.
+  assert_eq!((check(-1), check(-2)), (refused, refused));
+}
+
+#[test]
+fn the_pointees_of_a_value_read_from_the_tail_end_before_it() {
+  // A word, then a pointer that no other shares, read from the tail of the bytes.
+  let read = |off: i32| puns::from_tail::<Word>(puns::as_bytes(&[7, off])).map(|_| ());
+  assert_eq!(read(-4), Ok(()));
+  // Its pointee may not be the pointer itself: the claims end where the value starts.
+  assert_eq!(read(0), Err(Error::Validity { at: 4 }));
+}
+
+/// A struct whose tail is a region of one pointer that no other shares, then what remains.
+#[derive(Pun)]
+#[repr(C)]
+struct Parcel {
+  kind: u32,
+  #[pun(regions(label: Word = 4, rest))]
+  tail: [u8],
+}
+
+#[test]
+fn a_pointer_of_a_lazy_region_leads_after_the_region() {
+  let label = |off: i32| {
+    let words = [1, off, 7, 8];
+    let parcel = puns::from_bytes::<Parcel>(puns::as_bytes(&words)).unwrap();
+    parcel.label().map(|_| ())
+  };
+  // The region is the bytes 4 to 8. Its read claims the pointee of its pointer after it, within
+  // the struct.
+  assert_eq!((label(4), label(8)), (Ok(()), Ok(())));
+  // Not the region itself, nor a byte before it, nor past the struct: the pointer, at 4 in the
+  // struct, is where its bytes are not valid.
+  let refused = Err(Error::Validity { at: 4 });
+  assert_eq!((label(0), label(-4), label(12)), (refused, refused, refused));
+}
+
 /// A chain of `n` pairs, each pointing at the next, with an empty name and an empty list, in the
 /// order of a copy.
 fn chain(n: usize) -> Image {

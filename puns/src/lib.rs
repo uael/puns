@@ -644,24 +644,28 @@
 //!   read, so that a check of a cycle through shared aims ends, and where the loops cannot take the
 //!   pointees that wait ([`AIM_PARTS`] says when). They allocate nothing.
 //! - The pointees of the aims at a stored place are in the order of a copy: depth first, each value
-//!   before its pointees, the aims of a struct in the order of its fields, the elements of a list in
-//!   order. Each pointee, with what it stores before its value, starts at or after the end of every
-//!   one before it, and of the value that the check reads: after it for `from_head`, `from_bytes`
-//!   and the `try_` functions, before it for `from_tail`. Bytes that no aim reaches may be between
-//!   them. So no two pointees share a byte, none overlaps a value that holds the aim of another, and
-//!   a cycle, which reaches a pointee again, is refused with [`Error::Validity`]: the pointees form
-//!   a tree, which a write of a pointee relies on ([`aim_mut`]). The check keeps one cursor, the end
-//!   of the last pointee, and, for a pointee that waits for a loop, where the pointees after it
-//!   start, which bound its own. A pointee that ends where the tail of its struct ends
-//!   (`size = ..`) is within the struct, as a pointee at the cursor is, and is not counted. An aim
-//!   declared `shared` may lead to a pointee that other aims reach, anywhere in the bytes, within
-//!   the struct too: it and what it reaches are not counted and are checked in place. So is the
-//!   pointee of an aim within what it reaches, shared or not: other aims may reach that one as
-//!   well. [`aim_mut`] does not compile for a shared aim, and its caller answers for an aim within
-//!   what a shared aim reaches. So a cycle through shared aims, or many paths to one pointee, end
-//!   with [`Error::Limit`], when the pointees checked reach twice the bytes read, not with
-//!   [`Error::Validity`]; and shared pointees do not use the loops, so their depth is bounded by
-//!   [`AIM_PARTS`].
+//!   before its pointees, the elements of a list in order. In a struct, the pointees of the aims
+//!   that its fields hold come first, in the order of the fields, then those of its own aims, in
+//!   the order of the fields that declare them: the fields are checked before the rules, which read
+//!   them. What a pointee stores before its value is checked before the pointee is claimed, so the
+//!   pointee of an aim that it holds comes before the pointee that stores it. Each pointee, with
+//!   what it stores before its value, starts at or after the end of every one before it, and of the
+//!   value that the check reads: after it for `from_head`, `from_bytes` and the `try_` functions,
+//!   before it for `from_tail`. Bytes that no aim reaches may be between them. So no two pointees
+//!   share a byte, none overlaps a value that holds the aim of another, and a cycle, which reaches
+//!   a pointee again, is refused with [`Error::Validity`]: the pointees form a tree, which a write
+//!   of a pointee relies on ([`aim_mut`]). The check keeps one cursor, the end of the last pointee,
+//!   and, for a pointee that waits for a loop, where the pointees after it start, which bound its
+//!   own. A pointee that ends where the tail of its struct ends (`size = ..`) is within the struct,
+//!   as a pointee at the cursor is, and is not counted: one that starts before the struct is
+//!   refused. An aim declared `shared` may lead to a pointee that other aims reach, anywhere in the
+//!   bytes, within the struct too: it and what it reaches are not counted and are checked in place.
+//!   So is the pointee of an aim within what it reaches, shared or not: other aims may reach that
+//!   one as well. [`aim_mut`] does not compile for a shared aim, and its caller answers for an aim
+//!   within what a shared aim reaches. So a cycle through shared aims, or many paths to one
+//!   pointee, end with [`Error::Limit`], when the pointees checked reach twice the bytes read, not
+//!   with [`Error::Validity`]; and shared pointees do not use the loops, so their depth is bounded
+//!   by [`AIM_PARTS`].
 //! - So a reference to a struct with an eager aim is a reference to a valid pointee, which code
 //!   reads without a check, through a safe method that the derive writes. No function makes a value
 //!   that holds an eager aim (`pun`, `try_pun`, `zeroed` and the other functions that return a
@@ -679,15 +683,18 @@
 //!   nor in a proof, unless the pointee stores its length, which places the next one. What reads
 //!   the pointee checks it then. Where safe code wrote the fields of the struct so that a region
 //!   does not fit, the read truncates it to the tail, and a size whose expression fails takes what
-//!   remains.
+//!   remains. That read is a check of its own, of the bytes of the struct: it claims the pointees
+//!   of the eager aims of the region in the order of a copy, from the end of the region. It does
+//!   not know what another check claimed: the pointers of two lazy regions may lead to one
+//!   pointee, and a pointer of a region into a later region.
 //!
 //! The derive declares aims through two options ([Aims](macro@Pun#aims)), one for each place where
 //! a pointee is: `pointer(..)` on a field, whose integer is where the pointee is unless an
 //! expression of the option says otherwise, and `regions(..)` on the last field, whose tail the
 //! regions cut. A pointer is eager, and a region eager or lazy. They compose: a struct with regions
 //! may hold pointers, and the pointee of a region may hold pointers too, whose pointees its read
-//! looks for within the bytes of the struct, so that a pointer in a region may point at another
-//! region, but not at a byte outside the struct.
+//! looks for within the bytes of the struct, after the region unless the pointer is shared, so
+//! that a pointer in a region may point at another region, but not at a byte outside the struct.
 //!
 //! A struct with an eager aim holds its field (the offset of a pointer, or the bytes of eager
 //! regions) in an [`InPlace<T>`](InPlace), which no code makes, so no safe code makes a value of
@@ -1494,7 +1501,8 @@ pub use layout::{crc32, sum16};
 ///   large as what it stores says: the size of a sized type, or of an unsized one with the length
 ///   that a `Thin` stores, or that its own `size` or `len` rule gives from its sized fields. After
 ///   it, `len = EXPR` gives the length of an unsized pointee, `size = EXPR` its size in bytes, and
-///   `size = ..` makes it end where the tail of the struct ends. The name may be left out
+///   `size = ..` makes it end where the tail of the struct ends, for a pointee within the struct,
+///   which starts in it too. The name may be left out
 ///   (`pointer(Type = EXPR)`), for an aim that no method reads. The derive requires the type of the
 ///   field to be `Pun`, as it requires the type of a field, and the pointee to be a `Pointee`.
 /// - `#[pun(regions(first: Type = EXPR, second: Type, last))]`, on the last field: the bytes of the
@@ -5353,8 +5361,10 @@ pub const fn region<S: ?Sized + Pun, K: Item<S::Rules>>(value: &S) -> &[u8] {
 ///
 /// The bytes of the region are found as [`region`] finds them, and checked as [`from_bytes`]
 /// checks bytes, after what the pointee stores before its value, but the pointees of the eager aims
-/// of the region are looked for in the bytes of `value`, so that a pointer in a region may point at
-/// another region of the same struct.
+/// of the region are looked for in the bytes of `value`, after the region, in the order of a copy,
+/// so that a pointer in a region may point at a later region of the same struct, and a shared one
+/// anywhere in them. Each read is a check of its own, which does not know what another one
+/// claimed.
 ///
 /// # Errors
 ///
@@ -5599,15 +5609,23 @@ pub const fn aim_of<S: ?Sized + Pun, K: Item<S::Rules>>(value: &S) -> &ValueOf<S
 /// a value with an eager aim, as `nearest` writes its regions, keeps them for each value that it
 /// writes, since safe code reads its pointees. Rules of the pointee that do not give its length,
 /// such as an `assert`, are not needed: the read relies on none. A check of `puns` claims, in the
-/// order of a copy ("Aims" in the crate documentation), the pointee of each eager aim that is not
-/// shared and that no shared aim leads to. So no other such aim reaches its bytes, nor does a
-/// value that holds one: in bytes that unsafe code owns and that a check accepted, as `nearest`
-/// loads a region, the pointee of such an aim is reached through it only, unless what a shared
-/// aim reaches overlaps it. The pointee of an aim within what a shared aim reaches is not
-/// claimed, even if that aim is not shared: this function compiles for it, and nothing tells that
-/// its pointee is reached once. A reference that `puns` returned is shared, so its bytes are not
-/// for this function. What is written through the result is what later reads of the pointee rely
-/// on, safe ones included.
+/// order of a copy ("Aims" in the crate documentation), the pointee of each eager aim at a stored
+/// place that is not shared, that no shared aim leads to, and that does not take the rest of the
+/// tail of its struct. So no other such aim that the same check reaches leads to its bytes, nor
+/// does a value that holds one: in bytes that unsafe code owns and that one check accepted, as
+/// `nearest` loads a region, the pointee of such an aim is reached through it only, unless what a
+/// shared aim reaches overlaps it. This function compiles for other aims, whose pointees nothing
+/// tells to be reached once:
+///
+/// - An aim within what a shared aim reaches, even one that is not shared: nothing is claimed
+///   there.
+/// - An aim whose pointee is within its struct, at the cursor or of `size = ..`: its bytes are
+///   bytes of the value, which whatever leads to the value reaches.
+/// - An aim of a lazy region: each read of a region is a check of its own, so the pointers of two
+///   regions may lead to one pointee, or into a later region.
+///
+/// A reference that `puns` returned is shared, so its bytes are not for this function. What is
+/// written through the result is what later reads of the pointee rely on, safe ones included.
 ///
 /// # Compile-time errors
 ///
