@@ -1128,25 +1128,25 @@ const unsafe fn check_value<C: Checks, P: ?Sized + Pointee, const WAITS: bool>(
   if (const { !WAITS } || bytes == 0) && !input.spends(bytes) {
     return addr;
   }
-  if const { WAITS && loops::<P>() }
-    && !is_empty
-    && (const { C::LOOP.some() } || input.parts < nested)
-  {
-    // SAFETY: The requirements of `waits` are those of this call, and a pointee that waits was
-    // claimed just before (`WAITS`).
-    return unsafe { waits::<C, P>(addr, len, input) };
-  }
   // An empty slice has no part to check, so that no check of it is called where a check of its
   // type is not inlined, as for the leaves of a tree.
   if is_empty {
     return VALID;
+  }
+  if const { WAITS && loops::<P>() } && (const { C::LOOP.some() } || input.parts < nested) {
+    // SAFETY: The requirements of `waits` are those of this call, and a pointee that waits was
+    // claimed just before (`WAITS`).
+    return unsafe { waits::<C, P>(addr, len, input) };
   }
   // A pointee that holds no eager aim nests the check of no other pointee: its check is as deep as
   // its own parts, a constant of its type, as the check of a value at the top of the bytes is, so
   // it takes no parts. Counting them stopped a chain of values, each with a list of numbers, where
   // the last value fitted in the parts and its list did not.
   let parts = if const { !holds_aims::<P>() } { 0 } else { parts };
-  if !input.nest(parts) {
+  if const { WAITS && loops::<P>() } {
+    // It did not wait, so at least `nested` parts are left, compared above.
+    input.parts -= parts;
+  } else if !input.nest(parts) {
     return addr;
   }
   // SAFETY: The value of `P` at `addr` is within the bytes of `input` or of a value within them,
@@ -2229,11 +2229,12 @@ pub const AIM_PARTS: usize = 64;
 
 /// How many parts of the layouts the check nests in place before a pointee that a loop can take
 /// waits for the loop of its type ([`check_value`]). A check in a `const` then takes as many frames
-/// of evaluation whatever the depth of the data, within the 128 that Rust allows by default: 88 for
-/// a chain of 1,000 links, and 71 for 1,000 lists of one value nested in each other
-/// (`tests/aims.rs`). What a loop does not take nests further: the pointees past its entries, those
+/// of evaluation whatever the depth of the data, within the 128 that Rust allows by default: 103
+/// for a chain of 1,000 links, and 81 for 1,000 lists of one value nested in each other
+/// (`tests/aims.rs`). Fewer would hand shallower data to the loops, whose first one costs about 50
+/// instructions to start for each part of the data that it takes. What a loop does not take nests further: the pointees past its entries, those
 /// of a type without an identity, and the loops of other types, each up to [`AIM_PARTS`].
-const IN_PLACE: usize = 24;
+const IN_PLACE: usize = 32;
 
 /// The bytes that a check reads, and what the check of eager aims may still spend in them.
 ///
