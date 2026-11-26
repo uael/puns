@@ -123,7 +123,7 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   on. An `InPlace<T>` is a `T` in the layout. A lazy aim, at the cursor, requires of the struct
   only that its pointee fits, so its type counts in a proof only where the pointee stores its
   length.
-- Both kinds of start are one rule (`Rule::Aim`), checked in one place (`validate::check_aim`),
+- Both kinds of start are one rule (`Rule::Aim`), checked in one place (`validate::check_listed`),
   which places the pointee by one step of the cursor (`validate::cursor_step`) or at a stored place
   (`validate::stored_at`), written by the derive in one place (`aim_rule` in `puns-derive`), which
   `pointer(..)` and `regions(..)` enter. What reads a pointee finds it as the check does: the same
@@ -219,7 +219,7 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   an identity, those past the entries) is checked in place, a recursion that the parts of the
   layouts bound (`AIM_PARTS` again in each loop, `Layout::parts`), and `Error::Limit` is where that
   nests too deep. A pointee without an eager aim, or an empty slice, nests no pointee, so it takes
-  no parts. Leaves are checked with `All` (`validate::check_whole`), so that they have one
+  no parts. Leaves are checked with `All` (`validate::check_value`), so that they have one
   instance. Whether a loop runs is a constant of the checks (`Checks::LOOP`), so that a check in
   place holds no code of the loops, and the first loop is cold and never inlined
   (`validate::start`), and takes the budget of its pointee itself, so that a check that takes no

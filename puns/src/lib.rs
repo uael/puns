@@ -2628,6 +2628,9 @@ pub trait Steps: sealed::Sealed {
   /// The index of the first operation, and the one after the last.
   const FIRST: usize;
   const END: usize;
+  /// The frames of evaluation of `validate::steps` for these operations, its first call included,
+  /// to the deepest one that applies an operation: in a `const`, each call is a frame.
+  const FRAMES: usize;
   /// The two parts (`TWO`), `()` otherwise.
   type A: Steps;
   type B: Steps;
@@ -2683,6 +2686,7 @@ pub mod steps {
     const AT: usize = 0;
     const FIRST: usize = 0;
     const END: usize = 0;
+    const FRAMES: usize = 1;
     type A = ();
     type B = ();
     type Cond = ();
@@ -2696,6 +2700,7 @@ pub mod steps {
     const AT: usize = I;
     const FIRST: usize = I;
     const END: usize = I + 1;
+    const FRAMES: usize = 1;
     type A = ();
     type B = ();
     type Cond = ();
@@ -2711,6 +2716,8 @@ pub mod steps {
     const FIRST: usize =
       if A::END == B::FIRST && A::KIND != NONE && B::KIND != NONE { A::FIRST } else { usize::MAX };
     const END: usize = B::END;
+    // `steps` for each part, one after the other.
+    const FRAMES: usize = 1 + if A::FRAMES > B::FRAMES { A::FRAMES } else { B::FRAMES };
     type A = A;
     type B = B;
     type Cond = ();
@@ -2724,6 +2731,8 @@ pub mod steps {
     const AT: usize = I;
     const FIRST: usize = I;
     const END: usize = I + 1;
+    // `walk`, then `steps` for the condition and for what follows a step, one after the other.
+    const FRAMES: usize = 2 + if C::FRAMES > N::FRAMES { C::FRAMES } else { N::FRAMES };
     type A = ();
     type B = ();
     type Cond = C;

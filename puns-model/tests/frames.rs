@@ -19,7 +19,7 @@ const LIMIT: usize = 128;
 
 /// The frames of a constant of `frames` before its check: the constant, its function, and the
 /// first call of its pad.
-const CALLER: usize = 3;
+const OWN: usize = 3;
 
 /// A constant of `frames`: its name, its shape, its depth, and its line in the source.
 struct Case {
@@ -99,7 +99,7 @@ fn the_frames_of_a_check_are_those_that_the_validation_counts() {
   let cases = cases();
   // The most pads that do not fail, between `low` and `high`, by bisection.
   let at_zero = failing(&cases, &vec![0; cases.len()]);
-  let (mut low, mut high) = (vec![0; cases.len()], vec![LIMIT - CALLER; cases.len()]);
+  let (mut low, mut high) = (vec![0; cases.len()], vec![LIMIT - OWN; cases.len()]);
   while low.iter().zip(&high).any(|(low, high)| low < high) {
     let pads =
       low.iter().zip(&high).map(|(low, high)| (low + high).div_ceil(2)).collect::<Vec<_>>();
@@ -109,11 +109,45 @@ fn the_frames_of_a_check_are_those_that_the_validation_counts() {
       }
     }
   }
-  let mut table = String::new();
+  // The frames that each check takes, from `from_head`, by shape and depth.
+  let mut taken = BTreeMap::<&str, BTreeMap<usize, usize>>::new();
+  let (mut table, mut wrong, mut most) = (String::new(), vec![], 0);
   for (i, case) in cases.iter().enumerate() {
-    let taken = if at_zero[i] { None } else { Some(LIMIT - CALLER - low[i]) };
-    let model = model(&case.shape);
-    table += &format!("{} {} {:?} {:?}\n", case.name, case.depth, taken, model);
+    let frames = LIMIT - OWN - low[i];
+    let shown = if at_zero[i] { "fails".into() } else { frames.to_string() };
+    table += &format!("{} {shown}\n", case.name);
+    if at_zero[i] {
+      wrong.push(format!("{} passes the frames of a `const`", case.name));
+    }
+    taken.entry(&case.shape).or_default().insert(case.depth, frames);
   }
-  panic!("measured:\n{table}");
+  for (shape, taken) in &taken {
+    let Frames { level, looped, deepest, nested, reserved, caller, .. } = model(shape);
+    table += &format!("{shape}: {:?}\n", model(shape));
+    // Below the value at the top, each value in place takes `level` frames more than the one that
+    // points at it, the value of the loop `looped`, and those after it none, since the loop checks
+    // them one after another.
+    let start = |depth: usize| match depth {
+      _ if depth <= nested => depth * level,
+      _ => nested * level + looped,
+    };
+    for (&depth, &frames) in taken.range(2..) {
+      let expected = taken[&1] + start(depth) - start(1);
+      if frames != expected {
+        wrong.push(format!("{shape} at {depth}: {frames} frames, {expected} counted"));
+      }
+    }
+    // What the check takes past what `in_place` counts at most, within `RESERVED` with the frames
+    // of its caller.
+    let past = taken[&40].saturating_sub(nested * level + looped + deepest);
+    if past + caller > reserved {
+      wrong.push(format!("{shape}: {past} frames past those counted, {reserved} reserved"));
+    }
+    most = most.max(past);
+  }
+  let reserved = model("nest").reserved - model("nest").caller;
+  if most != reserved {
+    wrong.push(format!("at most {most} frames past those counted, {reserved} reserved"));
+  }
+  assert!(wrong.is_empty(), "{}\n{table}", wrong.join("\n"));
 }
