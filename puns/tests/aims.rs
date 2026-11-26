@@ -308,6 +308,68 @@ fn the_check_accepts_exactly_the_order_of_a_copy() {
   assert!(cfg!(miri) || in_order > 1000 && refused > in_order, "{in_order} and {refused}");
 }
 
+/// A value of the type of the loop below two others: a pointer to a [`Mid`], then one to a word,
+/// then one to a value of its own type.
+#[derive(Pun)]
+#[repr(C)]
+struct Low {
+  mid: Option<Near<Mid>>,
+  word: Option<Near<u32>>,
+  same: Option<Near<Self>>,
+}
+
+/// A value that points at a [`Top`], or at a [`Low`].
+#[derive(Pun)]
+#[repr(C)]
+struct Mid {
+  top: Option<Near<Top>>,
+  low: Option<Near<Low>>,
+}
+
+/// A value that points at a [`Mid`].
+#[derive(Pun)]
+#[repr(C)]
+struct Top {
+  mid: Option<Near<Mid>>,
+}
+
+#[test]
+fn a_pointee_handed_down_by_two_loops_ends_at_the_next_claim() {
+  // A chain of `Low`, for its loop to run, whose last value points at a `Mid` then at a word. The
+  // `Mid` points at a `Top`, whose loop finds a second `Mid` and hands it to the loop of `Mid`,
+  // which had no next pointee and takes it at once, in the same sequence. That `Mid` points at a
+  // `Low`, handed to the loop of `Low` below, which still checks the value that points at the
+  // word: the window of that last `Low` ends where the word starts, so its own word may not be
+  // that one.
+  for chain in [0, 3, 12, 40] {
+    let mut image = Image::new();
+    let mut last = image.reserve(size_of::<Low>(), 4);
+    for _ in 0..chain {
+      let next = image.reserve(size_of::<Low>(), 4);
+      image.aim(last + 8, next);
+      last = next;
+    }
+    let mid = image.reserve(size_of::<Mid>(), 4);
+    image.aim(last, mid);
+    let top = image.reserve(size_of::<Top>(), 4);
+    image.aim(mid, top);
+    let second = image.reserve(size_of::<Mid>(), 4);
+    image.aim(top, second);
+    let low = image.reserve(size_of::<Low>(), 4);
+    image.aim(second + 4, low);
+    let (own, word) = (image.reserve(4, 4), image.reserve(4, 4));
+    image.aim(low + 4, own);
+    image.aim(last + 4, word);
+    assert_eq!(head::<Low>(&image), Ok(()), "a chain of {chain}");
+    image.aim(low + 4, word);
+    // Where no loop runs, the word is refused where it is claimed again, at the pointer of the
+    // value that points at it. In a loop, the sequence of the last `Low` ends past its window: it
+    // is not valid.
+    let at = if chain == 0 { last + 4 } else { low };
+    assert_eq!(head::<Low>(&image), Err(Error::Validity { at }), "a chain of {chain}");
+  }
+}
+
 #[test]
 fn a_cycle_is_refused() {
   let (mut image, at) = two();
