@@ -932,10 +932,24 @@ const unsafe fn check_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
   // SAFETY: `before <= to <= input.len` (`find_stored`), so `add` stays within the bytes of
   // `input`, in one allocation, and so does `sub`.
   let (addr, start) = unsafe { (input.start.add(to), input.start.add(to - before)) };
+  // The pointee of a shared aim, and what it reaches, what it stores before its value included,
+  // claim nothing and wait for no loop.
+  let (shared, within) = const {
+    match T::LAYOUT.rule(L::RULE) {
+      Some(Rule::Aim(aim)) => (aim.shared || C::SHARED, matches!(aim.extent, Extent::Rest)),
+      _ => (C::SHARED, false),
+    }
+  };
   if before > 0
     // SAFETY: The `before` bytes of the prefix are at `start`, within the bytes of `input`, which
     // are valid for reads and initialized, as `validate` requires.
-    && !unsafe { validate_whole::<C, <L::Pointee as Pointee>::Prefix>(start.cast(), input) }
+    && !unsafe {
+      if shared {
+        validate_whole::<Shared, <L::Pointee as Pointee>::Prefix>(start.cast(), input)
+      } else {
+        validate_whole::<C, <L::Pointee as Pointee>::Prefix>(start.cast(), input)
+      }
+    }
   {
     return false;
   }
@@ -946,14 +960,7 @@ const unsafe fn check_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
   else {
     return false;
   };
-  let (shared, within) = const {
-    match T::LAYOUT.rule(L::RULE) {
-      Some(Rule::Aim(aim)) => (aim.shared, matches!(aim.extent, Extent::Rest)),
-      _ => (false, false),
-    }
-  };
-  if shared || const { C::SHARED } {
-    // The pointee of a shared aim, and what it reaches, claim nothing and wait for no loop.
+  if shared {
     // SAFETY: As below.
     return unsafe { check_value::<Shared, L::Pointee, false>(addr, (len, size), input) };
   }
