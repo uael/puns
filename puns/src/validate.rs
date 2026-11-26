@@ -1157,7 +1157,9 @@ const unsafe fn check_value<
   };
   let value = ptr::from_raw_parts::<P::Value>(addr, len);
   // An empty slice holds no aim, whatever its elements hold, and is checked in place at once. A
-  // pointee waits for a loop in a value of a loop, or, in place, past `in_place` parts.
+  // pointee waits for a loop in a value of a loop, or, in place, past `in_place` parts: where its
+  // parts are not left, it is compared with `parts`, as `Input::nest` compares it below, so that
+  // the optimizer drops that comparison, which the check of each element of a list made otherwise.
   let is_empty = const { matches!(<P::Value as Pun>::LAYOUT.kind, Kind::Slice(_)) } && len == 0;
   // A pointee that was claimed takes nothing from the budget of bytes: its claim moved the cursor
   // forward, which bounds the claims. One at the cursor is within the bytes of its struct, which
@@ -1171,7 +1173,8 @@ const unsafe fn check_value<
   }
   if const { WAITS && loops::<P>() }
     && !is_empty
-    && (const { C::LOOP.some() } || input.parts < nested)
+    && (const { C::LOOP.some() }
+      || input.parts < if const { in_place::<C, P>() < AIM_PARTS } { nested } else { parts })
   {
     // SAFETY: The requirements of `waits` are those of this call, and a pointee that waits was
     // claimed just before (`WAITS`).
