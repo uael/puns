@@ -532,6 +532,30 @@ fn trees(n: usize) -> Image {
   image
 }
 
+#[test]
+fn the_place_of_a_list_is_that_of_its_first_child_that_is_not_valid() {
+  // A root with `n` children, each with an empty list. The pointer of one child is aimed past
+  // the bytes: the check is not valid there, whatever the children before it, which were claimed
+  // and are valid.
+  for n in [1, 7, 8, 9, 16, 20] {
+    let mut image = Image::new();
+    let root = image.reserve(8, 4);
+    let list = image.list(n);
+    image.aim(root + 4, list);
+    for child in 0..n {
+      let empty = image.list(0);
+      image.aim(list + 4 + 8 * child + 4, empty);
+    }
+    assert_eq!(head::<Tree>(&image), Ok(()), "{n} children");
+    for child in 0..n {
+      let pointer = list + 4 + 8 * child + 4;
+      let mut past = Image { bytes: image.bytes.clone() };
+      past.aim(pointer, image.bytes.len() + 64);
+      assert_eq!(head::<Tree>(&past), Err(Error::Validity { at: pointer }), "child {child} of {n}");
+    }
+  }
+}
+
 /// A balanced tree of `levels` levels of `Tree`s below the root, two children each.
 fn balanced_trees(levels: usize) -> Image {
   fn kids(image: &mut Image, at: usize, levels: usize) {

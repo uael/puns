@@ -4169,9 +4169,16 @@ impl Layout {
   /// stopping between them (`validate::validate_elems`).
   ///
   /// This is as many as fit in 64 bytes, if an element is 1 to 16 bytes and checking one takes a
-  /// few comparisons ([`Layout::is_cheap`]), and 1 otherwise.
+  /// few comparisons ([`Layout::is_cheap`]), and 1 otherwise. It is 1 for an element that holds an
+  /// eager aim, whose check is that of its pointee, and claims it: a block that is not valid is
+  /// checked again, an element at a time, to find where, and a pointee is claimed once.
   pub(crate) const fn block(&self) -> usize {
-    if self.size == 0 || self.size > 16 || self.unsized_ || !self.is_cheap() {
+    if self.size == 0
+      || self.size > 16
+      || self.unsized_
+      || !self.is_cheap()
+      || self.holds_eager_aims()
+    {
       return 1;
     }
     64 / self.size
