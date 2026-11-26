@@ -1286,7 +1286,7 @@ const fn in_place<C: Checks, P: ?Sized + Pointee>() -> usize {
 /// Returns what [`level`], [`parts`] and [`in_place`] give for the pointee `P`, for
 /// `puns::hook::frames`.
 #[cfg(feature = "verdict")]
-pub(crate) const fn model<P: ?Sized + Pointee>() -> (usize, usize, usize, usize) {
+pub const fn model<P: ?Sized + Pointee>() -> (usize, usize, usize, usize) {
   (level::<P>(), parts::<P>(), in_place::<All, P>(), in_place::<InPlace<P>, P>())
 }
 

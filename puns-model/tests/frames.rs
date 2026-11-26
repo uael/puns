@@ -52,7 +52,8 @@ fn failing(cases: &[Case], pads: &[usize]) -> Vec<bool> {
   let pads = pads.iter().map(ToString::to_string).collect::<Vec<_>>().join(",");
   let output = Command::new(cargo)
     .current_dir(&root)
-    .args(["check", "--quiet", "-p", "frames", "--message-format", "short", "--target-dir"])
+    .args(["check", "--quiet", "--color", "never", "-p", "frames", "--message-format", "short"])
+    .arg("--target-dir")
     .arg(root.join("target/frames"))
     .env("PUNS_FRAMES_PADS", &pads)
     .output()
@@ -100,7 +101,8 @@ fn the_frames_of_a_check_are_those_that_the_validation_counts() {
   let at_zero = failing(&cases, &vec![0; cases.len()]);
   let (mut low, mut high) = (vec![0; cases.len()], vec![LIMIT - CALLER; cases.len()]);
   while low.iter().zip(&high).any(|(low, high)| low < high) {
-    let pads = low.iter().zip(&high).map(|(low, high)| (low + high).div_ceil(2)).collect::<Vec<_>>();
+    let pads =
+      low.iter().zip(&high).map(|(low, high)| (low + high).div_ceil(2)).collect::<Vec<_>>();
     for (i, fails) in failing(&cases, &pads).into_iter().enumerate() {
       if low[i] < high[i] {
         if fails { high[i] = pads[i] - 1 } else { low[i] = pads[i] }
