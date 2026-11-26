@@ -430,8 +430,8 @@ note: erroneous constant encountered
   |     let (shared, within) = const {
   |  __________________________^
   | |     match T::LAYOUT.rule(L::RULE) {
-  | |       Some(Rule::Aim(aim)) => (aim.shared, matches!(aim.extent, Extent::Rest)),
-  | |       _ => (false, false),
+  | |       Some(Rule::Aim(aim)) => (aim.shared || C::SHARED, matches!(aim.extent, Extent::Rest)),
+  | |       _ => (C::SHARED, false),
   | |     }
   | |   };
   | |___^
