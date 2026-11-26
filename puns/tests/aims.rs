@@ -1228,6 +1228,49 @@ fn a_deep_list_is_checked_when_compiling() {
   assert_eq!(chain_rest(core::hint::black_box(&links)), LIST);
 }
 
+/// A list of values of its type, `off` bytes after it, of alignment 1, for a check when compiling.
+#[derive(Pun)]
+#[repr(C)]
+struct Nest {
+  #[pun(pointer(kids: [Nest] = off as u128, len = n as u128))]
+  off: InPlace<u8>,
+  n: u8,
+}
+
+/// 1,000 lists of one value, each the list of the value before, then an empty list.
+const NESTED: [u8; 2_002] = {
+  let mut bytes = [0; 2_002];
+  let mut i = 0;
+  while i <= 1_000 {
+    (bytes[2 * i], bytes[2 * i + 1]) = (2, if i < 1_000 { 1 } else { 0 });
+    i += 1;
+  }
+  bytes
+};
+
+/// Returns what `from_head` finds of a `Nest` at the start of `bytes`: how many bytes follow it.
+const fn nest_rest(bytes: &[u8]) -> Result<usize, Error> {
+  match puns::from_head::<Nest>(bytes) {
+    Ok((_, rest)) => Ok(rest.len()),
+    Err(error) => Err(error),
+  }
+}
+
+/// The check of the lists when compiling: a list that may hold several values waits for the loop
+/// of its type past the parts that the check nests in place (`IN_PLACE`), as a link of a chain
+/// does, so the evaluation stays within the frames that Rust allows by default.
+const NESTED_REST: Result<usize, Error> = nest_rest(&NESTED);
+
+#[test]
+fn nested_lists_are_checked_when_compiling() {
+  assert_eq!(NESTED_REST, Ok(2_002 - size_of::<Nest>()));
+  // The same check when running. Under Miri, 40 levels reach the loop.
+  let mut nested = NESTED;
+  let n = if cfg!(miri) { 40 } else { 1_000 };
+  nested[2 * n + 1] = 0;
+  assert_eq!(nest_rest(core::hint::black_box(&nested)), NESTED_REST);
+}
+
 /// The value of an expression.
 fn sum(e: &Expr) -> i64 {
   match e {

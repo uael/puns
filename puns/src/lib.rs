@@ -1132,6 +1132,10 @@
 //!   [`Error::Limit`] past pointees of twice the bytes that it reads, and where its loops cannot
 //!   take the pointees that wait: a chain of a type without an identity, or a chain each of whose
 //!   values has several deep pointees of its type ([`AIM_PARTS`]).
+//! - In a `const`, a check whose pointees its loops take stays within the 128 frames of evaluation
+//!   that Rust allows by default, whatever the depth of the data. What the loops do not take nests
+//!   in place, and each loop of another type adds its frames, so such a check may need a higher
+//!   `#![recursion_limit]`.
 //! - A union does not hold an eager aim.
 //! - The build time of a view enum whose variants overlap grows with the square of the number of
 //!   variants, or faster.
