@@ -1325,10 +1325,13 @@ struct Around<T> {
 #[repr(u8)]
 enum DeepChain {
   End,
-  Link(u8, Around<Around<Around<Around<Around<Around<Deeper>>>>>>),
+  Link(u8, Deepest),
 }
 
-/// 6 more structs around the pointer to the next value of a `DeepChain`.
+/// 12 structs around the pointer to the next value of a `DeepChain`.
+type Deepest = Around<Around<Around<Around<Around<Around<Deeper>>>>>>;
+
+/// The 6 innermost of them.
 type Deeper = Around<Around<Around<Around<Around<Around<DeepNext>>>>>>;
 
 /// The next value of a `DeepChain`, at the distance that a little-endian `i32` gives, from its own
