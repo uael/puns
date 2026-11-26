@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/uael/puns/compare/v0.2.4...v0.3.0) - 2026-11-26
+
+### Added
+
+- [**breaking**] Error::Validity says where the check fails ([#79](https://github.com/uael/puns/pull/79))
+- the pointees of eager aims form a tree in the order of a copy, unless an aim is shared ([#78](https://github.com/uael/puns/pull/78))
+- the check of eager aims follows pointees at any depth, with a loop per type ([#73](https://github.com/uael/puns/pull/73))
+- [**breaking**] aims, values at a place of the checked bytes that a struct points at ([#72](https://github.com/uael/puns/pull/72))
+- assume, and check when compiling, the layout that rustc gives enums of the Rust representation ([#71](https://github.com/uael/puns/pull/71))
+- tuples of up to 12 elements, and packed unions ([#70](https://github.com/uael/puns/pull/70))
+
+### Fixed
+
+- the only aim of a struct that ends with its tail takes nothing from the budget of bytes ([#83](https://github.com/uael/puns/pull/83))
+- a pointee at the cursor takes nothing from the budget of bytes ([#81](https://github.com/uael/puns/pull/81))
+- the parts of the check stop no data that nearest writes ([#77](https://github.com/uael/puns/pull/77))
+- the identity of a derived type is a literal of its crate as rustc tells crates apart ([#74](https://github.com/uael/puns/pull/74))
+- a generic type that derives `Pun` has an identity made of its parameters ([#69](https://github.com/uael/puns/pull/69))
+- a `usize::MAX` named through `::core` no longer chooses a verdict ([#68](https://github.com/uael/puns/pull/68))
+- measure the offsets of a repr(C) struct of any size ([#66](https://github.com/uael/puns/pull/66))
+
+### Other
+
+- remove check, the worklist, the read for stacked borrows and lazy pointers ([#75](https://github.com/uael/puns/pull/75))
+- pin Rust 1.99.1, the minimum version, and test the derive on 1.100 ([#76](https://github.com/uael/puns/pull/76))
+
 ## [0.2.4](https://github.com/uael/puns/compare/v0.2.3...v0.2.4) - 2026-11-23
 
 ### Fixed
