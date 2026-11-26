@@ -586,6 +586,45 @@ fn a_pointee_of_the_rest_of_the_tail_starts_within_its_struct() {
   assert_eq!((check(-1), check(-2)), (refused, refused));
 }
 
+/// A struct whose pointer leads to the rest of its tail, a `Rest<T>`, from a signed distance.
+#[derive(Pun)]
+#[pun(bound(T: Pun))]
+#[repr(C)]
+struct Rest<T: ?Sized> {
+  #[pun(pointer(rest: T = from as u128, size = ..))]
+  from: InPlace<i8>,
+  _t: PhantomData<T>,
+  tail: [u8],
+}
+
+/// The same with two such pointers, which may lead to the same bytes.
+#[derive(Pun)]
+#[pun(bound(T: Pun))]
+#[repr(C)]
+struct Rests<T: ?Sized> {
+  #[pun(pointer(first: T = first as u128, size = ..))]
+  first: InPlace<i8>,
+  #[pun(pointer(second: T = second as u128, size = ..))]
+  second: InPlace<i8>,
+  _t: PhantomData<T>,
+  tail: [u8],
+}
+
+#[test]
+fn rests_nested_in_one_another_are_within_their_struct() {
+  // The pointee of the only aim of a struct that ends with its tail is within it, and no other
+  // pointee of the struct shares its bytes, so each is checked once for each check of its struct,
+  // and rests nested in one another take nothing from the budget of bytes.
+  for n in [3, 8, 64, 200] {
+    let bytes = vec![1u8; n];
+    assert!(puns::from_bytes::<Rest<Rest<Rest<[u8]>>>>(&bytes).is_ok(), "{n} bytes");
+  }
+  // Two such pointees of a struct may share their bytes, so that the checks of the same bytes
+  // would double at each level: they take their size from the budget, which stops them.
+  let rests = |n: usize| puns::from_bytes::<Rests<Rests<Rests<[u8]>>>>(&vec![2u8; n]).map(|_| ());
+  assert_eq!((rests(8), rests(200)), (Ok(()), Err(Error::Limit)));
+}
+
 #[test]
 fn the_pointees_of_a_value_read_from_the_tail_end_before_it() {
   // A word, then a pointer that no other shares, read from the tail of the bytes.

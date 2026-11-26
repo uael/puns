@@ -52,8 +52,9 @@
 //! struct and claims nothing, so it never waits, which would give it a window without a claim. The
 //! pointee of a shared aim is checked with [`Shared`], under which nothing is claimed and nothing
 //! waits. What is claimed shares no byte, so the claims bound the time of a check; a pointee at
-//! the cursor is within its struct, which no other pointee at that cursor shares; what other aims
-//! may reach takes its size from a budget ([`Input`]).
+//! the cursor is within its struct, which no other pointee at that cursor shares, and so is one
+//! that ends with the tail of a struct that holds no other eager aim; what other aims may reach
+//! takes its size from a budget ([`Input`]).
 //!
 //! # Where a check fails
 //!
@@ -1028,10 +1029,19 @@ const unsafe fn check_stored<C: Checks, T: ?Sized + Pun, L: Rules>(
   }
   // A pointee that ends where the tail of the struct ends is within the struct, claimed with it,
   // as a pointee at the cursor is, and is checked in place: no pointee waits without a claim. It
-  // takes its size from the budget, since other such pointees of the struct may share its bytes.
+  // takes its size from the budget where the struct holds another eager aim, whose pointee may
+  // share its bytes, so that checks of the same bytes do not multiply at each level of nesting.
+  // The only one of its struct is checked once for each check of the struct, as a pointee at the
+  // cursor is, as deep as the parts allow.
   if within {
     // SAFETY: As below.
-    return unsafe { check_value::<C, L::Pointee, false, true>(addr, (len, size), input) };
+    return unsafe {
+      if const { T::LAYOUT.most_eager_aims() > 1 } {
+        check_value::<C, L::Pointee, false, true>(addr, (len, size), input)
+      } else {
+        check_value::<C, L::Pointee, false, false>(addr, (len, size), input)
+      }
+    };
   }
   if !input.claim(to - before, to + size, const { C::LOOP.some() }) {
     return base;
@@ -1118,12 +1128,12 @@ const unsafe fn check_placed<C: Checks, P: ?Sized + Pointee>(
 /// A pointee is checked in place, nested in the check of the value that holds its aim: it takes
 /// its parts from the budget of [`AIM_PARTS`] while it runs ([`Input::nest`]), and, if other aims
 /// may reach its bytes (`SPENDS`), its size from the budget of bytes ([`Input::spends`]): one of a
-/// shared aim, or one that ends with the tail of its struct. A pointee that is claimed (`WAITS`),
-/// or at the cursor of its struct, takes 1 if it has no byte and holds an eager aim. A link of a
-/// chain ([`links`]) whose type has an identity is checked with [`InPlace`], so that a link of its
-/// type within it is known to be nested in it. A pointee of a type that holds an eager aim and has
-/// an identity waits for a loop of its type instead ([`waits`]), so that the frames stop growing
-/// with the data:
+/// shared aim, or one that ends with the tail of a struct that holds another eager aim. A pointee
+/// that is claimed (`WAITS`), or at the cursor of its struct, takes 1 if it has no byte and holds
+/// an eager aim. A link of a chain ([`links`]) whose type has an identity is checked with
+/// [`InPlace`], so that a link of its type within it is known to be nested in it. A pointee of a
+/// type that holds an eager aim and has an identity waits for a loop of its type instead
+/// ([`waits`]), so that the frames stop growing with the data:
 ///
 /// - in a value of a loop ([`Looped`]), always;
 /// - where its parts are not left, where a check without loops stops ([`Error::Limit`]);
@@ -2421,9 +2431,10 @@ const RESERVED: usize = 24;
 /// that is claimed ([`Input::claim`]) shares no byte with another, so the claims of a check add up
 /// to at most the bytes, and its time grows with them. A pointee at the cursor of its struct is
 /// within it and shares no byte with the other pointees at that cursor, so it is checked once for
-/// each check of its struct, as deep as the parts allow. A pointee that is not claimed may be
-/// reached again: that of a shared aim, and one that ends with the tail of its struct, which other
-/// such aims of the struct may reach. Each of these takes its size from a budget of twice the
+/// each check of its struct, as deep as the parts allow, and so is one that ends with the tail of a
+/// struct that holds no other eager aim. A pointee that is not claimed may be reached again: that
+/// of a shared aim, and one that ends with the tail of a struct that holds another eager aim, whose
+/// pointee may share its bytes. Each of these takes its size from a budget of twice the
 /// length of the bytes, plus [`AIM_PARTS`] ([`Input::spends`]), so that a check of a cycle through
 /// them ends. So does each pointee of no byte that holds an eager aim, wherever it is, whose claim
 /// moves nothing: it takes 1, so that pointees of no byte that each nest several others end, and a
