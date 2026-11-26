@@ -2205,7 +2205,7 @@ pub const unsafe fn value_of<T: ?Sized + Pun, L: Rules>(
 /// holds no eager aim, or an empty slice, nests no other pointee, so it takes no parts: its check
 /// is as deep as its own parts, a constant of its type, as the check of a value at the top of the
 /// bytes is. Where a pointee of a type that holds an eager aim and has an identity would nest past
-/// [`IN_PLACE`] parts, it waits for a loop of its type instead, which nests a frame for each type
+/// `IN_PLACE` parts, it waits for a loop of its type instead, which nests a frame for each type
 /// on the path, not for each value, and each loop counts its parts again from this many: the loops
 /// that run at once are of different types, so the types bound them. What nests in a loop is the
 /// value that it checks, the pointees of a type without an identity, and those for which none of
