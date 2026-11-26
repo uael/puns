@@ -106,8 +106,8 @@ fn chain(n: usize) -> Image {
   image
 }
 
-/// The stack of the thread of a check: the 23 KiB at most that a check takes (`AIM_PARTS`), and
-/// room for the test.
+/// The stack of the thread of a check: what a check takes at most (`AIM_PARTS`), and room for the
+/// test.
 const SMALL_STACK: usize = 64 << 10;
 
 /// Runs `f` on a thread of `SMALL_STACK` bytes of stack, in a build without optimizations too.

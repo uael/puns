@@ -207,9 +207,8 @@ only on nightly.
   ([details][costs]).
 - An [`Error`][error-type] doesn't tell you which field or rule failed.
 - `from_bytes` and the other functions that follow the pointers of a struct check what they point
-  at on the stack, a few levels of a type that points at itself, and return `Error::Limit` past
-  them. Check deeper data with [`check`][check], which keeps the pointers still to follow in a list
-  that you give.
+  at to any depth, with a stack that the types bound, not the data. They return `Error::Limit` for
+  a cycle, and for nesting that this stack cannot hold ([`AIM_PARTS`][aim-parts]).
 
 ## Performance
 
@@ -290,7 +289,7 @@ additional terms or conditions.
 [Limitations]: https://docs.rs/puns/0.2.4/puns/#limitations
 [num]: https://docs.rs/puns/0.2.4/puns/num/index.html
 [error-type]: https://docs.rs/puns/0.2.4/puns/enum.Error.html
-[check]: https://docs.rs/puns/0.2.4/puns/fn.check.html
+[aim-parts]: https://docs.rs/puns/0.2.4/puns/constant.AIM_PARTS.html
 [derive]: https://docs.rs/puns/0.2.4/puns/derive.Pun.html
 [Soundness]: https://docs.rs/puns/0.2.4/puns/#soundness
 [deriving]: https://docs.rs/puns/0.2.4/puns/#what-deriving-pun-means
