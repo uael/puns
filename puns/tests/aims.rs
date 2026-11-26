@@ -405,7 +405,7 @@ fn a_pointee_without_an_identity_is_checked_in_place() {
 }
 
 /// A list of bytes, of alignment 1: a check evaluated when compiling knows no address, so only a
-/// pointee of alignment 1 is aligned there (`puns::ptr::address`).
+/// pointee of alignment 1 is aligned there (`puns::ptr::is_aligned`).
 #[derive(Pun)]
 #[repr(u8)]
 enum Chain {
