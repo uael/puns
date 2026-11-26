@@ -371,6 +371,149 @@ fn deep_data_is_checked_on_a_small_stack() {
   assert_eq!(results, [Ok(()); 7]);
 }
 
+/// A node of many parts: four texts and its children.
+#[derive(Pun)]
+#[repr(C)]
+struct Node {
+  texts: [Near<str>; 4],
+  kids: Near<[Node]>,
+}
+
+/// A chain of `levels` `Node`s below the root, each the one child of the one before, the last
+/// with an empty list of children, in the order of a copy.
+fn nodes(levels: usize) -> Image {
+  fn fill(image: &mut Image, at: usize, levels: usize) {
+    for i in 0..4 {
+      let text = image.text("x");
+      image.aim(at + 4 * i, text);
+    }
+    let n = usize::from(levels > 0);
+    let list = image.reserve(4 + size_of::<Node>() * n, 4);
+    image.put_i32(list, i32::try_from(n).unwrap());
+    image.aim(at + 16, list);
+    if levels > 0 {
+      fill(image, list + 4, levels - 1);
+    }
+  }
+  let mut image = Image::new();
+  let root = image.reserve(size_of::<Node>(), 4);
+  fill(&mut image, root, levels);
+  image
+}
+
+/// A link of a chain that has a name, so that each value leads to two pointees, in an array, so that
+/// the parts of the values leave too few for the name of the last one that fits in them.
+#[derive(Pun)]
+#[repr(C)]
+struct Named {
+  names: [Near<str>; 1],
+  next: Option<Near<Named>>,
+}
+
+/// A chain of `n` values of `Named`, each with a name, in the order of a copy.
+fn named(n: usize) -> Image {
+  let mut image = Image::new();
+  let mut at = image.reserve(size_of::<Named>(), 4);
+  for i in 0..n {
+    let name = image.text("n");
+    image.aim(at, name);
+    if i + 1 < n {
+      let next = image.reserve(size_of::<Named>(), 4);
+      image.aim(at + 4, next);
+      at = next;
+    }
+  }
+  image
+}
+
+#[test]
+fn a_pointee_without_pointees_takes_no_parts() {
+  // A text, or an empty list, nests the check of no other pointee, wherever the parts of the values
+  // above it leave it: the name of the last value of a chain that fits in the parts, or the empty
+  // list of children that ends a branch of a tree. Under Miri, the sizes that stopped.
+  let (chains, trees) = if cfg!(miri) { (5..6, 4..5) } else { (1..12, 0..8) };
+  let n = chains.len() + trees.len();
+  let results: Vec<_> = on_a_small_stack(|| {
+    let chains = chains.map(|n| head::<Named>(&named(n)));
+    chains.chain(trees.map(|levels| head::<Node>(&nodes(levels)))).collect()
+  });
+  assert_eq!(results, vec![Ok(()); n]);
+}
+
+/// A struct of many parts, its aims first, then 24 bytes.
+macro_rules! many_parts {
+  ($name:ident { $($aim:ident: $pointee:ty),* }) => {
+    #[derive(Pun)]
+    #[repr(C)]
+    struct $name {
+      $($aim: Option<Near<$pointee>>,)*
+      bytes: Bytes24,
+    }
+  };
+}
+
+/// 24 bytes, each a part.
+#[derive(Pun)]
+#[repr(C)]
+struct Bytes24 {
+  b0: u8,
+  b1: u8,
+  b2: u8,
+  b3: u8,
+  b4: u8,
+  b5: u8,
+  b6: u8,
+  b7: u8,
+  b8: u8,
+  b9: u8,
+  b10: u8,
+  b11: u8,
+  b12: u8,
+  b13: u8,
+  b14: u8,
+  b15: u8,
+  b16: u8,
+  b17: u8,
+  b18: u8,
+  b19: u8,
+  b20: u8,
+  b21: u8,
+  b22: u8,
+  b23: u8,
+}
+
+many_parts!(Outer { middle: Middle, next: Outer });
+many_parts!(Middle { inner: Inner });
+many_parts!(Inner { next: Inner });
+
+/// A chain of `n` values of `Outer`, each with a `Middle` that has an `Inner`, in the order of a
+/// copy.
+fn outers(n: usize) -> Image {
+  let mut image = Image::new();
+  let mut at = image.reserve(size_of::<Outer>(), 4);
+  for i in 0..n {
+    let middle = image.reserve(size_of::<Middle>(), 4);
+    image.aim(at, middle);
+    let inner = image.reserve(size_of::<Inner>(), 4);
+    image.aim(middle, inner);
+    if i + 1 < n {
+      let next = image.reserve(size_of::<Outer>(), 4);
+      image.aim(at + 4, next);
+      at = next;
+    }
+  }
+  image
+}
+
+#[test]
+fn the_loop_of_each_type_takes_parts_of_its_own() {
+  // Past the parts of the check in place, the outer values wait for a loop, and the middle and
+  // inner ones start a loop each, within it: three types whose parts add up to more than
+  // `AIM_PARTS`.
+  let results: Vec<_> = on_a_small_stack(|| (1..8).map(|n| head::<Outer>(&outers(n))).collect());
+  assert_eq!(results, vec![Ok(()); 7]);
+}
+
 #[test]
 fn more_deep_values_than_the_loops_hold_at_once_stop_at_the_limit() {
   // The terms of a sum built to the left wait while the check goes down the left, 64 at most. Past
