@@ -655,8 +655,10 @@
 //!   start, which bound its own. A pointee that ends where the tail of its struct ends
 //!   (`size = ..`) is within the struct, as a pointee at the cursor is, and is not counted. An aim
 //!   declared `shared` may lead to a pointee that other aims reach, anywhere in the bytes, within
-//!   the struct too: it and what it reaches are not counted, are checked in place, and are not
-//!   written by [`aim_mut`]. So a cycle through shared aims, or many paths to one pointee, end
+//!   the struct too: it and what it reaches are not counted and are checked in place. So is the
+//!   pointee of an aim within what it reaches, shared or not: other aims may reach that one as
+//!   well. [`aim_mut`] does not compile for a shared aim, and its caller answers for an aim within
+//!   what a shared aim reaches. So a cycle through shared aims, or many paths to one pointee, end
 //!   with [`Error::Limit`], when the pointees checked reach twice the bytes read, not with
 //!   [`Error::Validity`]; and shared pointees do not use the loops, so their depth is bounded by
 //!   [`AIM_PARTS`].
@@ -5587,21 +5589,25 @@ pub const fn aim_of<S: ?Sized + Pun, K: Item<S::Rules>>(value: &S) -> &ValueOf<S
 /// - `holder` has the provenance of the bytes of that pointee.
 /// - For `'a`, the bytes of the pointee are accessed only through the result, and the bytes of the
 ///   value are not written.
-/// - What is written through the result leaves a valid value at every pointee of a shared aim
-///   that overlaps the bytes written, as its check found one there: a read of that aim, safe
-///   too, trusts it without a check.
+/// - What is written through the result leaves a valid value at every pointee that a shared aim
+///   reaches, its own and those of the aims within it at any depth, and that overlaps the bytes
+///   written, as its check found one there: a read of these aims, safe too, trusts it without a
+///   check.
 ///
 /// A value that a function of `puns` checked with its eager aims meets the first two, such as one
 /// that a reference that `puns` returned points to, or a value within one. Unsafe code that writes
 /// a value with an eager aim, as `nearest` writes its regions, keeps them for each value that it
 /// writes, since safe code reads its pointees. Rules of the pointee that do not give its length,
-/// such as an `assert`, are not needed: the read relies on none. A check of `puns` claims the
-/// pointee of each eager aim that is not shared in the order of a copy ("Aims" in the crate
-/// documentation), so no other such aim reaches its bytes, nor does a value that holds one: in
-/// bytes that unsafe code owns and that a check accepted, as `nearest` loads a region, the pointee
-/// of such an aim is reached through it only, unless the pointee of a shared aim overlaps it. A
-/// reference that `puns` returned is shared, so its bytes are not for this function. What is
-/// written through the result is what later reads of the pointee rely on, safe ones included.
+/// such as an `assert`, are not needed: the read relies on none. A check of `puns` claims, in the
+/// order of a copy ("Aims" in the crate documentation), the pointee of each eager aim that is not
+/// shared and that no shared aim leads to. So no other such aim reaches its bytes, nor does a
+/// value that holds one: in bytes that unsafe code owns and that a check accepted, as `nearest`
+/// loads a region, the pointee of such an aim is reached through it only, unless what a shared
+/// aim reaches overlaps it. The pointee of an aim within what a shared aim reaches is not
+/// claimed, even if that aim is not shared: this function compiles for it, and nothing tells that
+/// its pointee is reached once. A reference that `puns` returned is shared, so its bytes are not
+/// for this function. What is written through the result is what later reads of the pointee rely
+/// on, safe ones included.
 ///
 /// # Compile-time errors
 ///
