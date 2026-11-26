@@ -1137,6 +1137,15 @@
 //!   of shared aims, and those that end with the tail of a struct that holds another eager aim),
 //!   and where its loops cannot take the pointees that wait: a chain of a type without an identity,
 //!   or a chain each of whose values has several deep pointees of its type ([`AIM_PARTS`]).
+//! - In a `const`, a check nests values in place only while the loop of their type still fits in
+//!   the 128 frames of evaluation that Rust allows by default, less 24 for its caller and its
+//!   deepest calls. So a check of data whose pointees that hold eager aims are of one type stays
+//!   within them whatever the depth of the data, if two such values fit, and the value at the top
+//!   is no deeper. What the loops do not take nests in place, up to [`AIM_PARTS`] parts in place and
+//!   again in each loop, at most 3 frames for each part: the pointees past the 64 entries of the
+//!   loops, those of a type without an identity, and those that never wait (at the cursor of their
+//!   struct, ending with its tail, or of a shared aim). Each loop of another type adds the frames
+//!   of one of its values. Such a check may need a higher `#![recursion_limit]`.
 //! - A union does not hold an eager aim.
 //! - The build time of a view enum whose variants overlap grows with the square of the number of
 //!   variants, or faster.
@@ -2619,6 +2628,9 @@ pub trait Steps: sealed::Sealed {
   /// The index of the first operation, and the one after the last.
   const FIRST: usize;
   const END: usize;
+  /// The frames of evaluation of `validate::steps` for these operations, its first call included,
+  /// to the deepest one that applies an operation: in a `const`, each call is a frame.
+  const FRAMES: usize;
   /// The two parts (`TWO`), `()` otherwise.
   type A: Steps;
   type B: Steps;
@@ -2674,6 +2686,7 @@ pub mod steps {
     const AT: usize = 0;
     const FIRST: usize = 0;
     const END: usize = 0;
+    const FRAMES: usize = 1;
     type A = ();
     type B = ();
     type Cond = ();
@@ -2687,6 +2700,7 @@ pub mod steps {
     const AT: usize = I;
     const FIRST: usize = I;
     const END: usize = I + 1;
+    const FRAMES: usize = 1;
     type A = ();
     type B = ();
     type Cond = ();
@@ -2702,6 +2716,8 @@ pub mod steps {
     const FIRST: usize =
       if A::END == B::FIRST && A::KIND != NONE && B::KIND != NONE { A::FIRST } else { usize::MAX };
     const END: usize = B::END;
+    // `steps` for each part, one after the other.
+    const FRAMES: usize = 1 + if A::FRAMES > B::FRAMES { A::FRAMES } else { B::FRAMES };
     type A = A;
     type B = B;
     type Cond = ();
@@ -2715,6 +2731,8 @@ pub mod steps {
     const AT: usize = I;
     const FIRST: usize = I;
     const END: usize = I + 1;
+    // `walk`, then `steps` for the condition and for what follows a step, one after the other.
+    const FRAMES: usize = 2 + if C::FRAMES > N::FRAMES { C::FRAMES } else { N::FRAMES };
     type A = ();
     type B = ();
     type Cond = C;

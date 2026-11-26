@@ -1,14 +1,16 @@
 //! The verdicts of the analysis, for the model check of `puns-model`.
 //!
 //! Each function of this module makes the same checks as the public function of the same name.
-//! Where the public function does not compile, this one returns `None` instead.
+//! Where the public function does not compile, this one returns `None` instead. [`frames`] gives
+//! what the validation counts of the frames of a check in a `const`, which `tests/frames.rs`
+//! compares with what `rustc` counts.
 //!
 //! This module is not part of the API. It is compiled only with the `verdict` feature, which only
 //! tests may enable, and which changes nothing else.
 
 use crate::{
-  Error, MESSAGE_LEN, Need, Plan, Pun, Root, pun_unchecked,
-  validate::{Input, validate},
+  Error, MESSAGE_LEN, Need, Plan, Pointee, Pun, Root, pun_unchecked,
+  validate::{self, Input, validate},
 };
 
 /// Whether each of these public functions compiles for a pun from `S` to `D`.
@@ -377,4 +379,32 @@ pub const fn from_tail<D: ?Sized + Pun>(bytes: &[u8]) -> Option<Result<(&[u8], &
     Ok((start, target)) => Ok((bytes.split_at(start).0, unsafe { &*target })),
     Err(error) => Err(error),
   })
+}
+
+/// What the validation counts of the frames of evaluation of a check in a `const`, for a pointee
+/// that a loop can take ("The stack of a check" in the documentation of `validate`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Frames {
+  /// The frames from the check of a value of the pointee to that of the next one, in place.
+  pub level: usize,
+  /// The same, where the loop of its type checks the next one.
+  pub looped: usize,
+  /// The frames of the deepest calls of the check of a value of the pointee, from its first.
+  pub deepest: usize,
+  /// The parts of the layouts of a value of the pointee.
+  pub parts: usize,
+  /// How many values of the pointee, one within another, a check nests in place below a value at
+  /// the top before the next one waits for the loop of its type.
+  pub nested: usize,
+  /// The frames that the validation leaves out of the 128 of a `const` when it nests values.
+  pub reserved: usize,
+  /// The frames that a check in a `const` leaves to its caller, of those.
+  pub caller: usize,
+}
+
+/// Returns what the validation counts of the frames of a check in a `const` for the pointee `P`.
+#[must_use]
+pub const fn frames<P: ?Sized + Pointee>() -> Frames {
+  let [level, looped, deepest, parts, nested, reserved, caller] = validate::model::<P>();
+  Frames { level, looped, deepest, parts, nested, reserved, caller }
 }

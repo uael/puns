@@ -1,0 +1,15 @@
+# Temporary: instructions per check of trees of alignment 1, on `main` and on this branch.
+[package]
+name = "cost-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+puns = { path = "../puns" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+
+[workspace]

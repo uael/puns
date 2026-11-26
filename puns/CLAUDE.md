@@ -123,7 +123,7 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   on. An `InPlace<T>` is a `T` in the layout. A lazy aim, at the cursor, requires of the struct
   only that its pointee fits, so its type counts in a proof only where the pointee stores its
   length.
-- Both kinds of start are one rule (`Rule::Aim`), checked in one place (`validate::check_aim`),
+- Both kinds of start are one rule (`Rule::Aim`), checked in one place (`validate::check_listed`),
   which places the pointee by one step of the cursor (`validate::cursor_step`) or at a stored place
   (`validate::stored_at`), written by the derive in one place (`aim_rule` in `puns-derive`), which
   `pointer(..)` and `regions(..)` enter. What reads a pointee finds it as the check does: the same
@@ -202,11 +202,16 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
 - The functions that check in place (`from_head` and the others) check a pointee in place, nested
   in the check of the struct whose aim leads to it, as a check without loops does, and in one pass
   hand a pointee whose type holds an eager aim and has an identity over to a loop of its type
-  (`validate::run`, `validate::check_value`): where its parts are not left (`AIM_PARTS`), and where
-  it is a link of a chain nested in a value of its type past `IN_PLACE` parts, so that a `const`
-  check of a chain stays within 128 frames. A link of a chain is checked in place with
-  `validate::InPlace`, which tells that a link of its type is nested in it; any other pointee with
-  `All`, as before. So data that the check in place takes is checked as before, at its speed. In the value of a loop, every such
+  (`validate::run`, `validate::check_value`): where its parts are not left (`AIM_PARTS`), where it
+  is a link of a chain nested in a value of its type past `IN_PLACE` parts, and where a check in a
+  `const` would not leave room for that loop within the 128 frames of evaluation that Rust allows
+  by default (`validate::in_place`), so that a `const` check of data of one type stays within them
+  whatever its depth. That counts the frames that the check of each value takes
+  (`validate::frames`, which follows the calls of the validation: a change of these calls changes
+  it), and leaves out a pointee that must be aligned, which a `const` never checks since it cannot
+  read an address. A link of a chain is checked in place with `validate::InPlace`, which tells
+  that a link of its type is nested in it; any other pointee with `All`, as before. So data that
+  the check in place takes, within what a `const` holds, is checked as before, at its speed. In the value of a loop, every such
   pointee waits for a loop: the first in a register, the others in 64 entries in the frame of the
   first loop, one above another, and one whose type has a loop lower on the path is put below the
   entries of that loop (`Loops::wait_below`). So the frames are one for each type on the path,
@@ -214,7 +219,7 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   an identity, those past the entries) is checked in place, a recursion that the parts of the
   layouts bound (`AIM_PARTS` again in each loop, `Layout::parts`), and `Error::Limit` is where that
   nests too deep. A pointee without an eager aim, or an empty slice, nests no pointee, so it takes
-  no parts. Leaves are checked with `All` (`validate::check_whole`), so that they have one
+  no parts. Leaves are checked with `All` (`validate::check_value`), so that they have one
   instance. Whether a loop runs is a constant of the checks (`Checks::LOOP`), so that a check in
   place holds no code of the loops, and the first loop is cold and never inlined
   (`validate::start`), and takes the budget of its pointee itself, so that a check that takes no
@@ -226,7 +231,7 @@ modules, but the module `view` is `#[doc(hidden)]`, so read its documentation in
   So the stack does not depend on the bytes, and stays within what an embedded target has:
   `AIM_PARTS` holds the one statement of the measured figures and how they were measured. Each
   part nests a few calls of the validation, and `tests/aims.rs` runs data of each shape past
-  `AIM_PARTS` on a thread of 64 KiB, and a list of 1,000 in a `const`. A change of the validation
+  `AIM_PARTS` on a thread of 64 KiB, and lists of 1,000 in a `const`. A change of the validation
   that makes its frames larger is measured again. The functions on that path hold no copy of a
   layout, a field or a rule, and what reads one, or computes before the recursion, is a function
   of its own in a build without optimizations (`cfg_attr(not(debug_assertions),
